@@ -1,0 +1,11 @@
+# Go
+*.exe
+*.test
+*.out
+
+# Local builds
+/breyta
+/dist/
+
+# Local state
+**/state.json
