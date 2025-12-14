@@ -26,17 +26,25 @@ type viewMode int
 
 type paneFocus int
 
+type marketTab int
+
 const (
         modeDashboard viewMode = iota
         modeFlow
         modeRun
         modeStep
         modeSettings
+        modeMarketplace
 )
 
 const (
         focusPrimary paneFocus = iota
         focusSecondary
+)
+
+const (
+        marketRevenue marketTab = iota
+        marketDemand
 )
 
 type Model struct {
@@ -58,6 +66,9 @@ type Model struct {
         recent   list.Model
         steps    list.Model
         runSteps list.Model
+
+        market list.Model
+        mTab   marketTab
 
         detail viewport.Model
 
@@ -99,6 +110,11 @@ func NewModel(workspaceID, statePath string, store mock.Store, st *state.State) 
         runSteps.SetShowHelp(false)
         runSteps.DisableQuitKeybindings()
 
+        market := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+        market.Title = "Marketplace"
+        market.SetShowHelp(false)
+        market.DisableQuitKeybindings()
+
         vp := viewport.New(0, 0)
         vp.Style = lipgloss.NewStyle().AlignVertical(lipgloss.Top).Align(lipgloss.Left)
 
@@ -113,6 +129,8 @@ func NewModel(workspaceID, statePath string, store mock.Store, st *state.State) 
                 recent:      recent,
                 steps:       steps,
                 runSteps:    runSteps,
+                market:      market,
+                mTab:        marketRevenue,
                 detail:      vp,
                 help:        help.New(),
                 keys:        defaultKeyMap(),
@@ -173,9 +191,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                         m.layout()
                         return m, nil
 
+                case "m":
+                        m.mode = modeMarketplace
+                        m.stepContextRunID = ""
+                        m.focus = focusPrimary
+                        m.refreshMarket()
+                        m.refreshDetail()
+                        m.layout()
+                        return m, nil
+
                 case "tab":
                         switch m.mode {
-                        case modeDashboard, modeFlow, modeRun:
+                        case modeDashboard, modeFlow, modeRun, modeMarketplace:
                                 if m.focus == focusPrimary {
                                         m.focus = focusSecondary
                                 } else {
@@ -206,10 +233,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                         case modeSettings:
                                 m.mode = modeDashboard
                                 m.focus = focusPrimary
+                        case modeMarketplace:
+                                m.mode = modeDashboard
+                                m.focus = focusPrimary
                         }
                         m.refreshDetail()
                         m.layout()
                         return m, nil
+
+                case "1", "r":
+                        if m.mode == modeMarketplace {
+                                m.mTab = marketRevenue
+                                m.refreshMarket()
+                                m.refreshDetail()
+                                return m, nil
+                        }
+
+                case "2", "d":
+                        if m.mode == modeMarketplace {
+                                m.mTab = marketDemand
+                                m.refreshMarket()
+                                m.refreshDetail()
+                                return m, nil
+                        }
 
                 case "enter":
                         switch m.mode {
@@ -291,6 +337,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.detail, cmd = m.detail.Update(msg)
         case modeSettings:
                 m.detail, cmd = m.detail.Update(msg)
+        case modeMarketplace:
+                if m.focus == focusPrimary {
+                        m.market, cmd = m.market.Update(msg)
+                } else {
+                        m.detail, cmd = m.detail.Update(msg)
+                }
+                m.refreshDetail()
         }
         return m, cmd
 }
@@ -319,6 +372,8 @@ func (m Model) View() string {
                 body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
         case modeSettings:
                 body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
+        case modeMarketplace:
+                body = m.renderMarketplaceView(bodyH)
         }
 
         footer := footerStyle().Render(m.help.View(m.keysForMode()))
@@ -384,6 +439,7 @@ func (m *Model) layout() {
 
         m.steps.SetSize(leftInnerW, innerH)
         m.runSteps.SetSize(leftInnerW, innerH)
+        m.market.SetSize(leftInnerW, innerH)
         m.detail.Width = rightInnerW
         m.detail.Height = innerH
 
@@ -403,6 +459,7 @@ func (m *Model) refreshFromState() {
         if m.selectedRunID != "" {
                 m.refreshRunSteps()
         }
+        m.refreshMarket()
         m.refreshDetail()
 }
 
@@ -674,6 +731,8 @@ func (m *Model) refreshDetail() {
                 m.detail.SetContent(m.renderStep())
         case modeSettings:
                 m.detail.SetContent(m.renderSettings())
+        case modeMarketplace:
+                m.detail.SetContent(m.renderMarketplaceDetail())
         }
 }
 
@@ -853,6 +912,158 @@ func (m Model) renderRunDetail() string {
         return b.String()
 }
 
+func (m *Model) refreshMarket() {
+        ws := m.workspace()
+        if ws == nil {
+                m.market.SetItems(nil)
+                return
+        }
+
+        switch m.mTab {
+        case marketRevenue:
+                events := make([]state.RevenueEvent, len(ws.RevenueEvents))
+                copy(events, ws.RevenueEvents)
+                sort.Slice(events, func(i, j int) bool { return events[i].At.After(events[j].At) })
+                if len(events) > 50 {
+                        events = events[:50]
+                }
+                items := make([]list.Item, 0, len(events))
+                for _, e := range events {
+                        items = append(items, revenueEventItem{e: e})
+                }
+                m.market.Title = "Revenue events (mock)"
+                m.market.SetItems(items)
+
+        case marketDemand:
+                demand := make([]state.DemandItem, len(ws.DemandTop))
+                copy(demand, ws.DemandTop)
+                sort.Slice(demand, func(i, j int) bool { return demand[i].Count > demand[j].Count })
+                if len(demand) > 50 {
+                        demand = demand[:50]
+                }
+                max := 1
+                for _, d := range demand {
+                        if d.Count > max {
+                                max = d.Count
+                        }
+                }
+                items := make([]list.Item, 0, len(demand))
+                for _, d := range demand {
+                        items = append(items, demandItem{d: d, max: max})
+                }
+                m.market.Title = "Demand (top queries) (mock)"
+                m.market.SetItems(items)
+        }
+}
+
+func (m Model) renderMarketplaceView(bodyH int) string {
+        leftW := (m.width - 1) / 2
+        if leftW > 56 {
+                leftW = 56
+        }
+        if leftW < 26 {
+                leftW = 26
+        }
+        rightW := m.width - leftW
+        if rightW < 26 {
+                rightW = 26
+        }
+
+        left := paneStyle(m.focus == focusPrimary).Width(leftW).Height(bodyH).Render(m.market.View())
+        right := paneStyle(m.focus == focusSecondary).Width(rightW).Height(bodyH).Render(m.detail.View())
+        return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+}
+
+func (m Model) renderMarketplaceDetail() string {
+        ws := m.workspace()
+        if ws == nil {
+                return "Workspace not found"
+        }
+
+        var b strings.Builder
+        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Marketplace"))
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("This is mocked marketplace telemetry seeded into the workspace state."))
+        b.WriteString("\n\n")
+
+        switch m.mTab {
+        case marketRevenue:
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Revenue"))
+                b.WriteString("\n")
+                b.WriteString(fmt.Sprintf("events: %d\n\n", len(ws.RevenueEvents)))
+
+                if it, ok := m.market.SelectedItem().(revenueEventItem); ok {
+                        e := it.e
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Selected event"))
+                        b.WriteString("\n")
+                        b.WriteString(fmt.Sprintf("at: %s\n", e.At.Format(time.RFC3339)))
+                        b.WriteString(fmt.Sprintf("amount: %s %.2f\n", e.Currency, float64(e.AmountCents)/100.0))
+                        b.WriteString(fmt.Sprintf("source: %s\n", e.Source))
+                        if e.FlowSlug != "" {
+                                b.WriteString(fmt.Sprintf("flow: %s\n", e.FlowSlug))
+                        }
+                        if e.RunID != "" {
+                                b.WriteString(fmt.Sprintf("run: %s\n", e.RunID))
+                        }
+                        b.WriteString("\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Raw"))
+                        b.WriteString("\n")
+                        b.WriteString(prettyJSON(map[string]any{
+                                "at":          e.At,
+                                "currency":    e.Currency,
+                                "amountCents": e.AmountCents,
+                                "source":      e.Source,
+                                "flowSlug":    e.FlowSlug,
+                                "runId":       e.RunID,
+                        }))
+                        b.WriteString("\n")
+                } else {
+                        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Select an event on the left to inspect it."))
+                        b.WriteString("\n")
+                }
+
+        case marketDemand:
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Demand"))
+                b.WriteString("\n")
+                b.WriteString(fmt.Sprintf("queries: %d\n\n", len(ws.DemandTop)))
+
+                if it, ok := m.market.SelectedItem().(demandItem); ok {
+                        d := it.d
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Selected query"))
+                        b.WriteString("\n")
+                        b.WriteString(fmt.Sprintf("query: %s\n", d.Query))
+                        b.WriteString(fmt.Sprintf("count: %d (%s)\n", d.Count, d.Window))
+                        if d.SuggestedPrice != "" {
+                                b.WriteString(fmt.Sprintf("suggestedPrice: %s\n", d.SuggestedPrice))
+                        }
+                        if len(d.MatchedFlows) > 0 {
+                                b.WriteString("matchedFlows:\n")
+                                for _, f := range d.MatchedFlows {
+                                        b.WriteString("- " + f + "\n")
+                                }
+                        }
+                        b.WriteString("\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Raw"))
+                        b.WriteString("\n")
+                        b.WriteString(prettyJSON(map[string]any{
+                                "query":          d.Query,
+                                "count":          d.Count,
+                                "window":         d.Window,
+                                "suggestedPrice": d.SuggestedPrice,
+                                "matchedFlows":   d.MatchedFlows,
+                        }))
+                        b.WriteString("\n")
+                } else {
+                        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Select a query on the left to inspect it."))
+                        b.WriteString("\n")
+                }
+        }
+
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Keys: m marketplace · 1/r revenue · 2/d demand · tab focus · esc back"))
+        return b.String()
+}
+
 func isTerminalStatus(status string) bool {
         switch status {
         case "succeeded", "failed", "cancelled", "canceled":
@@ -894,6 +1105,7 @@ func (m Model) keysForMode() keyMap {
         k := m.keys
         k.Dashboard.SetEnabled(true)
         k.Settings.SetEnabled(true)
+        k.Marketplace.SetEnabled(true)
         k.Focus.SetEnabled(m.mode == modeDashboard || m.mode == modeFlow || m.mode == modeRun)
 
         switch m.mode {
@@ -912,6 +1124,10 @@ func (m Model) keysForMode() keyMap {
         case modeSettings:
                 k.Enter.SetHelp("enter", "")
                 k.Back.SetHelp("esc", "back")
+        case modeMarketplace:
+                k.Enter.SetHelp("enter", "")
+                k.Back.SetHelp("esc", "back")
+                k.Focus.SetEnabled(true)
         }
         return k
 }
@@ -970,6 +1186,48 @@ type runStepItem struct {
 func (i runStepItem) Title() string       { return fmt.Sprintf("[%s] %s", i.status, i.stepID) }
 func (i runStepItem) Description() string { return i.title }
 func (i runStepItem) FilterValue() string { return i.stepID + " " + i.title }
+
+type revenueEventItem struct {
+        e state.RevenueEvent
+}
+
+func (i revenueEventItem) Title() string {
+        return fmt.Sprintf("%s %.2f", i.e.Currency, float64(i.e.AmountCents)/100.0)
+}
+
+func (i revenueEventItem) Description() string {
+        src := i.e.Source
+        if src == "" {
+                src = "-"
+        }
+        flow := i.e.FlowSlug
+        if flow == "" {
+                flow = "-"
+        }
+        return fmt.Sprintf("%s  %s  %s", src, flow, relTime(i.e.At))
+}
+
+func (i revenueEventItem) FilterValue() string {
+        return i.e.FlowSlug + " " + i.e.Source + " " + i.e.RunID
+}
+
+type demandItem struct {
+        d   state.DemandItem
+        max int
+}
+
+func (i demandItem) Title() string { return i.d.Query }
+
+func (i demandItem) Description() string {
+        bar := sparkBar(10, i.d.Count, i.max)
+        price := i.d.SuggestedPrice
+        if price == "" {
+                price = "-"
+        }
+        return fmt.Sprintf("%s  %d (%s)  price %s", bar, i.d.Count, i.d.Window, price)
+}
+
+func (i demandItem) FilterValue() string { return i.d.Query }
 
 // --- Styles / helpers --------------------------------------------------------
 
@@ -1063,18 +1321,39 @@ func prettyJSON(v any) string {
         return string(b)
 }
 
+func sparkBar(width, value, max int) string {
+        if max <= 0 {
+                max = 1
+        }
+        if value < 0 {
+                value = 0
+        }
+        if width < 3 {
+                width = 3
+        }
+        filled := int(float64(width) * float64(value) / float64(max))
+        if filled < 0 {
+                filled = 0
+        }
+        if filled > width {
+                filled = width
+        }
+        return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+}
+
 // --- Help / keymap -----------------------------------------------------------
 
 type keyMap struct {
-        Up        key.Binding
-        Down      key.Binding
-        Enter     key.Binding
-        Back      key.Binding
-        Help      key.Binding
-        Quit      key.Binding
-        Dashboard key.Binding
-        Settings  key.Binding
-        Focus     key.Binding
+        Up          key.Binding
+        Down        key.Binding
+        Enter       key.Binding
+        Back        key.Binding
+        Help        key.Binding
+        Quit        key.Binding
+        Dashboard   key.Binding
+        Settings    key.Binding
+        Marketplace key.Binding
+        Focus       key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -1111,6 +1390,10 @@ func defaultKeyMap() keyMap {
                         key.WithKeys("s"),
                         key.WithHelp("s", "settings"),
                 ),
+                Marketplace: key.NewBinding(
+                        key.WithKeys("m"),
+                        key.WithHelp("m", "marketplace"),
+                ),
                 Focus: key.NewBinding(
                         key.WithKeys("tab"),
                         key.WithHelp("tab", "switch pane"),
@@ -1119,13 +1402,13 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-        return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Focus, k.Dashboard, k.Settings, k.Help, k.Quit}
+        return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Focus, k.Dashboard, k.Settings, k.Marketplace, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
         return [][]key.Binding{
                 {k.Up, k.Down, k.Enter, k.Back},
-                {k.Focus, k.Dashboard, k.Settings},
+                {k.Focus, k.Dashboard, k.Settings, k.Marketplace},
                 {k.Help, k.Quit},
         }
 }
