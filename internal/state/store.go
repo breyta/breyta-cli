@@ -94,14 +94,18 @@ func SeedDefault(workspaceID string) *State {
                 UpdatedAt:     now.Add(-3 * time.Hour),
                 Spine: []string{
                         "1. Trigger: Billing cycle",
-                        "2. Parallel: fetch customer + payment method + plan",
-                        "3. Branch: payment method",
-                        "   - card    → Process Card",
-                        "   - invoice → Create Invoice",
-                        "4. Wait: payment_status (24h timeout)",
-                        "5. Branch: status",
-                        "   - success → Send receipt",
-                        "   - failed  → Retry + notify",
+                        "2. Parallel:",
+                        "   a. Fetch Customer           (fetch-customer)",
+                        "   b. Fetch Payment Method     (fetch-payment-method)",
+                        "   c. Fetch Plan               (fetch-plan)",
+                        "   Join",
+                        "3. Branch: payment method      (branch-payment-method)",
+                        "   [card]    → Process Card    (process-card)",
+                        "   [invoice] → Create Invoice  (create-invoice)",
+                        "4. Wait: payment_status (24h timeout)  (wait-payment-status)",
+                        "5. Branch: status              (branch-status)",
+                        "   [success] → Send Receipt    (call-send-receipt)",
+                        "   [failed]  → Notify + Retry  (notify-failed, retry-payment)",
                 },
                 Steps: []FlowStep{
                         {ID: "fetch-customer", Type: "http", Title: "Fetch Customer",
@@ -112,18 +116,127 @@ func SeedDefault(workspaceID string) *State {
                                 InputSchema:  "{customerId: string}",
                                 OutputSchema: "{status: number, body: {type: \"card\"|\"invoice\", cardLast4?: string}}",
                                 Definition:   "(step :http :fetch-payment-method {:connection :billing-api :path (str \"/customers/\" customer-id \"/payment-method\") :retry {:max-attempts 3 :initial-interval-ms 1000}})"},
+                        {ID: "fetch-plan", Type: "http", Title: "Fetch Plan",
+                                InputSchema:  "{subscriptionId: string}",
+                                OutputSchema: "{status: number, body: {planId: string, amountCents: number, currency: string}}",
+                                Definition:   "(step :http :fetch-plan {:connection :billing-api :path (str \"/subscriptions/\" subscription-id \"/plan\")})"},
+                        {ID: "branch-payment-method", Type: "code", Title: "Choose payment path",
+                                InputSchema:  "{paymentMethod: any}",
+                                OutputSchema: "{path: \"card\"|\"invoice\"}",
+                                Definition:   "(step :code :branch-payment-method {:code '(fn [{:keys [paymentMethod]}] (if (= \"invoice\" (get-in paymentMethod [:body :type])) {:path \"invoice\"} {:path \"card\"}))})"},
                         {ID: "process-card", Type: "http", Title: "Process Card Payment",
                                 InputSchema:  "{customerId: string, amountCents: number, currency: string}",
                                 OutputSchema: "{status: number, body: {paymentIntentId: string, status: string}}",
                                 Definition:   "(step :http :process-card {:connection :payments-api :method :post :path \"/payment_intents\" :json {...} :retry {:max-attempts 3 :initial-interval-ms 2000}})"},
+                        {ID: "create-invoice", Type: "http", Title: "Create Invoice",
+                                InputSchema:  "{customerId: string, amountCents: number, currency: string}",
+                                OutputSchema: "{status: number, body: {invoiceId: string, status: string}}",
+                                Definition:   "(step :http :create-invoice {:connection :billing-api :method :post :path \"/invoices\" :json {...}})"},
                         {ID: "wait-payment-status", Type: "wait", Title: "Wait for payment_status",
                                 InputSchema:  "{signalKey: string}",
                                 OutputSchema: "{status: string, paymentIntentId?: string}",
                                 Definition:   "(step :wait :payment-status {:source :webhook :event-name \"payment.status\" :signal-key (str \"sub-\" subscription-id) :timeout 86400})"},
-                        {ID: "send-receipt", Type: "notify", Title: "Send Receipt",
+                        {ID: "branch-status", Type: "code", Title: "Choose success/failure path",
+                                InputSchema:  "{paymentStatus: any}",
+                                OutputSchema: "{path: \"success\"|\"failed\"}",
+                                Definition:   "(step :code :branch-status {:code '(fn [{:keys [paymentStatus]}] (if (= \"succeeded\" (get paymentStatus :status)) {:path \"success\"} {:path \"failed\"}))})"},
+                        {ID: "call-send-receipt", Type: "call", Title: "Send Receipt (Subflow)",
                                 InputSchema:  "{email: string, receiptUrl: string}",
+                                OutputSchema: "{ok: boolean}",
+                                Definition:   "(call-flow :send-receipt-subflow)",
+                                CallFlowSlug: "send-receipt-subflow"},
+                        {ID: "notify-failed", Type: "notify", Title: "Notify failure",
+                                InputSchema:  "{email: string, reason: string}",
                                 OutputSchema: "{success: boolean}",
-                                Definition:   "(step :notify :send-receipt {:channel :email :target email :subject \"Receipt\" :message (str \"Download: \" receipt-url)})"},
+                                Definition:   "(step :notify :notify-failed {:channel :email :target email :subject \"Payment failed\" :message reason})"},
+                        {ID: "retry-payment", Type: "http", Title: "Retry Payment",
+                                InputSchema:  "{paymentIntentId: string}",
+                                OutputSchema: "{status: number, body: {status: string}}",
+                                Definition:   "(step :http :retry-payment {:connection :payments-api :method :post :path (str \"/payment_intents/\" id \"/retry\") :retry {:max-attempts 2 :initial-interval-ms 5000}})"},
+                },
+        }
+
+        // --- Subflow: send-receipt (called by subscription-renewal) ----------------
+        ws.Flows["send-receipt-subflow"] = &Flow{
+                Slug:          "send-receipt-subflow",
+                Name:          "Send Receipt (Subflow)",
+                Description:   "Reusable receipt delivery subflow for billing workflows.",
+                Tags:          []string{"billing", "notify", "subflow"},
+                ActiveVersion: 1,
+                UpdatedAt:     now.Add(-36 * time.Hour),
+                Spine: []string{
+                        "├─ notify: send email receipt",
+                        "└─ log: record delivery",
+                },
+                Steps: []FlowStep{
+                        {ID: "send-email", Type: "notify", Title: "Send receipt email",
+                                InputSchema:  "{email: string, receiptUrl: string}",
+                                OutputSchema: "{success: boolean, messageId: string}",
+                                Definition:   "(step :notify :send-email {:channel :email :to email :template :receipt})"},
+                        {ID: "audit-log", Type: "code", Title: "Audit log",
+                                InputSchema:  "{messageId: string, email: string}",
+                                OutputSchema: "{ok: boolean}",
+                                Definition:   "(step :code :audit-log {:code '(fn [x] (assoc x :ok true))})"},
+                },
+        }
+
+        // --- Flow: customer-billing-healthcheck (parallel + loop + branch + subflow)
+        ws.Flows["customer-billing-healthcheck"] = &Flow{
+                Slug:          "customer-billing-healthcheck",
+                Name:          "Customer Billing Healthcheck",
+                Description:   "Fan-out to fetch billing signals, loop over invoices, and branch into remediation paths. Calls subflows for notifications.",
+                Tags:          []string{"billing", "analytics", "branching", "parallel", "loop"},
+                ActiveVersion: 1,
+                UpdatedAt:     now.Add(-90 * time.Minute),
+                Spine: []string{
+                        "⫴ parallel: fetch customer | invoices | subscriptions",
+                        "  ├─ http: fetch-customer        (fetch-customer)",
+                        "  ├─ http: fetch-invoices        (fetch-invoices)",
+                        "  └─ http: fetch-subscriptions   (fetch-subscriptions)",
+                        "⫵ join / wait for all",
+                        "├─ code: enrich-customer         (enrich-customer)",
+                        "╭─ loop: for-each invoice",
+                        "│  ├─ code: validate-invoice     (validate-invoice)",
+                        "│  └─ http: mark-invoice         (mark-invoice)",
+                        "╰─ next item",
+                        "├─ ◇ branch: customer segment / overdue (branch-remediation)",
+                        "│  ├─ premium → code: priority-handling          (priority-handling)",
+                        "│  ├─ overdue → ↗ call subflow: send-reminder-subflow (call-send-reminder)",
+                        "│  └─ else    → code: standard-processing        (standard-processing)",
+                        "└─ http: update-crm               (update-crm)",
+                },
+                Steps: []FlowStep{
+                        {ID: "fetch-customer", Type: "http", Title: "Fetch Customer", InputSchema: "{customerId: string}", OutputSchema: "{status: number, body: any}", Definition: "(step :http :fetch-customer {:path \"/customers/{id}\"})"},
+                        {ID: "fetch-invoices", Type: "http", Title: "Fetch Invoices", InputSchema: "{customerId: string}", OutputSchema: "{status: number, body: {invoices: any[]}}", Definition: "(step :http :fetch-invoices {:path \"/customers/{id}/invoices\"})"},
+                        {ID: "fetch-subscriptions", Type: "http", Title: "Fetch Subscriptions", InputSchema: "{customerId: string}", OutputSchema: "{status: number, body: {subscriptions: any[]}}", Definition: "(step :http :fetch-subscriptions {:path \"/customers/{id}/subscriptions\"})"},
+                        {ID: "enrich-customer", Type: "code", Title: "Enrich Customer", InputSchema: "{customer: any}", OutputSchema: "{customer: any, segment: string}", Definition: "(step :code :enrich-customer {:code '(fn [x] (assoc x :segment \"premium\"))})"},
+                        {ID: "validate-invoice", Type: "code", Title: "Validate Invoice", InputSchema: "{invoice: any}", OutputSchema: "{ok: boolean, overdue: boolean}", Definition: "(step :code :validate-invoice {:code '(fn [x] {:ok true :overdue false})})"},
+                        {ID: "mark-invoice", Type: "http", Title: "Mark Invoice", InputSchema: "{invoiceId: string, status: string}", OutputSchema: "{status: number}", Definition: "(step :http :mark-invoice {:method :post :path \"/invoices/{id}/mark\"})"},
+                        {ID: "branch-remediation", Type: "code", Title: "Decide remediation path (premium/overdue/else)", InputSchema: "{segment: string, overdue: boolean}", OutputSchema: "{path: \"premium\"|\"overdue\"|\"else\"}", Definition: "(step :code :branch-remediation {:code '(fn [{:keys [segment overdue]}] (cond (= segment \"premium\") {:path \"premium\"} overdue {:path \"overdue\"} :else {:path \"else\"}))})"},
+                        {ID: "priority-handling", Type: "code", Title: "Priority Handling", InputSchema: "{customer: any}", OutputSchema: "{ok: boolean}", Definition: "(step :code :priority-handling {:code '(fn [x] {:ok true})})"},
+                        {ID: "call-send-reminder", Type: "call", Title: "Call Send Reminder Subflow", InputSchema: "{customer: any}", OutputSchema: "{ok: boolean}", Definition: "(call-flow :send-reminder-subflow)", CallFlowSlug: "send-reminder-subflow"},
+                        {ID: "standard-processing", Type: "code", Title: "Standard Processing", InputSchema: "{customer: any}", OutputSchema: "{ok: boolean}", Definition: "(step :code :standard-processing {:code '(fn [x] {:ok true})})"},
+                        {ID: "update-crm", Type: "http", Title: "Update CRM", InputSchema: "{customer: any}", OutputSchema: "{status: number}", Definition: "(step :http :update-crm {:method :post :path \"/crm/update\"})"},
+                },
+        }
+
+        // --- Subflow: send-reminder-subflow ----------------------------------------
+        ws.Flows["send-reminder-subflow"] = &Flow{
+                Slug:          "send-reminder-subflow",
+                Name:          "Send Payment Reminder (Subflow)",
+                Description:   "Reusable reminder subflow (email + slack + audit).",
+                Tags:          []string{"billing", "notify", "subflow"},
+                ActiveVersion: 1,
+                UpdatedAt:     now.Add(-2 * 24 * time.Hour),
+                Spine: []string{
+                        "├─ notify: email reminder",
+                        "├─ notify: slack alert",
+                        "└─ code: audit-log",
+                },
+                Steps: []FlowStep{
+                        {ID: "email-reminder", Type: "notify", Title: "Email reminder", InputSchema: "{email: string}", OutputSchema: "{success: boolean}", Definition: "(step :notify :email-reminder {:channel :email})"},
+                        {ID: "slack-alert", Type: "notify", Title: "Slack alert", InputSchema: "{channel: string}", OutputSchema: "{success: boolean}", Definition: "(step :notify :slack-alert {:channel :slack})"},
+                        {ID: "audit", Type: "code", Title: "Audit", InputSchema: "{context: any}", OutputSchema: "{ok: boolean}", Definition: "(step :code :audit {:code '(fn [x] {:ok true})})"},
                 },
         }
 
@@ -195,8 +308,9 @@ func SeedDefault(workspaceID string) *State {
                         "2. Fetch order",
                         "3. Fraud check",
                         "4. Branch: requires approval?",
-                        "5. Wait for approval",
-                        "6. Fulfill order",
+                        "   [yes] → Wait for approval  (approval)",
+                        "   [no]  → Fulfill order      (fulfill)",
+                        "5. Fulfill order",
                 },
                 Steps: []FlowStep{
                         {ID: "get-order", Type: "http", Title: "Fetch Order Details",
@@ -267,18 +381,42 @@ func SeedDefault(workspaceID string) *State {
                                 StartedAt: now.Add(-11 * time.Minute), CompletedAt: ptrTime(now.Add(-10*time.Minute - 45*time.Second)), DurationMs: 920,
                                 InputPreview:  map[string]any{"customerId": "cus_42"},
                                 ResultPreview: map[string]any{"status": 200, "body": map[string]any{"type": "card", "cardLast4": "4242"}}},
+                        {StepID: "fetch-plan", StepType: "http", Title: "Fetch Plan", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-10*time.Minute - 50*time.Second), CompletedAt: ptrTime(now.Add(-10*time.Minute - 47*time.Second)), DurationMs: 310,
+                                InputPreview:  map[string]any{"subscriptionId": "sub_123"},
+                                ResultPreview: map[string]any{"status": 200, "body": map[string]any{"planId": "plan_pro_monthly", "amountCents": 9900, "currency": "USD"}}},
+                        {StepID: "branch-payment-method", StepType: "code", Title: "Choose payment path", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-10*time.Minute - 46*time.Second), CompletedAt: ptrTime(now.Add(-10*time.Minute - 45*time.Second)), DurationMs: 65,
+                                InputPreview:  map[string]any{"paymentMethod": map[string]any{"type": "card", "cardLast4": "4242"}},
+                                ResultPreview: map[string]any{"path": "card"}},
                         {StepID: "process-card", StepType: "http", Title: "Process Card Payment", Status: "completed", Attempt: 1,
                                 StartedAt: now.Add(-10 * time.Minute), CompletedAt: ptrTime(now.Add(-9*time.Minute - 45*time.Second)), DurationMs: 1250,
                                 InputPreview:  map[string]any{"customerId": "cus_42", "amountCents": 9900, "currency": "USD"},
                                 ResultPreview: map[string]any{"status": 200, "body": map[string]any{"paymentIntentId": "pi_abc", "status": "requires_action"}}},
+                        {StepID: "create-invoice", StepType: "http", Title: "Create Invoice", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-9*time.Minute - 44*time.Second), CompletedAt: ptrTime(now.Add(-9*time.Minute - 43*time.Second)), DurationMs: 240,
+                                InputPreview:  map[string]any{"customerId": "cus_42", "amountCents": 9900, "currency": "USD"},
+                                ResultPreview: map[string]any{"status": 200, "body": map[string]any{"invoiceId": "inv_ignored", "status": "skipped"}}},
                         {StepID: "wait-payment-status", StepType: "wait", Title: "Wait for payment_status", Status: "completed", Attempt: 1,
                                 StartedAt: now.Add(-9 * time.Minute), CompletedAt: ptrTime(now.Add(-8*time.Minute - 30*time.Second)), DurationMs: 30000,
                                 InputPreview:  map[string]any{"signalKey": "sub-sub_123"},
                                 ResultPreview: map[string]any{"status": "succeeded", "paymentIntentId": "pi_abc"}},
-                        {StepID: "send-receipt", StepType: "notify", Title: "Send Receipt", Status: "completed", Attempt: 1,
+                        {StepID: "branch-status", StepType: "code", Title: "Choose success/failure path", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-8*time.Minute - 25*time.Second), CompletedAt: ptrTime(now.Add(-8*time.Minute - 24*time.Second)), DurationMs: 20,
+                                InputPreview:  map[string]any{"paymentStatus": map[string]any{"status": "succeeded"}},
+                                ResultPreview: map[string]any{"path": "success"}},
+                        {StepID: "call-send-receipt", StepType: "call", Title: "Send Receipt (Subflow)", Status: "completed", Attempt: 1,
                                 StartedAt: now.Add(-8 * time.Minute), CompletedAt: &r4821ReceiptDoneAt, DurationMs: 500,
                                 InputPreview:  map[string]any{"email": "a@company.com", "receiptUrl": "https://example.com/r/pi_abc"},
+                                ResultPreview: map[string]any{"ok": true}},
+                        {StepID: "notify-failed", StepType: "notify", Title: "Notify failure", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-9*time.Minute - 20*time.Second), CompletedAt: ptrTime(now.Add(-9*time.Minute - 19*time.Second)), DurationMs: 80,
+                                InputPreview:  map[string]any{"email": "a@company.com", "reason": ""},
                                 ResultPreview: map[string]any{"success": true}},
+                        {StepID: "retry-payment", StepType: "http", Title: "Retry Payment", Status: "completed", Attempt: 1,
+                                StartedAt: now.Add(-9*time.Minute - 18*time.Second), CompletedAt: ptrTime(now.Add(-9*time.Minute - 16*time.Second)), DurationMs: 710,
+                                InputPreview:  map[string]any{"paymentIntentId": "pi_abc"},
+                                ResultPreview: map[string]any{"status": 200, "body": map[string]any{"status": "succeeded"}}},
                 },
         }
 
@@ -412,3 +550,140 @@ func SeedDefault(workspaceID string) *State {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// EnsureDefaults merges any newly-added seeded resources into an existing state,
+// without overwriting user-created resources. This keeps demo state evolving
+// across versions (e.g., adding new example flows) while preserving local edits.
+func EnsureDefaults(st *State, workspaceID string) {
+        if st == nil {
+                return
+        }
+        if st.Workspaces == nil {
+                st.Workspaces = map[string]*Workspace{}
+        }
+
+        seed := SeedDefault(workspaceID)
+        seedWS := seed.Workspaces[workspaceID]
+        if seedWS == nil {
+                return
+        }
+
+        ws := st.Workspaces[workspaceID]
+        if ws == nil {
+                st.Workspaces[workspaceID] = seedWS
+                return
+        }
+
+        // Fill missing workspace metadata (never overwrite).
+        if ws.ID == "" {
+                ws.ID = seedWS.ID
+        }
+        if ws.Name == "" {
+                ws.Name = seedWS.Name
+        }
+        if ws.Plan == "" {
+                ws.Plan = seedWS.Plan
+        }
+        if ws.Owner == "" {
+                ws.Owner = seedWS.Owner
+        }
+        if ws.UpdatedAt.IsZero() {
+                ws.UpdatedAt = seedWS.UpdatedAt
+        }
+
+        // Ensure maps/slices are non-nil.
+        if ws.Flows == nil {
+                ws.Flows = map[string]*Flow{}
+        }
+        if ws.Runs == nil {
+                ws.Runs = map[string]*Run{}
+        }
+        if ws.Registry == nil {
+                ws.Registry = map[string]*RegistryEntry{}
+        }
+        if ws.Purchases == nil {
+                ws.Purchases = map[string]*Purchase{}
+        }
+        if ws.Entitlements == nil {
+                ws.Entitlements = map[string]*Entitlement{}
+        }
+        if ws.Payouts == nil {
+                ws.Payouts = map[string]*Payout{}
+        }
+        if ws.Connections == nil {
+                ws.Connections = map[string]*Connection{}
+        }
+        if ws.Instances == nil {
+                ws.Instances = map[string]*Instance{}
+        }
+        if ws.Triggers == nil {
+                ws.Triggers = map[string]*Trigger{}
+        }
+        if ws.Waits == nil {
+                ws.Waits = map[string]*Wait{}
+        }
+        if ws.DemandQueries == nil {
+                ws.DemandQueries = []DemandQuery{}
+        }
+        if ws.DemandClusters == nil {
+                ws.DemandClusters = []DemandCluster{}
+        }
+
+        // Merge seeded flows (add missing only).
+        for slug, f := range seedWS.Flows {
+                if slug == "" || f == nil {
+                        continue
+                }
+                if _, exists := ws.Flows[slug]; !exists {
+                        ws.Flows[slug] = f
+                }
+        }
+
+        // Merge seeded marketplace resources (add missing only).
+        for id, e := range seedWS.Registry {
+                if id == "" || e == nil {
+                        continue
+                }
+                if _, exists := ws.Registry[id]; !exists {
+                        ws.Registry[id] = e
+                }
+        }
+        for id, p := range seedWS.Purchases {
+                if id == "" || p == nil {
+                        continue
+                }
+                if _, exists := ws.Purchases[id]; !exists {
+                        ws.Purchases[id] = p
+                }
+        }
+        for id, e := range seedWS.Entitlements {
+                if id == "" || e == nil {
+                        continue
+                }
+                if _, exists := ws.Entitlements[id]; !exists {
+                        ws.Entitlements[id] = e
+                }
+        }
+        for id, p := range seedWS.Payouts {
+                if id == "" || p == nil {
+                        continue
+                }
+                if _, exists := ws.Payouts[id]; !exists {
+                        ws.Payouts[id] = p
+                }
+        }
+
+        // If demand/revenue is empty, seed it (don’t overwrite if user already has data).
+        if len(ws.DemandQueries) == 0 && len(seedWS.DemandQueries) > 0 {
+                ws.DemandQueries = seedWS.DemandQueries
+        }
+        if len(ws.DemandClusters) == 0 && len(seedWS.DemandClusters) > 0 {
+                ws.DemandClusters = seedWS.DemandClusters
+        }
+        if len(ws.RevenueEvents) == 0 && len(seedWS.RevenueEvents) > 0 {
+                ws.RevenueEvents = seedWS.RevenueEvents
+        }
+        if len(ws.DemandTop) == 0 && len(seedWS.DemandTop) > 0 {
+                ws.DemandTop = seedWS.DemandTop
+        }
+}

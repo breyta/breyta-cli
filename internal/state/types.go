@@ -73,6 +73,9 @@ type FlowStep struct {
         InputSchema  string `json:"inputSchema"`
         OutputSchema string `json:"outputSchema"`
         Definition   string `json:"definition"`
+
+        // Optional: step calls another flow (subflow).
+        CallFlowSlug string `json:"callFlowSlug,omitempty"`
 }
 
 type Run struct {

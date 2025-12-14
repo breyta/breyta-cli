@@ -31,6 +31,10 @@ type Store struct {
 func (s Store) Ensure() (*state.State, error) {
         st, err := state.Load(s.Path)
         if err == nil {
+                // Keep demo state evolving: merge in any newly-added defaults (e.g. new example flows)
+                // without overwriting user data.
+                state.EnsureDefaults(st, s.WorkspaceID)
+                _ = s.Save(st)
                 return st, nil
         }
         if !os.IsNotExist(err) {
@@ -320,6 +324,14 @@ func stepOutput(stepType, stepID string, input any, tick int64, now time.Time) a
                         "model": "mock-llm",
                         "text":  fmt.Sprintf("summary(%s): ok", stepID),
                         "input": input,
+                }
+        case "call":
+                return map[string]any{
+                        "ok":        true,
+                        "step":      stepID,
+                        "call":      "subflow",
+                        "input":     input,
+                        "completed": now.Format(time.RFC3339),
                 }
         default:
                 return map[string]any{

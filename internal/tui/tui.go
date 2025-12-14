@@ -39,6 +39,7 @@ const (
         modeStep
         modeSettings
         modeMarketplace
+        modeFlowGraph
 )
 
 const (
@@ -90,6 +91,9 @@ type Model struct {
 
         flowReturnMode viewMode
         runReturnMode  viewMode
+
+        // For subflow navigation: stack of parent flow slugs.
+        flowStack []string
 }
 
 func Run(workspaceID, statePath string, store mock.Store, st *state.State) error {
@@ -255,6 +259,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                                 return m, nil
                         }
 
+                case "v":
+                        if m.mode == modeFlow {
+                                m.mode = modeFlowGraph
+                                m.focus = focusSecondary
+                                m.refreshDetail()
+                                m.layout()
+                                return m, nil
+                        }
+
                 case "esc", "backspace":
                         switch m.mode {
                         case modeStep:
@@ -271,6 +284,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                                 m.mode = m.runReturnMode
                                 m.focus = focusPrimary
                         case modeFlow:
+                                // If we are inside a subflow, pop back to the parent flow.
+                                if len(m.flowStack) > 0 {
+                                        parent := m.flowStack[len(m.flowStack)-1]
+                                        m.flowStack = m.flowStack[:len(m.flowStack)-1]
+                                        m.openFlow(parent, m.flowReturnMode)
+                                        return m, nil
+                                }
                                 m.mode = m.flowReturnMode
                                 m.focus = focusPrimary
                         case modeSettings:
@@ -284,6 +304,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                                 m.focus = focusPrimary
                         case modeRuns:
                                 m.mode = modeDashboard
+                                m.focus = focusPrimary
+                        case modeFlowGraph:
+                                m.mode = modeFlow
                                 m.focus = focusPrimary
                         }
                         m.refreshDetail()
@@ -338,8 +361,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
                         case modeFlow:
                                 if m.focus == focusPrimary {
-                                        if it, ok := m.steps.SelectedItem().(stepItem); ok {
-                                                m.selectedStepID = it.id
+                                        if it, ok := m.steps.SelectedItem().(flowOutlineItem); ok {
+                                                if it.stepID == "" {
+                                                        return m, nil
+                                                }
+                                                // Subflow navigation: enter on a call step opens the subflow.
+                                                if sub := m.subflowSlugForStep(it.stepID); sub != "" {
+                                                        m.flowStack = append(m.flowStack, m.selectedFlowSlug)
+                                                        m.openFlow(sub, m.flowReturnMode)
+                                                        return m, nil
+                                                }
+                                                m.selectedStepID = it.stepID
                                                 m.stepContextRunID = "" // latest run preview
                                                 m.mode = modeStep
                                                 m.focus = focusPrimary
@@ -397,6 +429,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.detail, cmd = m.detail.Update(msg)
         case modeMarketplace:
                 m.marketTable, cmd = m.marketTable.Update(msg)
+        case modeFlowGraph:
+                m.detail, cmd = m.detail.Update(msg)
         }
         return m, cmd
 }
@@ -431,6 +465,8 @@ func (m Model) View() string {
                 body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
         case modeMarketplace:
                 body = m.renderMarketplaceTableView(bodyH)
+        case modeFlowGraph:
+                body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
         }
 
         footer := footerStyle().Render(m.help.View(m.keysForMode()))
@@ -995,13 +1031,46 @@ func (m *Model) refreshSteps() {
                 return
         }
         m.steps.Title = "Flow: " + f.Name
-        items := make([]list.Item, 0, len(f.Steps))
-        for i, s := range f.Steps {
-                prefix := "├─"
-                if i == len(f.Steps)-1 {
-                        prefix = "└─"
+        stepIDs := make(map[string]struct{}, len(f.Steps))
+        for _, s := range f.Steps {
+                stepIDs[s.ID] = struct{}{}
+        }
+
+        items := make([]list.Item, 0, len(f.Spine))
+        if len(f.Spine) > 0 {
+                assigned := make(map[string]bool, len(f.Steps))
+                nextIdx := 0
+                nextUnassigned := func() string {
+                        for nextIdx < len(f.Steps) && assigned[f.Steps[nextIdx].ID] {
+                                nextIdx++
+                        }
+                        if nextIdx >= len(f.Steps) {
+                                return ""
+                        }
+                        id := f.Steps[nextIdx].ID
+                        assigned[id] = true
+                        nextIdx++
+                        return id
                 }
-                items = append(items, stepItem{id: s.ID, line: fmt.Sprintf("%s %s  (%s)  %s", prefix, s.ID, s.Type, s.Title)})
+
+                for _, line := range f.Spine {
+                        stepID := stepIDFromSpineLine(line, stepIDs)
+                        if stepID != "" {
+                                assigned[stepID] = true
+                        } else if isActionSpineLine(line) {
+                                stepID = nextUnassigned()
+                        }
+                        items = append(items, flowOutlineItem{stepID: stepID, line: line})
+                }
+        } else {
+                // Fallback: linear flow, render plain steps.
+                items = make([]list.Item, 0, len(f.Steps))
+                for _, s := range f.Steps {
+                        items = append(items, flowOutlineItem{
+                                stepID: s.ID,
+                                line:   fmt.Sprintf("├─ %s  (%s)  %s", s.ID, s.Type, s.Title),
+                        })
+                }
         }
         m.steps.SetItems(items)
 }
@@ -1224,28 +1293,14 @@ func (m Model) renderFlowLeftPane() string {
         if len(f.Tags) > 0 {
                 tags = strings.Join(f.Tags, ",")
         }
-        spine := fmt.Sprintf("%d items", len(f.Spine))
-        if len(f.Spine) > 0 {
-                // Show a short preview, not the whole thing.
-                n := 2
-                if len(f.Spine) < n {
-                        n = len(f.Spine)
-                }
-                spine = strings.Join(f.Spine[:n], " · ")
-                if len(f.Spine) > n {
-                        spine += fmt.Sprintf(" · +%d", len(f.Spine)-n)
-                }
-        }
-
         headerLines := []string{
                 lipgloss.NewStyle().Bold(true).Render(f.Name),
                 meta.Render(f.Slug + " · v" + fmt.Sprintf("%d", f.ActiveVersion)),
                 meta.Render("tags " + tags),
                 meta.Render("updated " + relTime(f.UpdatedAt)),
-                meta.Render("spine " + spine),
                 "",
-                lipgloss.NewStyle().Bold(true).Render("Steps"),
         }
+        headerLines = append(headerLines, meta.Render("workflow (select step lines) · v graph"))
         for i := range headerLines {
                 // Keep the header stable: avoid wrapping by truncating to pane width.
                 headerLines[i] = truncateRunes(headerLines[i], w)
@@ -1315,7 +1370,41 @@ func (m *Model) refreshDetail() {
                 m.detail.SetContent(m.renderStep())
         case modeSettings:
                 m.detail.SetContent(m.renderSettings())
+        case modeFlowGraph:
+                m.detail.SetContent(m.renderFlowGraph())
         }
+}
+
+func (m Model) renderFlowGraph() string {
+        f, err := m.store.GetFlow(m.st, m.selectedFlowSlug)
+        if err != nil || f == nil {
+                return "Flow not found"
+        }
+        meta := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+        lines := []string{
+                lipgloss.NewStyle().Bold(true).Render("Flow graph"),
+                meta.Render(f.Name + " · " + f.Slug),
+                meta.Render("esc back · ↑/↓ scroll"),
+                "",
+        }
+        lines = append(lines, f.Spine...)
+        return joinLines(lines)
+}
+
+func (m Model) subflowSlugForStep(stepID string) string {
+        f, err := m.store.GetFlow(m.st, m.selectedFlowSlug)
+        if err != nil || f == nil {
+                return ""
+        }
+        for i := range f.Steps {
+                if f.Steps[i].ID == stepID {
+                        if f.Steps[i].CallFlowSlug != "" {
+                                return f.Steps[i].CallFlowSlug
+                        }
+                        return ""
+                }
+        }
+        return ""
 }
 
 func (m Model) renderFlowFocusedStepDetail() string {
@@ -1327,14 +1416,17 @@ func (m Model) renderFlowFocusedStepDetail() string {
                 return "Flow not found"
         }
 
-        it, ok := m.steps.SelectedItem().(stepItem)
-        if !ok || it.id == "" {
+        it, ok := m.steps.SelectedItem().(flowOutlineItem)
+        if !ok {
                 return lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true).Render("Select a step on the left.")
+        }
+        if it.stepID == "" {
+                return renderFlowStructureDetail(it.line)
         }
 
         var step *state.FlowStep
         for i := range f.Steps {
-                if f.Steps[i].ID == it.id {
+                if f.Steps[i].ID == it.stepID {
                         step = &f.Steps[i]
                         break
                 }
@@ -1390,6 +1482,65 @@ func (m Model) renderFlowFocusedStepDetail() string {
         return b.String()
 }
 
+func renderFlowStructureDetail(line string) string {
+        meta := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+        s := strings.TrimSpace(line)
+        l := strings.ToLower(s)
+
+        var b strings.Builder
+        switch {
+        case strings.Contains(l, "trigger"):
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Trigger"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("This is a structural node (non-executable)."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        case strings.Contains(l, "branch"):
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Branch"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("Select a concrete step line to see executable logic."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        case strings.Contains(l, "parallel"):
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Parallel"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("Structural node: fan-out and join."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        case strings.Contains(l, "join"):
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Join"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("Structural node: wait for parallel branches."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        case strings.Contains(l, "loop") || strings.Contains(s, "╭") || strings.Contains(s, "╰"):
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Loop"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("Structural node: repeated execution."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        default:
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Structure"))
+                b.WriteString("\n")
+                b.WriteString(meta.Render("Structural line (non-executable)."))
+                b.WriteString("\n\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                b.WriteString(s)
+        }
+        return b.String()
+}
+
 func (m Model) renderRunFocusedStepDetail() string {
         if m.selectedRunID == "" {
                 return "No run selected"
@@ -1441,7 +1592,7 @@ func (m Model) renderRunFocusedStepDetail() string {
         return b.String()
 }
 
-func flowLeftHeaderHeight() int { return 7 }
+func flowLeftHeaderHeight() int { return 6 }
 func runLeftHeaderHeight() int  { return 8 }
 
 func (m *Model) refreshMarket() {
@@ -1681,14 +1832,16 @@ func (m Model) workspace() *state.Workspace {
 
 // --- Items ------------------------------------------------------------------
 
-type stepItem struct {
-        id   string
-        line string
+// flowOutlineItem is a single line in the flow’s “structure list”.
+// If stepID is present, selecting it will show step details on the right.
+type flowOutlineItem struct {
+        stepID string
+        line   string
 }
 
-func (i stepItem) Title() string       { return i.line }
-func (i stepItem) Description() string { return "" }
-func (i stepItem) FilterValue() string { return i.id + " " + i.line }
+func (i flowOutlineItem) Title() string       { return i.line }
+func (i flowOutlineItem) Description() string { return "" }
+func (i flowOutlineItem) FilterValue() string { return i.stepID + " " + i.line }
 
 type runStepItem struct {
         stepID string
@@ -1766,6 +1919,107 @@ func relTime(t time.Time) string {
                 return fmt.Sprintf("%dh ago", int(d.Hours()))
         }
         return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+func stepIDFromSpineLine(line string, stepIDs map[string]struct{}) string {
+        // Prefer explicit "(step-id)" markers.
+        if r := strings.LastIndex(line, ")"); r != -1 {
+                if l := strings.LastIndex(line[:r], "("); l != -1 && l < r {
+                        cand := strings.TrimSpace(line[l+1 : r])
+                        if _, ok := stepIDs[cand]; ok {
+                                return cand
+                        }
+                }
+        }
+
+        // Fallback: if exactly one step id appears as a substring, use it.
+        found := ""
+        for id := range stepIDs {
+                if strings.Contains(line, id) {
+                        if found != "" {
+                                return ""
+                        }
+                        found = id
+                }
+        }
+        return found
+}
+
+func isActionSpineLine(line string) bool {
+        s := strings.TrimSpace(line)
+        if s == "" {
+                return false
+        }
+        l := strings.ToLower(s)
+
+        // Definitely structural keywords.
+        if strings.Contains(l, "branch") || strings.Contains(l, "parallel") || strings.Contains(l, "join") || strings.Contains(l, "loop") {
+                return false
+        }
+        if strings.Contains(l, "trigger") {
+                return false
+        }
+
+        // Numbered lines like "2. Fetch order" are usually actionable.
+        if startsWithNumberedPrefix(s) {
+                return true
+        }
+        // Lettered lines like "a. Fetch customer" are actionable (often inside Parallel blocks).
+        if startsWithLetteredPrefix(s) {
+                return true
+        }
+        // Case lines like "[card] → Process Card" are actionable.
+        if startsWithBracketCase(s) {
+                return true
+        }
+
+        // Tree-like lines that look like typed steps, e.g. "├─ http: fetch-x".
+        if strings.HasPrefix(s, "├") || strings.HasPrefix(s, "└") || strings.HasPrefix(s, "│") {
+                // If it looks like "type:" and not a branch header, consider it actionable.
+                return strings.Contains(l, ":")
+        }
+        return false
+}
+
+func startsWithNumberedPrefix(s string) bool {
+        // Accept: "1." / "12." at start (ignoring leading whitespace).
+        s = strings.TrimLeft(s, " \t")
+        if s == "" {
+                return false
+        }
+        i := 0
+        for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+                i++
+        }
+        return i > 0 && i < len(s) && s[i] == '.'
+}
+
+func startsWithLetteredPrefix(s string) bool {
+        // Accept: "a." / "b." at start (ignoring leading whitespace).
+        s = strings.TrimLeft(s, " \t")
+        if len(s) < 2 {
+                return false
+        }
+        c := s[0]
+        return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) && s[1] == '.'
+}
+
+func startsWithBracketCase(s string) bool {
+        s = strings.TrimLeft(s, " \t")
+        return strings.HasPrefix(s, "[") && strings.Contains(s, "]")
+}
+
+func isStructureHeaderLine(line string) bool {
+        s := strings.TrimSpace(line)
+        l := strings.ToLower(s)
+        if l == "" {
+                return false
+        }
+        return strings.Contains(l, "trigger") ||
+                strings.Contains(l, "parallel") ||
+                strings.Contains(l, "join") ||
+                strings.Contains(l, "loop") ||
+                strings.Contains(l, "branch")
 }
 
 func padToRight(n int) string {
@@ -2007,6 +2261,15 @@ func (d minimalDelegate) Render(w io.Writer, m list.Model, index int, item list.
         titleStyle := lipgloss.NewStyle()
         if selected {
                 titleStyle = titleStyle.Bold(true)
+        }
+        if oi, ok := item.(flowOutlineItem); ok && oi.stepID == "" {
+                // Structural lines: readable and "important", but non-executable.
+                // Keep headers (Trigger/Parallel/Join/Loop/Branch) stronger than case lines.
+                if isStructureHeaderLine(oi.line) {
+                        titleStyle = titleStyle.Bold(true)
+                } else {
+                        titleStyle = titleStyle.Foreground(lipgloss.Color("8"))
+                }
         }
         descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
 
