@@ -180,6 +180,20 @@ breyta mock advance --ticks 1 --pretty
 
 The TUI refreshes when the mock state file changes.
 
+### Testing
+
+The CLI has **command contract tests** that execute commands and assert stable output envelopes.
+
+```bash
+make test
+```
+
+Or:
+
+```bash
+go test ./...
+```
+
 ### Next steps (when you want to go beyond mock)
 
 - Replace the mock store with an HTTP-backed store that talks to `flows-api`.

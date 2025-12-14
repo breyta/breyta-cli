@@ -1,6 +1,6 @@
 BINARY_NAME=breyta
 
-.PHONY: build run install tidy fmt
+.PHONY: build run install tidy fmt test
 
 build:
 	go build -o ./dist/$(BINARY_NAME) ./cmd/breyta
@@ -13,6 +13,9 @@ tidy:
 
 fmt:
 	gofmt -w .
+
+test:
+	go test ./...
 
 install:
 	go install ./cmd/breyta
