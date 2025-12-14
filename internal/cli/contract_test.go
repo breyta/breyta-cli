@@ -210,3 +210,97 @@ func TestContract_DocsMarkdownOnDemand(t *testing.T) {
                 t.Fatalf("expected markdown docs header\n---\n%s", stdout)
         }
 }
+
+func TestContract_MarketplaceRegistryAndDemand(t *testing.T) {
+        statePath := filepath.Join(t.TempDir(), "state.json")
+
+        // Registry search should return items.
+        stdout, _, err := runCLI(t, statePath, "registry", "search", "subscription", "--pretty")
+        if err != nil {
+                t.Fatalf("registry search failed: %v\n%s", err, stdout)
+        }
+        e := decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("registry search expected ok=true")
+        }
+        itemsAny, ok := e.Data["items"]
+        if !ok {
+                t.Fatalf("registry search expected data.items")
+        }
+        items, ok := itemsAny.([]any)
+        if !ok || len(items) == 0 {
+                t.Fatalf("registry search expected non-empty data.items")
+        }
+        first, ok := items[0].(map[string]any)
+        if !ok {
+                t.Fatalf("registry search item expected object")
+        }
+        ref, _ := first["listingId"].(string)
+        if ref == "" {
+                t.Fatalf("registry search expected listingId")
+        }
+
+        // Registry show should include entry.
+        stdout, _, err = runCLI(t, statePath, "registry", "show", ref, "--pretty")
+        if err != nil {
+                t.Fatalf("registry show failed: %v\n%s", err, stdout)
+        }
+        e = decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("registry show expected ok=true")
+        }
+        if _, ok := e.Data["entry"]; !ok {
+                t.Fatalf("registry show expected data.entry")
+        }
+
+        // Pricing show should include pricing.
+        stdout, _, err = runCLI(t, statePath, "pricing", "show", ref, "--pretty")
+        if err != nil {
+                t.Fatalf("pricing show failed: %v\n%s", err, stdout)
+        }
+        e = decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("pricing show expected ok=true")
+        }
+        if _, ok := e.Data["pricing"]; !ok {
+                t.Fatalf("pricing show expected data.pricing")
+        }
+
+        // Demand clusters should be available.
+        stdout, _, err = runCLI(t, statePath, "demand", "clusters", "--pretty")
+        if err != nil {
+                t.Fatalf("demand clusters failed: %v\n%s", err, stdout)
+        }
+        e = decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("demand clusters expected ok=true")
+        }
+        if itemsAny, ok := e.Data["items"]; !ok || itemsAny == nil {
+                t.Fatalf("demand clusters expected data.items")
+        }
+
+        // Demand ingest should succeed and be reflected in demand queries.
+        stdout, _, err = runCLI(t, statePath, "demand", "ingest", "Need a daily sales report to Slack", "--offer-cents", "1500", "--currency", "USD", "--pretty")
+        if err != nil {
+                t.Fatalf("demand ingest failed: %v\n%s", err, stdout)
+        }
+        e = decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("demand ingest expected ok=true")
+        }
+        if _, ok := e.Data["clusterId"]; !ok {
+                t.Fatalf("demand ingest expected data.clusterId")
+        }
+
+        stdout, _, err = runCLI(t, statePath, "demand", "queries", "--limit", "5", "--pretty")
+        if err != nil {
+                t.Fatalf("demand queries failed: %v\n%s", err, stdout)
+        }
+        e = decodeEnvelope(t, stdout)
+        if !e.OK {
+                t.Fatalf("demand queries expected ok=true")
+        }
+        if _, ok := e.Data["items"]; !ok {
+                t.Fatalf("demand queries expected data.items")
+        }
+}

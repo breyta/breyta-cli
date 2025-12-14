@@ -65,17 +65,23 @@ func SaveAtomic(path string, s *State) error {
 func SeedDefault(workspaceID string) *State {
         now := time.Now().UTC()
         ws := &Workspace{
-                ID:          workspaceID,
-                Name:        "Demo Workspace",
-                Plan:        "Creator",
-                Owner:       "dev@breyta.test",
-                UpdatedAt:   now,
-                Flows:       map[string]*Flow{},
-                Runs:        map[string]*Run{},
-                Connections: map[string]*Connection{},
-                Instances:   map[string]*Instance{},
-                Triggers:    map[string]*Trigger{},
-                Waits:       map[string]*Wait{},
+                ID:             workspaceID,
+                Name:           "Demo Workspace",
+                Plan:           "Creator",
+                Owner:          "dev@breyta.test",
+                UpdatedAt:      now,
+                Flows:          map[string]*Flow{},
+                Runs:           map[string]*Run{},
+                Registry:       map[string]*RegistryEntry{},
+                Purchases:      map[string]*Purchase{},
+                Entitlements:   map[string]*Entitlement{},
+                Payouts:        map[string]*Payout{},
+                DemandQueries:  []DemandQuery{},
+                DemandClusters: []DemandCluster{},
+                Connections:    map[string]*Connection{},
+                Instances:      map[string]*Instance{},
+                Triggers:       map[string]*Trigger{},
+                Waits:          map[string]*Wait{},
         }
 
         // --- Flow: subscription-renewal (marketplace demo) ------------------------
@@ -321,6 +327,82 @@ func SeedDefault(workspaceID string) *State {
                 {Query: "weekly slack report from sales data", Count: 27, Window: "30d", SuggestedPrice: "$5 / run", MatchedFlows: []string{"daily-sales-report"}},
                 {Query: "high value order approval workflow", Count: 18, Window: "30d", SuggestedPrice: "$15 / run", MatchedFlows: []string{"order-processor"}},
         }
+
+        // --- Marketplace registry listings (mock) -----------------------------------
+        creator := "dev@breyta.test"
+        pub := now.Add(-10 * 24 * time.Hour)
+        ws.Registry["wrk-subscription-renewal"] = &RegistryEntry{
+                ID:          "wrk-subscription-renewal",
+                Slug:        "subscription-renewal",
+                Title:       "Subscription Renewal",
+                Summary:     "Renew subscriptions with retries, waits, and receipts.",
+                Description: "A production-grade renewal workflow with branching payment methods, retries for transient failures, and receipt delivery.",
+                Creator:     creator,
+                Category:    "billing",
+                Tags:        []string{"billing", "payments", "revenue"},
+                Pricing:     Pricing{Model: "per_success", Currency: "USD", AmountCents: 1000},
+                UpdatedAt:   now.Add(-3 * time.Hour),
+                PublishedAt: pub,
+                Versions: []RegistryVersion{
+                        {Version: 1, PublishedAt: pub, Note: "Initial listing", FlowSlug: "subscription-renewal", FlowVersion: 2},
+                        {Version: 2, PublishedAt: pub.Add(4 * 24 * time.Hour), Note: "Add wait state + receipt", FlowSlug: "subscription-renewal", FlowVersion: 4},
+                },
+                Stats: RegistryStats{Views: 1240, Installs: 47, Active: 19, SuccessRate: 0.93, Rating: 4.8, Reviews: 12, RevenueCents: 18700},
+        }
+        ws.Registry["wrk-daily-sales-report"] = &RegistryEntry{
+                ID:          "wrk-daily-sales-report",
+                Slug:        "daily-sales-report",
+                Title:       "Daily Sales Report",
+                Summary:     "Fetch sales, compute metrics, post a report.",
+                Description: "A simple but polished reporting workflow. Great starter for analytics automation.",
+                Creator:     creator,
+                Category:    "analytics",
+                Tags:        []string{"analytics", "reporting"},
+                Pricing:     Pricing{Model: "subscription", Currency: "USD", AmountCents: 1500, Interval: "month"},
+                UpdatedAt:   now.Add(-2 * time.Hour),
+                PublishedAt: pub.Add(2 * 24 * time.Hour),
+                Versions: []RegistryVersion{
+                        {Version: 1, PublishedAt: pub.Add(2 * 24 * time.Hour), Note: "Launch", FlowSlug: "daily-sales-report", FlowVersion: 3},
+                },
+                Stats: RegistryStats{Views: 980, Installs: 31, Active: 14, SuccessRate: 0.98, Rating: 4.6, Reviews: 7, RevenueCents: 46500},
+        }
+        ws.Registry["wrk-order-processor"] = &RegistryEntry{
+                ID:          "wrk-order-processor",
+                Slug:        "order-processor",
+                Title:       "Order Processor",
+                Summary:     "Fraud check + approval + fulfillment.",
+                Description: "Handle orders with fraud scoring and optional human approval for high-value purchases.",
+                Creator:     creator,
+                Category:    "ops",
+                Tags:        []string{"ops", "approval", "fraud"},
+                Pricing:     Pricing{Model: "per_run", Currency: "USD", AmountCents: 250},
+                UpdatedAt:   now.Add(-7 * time.Hour),
+                PublishedAt: pub.Add(6 * 24 * time.Hour),
+                Versions: []RegistryVersion{
+                        {Version: 1, PublishedAt: pub.Add(6 * 24 * time.Hour), Note: "Launch", FlowSlug: "order-processor", FlowVersion: 7},
+                },
+                Stats: RegistryStats{Views: 530, Installs: 18, Active: 6, SuccessRate: 0.87, Rating: 4.2, Reviews: 4, RevenueCents: 9200},
+        }
+
+        // --- Demand signals (raw + clustered) ---------------------------------------
+        ws.DemandQueries = []DemandQuery{
+                {Query: "Send me a daily Slack summary of Stripe refunds", At: now.Add(-2 * time.Hour), Window: "30d", OfferCents: 1000, Currency: "USD", NormalizedTo: "daily stripe refund summary"},
+                {Query: "Renew subscriptions and retry payment if card fails", At: now.Add(-5 * time.Hour), Window: "30d", OfferCents: 1000, Currency: "USD", NormalizedTo: "subscription renewal with retries"},
+                {Query: "Fraud check orders and require approval for large orders", At: now.Add(-10 * time.Hour), Window: "30d", OfferCents: 500, Currency: "USD", NormalizedTo: "order fraud + approval"},
+                {Query: "Daily sales report to Slack", At: now.Add(-12 * time.Hour), Window: "30d", OfferCents: 1500, Currency: "USD", NormalizedTo: "daily sales report"},
+        }
+        ws.DemandClusters = []DemandCluster{
+                {ID: "dem-001", Title: "Subscription renewal with retries", Count: 42, Window: "30d", Examples: []string{"Renew subscriptions and retry payment if card fails", "Handle invoice vs card billing automatically"}, SuggestedPrice: "$10 / success", MatchedListings: []string{"wrk-subscription-renewal"}},
+                {ID: "dem-002", Title: "Daily sales reporting", Count: 27, Window: "30d", Examples: []string{"Daily sales report to Slack", "Weekly revenue summary email"}, SuggestedPrice: "$15 / month", MatchedListings: []string{"wrk-daily-sales-report"}},
+                {ID: "dem-003", Title: "Order fraud + approval", Count: 18, Window: "30d", Examples: []string{"Fraud check orders and require approval for large orders"}, SuggestedPrice: "$2.50 / run", MatchedListings: []string{"wrk-order-processor"}},
+        }
+
+        // --- Entitlements + purchases + payouts (mock) ------------------------------
+        p1PaidAt := now.Add(-9 * 24 * time.Hour)
+        ws.Purchases["pur-001"] = &Purchase{ID: "pur-001", ListingID: "wrk-subscription-renewal", Buyer: "buyer@demo.test", Status: "paid", CreatedAt: now.Add(-9*24*time.Hour - 2*time.Minute), PaidAt: &p1PaidAt, AmountCents: 1000, Currency: "USD"}
+        exp := now.Add(21 * 24 * time.Hour)
+        ws.Entitlements["ent-001"] = &Entitlement{ID: "ent-001", ListingID: "wrk-subscription-renewal", Buyer: "buyer@demo.test", Status: "active", CreatedAt: p1PaidAt, ExpiresAt: &exp, Limits: map[string]any{"runsPerMonth": 200}}
+        ws.Payouts["pay-2025-12"] = &Payout{ID: "pay-2025-12", Creator: creator, Period: now.Format("2006-01"), AmountCents: 61200, Currency: "USD", Status: "pending", CreatedAt: now.Add(-2 * 24 * time.Hour)}
 
         return &State{
                 Version:    1,

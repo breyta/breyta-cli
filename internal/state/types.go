@@ -21,6 +21,15 @@ type Workspace struct {
         RevenueEvents []RevenueEvent `json:"revenueEvents"`
         DemandTop     []DemandItem   `json:"demandTop"`
 
+        // Marketplace v1 resources (mocked)
+        Registry     map[string]*RegistryEntry `json:"registry"`
+        Purchases    map[string]*Purchase      `json:"purchases"`
+        Entitlements map[string]*Entitlement   `json:"entitlements"`
+        Payouts      map[string]*Payout        `json:"payouts"`
+        // Demand engine (raw + clustered)
+        DemandQueries  []DemandQuery   `json:"demandQueries"`
+        DemandClusters []DemandCluster `json:"demandClusters"`
+
         // v1 CLI resources (mocked)
         Connections map[string]*Connection `json:"connections"`
         Instances   map[string]*Instance   `json:"instances"`
@@ -97,6 +106,99 @@ type DemandItem struct {
         Window         string   `json:"window"` // e.g. "30d"
         SuggestedPrice string   `json:"suggestedPrice"`
         MatchedFlows   []string `json:"matchedFlows"`
+}
+
+type Pricing struct {
+        Model       string `json:"model"` // per_run | per_success | subscription
+        Currency    string `json:"currency"`
+        AmountCents int64  `json:"amountCents"`
+        Interval    string `json:"interval,omitempty"` // for subscription (month|year)
+}
+
+type RegistryStats struct {
+        Views        int     `json:"views"`
+        Installs     int     `json:"installs"`
+        Active       int     `json:"active"`
+        SuccessRate  float64 `json:"successRate"`
+        Rating       float64 `json:"rating"`
+        Reviews      int     `json:"reviews"`
+        RevenueCents int64   `json:"revenueCents"`
+}
+
+type RegistryVersion struct {
+        Version     int       `json:"version"`
+        PublishedAt time.Time `json:"publishedAt"`
+        Note        string    `json:"note,omitempty"`
+        FlowSlug    string    `json:"flowSlug"`
+        FlowVersion int       `json:"flowVersion"`
+}
+
+// RegistryEntry is the marketplace listing (distribution + monetization metadata).
+type RegistryEntry struct {
+        ID          string            `json:"id"`
+        Slug        string            `json:"slug"`
+        Title       string            `json:"title"`
+        Summary     string            `json:"summary"`
+        Description string            `json:"description,omitempty"`
+        Creator     string            `json:"creator"`
+        Category    string            `json:"category,omitempty"`
+        Tags        []string          `json:"tags"`
+        Pricing     Pricing           `json:"pricing"`
+        UpdatedAt   time.Time         `json:"updatedAt"`
+        PublishedAt time.Time         `json:"publishedAt"`
+        Versions    []RegistryVersion `json:"versions"`
+        Stats       RegistryStats     `json:"stats"`
+}
+
+type Purchase struct {
+        ID          string     `json:"id"`
+        ListingID   string     `json:"listingId"`
+        Buyer       string     `json:"buyer"`
+        Status      string     `json:"status"` // created | paid | cancelled | refunded
+        CreatedAt   time.Time  `json:"createdAt"`
+        PaidAt      *time.Time `json:"paidAt,omitempty"`
+        AmountCents int64      `json:"amountCents"`
+        Currency    string     `json:"currency"`
+}
+
+type Entitlement struct {
+        ID        string         `json:"id"`
+        ListingID string         `json:"listingId"`
+        Buyer     string         `json:"buyer"`
+        Status    string         `json:"status"` // active | expired | revoked
+        CreatedAt time.Time      `json:"createdAt"`
+        ExpiresAt *time.Time     `json:"expiresAt,omitempty"`
+        Limits    map[string]any `json:"limits,omitempty"` // e.g. runs/month
+}
+
+type Payout struct {
+        ID          string     `json:"id"`
+        Creator     string     `json:"creator"`
+        Period      string     `json:"period"` // e.g. 2025-12
+        AmountCents int64      `json:"amountCents"`
+        Currency    string     `json:"currency"`
+        Status      string     `json:"status"` // pending | paid
+        CreatedAt   time.Time  `json:"createdAt"`
+        PaidAt      *time.Time `json:"paidAt,omitempty"`
+}
+
+type DemandQuery struct {
+        Query        string    `json:"query"`
+        At           time.Time `json:"at"`
+        Window       string    `json:"window,omitempty"` // e.g. "30d"
+        OfferCents   int64     `json:"offerCents,omitempty"`
+        Currency     string    `json:"currency,omitempty"`
+        NormalizedTo string    `json:"normalizedTo,omitempty"`
+}
+
+type DemandCluster struct {
+        ID              string   `json:"id"`
+        Title           string   `json:"title"`
+        Count           int      `json:"count"`
+        Window          string   `json:"window"`
+        Examples        []string `json:"examples"`
+        SuggestedPrice  string   `json:"suggestedPrice"`
+        MatchedListings []string `json:"matchedListings"`
 }
 
 type StepExecution struct {

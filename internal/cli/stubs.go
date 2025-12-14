@@ -2,6 +2,9 @@ package cli
 
 import (
         "errors"
+        "fmt"
+        "sort"
+        "strings"
         "time"
 
         "breyta-cli/internal/state"
@@ -569,20 +572,376 @@ func newWatchCmd(app *App) *cobra.Command {
 }
 
 func newRegistryCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "registry", Short: "Marketplace registry"}
-        cmd.AddCommand(&cobra.Command{Use: "search <query>", Short: "Search registry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-                return writeData(cmd, app, map[string]any{"hint": "Registry is mocked minimally in v1; no items yet"}, map[string]any{"items": []any{}})
-        }})
-        cmd.AddCommand(&cobra.Command{Use: "show <ref>", Short: "Show registry entry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-                return writeNotImplemented(cmd, app, "Registry show not mocked yet")
-        }})
-        cmd.AddCommand(&cobra.Command{Use: "install <ref>", Short: "Install from registry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-                return writeNotImplemented(cmd, app, "Registry install not mocked yet")
-        }})
-        cmd.AddCommand(&cobra.Command{Use: "publish <flow-slug>", Short: "Publish to registry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-                return writeNotImplemented(cmd, app, "Registry publish not mocked yet")
-        }})
+        cmd := &cobra.Command{Use: "registry", Short: "Marketplace registry (mock)"}
+        cmd.AddCommand(newRegistrySearchCmd(app))
+        cmd.AddCommand(newRegistryShowCmd(app))
+        cmd.AddCommand(newRegistryPublishCmd(app))
+        cmd.AddCommand(newRegistryVersionsCmd(app))
+        cmd.AddCommand(newRegistryMatchCmd(app))
+        cmd.AddCommand(newRegistryInstallCmd(app))
         return cmd
+}
+
+func newRegistrySearchCmd(app *App) *cobra.Command {
+        var limit int
+        cmd := &cobra.Command{Use: "search <query>", Short: "Search registry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, store, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                q := strings.ToLower(strings.TrimSpace(args[0]))
+                if q == "" {
+                        return writeErr(cmd, errors.New("empty query"))
+                }
+                type scored struct {
+                        e      *state.RegistryEntry
+                        score  float64
+                        reason string
+                }
+                scoredItems := make([]scored, 0, len(ws.Registry))
+                for _, e := range ws.Registry {
+                        hay := strings.ToLower(e.Slug + " " + e.Title + " " + e.Summary + " " + strings.Join(e.Tags, " "))
+                        score := 0.0
+                        reason := ""
+                        if strings.Contains(hay, q) {
+                                score = 0.95
+                                reason = "exact substring match"
+                        } else {
+                                // cheap token overlap score
+                                toks := strings.Fields(q)
+                                hit := 0
+                                for _, t := range toks {
+                                        if t != "" && strings.Contains(hay, t) {
+                                                hit++
+                                        }
+                                }
+                                if len(toks) > 0 {
+                                        score = float64(hit) / float64(len(toks))
+                                }
+                                if score > 0 {
+                                        reason = "token overlap"
+                                }
+                        }
+                        if score > 0 {
+                                scoredItems = append(scoredItems, scored{e: e, score: score, reason: reason})
+                        }
+                }
+                sort.Slice(scoredItems, func(i, j int) bool { return scoredItems[i].score > scoredItems[j].score })
+                if limit <= 0 {
+                        limit = 20
+                }
+                if len(scoredItems) > limit {
+                        scoredItems = scoredItems[:limit]
+                }
+                items := make([]any, 0, len(scoredItems))
+                for _, s := range scoredItems {
+                        items = append(items, map[string]any{
+                                "listingId": s.e.ID,
+                                "slug":      s.e.Slug,
+                                "title":     s.e.Title,
+                                "summary":   s.e.Summary,
+                                "creator":   s.e.Creator,
+                                "tags":      s.e.Tags,
+                                "pricing":   s.e.Pricing,
+                                "stats":     s.e.Stats,
+                                "score":     s.score,
+                                "reason":    s.reason,
+                        })
+                }
+                meta := map[string]any{"query": args[0], "total": len(items), "hint": "Mock ranking; use `registry show <id|slug>` to inspect a listing"}
+                if err := store.Save(st); err != nil { // no-op but keeps TUI in sync if future changes happen
+                        return writeErr(cmd, err)
+                }
+                return writeData(cmd, app, meta, map[string]any{"items": items})
+        }}
+        cmd.Flags().IntVar(&limit, "limit", 20, "Max results")
+        return cmd
+}
+
+func newRegistryShowCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "show <ref>", Short: "Show registry entry", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                meta := map[string]any{"hint": "Use `registry versions <id|slug>` for publish history; `pricing show <id|slug>` for price."}
+                return writeData(cmd, app, meta, map[string]any{"entry": e})
+        }}
+        return cmd
+}
+
+func newRegistryVersionsCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "versions <ref>", Short: "List published versions", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                items := make([]any, 0, len(e.Versions))
+                for _, v := range e.Versions {
+                        items = append(items, v)
+                }
+                sort.Slice(items, func(i, j int) bool {
+                        vi, _ := items[i].(state.RegistryVersion)
+                        vj, _ := items[j].(state.RegistryVersion)
+                        return vi.Version > vj.Version
+                })
+                return writeData(cmd, app, map[string]any{"listingId": e.ID, "slug": e.Slug}, map[string]any{"items": items})
+        }}
+        return cmd
+}
+
+func newRegistryPublishCmd(app *App) *cobra.Command {
+        var (
+                title    string
+                summary  string
+                model    string
+                amount   int64
+                currency string
+                interval string
+                note     string
+        )
+        cmd := &cobra.Command{Use: "publish <flow-slug>", Short: "Publish a flow to the registry (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, store, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                flowSlug := args[0]
+                f := ws.Flows[flowSlug]
+                if f == nil {
+                        return writeErr(cmd, errors.New("flow not found"))
+                }
+                // Create or update listing.
+                id := "wrk-" + flowSlug
+                e := ws.Registry[id]
+                now := time.Now().UTC()
+                if e == nil {
+                        e = &state.RegistryEntry{
+                                ID:          id,
+                                Slug:        flowSlug,
+                                Title:       f.Name,
+                                Summary:     f.Description,
+                                Description: f.Description,
+                                Creator:     ws.Owner,
+                                Category:    firstTagOr("general", f.Tags),
+                                Tags:        f.Tags,
+                                Pricing:     state.Pricing{Model: "per_run", Currency: "USD", AmountCents: 250},
+                                UpdatedAt:   now,
+                                PublishedAt: now,
+                                Versions:    []state.RegistryVersion{},
+                                Stats:       state.RegistryStats{Views: 0, Installs: 0, Active: 0, SuccessRate: 1.0, Rating: 0, Reviews: 0, RevenueCents: 0},
+                        }
+                        ws.Registry[id] = e
+                }
+                if title != "" {
+                        e.Title = title
+                }
+                if summary != "" {
+                        e.Summary = summary
+                }
+                if model != "" {
+                        e.Pricing.Model = model
+                }
+                if currency != "" {
+                        e.Pricing.Currency = currency
+                }
+                if amount > 0 {
+                        e.Pricing.AmountCents = amount
+                }
+                if interval != "" {
+                        e.Pricing.Interval = interval
+                }
+                e.Tags = f.Tags
+                e.UpdatedAt = now
+                if e.PublishedAt.IsZero() {
+                        e.PublishedAt = now
+                }
+                nextV := len(e.Versions) + 1
+                e.Versions = append(e.Versions, state.RegistryVersion{
+                        Version:     nextV,
+                        PublishedAt: now,
+                        Note:        note,
+                        FlowSlug:    flowSlug,
+                        FlowVersion: f.ActiveVersion,
+                })
+                ws.UpdatedAt = now
+                if err := store.Save(st); err != nil {
+                        return writeErr(cmd, err)
+                }
+                meta := map[string]any{"hint": "Mock publish. Use `registry show` and `pricing show`."}
+                return writeData(cmd, app, meta, map[string]any{"entry": e})
+        }}
+        cmd.Flags().StringVar(&title, "title", "", "Listing title")
+        cmd.Flags().StringVar(&summary, "summary", "", "Listing summary")
+        cmd.Flags().StringVar(&model, "model", "", "Pricing model (per_run|per_success|subscription)")
+        cmd.Flags().Int64Var(&amount, "amount-cents", 0, "Price amount in cents")
+        cmd.Flags().StringVar(&currency, "currency", "", "Currency (e.g. USD)")
+        cmd.Flags().StringVar(&interval, "interval", "", "Subscription interval (month|year)")
+        cmd.Flags().StringVar(&note, "note", "", "Publish note/changelog")
+        return cmd
+}
+
+func newRegistryMatchCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "match <need>", Short: "Suggest a workflow for a need (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                need := strings.TrimSpace(args[0])
+                if need == "" {
+                        return writeErr(cmd, errors.New("empty need"))
+                }
+                // Simple strategy: if a demand cluster matches, return its listings; otherwise fall back to search.
+                bestCluster := (*state.DemandCluster)(nil)
+                nl := strings.ToLower(need)
+                for i := range ws.DemandClusters {
+                        c := &ws.DemandClusters[i]
+                        if strings.Contains(nl, strings.ToLower(c.Title)) {
+                                bestCluster = c
+                                break
+                        }
+                }
+                candidates := make([]*state.RegistryEntry, 0)
+                if bestCluster != nil {
+                        for _, id := range bestCluster.MatchedListings {
+                                if e := ws.Registry[id]; e != nil {
+                                        candidates = append(candidates, e)
+                                }
+                        }
+                }
+                if len(candidates) == 0 {
+                        // Fallback: naive search across registry
+                        toks := strings.Fields(strings.ToLower(need))
+                        for _, e := range ws.Registry {
+                                hay := strings.ToLower(e.Slug + " " + e.Title + " " + e.Summary + " " + strings.Join(e.Tags, " "))
+                                hit := 0
+                                for _, t := range toks {
+                                        if t != "" && strings.Contains(hay, t) {
+                                                hit++
+                                        }
+                                }
+                                if hit > 0 {
+                                        candidates = append(candidates, e)
+                                }
+                        }
+                }
+                if len(candidates) == 0 {
+                        return writeData(cmd, app, map[string]any{"hint": "No match in mock registry"}, map[string]any{"match": nil, "items": []any{}})
+                }
+                // Pick the highest success rate as a tiebreaker.
+                sort.Slice(candidates, func(i, j int) bool { return candidates[i].Stats.SuccessRate > candidates[j].Stats.SuccessRate })
+                items := make([]any, 0, len(candidates))
+                for _, e := range candidates {
+                        items = append(items, map[string]any{
+                                "listingId": e.ID,
+                                "slug":      e.Slug,
+                                "title":     e.Title,
+                                "pricing":   e.Pricing,
+                                "stats":     e.Stats,
+                                "reason":    "mock-match",
+                        })
+                }
+                meta := map[string]any{"need": need, "hint": "Mock matching. Use `registry search` for manual exploration."}
+                return writeData(cmd, app, meta, map[string]any{"match": candidates[0], "items": items})
+        }}
+        return cmd
+}
+
+func newRegistryInstallCmd(app *App) *cobra.Command {
+        var buyer string
+        cmd := &cobra.Command{Use: "install <ref>", Short: "Install from registry (mock purchase + entitlement)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, store, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                if buyer == "" {
+                        buyer = "buyer@demo.test"
+                }
+                now := time.Now().UTC()
+                purID := fmt.Sprintf("pur-%d", now.Unix())
+                paid := now
+                ws.Purchases[purID] = &state.Purchase{ID: purID, ListingID: e.ID, Buyer: buyer, Status: "paid", CreatedAt: now, PaidAt: &paid, AmountCents: e.Pricing.AmountCents, Currency: e.Pricing.Currency}
+                entID := fmt.Sprintf("ent-%d", now.Unix())
+                ws.Entitlements[entID] = &state.Entitlement{ID: entID, ListingID: e.ID, Buyer: buyer, Status: "active", CreatedAt: now, Limits: map[string]any{"runsPerMonth": 200}}
+                e.Stats.Installs++
+                e.Stats.Active++
+                ws.UpdatedAt = now
+                if err := store.Save(st); err != nil {
+                        return writeErr(cmd, err)
+                }
+                meta := map[string]any{"hint": "Mock install creates a paid purchase + active entitlement in state."}
+                return writeData(cmd, app, meta, map[string]any{"purchaseId": purID, "entitlementId": entID, "listingId": e.ID})
+        }}
+        cmd.Flags().StringVar(&buyer, "buyer", "buyer@demo.test", "Buyer identity (mock)")
+        return cmd
+}
+
+func findRegistry(ws *state.Workspace, ref string) *state.RegistryEntry {
+        if ws == nil {
+                return nil
+        }
+        if ws.Registry == nil {
+                return nil
+        }
+        if e := ws.Registry[ref]; e != nil {
+                return e
+        }
+        // try id prefix
+        if e := ws.Registry["wrk-"+ref]; e != nil {
+                return e
+        }
+        // try slug match
+        for _, e := range ws.Registry {
+                if e.Slug == ref {
+                        return e
+                }
+        }
+        return nil
+}
+
+func firstTagOr(d string, tags []string) string {
+        if len(tags) == 0 {
+                return d
+        }
+        if tags[0] == "" {
+                return d
+        }
+        return tags[0]
 }
 
 func newAuthCmd(app *App) *cobra.Command {
@@ -627,6 +986,340 @@ func newWorkspacesCmd(app *App) *cobra.Command {
         }})
         cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
                 return writeNotImplemented(cmd, app, "Planned: write local config/profile")
+        }})
+        return cmd
+}
+
+// --- Marketplace v1 (mock) ---------------------------------------------------
+
+func newPricingCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "pricing", Short: "Pricing for registry listings (mock)"}
+        cmd.AddCommand(newPricingShowCmd(app))
+        cmd.AddCommand(newPricingSetCmd(app))
+        return cmd
+}
+
+func newPricingShowCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "show <ref>", Short: "Show pricing", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                return writeData(cmd, app, map[string]any{"listingId": e.ID, "slug": e.Slug}, map[string]any{"pricing": e.Pricing})
+        }}
+        return cmd
+}
+
+func newPricingSetCmd(app *App) *cobra.Command {
+        var (
+                model    string
+                amount   int64
+                currency string
+                interval string
+        )
+        cmd := &cobra.Command{Use: "set <ref>", Short: "Set pricing", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, store, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                if model != "" {
+                        e.Pricing.Model = model
+                }
+                if currency != "" {
+                        e.Pricing.Currency = currency
+                }
+                if amount > 0 {
+                        e.Pricing.AmountCents = amount
+                }
+                if interval != "" {
+                        e.Pricing.Interval = interval
+                }
+                e.UpdatedAt = time.Now().UTC()
+                ws.UpdatedAt = e.UpdatedAt
+                if err := store.Save(st); err != nil {
+                        return writeErr(cmd, err)
+                }
+                return writeData(cmd, app, map[string]any{"hint": "Mock pricing updated on registry entry"}, map[string]any{"entry": e})
+        }}
+        cmd.Flags().StringVar(&model, "model", "", "per_run|per_success|subscription")
+        cmd.Flags().Int64Var(&amount, "amount-cents", 0, "Amount in cents")
+        cmd.Flags().StringVar(&currency, "currency", "USD", "Currency")
+        cmd.Flags().StringVar(&interval, "interval", "", "Subscription interval (month|year)")
+        return cmd
+}
+
+func newPurchasesCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "purchases", Short: "Purchases (mock)"}
+        cmd.AddCommand(newPurchasesListCmd(app))
+        cmd.AddCommand(newPurchasesShowCmd(app))
+        cmd.AddCommand(newPurchasesCreateCmd(app))
+        return cmd
+}
+
+func newPurchasesListCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "list", Short: "List purchases", RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                items := make([]any, 0, len(ws.Purchases))
+                for _, p := range ws.Purchases {
+                        items = append(items, p)
+                }
+                sort.Slice(items, func(i, j int) bool {
+                        pi, _ := items[i].(*state.Purchase)
+                        pj, _ := items[j].(*state.Purchase)
+                        if pi == nil || pj == nil {
+                                return false
+                        }
+                        return pi.CreatedAt.After(pj.CreatedAt)
+                })
+                return writeData(cmd, app, map[string]any{"total": len(items)}, map[string]any{"items": items})
+        }}
+        return cmd
+}
+
+func newPurchasesShowCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "show <purchase-id>", Short: "Show purchase", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                p := ws.Purchases[args[0]]
+                if p == nil {
+                        return writeErr(cmd, errors.New("purchase not found"))
+                }
+                return writeData(cmd, app, nil, map[string]any{"purchase": p})
+        }}
+        return cmd
+}
+
+func newPurchasesCreateCmd(app *App) *cobra.Command {
+        var buyer string
+        cmd := &cobra.Command{Use: "create <listing-ref>", Short: "Create purchase (paid) + entitlement", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, store, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := findRegistry(ws, args[0])
+                if e == nil {
+                        return writeErr(cmd, errors.New("registry entry not found"))
+                }
+                if buyer == "" {
+                        buyer = "buyer@demo.test"
+                }
+                now := time.Now().UTC()
+                purID := fmt.Sprintf("pur-%d", now.UnixNano())
+                paid := now
+                ws.Purchases[purID] = &state.Purchase{ID: purID, ListingID: e.ID, Buyer: buyer, Status: "paid", CreatedAt: now, PaidAt: &paid, AmountCents: e.Pricing.AmountCents, Currency: e.Pricing.Currency}
+                entID := fmt.Sprintf("ent-%d", now.UnixNano())
+                ws.Entitlements[entID] = &state.Entitlement{ID: entID, ListingID: e.ID, Buyer: buyer, Status: "active", CreatedAt: now, Limits: map[string]any{"runsPerMonth": 200}}
+                e.Stats.Installs++
+                e.Stats.Active++
+                ws.UpdatedAt = now
+                if err := store.Save(st); err != nil {
+                        return writeErr(cmd, err)
+                }
+                return writeData(cmd, app, map[string]any{"hint": "Mock purchase creates entitlement"}, map[string]any{"purchaseId": purID, "entitlementId": entID, "listingId": e.ID})
+        }}
+        cmd.Flags().StringVar(&buyer, "buyer", "buyer@demo.test", "Buyer identity (mock)")
+        return cmd
+}
+
+func newEntitlementsCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "entitlements", Short: "Entitlements (mock)"}
+        cmd.AddCommand(newEntitlementsListCmd(app))
+        cmd.AddCommand(newEntitlementsShowCmd(app))
+        return cmd
+}
+
+func newEntitlementsListCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "list", Short: "List entitlements", RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                items := make([]any, 0, len(ws.Entitlements))
+                for _, e := range ws.Entitlements {
+                        items = append(items, e)
+                }
+                return writeData(cmd, app, map[string]any{"total": len(items)}, map[string]any{"items": items})
+        }}
+        return cmd
+}
+
+func newEntitlementsShowCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "show <entitlement-id>", Short: "Show entitlement", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                e := ws.Entitlements[args[0]]
+                if e == nil {
+                        return writeErr(cmd, errors.New("entitlement not found"))
+                }
+                return writeData(cmd, app, nil, map[string]any{"entitlement": e})
+        }}
+        return cmd
+}
+
+func newPayoutsCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "payouts", Short: "Creator payouts (mock)"}
+        cmd.AddCommand(newPayoutsListCmd(app))
+        cmd.AddCommand(newPayoutsShowCmd(app))
+        return cmd
+}
+
+func newPayoutsListCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "list", Short: "List payouts", RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                items := make([]any, 0, len(ws.Payouts))
+                for _, p := range ws.Payouts {
+                        items = append(items, p)
+                }
+                return writeData(cmd, app, map[string]any{"total": len(items)}, map[string]any{"items": items})
+        }}
+        return cmd
+}
+
+func newPayoutsShowCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "show <payout-id>", Short: "Show payout", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                p := ws.Payouts[args[0]]
+                if p == nil {
+                        return writeErr(cmd, errors.New("payout not found"))
+                }
+                return writeData(cmd, app, nil, map[string]any{"payout": p})
+        }}
+        return cmd
+}
+
+func newCreatorCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "creator", Short: "Creator dashboard (mock)"}
+        cmd.AddCommand(newCreatorDashboardCmd(app))
+        return cmd
+}
+
+func newCreatorDashboardCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "dashboard", Short: "Creator dashboard summary", RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                // Aggregate from registry stats + payouts.
+                totalRevenue := int64(0)
+                activeInstalls := 0
+                top := (*state.RegistryEntry)(nil)
+                for _, e := range ws.Registry {
+                        totalRevenue += e.Stats.RevenueCents
+                        activeInstalls += e.Stats.Active
+                        if top == nil || e.Stats.RevenueCents > top.Stats.RevenueCents {
+                                top = e
+                        }
+                }
+                topDemand := ""
+                if len(ws.DemandClusters) > 0 {
+                        topDemand = ws.DemandClusters[0].ID
+                }
+                return writeData(cmd, app, map[string]any{"hint": "Mock creator dashboard"}, map[string]any{
+                        "creator": map[string]any{
+                                "id": ws.Owner,
+                        },
+                        "summary": map[string]any{
+                                "totalRevenueCents": totalRevenue,
+                                "activeInstalls":    activeInstalls,
+                                "topListingId":      idOr("", top),
+                                "topDemandCluster":  topDemand,
+                        },
+                })
+        }}
+        return cmd
+}
+
+func idOr(d string, e *state.RegistryEntry) string {
+        if e == nil {
+                return d
+        }
+        return e.ID
+}
+
+func newAnalyticsCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "analytics", Short: "Marketplace analytics (mock)"}
+        cmd.AddCommand(&cobra.Command{Use: "overview", Short: "High-level analytics", RunE: func(cmd *cobra.Command, args []string) error {
+                st, _, err := appStore(app)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                ws, err := getWorkspace(st, app.WorkspaceID)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                // Compute a simple funnel based on stats.
+                views := 0
+                installs := 0
+                active := 0
+                for _, e := range ws.Registry {
+                        views += e.Stats.Views
+                        installs += e.Stats.Installs
+                        active += e.Stats.Active
+                }
+                return writeData(cmd, app, map[string]any{"hint": "Mock analytics overview"}, map[string]any{
+                        "funnel": map[string]any{"views": views, "installs": installs, "active": active},
+                })
         }})
         return cmd
 }

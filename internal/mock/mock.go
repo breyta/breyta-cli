@@ -352,6 +352,18 @@ func getWS(st *state.State, workspaceID string) (*state.Workspace, error) {
         if ws.Runs == nil {
                 ws.Runs = map[string]*state.Run{}
         }
+        if ws.Registry == nil {
+                ws.Registry = map[string]*state.RegistryEntry{}
+        }
+        if ws.Purchases == nil {
+                ws.Purchases = map[string]*state.Purchase{}
+        }
+        if ws.Entitlements == nil {
+                ws.Entitlements = map[string]*state.Entitlement{}
+        }
+        if ws.Payouts == nil {
+                ws.Payouts = map[string]*state.Payout{}
+        }
         if ws.Connections == nil {
                 ws.Connections = map[string]*state.Connection{}
         }
