@@ -9,3 +9,4 @@
 
 # Local state
 **/state.json
+/.gocache/

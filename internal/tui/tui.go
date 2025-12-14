@@ -6,6 +6,7 @@ import (
         "os"
         "path/filepath"
         "sort"
+        "strings"
         "time"
 
         "breyta-cli/internal/mock"
@@ -14,6 +15,7 @@ import (
         "github.com/charmbracelet/bubbles/help"
         "github.com/charmbracelet/bubbles/key"
         "github.com/charmbracelet/bubbles/list"
+        "github.com/charmbracelet/bubbles/viewport"
         tea "github.com/charmbracelet/bubbletea"
         "github.com/charmbracelet/lipgloss"
 )
@@ -22,7 +24,7 @@ type tickMsg struct{}
 
 type viewMode int
 
-type dashFocus int
+type paneFocus int
 
 const (
         modeDashboard viewMode = iota
@@ -33,8 +35,8 @@ const (
 )
 
 const (
-        focusFlows dashFocus = iota
-        focusRuns
+        focusPrimary paneFocus = iota
+        focusSecondary
 )
 
 type Model struct {
@@ -47,7 +49,7 @@ type Model struct {
         err     error
 
         mode  viewMode
-        focus dashFocus
+        focus paneFocus
 
         width  int
         height int
@@ -56,6 +58,8 @@ type Model struct {
         recent   list.Model
         steps    list.Model
         runSteps list.Model
+
+        detail viewport.Model
 
         help help.Model
         keys keyMap
@@ -95,17 +99,21 @@ func NewModel(workspaceID, statePath string, store mock.Store, st *state.State) 
         runSteps.SetShowHelp(false)
         runSteps.DisableQuitKeybindings()
 
+        vp := viewport.New(0, 0)
+        vp.Style = lipgloss.NewStyle().AlignVertical(lipgloss.Top).Align(lipgloss.Left)
+
         m := Model{
                 workspaceID: workspaceID,
                 statePath:   statePath,
                 store:       store,
                 st:          st,
                 mode:        modeDashboard,
-                focus:       focusFlows,
+                focus:       focusPrimary,
                 flows:       flows,
                 recent:      recent,
                 steps:       steps,
                 runSteps:    runSteps,
+                detail:      vp,
                 help:        help.New(),
                 keys:        defaultKeyMap(),
         }
@@ -153,21 +161,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 case "g":
                         m.mode = modeDashboard
                         m.stepContextRunID = ""
+                        m.focus = focusPrimary
                         m.layout()
                         return m, nil
 
                 case "s":
                         m.mode = modeSettings
                         m.stepContextRunID = ""
+                        m.focus = focusPrimary
+                        m.refreshDetail()
                         m.layout()
                         return m, nil
 
                 case "tab":
-                        if m.mode == modeDashboard {
-                                if m.focus == focusFlows {
-                                        m.focus = focusRuns
+                        switch m.mode {
+                        case modeDashboard, modeFlow, modeRun:
+                                if m.focus == focusPrimary {
+                                        m.focus = focusSecondary
                                 } else {
-                                        m.focus = focusFlows
+                                        m.focus = focusPrimary
                                 }
                                 m.layout()
                                 return m, nil
@@ -179,29 +191,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                                 // If step was opened from run context, go back to run view
                                 if m.stepContextRunID != "" {
                                         m.mode = modeRun
+                                        m.focus = focusPrimary
                                         m.layout()
                                         return m, nil
                                 }
                                 m.mode = modeFlow
+                                m.focus = focusPrimary
                         case modeRun:
                                 m.mode = modeDashboard
+                                m.focus = focusPrimary
                         case modeFlow:
                                 m.mode = modeDashboard
+                                m.focus = focusPrimary
                         case modeSettings:
                                 m.mode = modeDashboard
+                                m.focus = focusPrimary
                         }
+                        m.refreshDetail()
                         m.layout()
                         return m, nil
 
                 case "enter":
                         switch m.mode {
                         case modeDashboard:
-                                if m.focus == focusFlows {
+                                if m.focus == focusPrimary {
                                         if it, ok := m.flows.SelectedItem().(flowItem); ok {
                                                 m.selectedFlowSlug = it.slug
                                                 m.mode = modeFlow
                                                 m.stepContextRunID = ""
                                                 m.refreshSteps()
+                                                m.refreshDetail()
                                                 m.layout()
                                                 return m, nil
                                         }
@@ -211,27 +230,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                                                 m.mode = modeRun
                                                 m.stepContextRunID = ""
                                                 m.refreshRunSteps()
+                                                m.refreshDetail()
                                                 m.layout()
                                                 return m, nil
                                         }
                                 }
 
                         case modeFlow:
-                                if it, ok := m.steps.SelectedItem().(stepItem); ok {
-                                        m.selectedStepID = it.id
-                                        m.stepContextRunID = "" // latest run preview
-                                        m.mode = modeStep
-                                        m.layout()
-                                        return m, nil
+                                if m.focus == focusPrimary {
+                                        if it, ok := m.steps.SelectedItem().(stepItem); ok {
+                                                m.selectedStepID = it.id
+                                                m.stepContextRunID = "" // latest run preview
+                                                m.mode = modeStep
+                                                m.focus = focusPrimary
+                                                m.refreshDetail()
+                                                m.layout()
+                                                return m, nil
+                                        }
                                 }
 
                         case modeRun:
-                                if it, ok := m.runSteps.SelectedItem().(runStepItem); ok {
-                                        m.selectedStepID = it.stepID
-                                        m.stepContextRunID = m.selectedRunID
-                                        m.mode = modeStep
-                                        m.layout()
-                                        return m, nil
+                                if m.focus == focusPrimary {
+                                        if it, ok := m.runSteps.SelectedItem().(runStepItem); ok {
+                                                m.selectedStepID = it.stepID
+                                                m.stepContextRunID = m.selectedRunID
+                                                m.mode = modeStep
+                                                m.focus = focusPrimary
+                                                m.refreshDetail()
+                                                m.layout()
+                                                return m, nil
+                                        }
                                 }
                         }
                 }
@@ -240,19 +268,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         var cmd tea.Cmd
         switch m.mode {
         case modeDashboard:
-                if m.focus == focusFlows {
+                if m.focus == focusPrimary {
                         m.flows, cmd = m.flows.Update(msg)
                 } else {
                         m.recent, cmd = m.recent.Update(msg)
                 }
         case modeFlow:
-                m.steps, cmd = m.steps.Update(msg)
+                if m.focus == focusPrimary {
+                        m.steps, cmd = m.steps.Update(msg)
+                } else {
+                        m.detail, cmd = m.detail.Update(msg)
+                }
+                m.refreshDetail()
         case modeRun:
-                m.runSteps, cmd = m.runSteps.Update(msg)
+                if m.focus == focusPrimary {
+                        m.runSteps, cmd = m.runSteps.Update(msg)
+                } else {
+                        m.detail, cmd = m.detail.Update(msg)
+                }
+                m.refreshDetail()
         case modeStep:
-                // Static text view.
+                m.detail, cmd = m.detail.Update(msg)
         case modeSettings:
-                // Static text view.
+                m.detail, cmd = m.detail.Update(msg)
         }
         return m, cmd
 }
@@ -274,13 +312,13 @@ func (m Model) View() string {
                 // Dashboard renders its own panes + borders (avoid double borders).
                 body = m.renderDashboard(bodyH)
         case modeFlow:
-                body = panelStyle().Width(m.width).Height(bodyH).Render(m.renderFlow(bodyH))
+                body = m.renderFlowView(bodyH)
         case modeRun:
-                body = panelStyle().Width(m.width).Height(bodyH).Render(m.renderRun())
+                body = m.renderRunView(bodyH)
         case modeStep:
-                body = panelStyle().Width(m.width).Height(bodyH).Render(m.renderStep())
+                body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
         case modeSettings:
-                body = panelStyle().Width(m.width).Height(bodyH).Render(m.renderSettings())
+                body = panelStyle().Width(m.width).Height(bodyH).Render(m.detail.View())
         }
 
         footer := footerStyle().Render(m.help.View(m.keysForMode()))
@@ -317,9 +355,43 @@ func (m *Model) layout() {
         m.flows.SetSize(listW, listH)
         m.recent.SetSize(listW, listH)
 
-        // Detail views (inside a bordered panel)
-        m.steps.SetSize(m.width-4, bodyH-4)
-        m.runSteps.SetSize(m.width-4, bodyH-4)
+        // Flow / run: split view (list + scrollable detail viewport)
+        leftW := (m.width - 1) / 2
+        if leftW > 56 {
+                leftW = 56
+        }
+        if leftW < 26 {
+                leftW = 26
+        }
+        rightW := m.width - leftW
+        if rightW < 26 {
+                rightW = 26
+        }
+
+        leftInnerW := leftW - 4
+        if leftInnerW < 10 {
+                leftInnerW = 10
+        }
+        rightInnerW := rightW - 4
+        if rightInnerW < 10 {
+                rightInnerW = 10
+        }
+
+        innerH := bodyH - 2
+        if innerH < 3 {
+                innerH = 3
+        }
+
+        m.steps.SetSize(leftInnerW, innerH)
+        m.runSteps.SetSize(leftInnerW, innerH)
+        m.detail.Width = rightInnerW
+        m.detail.Height = innerH
+
+        // Step / settings: full width scrollable detail in a panel.
+        if m.mode == modeStep || m.mode == modeSettings {
+                m.detail.Width = m.width - 4
+                m.detail.Height = bodyH - 2
+        }
 }
 
 func (m *Model) refreshFromState() {
@@ -331,6 +403,7 @@ func (m *Model) refreshFromState() {
         if m.selectedRunID != "" {
                 m.refreshRunSteps()
         }
+        m.refreshDetail()
 }
 
 func (m *Model) refreshFlows() {
@@ -443,8 +516,8 @@ func (m Model) renderDashboard(bodyH int) string {
                 paneW = 20
         }
 
-        flowsPanel := paneStyle(m.focus == focusFlows).Width(paneW).Height(paneH).Render(m.flows.View())
-        runsPanel := paneStyle(m.focus == focusRuns).Width(paneW).Height(paneH).Render(m.recent.View())
+        flowsPanel := paneStyle(m.focus == focusPrimary).Width(paneW).Height(paneH).Render(m.flows.View())
+        runsPanel := paneStyle(m.focus == focusSecondary).Width(paneW).Height(paneH).Render(m.recent.View())
 
         ws := m.workspace()
         stats := ""
@@ -461,36 +534,40 @@ func (m Model) renderDashboard(bodyH int) string {
         )
 }
 
-func (m Model) renderFlow(bodyH int) string {
-        f, err := m.store.GetFlow(m.st, m.selectedFlowSlug)
-        if err != nil {
-                return "Flow not found"
+func (m Model) renderFlowView(bodyH int) string {
+        leftW := (m.width - 1) / 2
+        if leftW > 56 {
+                leftW = 56
+        }
+        if leftW < 26 {
+                leftW = 26
+        }
+        rightW := m.width - leftW
+        if rightW < 26 {
+                rightW = 26
         }
 
-        // NOTE: We intentionally do NOT render the textual spine here for now.
-        // The flow panel has a fixed height and the list widget already supports
-        // scrolling; mixing a long free-form spine above it caused confusing clipping.
-        // We can reintroduce structure later with a dedicated scrollable viewport.
-
-        header := lipgloss.NewStyle().Bold(true).Render("Flow") + "\n" +
-                fmt.Sprintf("%s  v%d\n%s\n\n", f.Name, f.ActiveVersion, f.Description)
-
-        return header +
-                lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Steps (select → enter)") + "\n" +
-                m.steps.View()
+        left := paneStyle(m.focus == focusPrimary).Width(leftW).Height(bodyH).Render(m.steps.View())
+        right := paneStyle(m.focus == focusSecondary).Width(rightW).Height(bodyH).Render(m.detail.View())
+        return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
-func (m Model) renderRun() string {
-        r, err := m.store.GetRun(m.st, m.selectedRunID)
-        if err != nil {
-                return "Run not found"
+func (m Model) renderRunView(bodyH int) string {
+        leftW := (m.width - 1) / 2
+        if leftW > 56 {
+                leftW = 56
+        }
+        if leftW < 26 {
+                leftW = 26
+        }
+        rightW := m.width - leftW
+        if rightW < 26 {
+                rightW = 26
         }
 
-        header := lipgloss.NewStyle().Bold(true).Render("Run") + "\n" +
-                fmt.Sprintf("run: %s\nflow: %s  v%d\nstatus: %s  triggeredBy: %s\nstarted: %s\n\n",
-                        r.WorkflowID, r.FlowSlug, r.Version, r.Status, r.TriggeredBy, r.StartedAt.Format(time.RFC3339))
-
-        return header + lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Steps (select → enter)") + "\n" + m.runSteps.View()
+        left := paneStyle(m.focus == focusPrimary).Width(leftW).Height(bodyH).Render(m.runSteps.View())
+        right := paneStyle(m.focus == focusSecondary).Width(rightW).Height(bodyH).Render(m.detail.View())
+        return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
 func (m Model) renderStep() string {
@@ -587,11 +664,237 @@ func (m Model) renderSettings() string {
         return joinLines(lines)
 }
 
+func (m *Model) refreshDetail() {
+        switch m.mode {
+        case modeFlow:
+                m.detail.SetContent(m.renderFlowDetail())
+        case modeRun:
+                m.detail.SetContent(m.renderRunDetail())
+        case modeStep:
+                m.detail.SetContent(m.renderStep())
+        case modeSettings:
+                m.detail.SetContent(m.renderSettings())
+        }
+}
+
+func (m Model) renderFlowDetail() string {
+        if m.selectedFlowSlug == "" {
+                return "No flow selected"
+        }
+        f, err := m.store.GetFlow(m.st, m.selectedFlowSlug)
+        if err != nil {
+                return "Flow not found"
+        }
+
+        var b strings.Builder
+        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Flow details"))
+        b.WriteString("\n")
+        b.WriteString(fmt.Sprintf("%s  (%s)\n", f.Name, f.Slug))
+        b.WriteString(fmt.Sprintf("version: v%d\n", f.ActiveVersion))
+        if !f.UpdatedAt.IsZero() {
+                b.WriteString(fmt.Sprintf("updated: %s\n", f.UpdatedAt.Format(time.RFC3339)))
+        }
+        if f.Description != "" {
+                b.WriteString("\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Description"))
+                b.WriteString("\n")
+                b.WriteString(f.Description)
+                b.WriteString("\n")
+        }
+
+        if len(f.Spine) > 0 {
+                b.WriteString("\n")
+                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Spine"))
+                b.WriteString("\n")
+                for _, line := range f.Spine {
+                        b.WriteString("- ")
+                        b.WriteString(line)
+                        b.WriteString("\n")
+                }
+        }
+
+        // Step preview (selected in the steps list)
+        if it, ok := m.steps.SelectedItem().(stepItem); ok && it.id != "" {
+                var step *state.FlowStep
+                for i := range f.Steps {
+                        if f.Steps[i].ID == it.id {
+                                step = &f.Steps[i]
+                                break
+                        }
+                }
+                if step != nil {
+                        b.WriteString("\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Selected step"))
+                        b.WriteString("\n")
+                        b.WriteString(fmt.Sprintf("%s  (%s)\n", step.ID, step.Type))
+                        if step.Title != "" {
+                                b.WriteString(step.Title)
+                                b.WriteString("\n")
+                        }
+                        if step.Definition != "" {
+                                b.WriteString("\n")
+                                b.WriteString(lipgloss.NewStyle().Bold(true).Render("Definition"))
+                                b.WriteString("\n")
+                                b.WriteString(step.Definition)
+                                b.WriteString("\n")
+                        }
+                        if step.InputSchema != "" || step.OutputSchema != "" {
+                                b.WriteString("\n")
+                                b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Schemas (reference)"))
+                                b.WriteString("\n")
+                                if step.InputSchema != "" {
+                                        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Input:  " + step.InputSchema))
+                                        b.WriteString("\n")
+                                }
+                                if step.OutputSchema != "" {
+                                        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Output: " + step.OutputSchema))
+                                        b.WriteString("\n")
+                                }
+                        }
+                }
+        }
+
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Tip: tab switches focus; scroll the detail pane with ↑/↓, pgup/pgdn."))
+        return b.String()
+}
+
+func (m Model) renderRunDetail() string {
+        if m.selectedRunID == "" {
+                return "No run selected"
+        }
+        r, err := m.store.GetRun(m.st, m.selectedRunID)
+        if err != nil {
+                return "Run not found"
+        }
+
+        total := len(r.Steps)
+        done := 0
+        for _, s := range r.Steps {
+                if isTerminalStatus(s.Status) {
+                        done++
+                }
+        }
+        pct := 0.0
+        if total > 0 {
+                pct = float64(done) / float64(total)
+        }
+
+        var b strings.Builder
+        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Run details"))
+        b.WriteString("\n")
+        b.WriteString(fmt.Sprintf("run: %s\n", r.WorkflowID))
+        b.WriteString(fmt.Sprintf("flow: %s  v%d\n", r.FlowSlug, r.Version))
+        b.WriteString(fmt.Sprintf("status: %s\n", r.Status))
+        if r.TriggeredBy != "" {
+                b.WriteString(fmt.Sprintf("triggeredBy: %s\n", r.TriggeredBy))
+        }
+        if !r.StartedAt.IsZero() {
+                b.WriteString(fmt.Sprintf("started: %s\n", r.StartedAt.Format(time.RFC3339)))
+        }
+        if !r.UpdatedAt.IsZero() {
+                b.WriteString(fmt.Sprintf("updated: %s\n", r.UpdatedAt.Format(time.RFC3339)))
+        }
+        if r.CompletedAt != nil {
+                b.WriteString(fmt.Sprintf("completed: %s\n", r.CompletedAt.Format(time.RFC3339)))
+        }
+        if r.CurrentStep != "" {
+                b.WriteString(fmt.Sprintf("currentStep: %s\n", r.CurrentStep))
+        }
+        if r.Error != "" {
+                b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("error: " + r.Error))
+                b.WriteString("\n")
+        }
+
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Progress"))
+        b.WriteString("\n")
+        b.WriteString(renderProgressBar(m.detail.Width, pct))
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(fmt.Sprintf("%d/%d steps completed", done, total)))
+        b.WriteString("\n")
+
+        // Step preview (selected in the run steps list)
+        if it, ok := m.runSteps.SelectedItem().(runStepItem); ok && it.stepID != "" {
+                var exec *state.StepExecution
+                for i := range r.Steps {
+                        if r.Steps[i].StepID == it.stepID {
+                                exec = &r.Steps[i]
+                                break
+                        }
+                }
+                if exec != nil {
+                        b.WriteString("\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Selected step"))
+                        b.WriteString("\n")
+                        b.WriteString(fmt.Sprintf("%s  [%s]\n", exec.StepID, exec.Status))
+                        if exec.Title != "" {
+                                b.WriteString(exec.Title)
+                                b.WriteString("\n")
+                        }
+                        if exec.Error != "" {
+                                b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(exec.Error))
+                                b.WriteString("\n")
+                        }
+                        b.WriteString("\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Input (preview)"))
+                        b.WriteString("\n")
+                        b.WriteString(prettyJSON(exec.InputPreview))
+                        b.WriteString("\n\n")
+                        b.WriteString(lipgloss.NewStyle().Bold(true).Render("Output (preview)"))
+                        b.WriteString("\n")
+                        b.WriteString(prettyJSON(exec.ResultPreview))
+                        b.WriteString("\n")
+                }
+        }
+
+        b.WriteString("\n")
+        b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Tip: enter opens a full step view; tab switches focus; scroll the detail pane."))
+        return b.String()
+}
+
+func isTerminalStatus(status string) bool {
+        switch status {
+        case "succeeded", "failed", "cancelled", "canceled":
+                return true
+        default:
+                return false
+        }
+}
+
+func renderProgressBar(width int, pct float64) string {
+        if pct < 0 {
+                pct = 0
+        }
+        if pct > 1 {
+                pct = 1
+        }
+        w := width
+        if w > 48 {
+                w = 48
+        }
+        if w < 10 {
+                w = 10
+        }
+        inner := w - 2
+        filled := int(float64(inner) * pct)
+        if filled < 0 {
+                filled = 0
+        }
+        if filled > inner {
+                filled = inner
+        }
+        bar := "[" + strings.Repeat("█", filled) + strings.Repeat("░", inner-filled) + "]"
+        return lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(bar) +
+                " " +
+                lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(fmt.Sprintf("%3.0f%%", pct*100))
+}
+
 func (m Model) keysForMode() keyMap {
         k := m.keys
         k.Dashboard.SetEnabled(true)
         k.Settings.SetEnabled(true)
-        k.Focus.SetEnabled(m.mode == modeDashboard)
+        k.Focus.SetEnabled(m.mode == modeDashboard || m.mode == modeFlow || m.mode == modeRun)
 
         switch m.mode {
         case modeDashboard:
