@@ -3,7 +3,7 @@
 A standalone **Go** CLI + **Bubble Tea** TUI for exploring the Breyta product experience **without any real backend**.
 
 - Running **`breyta`** launches an interactive TUI.
-- Running **`breyta flow ...`**, **`breyta run ...`**, etc. returns **mock JSON**.
+- Running **`breyta flow ...`**, **`breyta run ...`**, etc. returns **mock JSON** by default (or EDN with `--format edn`).
 - All commands share a single **mock state file**, so you can keep the TUI open in one terminal and drive changes from another.
 
 ### Goals
@@ -17,7 +17,10 @@ A standalone **Go** CLI + **Bubble Tea** TUI for exploring the Breyta product ex
 The CLI supports both:
 
 - `breyta <cmd> --help` for human-readable help
-- `breyta docs` for machine-readable command/flag structure (strict JSON)
+- `breyta docs` for on-demand docs (Markdown by default)
+  - `breyta docs run list` (command-specific docs)
+  - `breyta docs run list --format json|edn` (structured docs)
+  - Add global `--format edn` for EDN output in normal commands.
 
 ### Install / build
 
@@ -111,7 +114,9 @@ If Terminal A is open, you should see the dashboard update when you seed/start/a
 #### CLI commands (mock)
 
 ```bash
-breyta docs --pretty
+breyta docs
+breyta docs run list
+breyta docs run list --format edn --pretty
 
 breyta flow list --pretty
 breyta flow show daily-sales-report --pretty

@@ -17,6 +17,7 @@ type App struct {
         WorkspaceID string
         StatePath   string
         PrettyJSON  bool
+        Format      string
 }
 
 func NewRootCmd() *cobra.Command {
@@ -37,6 +38,7 @@ func NewRootCmd() *cobra.Command {
 
         cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "demo-workspace"), "Workspace id")
         cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
+        cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
 
         defaultPath, _ := state.DefaultPath()
         cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
@@ -85,7 +87,7 @@ func must(err error) {
 }
 
 func writeOut(cmd *cobra.Command, app *App, v any) error {
-        return format.WriteJSON(cmd.OutOrStdout(), v, app.PrettyJSON)
+        return format.Write(cmd.OutOrStdout(), v, app.Format, app.PrettyJSON)
 }
 
 func writeErr(cmd *cobra.Command, err error) error {
