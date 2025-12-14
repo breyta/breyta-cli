@@ -18,6 +18,10 @@ type App struct {
         StatePath   string
         PrettyJSON  bool
         Format      string
+        APIURL      string
+        Token       string
+        Profile     string
+        DevMode     bool
 }
 
 func NewRootCmd() *cobra.Command {
@@ -39,13 +43,25 @@ func NewRootCmd() *cobra.Command {
         cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "demo-workspace"), "Workspace id")
         cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
         cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
+        cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://api.breyta.com)")
+        cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
+        cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
+        cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
 
         defaultPath, _ := state.DefaultPath()
         cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
 
         cmd.AddCommand(newFlowsCmd(app))
         cmd.AddCommand(newRunsCmd(app))
-        cmd.AddCommand(newMockCmd(app))
+        cmd.AddCommand(newConnectionsCmd(app))
+        cmd.AddCommand(newInstancesCmd(app))
+        cmd.AddCommand(newTriggersCmd(app))
+        cmd.AddCommand(newWaitsCmd(app))
+        cmd.AddCommand(newWatchCmd(app))
+        cmd.AddCommand(newRegistryCmd(app))
+        cmd.AddCommand(newAuthCmd(app))
+        cmd.AddCommand(newWorkspacesCmd(app))
+        cmd.AddCommand(newDevCmd(app))
         cmd.AddCommand(newRevenueCmd(app))
         cmd.AddCommand(newDemandCmd(app))
         cmd.AddCommand(newDocsCmd(cmd, app))

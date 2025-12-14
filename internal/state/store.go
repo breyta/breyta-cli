@@ -65,13 +65,17 @@ func SaveAtomic(path string, s *State) error {
 func SeedDefault(workspaceID string) *State {
         now := time.Now().UTC()
         ws := &Workspace{
-                ID:        workspaceID,
-                Name:      "Demo Workspace",
-                Plan:      "Creator",
-                Owner:     "dev@breyta.test",
-                UpdatedAt: now,
-                Flows:     map[string]*Flow{},
-                Runs:      map[string]*Run{},
+                ID:          workspaceID,
+                Name:        "Demo Workspace",
+                Plan:        "Creator",
+                Owner:       "dev@breyta.test",
+                UpdatedAt:   now,
+                Flows:       map[string]*Flow{},
+                Runs:        map[string]*Run{},
+                Connections: map[string]*Connection{},
+                Instances:   map[string]*Instance{},
+                Triggers:    map[string]*Trigger{},
+                Waits:       map[string]*Wait{},
         }
 
         // --- Flow: subscription-renewal (marketplace demo) ------------------------
@@ -115,6 +119,34 @@ func SeedDefault(workspaceID string) *State {
                                 OutputSchema: "{success: boolean}",
                                 Definition:   "(step :notify :send-receipt {:channel :email :target email :subject \"Receipt\" :message (str \"Download: \" receipt-url)})"},
                 },
+        }
+
+        // Seed a couple of connections + a trigger for v1 CLI shape
+        ws.Connections["conn-slack-1"] = &Connection{
+                ID:        "conn-slack-1",
+                Name:      "Slack: #sales",
+                Type:      "slack",
+                Status:    "ready",
+                UpdatedAt: now.Add(-48 * time.Hour),
+                Config:    map[string]any{"workspace": "breyta", "channel": "#sales"},
+        }
+        ws.Connections["conn-stripe-1"] = &Connection{
+                ID:        "conn-stripe-1",
+                Name:      "Stripe: production",
+                Type:      "stripe",
+                Status:    "ready",
+                UpdatedAt: now.Add(-24 * time.Hour),
+                Config:    map[string]any{"account": "acct_123"},
+        }
+
+        ws.Triggers["trg-subscription-renewal-nightly"] = &Trigger{
+                ID:        "trg-subscription-renewal-nightly",
+                FlowSlug:  "subscription-renewal",
+                Type:      "schedule",
+                Name:      "Nightly renewals",
+                Enabled:   true,
+                UpdatedAt: now.Add(-6 * time.Hour),
+                Config:    map[string]any{"cron": "0 2 * * *", "timezone": "UTC"},
         }
 
         ws.Flows["daily-sales-report"] = &Flow{

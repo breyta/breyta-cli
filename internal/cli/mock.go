@@ -3,12 +3,13 @@ package cli
 import (
         "breyta-cli/internal/mock"
         "breyta-cli/internal/state"
+        "os"
 
         "github.com/spf13/cobra"
 )
 
-func newMockCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "mock", Short: "Mock helpers"}
+func newDevCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "dev", Short: "Dev helpers", Hidden: os.Getenv("BREYTA_DEV") != "1" && !app.DevMode}
         cmd.AddCommand(newMockSeedCmd(app))
         cmd.AddCommand(newMockAdvanceCmd(app))
         return cmd
@@ -24,10 +25,9 @@ func newMockSeedCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "status":      "ok",
-                                "tick":        st.Tick,
+                        return writeData(cmd, app, nil, map[string]any{
+                                "status": "ok",
+                                "tick":   st.Tick,
                         })
                 },
         }
@@ -50,10 +50,9 @@ func newMockAdvanceCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "tick":        st.Tick,
-                                "status":      "ok",
+                        return writeData(cmd, app, nil, map[string]any{
+                                "tick":   st.Tick,
+                                "status": "ok",
                         })
                 },
         }

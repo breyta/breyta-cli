@@ -3,7 +3,7 @@
 A standalone **Go** CLI + **Bubble Tea** TUI for exploring the Breyta product experience **without any real backend**.
 
 - Running **`breyta`** launches an interactive TUI.
-- Running **`breyta flow ...`**, **`breyta run ...`**, etc. returns **mock JSON** by default (or EDN with `--format edn`).
+- Running **`breyta flows ...`**, **`breyta runs ...`**, etc. returns **JSON** by default (or EDN with `--format edn`).
 - All commands share a single **mock state file**, so you can keep the TUI open in one terminal and drive changes from another.
 
 ### Goals
@@ -18,9 +18,12 @@ The CLI supports both:
 
 - `breyta <cmd> --help` for human-readable help
 - `breyta docs` for on-demand docs (Markdown by default)
-  - `breyta docs run list` (command-specific docs)
-  - `breyta docs run list --format json|edn` (structured docs)
+  - `breyta docs runs list` (command-specific docs)
+  - `breyta docs runs list --format json|edn` (structured docs)
   - Add global `--format edn` for EDN output in normal commands.
+
+Dev-only commands:
+- `breyta dev ...` (hidden unless `BREYTA_DEV=1` or `--dev`)
 
 ### Install / build
 
@@ -115,26 +118,32 @@ If Terminal A is open, you should see the dashboard update when you seed/start/a
 
 ```bash
 breyta docs
-breyta docs run list
-breyta docs run list --format edn --pretty
+breyta docs flows
+breyta docs flows steps set
+breyta docs runs list
+breyta docs runs list --format edn --pretty
 
-breyta flow list --pretty
-breyta flow show daily-sales-report --pretty
-breyta flow spine daily-sales-report --pretty
+breyta flows list --pretty
+breyta flows show daily-sales-report --pretty
+breyta flows spine daily-sales-report --pretty
+breyta flows steps list daily-sales-report --pretty
+breyta flows steps show daily-sales-report fetch-sales --include schemas,definition --pretty
 
-breyta run list daily-sales-report --pretty
-breyta run list daily-sales-report --include-steps --pretty
-breyta run show wf-demo-001 --pretty
-breyta run show wf-demo-001 --steps 0 --pretty
-breyta run start --flow daily-sales-report --pretty
-breyta run replay 4821 --pretty
-breyta run step 4821 process-card --pretty
+breyta runs list daily-sales-report --pretty
+breyta runs list daily-sales-report --include-steps --pretty
+breyta runs show wf-demo-001 --pretty
+breyta runs show wf-demo-001 --steps 0 --pretty
+breyta runs start --flow daily-sales-report --pretty
+breyta runs replay 4821 --pretty
+breyta runs step 4821 process-card --pretty
+breyta runs events 4821 --pretty
+breyta runs cancel wf-demo-001 --reason "stopping demo" --pretty
 
 breyta revenue show --last 30d --pretty
 breyta demand top --window 30d --pretty
 
-breyta mock seed --pretty
-breyta mock advance --ticks 1 --pretty
+BREYTA_DEV=1 breyta dev seed --pretty
+BREYTA_DEV=1 breyta dev advance --ticks 1 --pretty
 ```
 
 ### Mock state file

@@ -20,6 +20,12 @@ type Workspace struct {
         // Marketplace-ish mock data
         RevenueEvents []RevenueEvent `json:"revenueEvents"`
         DemandTop     []DemandItem   `json:"demandTop"`
+
+        // v1 CLI resources (mocked)
+        Connections map[string]*Connection `json:"connections"`
+        Instances   map[string]*Instance   `json:"instances"`
+        Triggers    map[string]*Trigger    `json:"triggers"`
+        Waits       map[string]*Wait       `json:"waits"`
 }
 
 type Flow struct {
@@ -31,6 +37,24 @@ type Flow struct {
         UpdatedAt     time.Time  `json:"updatedAt"`
         Spine         []string   `json:"spine"`
         Steps         []FlowStep `json:"steps"`
+
+        // Published, immutable versions (mock). Draft is the current Flow record.
+        Versions []FlowVersion `json:"versions,omitempty"`
+}
+
+type FlowVersion struct {
+        Version     int        `json:"version"`
+        PublishedAt time.Time  `json:"publishedAt"`
+        Note        string     `json:"note,omitempty"`
+        Flow        FlowRecord `json:"flow"`
+}
+
+type FlowRecord struct {
+        Name        string     `json:"name"`
+        Description string     `json:"description"`
+        Tags        []string   `json:"tags"`
+        Spine       []string   `json:"spine"`
+        Steps       []FlowStep `json:"steps"`
 }
 
 type FlowStep struct {
@@ -87,4 +111,45 @@ type StepExecution struct {
         InputPreview  any        `json:"inputPreview,omitempty"`
         ResultPreview any        `json:"resultPreview,omitempty"`
         Error         string     `json:"error,omitempty"`
+}
+
+type Connection struct {
+        ID        string    `json:"id"`
+        Name      string    `json:"name"`
+        Type      string    `json:"type"` // e.g. slack, stripe
+        Status    string    `json:"status"`
+        UpdatedAt time.Time `json:"updatedAt"`
+        Config    any       `json:"config,omitempty"`
+}
+
+type Trigger struct {
+        ID        string    `json:"id"`
+        FlowSlug  string    `json:"flowSlug"`
+        Type      string    `json:"type"` // schedule, webhook, manual
+        Name      string    `json:"name"`
+        Enabled   bool      `json:"enabled"`
+        UpdatedAt time.Time `json:"updatedAt"`
+        Config    any       `json:"config,omitempty"`
+}
+
+type Instance struct {
+        ID          string    `json:"id"`
+        FlowSlug    string    `json:"flowSlug"`
+        Version     int       `json:"version"`
+        Name        string    `json:"name"`
+        Enabled     bool      `json:"enabled"`
+        AutoUpgrade bool      `json:"autoUpgrade"`
+        UpdatedAt   time.Time `json:"updatedAt"`
+        Bindings    any       `json:"bindings,omitempty"`
+}
+
+type Wait struct {
+        ID        string    `json:"id"`
+        RunID     string    `json:"runId"`
+        StepID    string    `json:"stepId"`
+        Type      string    `json:"type"` // input, secret, approve
+        Status    string    `json:"status"`
+        Prompt    string    `json:"prompt"`
+        CreatedAt time.Time `json:"createdAt"`
+        Payload   any       `json:"payload,omitempty"`
 }

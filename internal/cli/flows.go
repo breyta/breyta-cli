@@ -10,7 +10,7 @@ import (
 )
 
 func newFlowsCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "flow", Aliases: []string{"flows"}, Short: "Inspect and edit flows (mock)"}
+        cmd := &cobra.Command{Use: "flows", Aliases: []string{"flow"}, Short: "Inspect and edit flows"}
         cmd.AddCommand(newFlowsListCmd(app))
         cmd.AddCommand(newFlowsShowCmd(app))
         cmd.AddCommand(newFlowsSpineCmd(app))
@@ -65,13 +65,17 @@ func newFlowsListCmd(app *App) *cobra.Command {
                                 })
                         }
 
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "items":       items,
-                        })
+                        meta := map[string]any{
+                                "shown":     len(items),
+                                "truncated": limit > 0 && limit < len(flows),
+                        }
+                        if meta["truncated"].(bool) {
+                                meta["hint"] = "Use --limit 0 to show all flows"
+                        }
+                        return writeData(cmd, app, meta, map[string]any{"items": items})
                 },
         }
-        cmd.Flags().IntVar(&limit, "limit", 0, "Limit results")
+        cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
         return cmd
 }
 
@@ -89,10 +93,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
                         if err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "flow":        f,
-                        })
+                        return writeData(cmd, app, nil, map[string]any{"flow": f})
                 },
         }
         return cmd
@@ -120,10 +121,9 @@ func newFlowsSpineCmd(app *App) *cobra.Command {
                                 }
                                 lines = append(lines, prefix+" "+s.ID+"  ("+s.Type+")  "+s.Title)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "flowSlug":    f.Slug,
-                                "spine":       lines,
+                        return writeData(cmd, app, nil, map[string]any{
+                                "flowSlug": f.Slug,
+                                "spine":    lines,
                         })
                 },
         }
@@ -172,7 +172,7 @@ func newFlowCreateCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{"workspaceId": app.WorkspaceID, "flow": f})
+                        return writeData(cmd, app, nil, map[string]any{"flow": f})
                 },
         }
         cmd.Flags().StringVar(&slug, "slug", "", "Flow slug")
@@ -206,7 +206,7 @@ func newFlowDeployCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{"workspaceId": app.WorkspaceID, "flow": f})
+                        return writeData(cmd, app, nil, map[string]any{"flow": f})
                 },
         }
         return cmd
@@ -281,7 +281,7 @@ func newFlowStepSetCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{"workspaceId": app.WorkspaceID, "flow": f})
+                        return writeData(cmd, app, nil, map[string]any{"flow": f})
                 },
         }
         cmd.Flags().StringVar(&stepType, "type", "", "Step type (http|code|wait|notify|llm)")

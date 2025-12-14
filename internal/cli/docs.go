@@ -64,10 +64,15 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
                         case "json", "edn":
                                 d := docCommandFrom(target, full)
                                 return format.Write(cmd.OutOrStdout(), map[string]any{
+                                        "ok":          true,
                                         "workspaceId": app.WorkspaceID,
-                                        "path":        path,
-                                        "command":     d,
-                                        "_hint":       "Pass `breyta docs <command> --format md` for human-readable docs; use `--full` to include recursive subcommands.",
+                                        "meta": map[string]any{
+                                                "path": path,
+                                                "hint": "Pass `breyta docs <command> --format md` for human-readable docs; use `--full` to include recursive subcommands.",
+                                        },
+                                        "data": map[string]any{
+                                                "command": d,
+                                        },
                                 }, outFormat, true)
                         default:
                                 return writeErr(cmd, fmt.Errorf("unknown docs format: %s", outFormat))

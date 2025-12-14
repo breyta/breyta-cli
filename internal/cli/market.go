@@ -54,11 +54,10 @@ func newRevenueShowCmd(app *App) *cobra.Command {
                                 totals[e.Currency] += e.AmountCents
                         }
 
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "window":      last,
-                                "totals":      totals,
-                                "events":      events,
+                        return writeData(cmd, app, nil, map[string]any{
+                                "window": last,
+                                "totals": totals,
+                                "events": events,
                         })
                 },
         }
@@ -99,10 +98,9 @@ func newDemandTopCmd(app *App) *cobra.Command {
                                 return false
                         })
 
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "window":      window,
-                                "items":       items,
+                        return writeData(cmd, app, nil, map[string]any{
+                                "window": window,
+                                "items":  items,
                         })
                 },
         }

@@ -352,5 +352,17 @@ func getWS(st *state.State, workspaceID string) (*state.Workspace, error) {
         if ws.Runs == nil {
                 ws.Runs = map[string]*state.Run{}
         }
+        if ws.Connections == nil {
+                ws.Connections = map[string]*state.Connection{}
+        }
+        if ws.Instances == nil {
+                ws.Instances = map[string]*state.Instance{}
+        }
+        if ws.Triggers == nil {
+                ws.Triggers = map[string]*state.Trigger{}
+        }
+        if ws.Waits == nil {
+                ws.Waits = map[string]*state.Wait{}
+        }
         return ws, nil
 }

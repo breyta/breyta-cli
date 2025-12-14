@@ -2,6 +2,7 @@ package cli
 
 import (
         "errors"
+        "sort"
         "time"
 
         "breyta-cli/internal/state"
@@ -10,12 +11,16 @@ import (
 )
 
 func newRunsCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "run", Aliases: []string{"runs"}, Short: "Inspect and control runs (mock)"}
+        cmd := &cobra.Command{Use: "runs", Aliases: []string{"run"}, Short: "Inspect and control runs"}
         cmd.AddCommand(newRunsListCmd(app))
         cmd.AddCommand(newRunsShowCmd(app))
         cmd.AddCommand(newRunsStartCmd(app))
         cmd.AddCommand(newRunsReplayCmd(app))
         cmd.AddCommand(newRunsStepCmd(app))
+        cmd.AddCommand(newRunsCancelCmd(app))
+        cmd.AddCommand(newRunsRetryCmd(app))
+        cmd.AddCommand(newRunsEventsCmd(app))
+        cmd.AddCommand(newRunsLogsCmd(app))
         return cmd
 }
 
@@ -62,7 +67,7 @@ func newRunsListCmd(app *App) *cobra.Command {
                                         continue
                                 }
                                 items = append(items, map[string]any{
-                                        "workflowId":    r.WorkflowID,
+                                        "runId":         r.WorkflowID,
                                         "flowSlug":      r.FlowSlug,
                                         "version":       r.Version,
                                         "status":        r.Status,
@@ -79,11 +84,9 @@ func newRunsListCmd(app *App) *cobra.Command {
                                 meta["hint"] = "List returns summaries. Use `breyta run show <run-id>` for full detail, or pass --include-steps."
                         }
 
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "flowSlug":    flow,
-                                "meta":        meta,
-                                "items":       items,
+                        return writeData(cmd, app, meta, map[string]any{
+                                "flowSlug": flow,
+                                "items":    items,
                         })
                 },
         }
@@ -96,7 +99,7 @@ func newRunsListCmd(app *App) *cobra.Command {
 func newRunsShowCmd(app *App) *cobra.Command {
         var steps int
         cmd := &cobra.Command{
-                Use:   "show <workflow-id>",
+                Use:   "show <run-id>",
                 Short: "Show run detail (mock)",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
@@ -123,11 +126,7 @@ func newRunsShowCmd(app *App) *cobra.Command {
                                 meta["hint"] = "Use --steps 0 to show all steps"
                         }
 
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "meta":        meta,
-                                "run":         &out,
-                        })
+                        return writeData(cmd, app, meta, map[string]any{"run": &out})
                 },
         }
         cmd.Flags().IntVar(&steps, "steps", 20, "Number of steps to include (0 = all)")
@@ -152,10 +151,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "run":         r,
-                        })
+                        return writeData(cmd, app, nil, map[string]any{"run": r})
                 },
         }
         cmd.Flags().StringVar(&flow, "flow", "", "Flow slug")
@@ -198,8 +194,7 @@ func newRunsReplayCmd(app *App) *cobra.Command {
                         if err := store.Save(st); err != nil {
                                 return writeErr(cmd, err)
                         }
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId":   app.WorkspaceID,
+                        return writeData(cmd, app, nil, map[string]any{
                                 "originalRunId": runID,
                                 "replayRunId":   newID,
                                 "run":           &replayed,
@@ -253,14 +248,13 @@ func newRunsStepCmd(app *App) *cobra.Command {
 
                         // For "execution truth" we surface concrete input/output from the run.
                         // (Schemas live on the flow step and can be returned separately if needed.)
-                        return writeOut(cmd, app, map[string]any{
-                                "workspaceId": app.WorkspaceID,
-                                "runId":       runID,
-                                "flowSlug":    r.FlowSlug,
-                                "stepId":      stepID,
-                                "input":       execStep.InputPreview,
-                                "output":      execStep.ResultPreview,
-                                "execution":   execStep,
+                        return writeData(cmd, app, nil, map[string]any{
+                                "runId":     runID,
+                                "flowSlug":  r.FlowSlug,
+                                "stepId":    stepID,
+                                "input":     execStep.InputPreview,
+                                "output":    execStep.ResultPreview,
+                                "execution": execStep,
                                 "flowStep": map[string]any{
                                         "id":    stepID,
                                         "type":  flowStepType(flowStep),
@@ -286,4 +280,150 @@ func flowStepTitle(s *state.FlowStep) string {
                 return ""
         }
         return s.Title
+}
+
+func newRunsCancelCmd(app *App) *cobra.Command {
+        var reason string
+        cmd := &cobra.Command{
+                Use:   "cancel <run-id>",
+                Short: "Cancel a run (mock)",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        st, store, err := appStore(app)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        r, err := store.GetRun(st, args[0])
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        if r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
+                                return writeData(cmd, app, map[string]any{"hint": "Run is already terminal"}, map[string]any{"run": r})
+                        }
+                        now := time.Now().UTC()
+                        r.Status = "cancelled"
+                        r.Error = reason
+                        r.CurrentStep = ""
+                        r.CompletedAt = &now
+                        r.UpdatedAt = now
+                        if err := store.Save(st); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeData(cmd, app, nil, map[string]any{"run": r})
+                },
+        }
+        cmd.Flags().StringVar(&reason, "reason", "", "Cancellation reason")
+        return cmd
+}
+
+func newRunsRetryCmd(app *App) *cobra.Command {
+        var stepID string
+        cmd := &cobra.Command{
+                Use:   "retry <run-id>",
+                Short: "Retry a run (mock)",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        st, store, err := appStore(app)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        orig, err := store.GetRun(st, args[0])
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        r, err := store.StartRun(st, orig.FlowSlug, orig.Version)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        r.TriggeredBy = "retry"
+                        if stepID != "" {
+                                // v1 placeholder: we don't yet support partial-step retries in the mock executor.
+                                // Keep it as metadata + hint.
+                        }
+                        if err := store.Save(st); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        meta := map[string]any{"hint": "Partial step retries are planned; currently retries restart from step 1"}
+                        if stepID == "" {
+                                meta = nil
+                        }
+                        return writeData(cmd, app, meta, map[string]any{"originalRunId": orig.WorkflowID, "run": r})
+                },
+        }
+        cmd.Flags().StringVar(&stepID, "step", "", "Retry from this step-id (planned)")
+        return cmd
+}
+
+func newRunsEventsCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{
+                Use:   "events <run-id>",
+                Short: "Show run event timeline (mock)",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        st, store, err := appStore(app)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        r, err := store.GetRun(st, args[0])
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        events := deriveRunEvents(r)
+                        meta := map[string]any{"count": len(events)}
+                        return writeData(cmd, app, meta, map[string]any{"runId": r.WorkflowID, "items": events})
+                },
+        }
+        return cmd
+}
+
+func newRunsLogsCmd(app *App) *cobra.Command {
+        var stepID string
+        cmd := &cobra.Command{
+                Use:   "logs <run-id>",
+                Short: "Show run logs (mock)",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        st, store, err := appStore(app)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        r, err := store.GetRun(st, args[0])
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        // We don't have real logs yet; return a structured placeholder.
+                        meta := map[string]any{"hint": "Logs are planned (per-step, per-attempt). Use `runs events` for a timeline today."}
+                        return writeData(cmd, app, meta, map[string]any{"runId": r.WorkflowID, "stepId": stepID, "items": []any{}})
+                },
+        }
+        cmd.Flags().StringVar(&stepID, "step", "", "Filter logs by step-id")
+        return cmd
+}
+
+func deriveRunEvents(r *state.Run) []map[string]any {
+        items := []map[string]any{
+                {"at": r.StartedAt, "type": "run_started", "runId": r.WorkflowID, "flowSlug": r.FlowSlug, "version": r.Version, "triggeredBy": r.TriggeredBy},
+        }
+        for _, s := range r.Steps {
+                if !s.StartedAt.IsZero() {
+                        items = append(items, map[string]any{"at": s.StartedAt, "type": "step_started", "stepId": s.StepID, "stepType": s.StepType, "title": s.Title, "input": s.InputPreview})
+                }
+                if s.CompletedAt != nil && !s.CompletedAt.IsZero() {
+                        t := *s.CompletedAt
+                        ev := map[string]any{"at": t, "type": "step_completed", "stepId": s.StepID, "status": s.Status, "output": s.ResultPreview}
+                        if s.Error != "" {
+                                ev["error"] = s.Error
+                        }
+                        items = append(items, ev)
+                }
+        }
+        if r.CompletedAt != nil && !r.CompletedAt.IsZero() {
+                items = append(items, map[string]any{"at": *r.CompletedAt, "type": "run_completed", "status": r.Status, "error": r.Error, "result": r.ResultPreview})
+        }
+        sort.Slice(items, func(i, j int) bool {
+                ti := items[i]["at"].(time.Time)
+                tj := items[j]["at"].(time.Time)
+                return ti.Before(tj)
+        })
+        return items
 }
