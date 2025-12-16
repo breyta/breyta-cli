@@ -25,12 +25,12 @@ export BREYTA_TOKEN="dev-user-123"
 ### Flow edit loop (pull → edit → push draft → deploy)
 
 ```bash
-breyta flows list --pretty
-breyta flows pull simple-http --out ./tmp/flows/simple-http.clj --pretty
+breyta flows list
+breyta flows pull simple-http --out ./tmp/flows/simple-http.clj
 # edit ./tmp/flows/simple-http.clj
-breyta flows push --file ./tmp/flows/simple-http.clj --pretty
-breyta flows deploy simple-http --pretty
-breyta flows show simple-http --pretty
+breyta flows push --file ./tmp/flows/simple-http.clj
+breyta flows deploy simple-http
+breyta flows show simple-http
 ```
 
 ### Runnable smoke test (verify final output)
@@ -63,10 +63,10 @@ cat > ./tmp/flows/run-hello.clj <<'EOF'
      out))}
 EOF
 
-breyta flows push --file ./tmp/flows/run-hello.clj --pretty
-breyta flows deploy run-hello --pretty
+breyta flows push --file ./tmp/flows/run-hello.clj
+breyta flows deploy run-hello
 
 # Start a run and wait. Output is in:
 #   data.run.resultPreview.data.result
-breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --timeout 30s --pretty
+breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --timeout 30s
 ```

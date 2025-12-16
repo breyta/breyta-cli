@@ -13,6 +13,22 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+### Local API keys / secrets (for flows-api + OAuth)
+
+Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).
+
+- **Option A (recommended for local dev)**: create a local `secrets.edn` file (gitignored)
+  - Copy template: `cp breyta/secrets.edn.example secrets.edn`
+  - Fill in the keys you need (OpenAI/Anthropic, OAuth client IDs/secrets, etc.)
+  - Restart `flows-api` after changing `secrets.edn`
+  - Never commit `secrets.edn`
+
+- **Option B (CLI/env only)**: set CLI env vars for talking to the server
+  - `BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`
+  - These are for authenticating the CLI to `flows-api`, **not** for providing third-party API keys to flow executions.
+
+For HTTP integrations that require API keys, the intended path is to declare a connection slot in `:requires` and then enter the key / complete OAuth via the `flows-api` activation UI (it stores secrets server-side).
+
 ### Claude Code (Anthropic skills)
 
 This repo includes a skill bundle at `breyta/skills/breyta-flows-cli/`.
@@ -48,14 +64,14 @@ This project has a local flow-authoring CLI.
   - BREYTA_TOKEN=dev-user-123
 
 Use these commands to manage flows:
-- breyta flows list --pretty
-- breyta flows pull <slug> --out ./tmp/flows/<slug>.clj --pretty
+- breyta flows list
+- breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - edit file
-- breyta flows push --file ./tmp/flows/<slug>.clj --pretty
-- breyta flows deploy <slug> --pretty
+- breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows deploy <slug>
 
 To run a flow and see output:
-- breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --pretty
+- breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
 - read output at: data.run.resultPreview.data.result
 ```
 

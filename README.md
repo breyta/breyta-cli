@@ -17,7 +17,7 @@ This CLI supports two modes:
 ### Goals
 
 - **Truth surface first**: inspect flows and drill down into step detail.
-- **Scriptable CLI**: every command returns stable JSON (optionally `--pretty`).
+- **Scriptable CLI**: every command returns stable JSON (use `--pretty` only for human-readable formatting).
 - **API-backed flows (local)**: operate on real flow store/versioning via `flows-api`.
 
 ### Quick start: operate on flows via flows-api (API mode)
@@ -40,12 +40,12 @@ export BREYTA_TOKEN="dev-user-123"
 Then:
 
 ```bash
-breyta flows list --pretty
-breyta flows pull simple-http --out ./tmp/flows/simple-http.clj --pretty
+breyta flows list
+breyta flows pull simple-http --out ./tmp/flows/simple-http.clj
 # edit file
-breyta flows push --file ./tmp/flows/simple-http.clj --pretty
-breyta flows deploy simple-http --pretty
-breyta flows show simple-http --pretty
+breyta flows push --file ./tmp/flows/simple-http.clj
+breyta flows deploy simple-http
+breyta flows show simple-http
 ```
 
 Notes:
@@ -60,10 +60,10 @@ Runs are available via the `runs.*` command endpoint. In the CLI, use `--dev` to
 ```bash
 # Start a run and wait for completion. Output is in:
 #   data.run.resultPreview.data.result
-breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --pretty
+breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
 
 # Inspect a run by workflow ID
-breyta --dev runs show flow-run-hello-ws-acme --pretty
+breyta --dev runs show flow-run-hello-ws-acme
 ```
 
 ### Skill bundle (for agents)
@@ -105,7 +105,7 @@ This installs `breyta` into `$(go env GOPATH)/bin`.
 
 ```bash
 make build
-./dist/breyta flows list --pretty
+./dist/breyta flows list
 ```
 
 ### Running
@@ -143,7 +143,7 @@ TUI flow:
 #### Reset state (recommended before every demo)
 
 ```bash
-BREYTA_DEV=1 breyta dev seed --pretty
+BREYTA_DEV=1 breyta dev seed
 ```
 
 #### Terminal A (truth surface)
@@ -163,36 +163,36 @@ breyta
 Marketplace angle:
 
 ```bash
-breyta flows show subscription-renewal --pretty
-breyta runs list subscription-renewal --pretty
-breyta runs step 4821 process-card --pretty
-breyta runs replay 4821 --pretty
+breyta flows show subscription-renewal
+breyta runs list subscription-renewal
+breyta runs step 4821 process-card
+breyta runs replay 4821
 
-breyta revenue show --last 30d --pretty
-breyta demand top --window 30d --pretty
-breyta demand clusters --pretty
-breyta demand ingest "Need subscription renewal with retries" --offer-cents 1000 --currency USD --pretty
+breyta revenue show --last 30d
+breyta demand top --window 30d
+breyta demand clusters
+breyta demand ingest "Need subscription renewal with retries" --offer-cents 1000 --currency USD
 
-breyta registry search "subscription" --pretty
-breyta registry show wrk-subscription-renewal --pretty
-breyta registry match "Renew subscriptions and retry payments" --pretty
-breyta pricing show wrk-subscription-renewal --pretty
-breyta purchases create wrk-subscription-renewal --buyer buyer@demo.test --pretty
-breyta entitlements list --pretty
-breyta payouts list --pretty
-breyta creator dashboard --pretty
-breyta analytics overview --pretty
+breyta registry search "subscription"
+breyta registry show wrk-subscription-renewal
+breyta registry match "Renew subscriptions and retry payments"
+breyta pricing show wrk-subscription-renewal
+breyta purchases create wrk-subscription-renewal --buyer buyer@demo.test
+breyta entitlements list
+breyta payouts list
+breyta creator dashboard
+breyta analytics overview
 ```
 
 “Build a flow” angle:
 
 ```bash
-breyta flows create --slug hello-market --name "Hello Market" --pretty
-breyta flows steps set hello-market fetch --type http --title "Fetch sample payload" --definition "(step :http :fetch {:connection :demo :path \"/sample\"})" --pretty
-breyta flows steps set hello-market summarize --type code --title "Summarize payload" --definition "(step :code :summarize {:code '(fn [x] ...)})" --pretty
-breyta flows validate hello-market --pretty
-breyta runs start --flow hello-market --pretty
-BREYTA_DEV=1 breyta dev advance --ticks 3 --pretty
+breyta flows create --slug hello-market --name "Hello Market"
+breyta flows steps set hello-market fetch --type http --title "Fetch sample payload" --definition "(step :http :fetch {:connection :demo :path \"/sample\"})"
+breyta flows steps set hello-market summarize --type code --title "Summarize payload" --definition "(step :code :summarize {:code '(fn [x] ...)})"
+breyta flows validate hello-market
+breyta runs start --flow hello-market
+BREYTA_DEV=1 breyta dev advance --ticks 3
 ```
 
 If Terminal A is open, you should see the dashboard update when you seed/start/advance/replay runs.
@@ -204,41 +204,41 @@ breyta docs
 breyta docs flows
 breyta docs flows steps set
 breyta docs runs list
-breyta docs runs list --format edn --pretty
+breyta docs runs list --format edn
 
-breyta flows list --pretty
-breyta flows show daily-sales-report --pretty
-breyta flows spine daily-sales-report --pretty
-breyta flows steps list daily-sales-report --pretty
-breyta flows steps show daily-sales-report fetch-sales --include schemas,definition --pretty
+breyta flows list
+breyta flows show daily-sales-report
+breyta flows spine daily-sales-report
+breyta flows steps list daily-sales-report
+breyta flows steps show daily-sales-report fetch-sales --include schemas,definition
 
-breyta runs list daily-sales-report --pretty
-breyta runs show wf-demo-001 --pretty
-breyta runs show wf-demo-001 --steps 0 --pretty
-breyta runs start --flow daily-sales-report --pretty
-breyta runs replay 4821 --pretty
-breyta runs step 4821 process-card --pretty
-breyta runs events 4821 --pretty
-breyta runs cancel wf-demo-001 --reason "stopping demo" --pretty
+breyta runs list daily-sales-report
+breyta runs show wf-demo-001
+breyta runs show wf-demo-001 --steps 0
+breyta runs start --flow daily-sales-report
+breyta runs replay 4821
+breyta runs step 4821 process-card
+breyta runs events 4821
+breyta runs cancel wf-demo-001 --reason "stopping demo"
 
-breyta revenue show --last 30d --pretty
-breyta demand top --window 30d --pretty
-breyta demand clusters --pretty
-breyta demand ingest "Need order approval with fraud checks" --offer-cents 250 --pretty
+breyta revenue show --last 30d
+breyta demand top --window 30d
+breyta demand clusters
+breyta demand ingest "Need order approval with fraud checks" --offer-cents 250
 
-breyta registry search "sales report" --pretty
-breyta registry show wrk-daily-sales-report --pretty
-breyta registry publish daily-sales-report --title "Daily Sales Report" --model subscription --amount-cents 1500 --currency USD --interval month --note "Demo publish" --pretty
-breyta registry versions wrk-daily-sales-report --pretty
-breyta pricing set wrk-daily-sales-report --model subscription --amount-cents 2000 --interval month --pretty
-breyta purchases list --pretty
-breyta entitlements list --pretty
-breyta payouts list --pretty
-breyta creator dashboard --pretty
-breyta analytics overview --pretty
+breyta registry search "sales report"
+breyta registry show wrk-daily-sales-report
+breyta registry publish daily-sales-report --title "Daily Sales Report" --model subscription --amount-cents 1500 --currency USD --interval month --note "Demo publish"
+breyta registry versions wrk-daily-sales-report
+breyta pricing set wrk-daily-sales-report --model subscription --amount-cents 2000 --interval month
+breyta purchases list
+breyta entitlements list
+breyta payouts list
+breyta creator dashboard
+breyta analytics overview
 
-BREYTA_DEV=1 breyta dev seed --pretty
-BREYTA_DEV=1 breyta dev advance --ticks 1 --pretty
+BREYTA_DEV=1 breyta dev seed
+BREYTA_DEV=1 breyta dev advance --ticks 1
 ```
 
 ### Mock state file
@@ -268,9 +268,9 @@ breyta
 Terminal B:
 
 ```bash
-breyta run start --flow daily-sales-report --pretty
-breyta mock advance --ticks 1 --pretty
-breyta mock advance --ticks 1 --pretty
+breyta run start --flow daily-sales-report
+breyta mock advance --ticks 1
+breyta mock advance --ticks 1
 ```
 
 The TUI refreshes when the mock state file changes.

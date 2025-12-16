@@ -185,6 +185,15 @@ func renderDocsIndexMD(root *cobra.Command) string {
         b.WriteString("- `breyta docs <command...>` prints Markdown docs for that command\n")
         b.WriteString("- `breyta <command...> --help` prints Cobra help for that command\n")
         b.WriteString("- For structured docs: `breyta docs <command...> --format json|edn`\n\n")
+
+        b.WriteString("### Local secrets / API keys (for flow execution)\n\n")
+        b.WriteString("Flows execute inside `flows-api`, so third-party API keys must be available to the server.\n\n")
+        b.WriteString("- Create `secrets.edn` (gitignored) from the template:\n")
+        b.WriteString("  - `cp breyta/secrets.edn.example secrets.edn`\n")
+        b.WriteString("- Add the keys you need and restart `flows-api`.\n")
+        b.WriteString("- Never commit `secrets.edn`.\n\n")
+        b.WriteString("CLI env vars (`BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`) are only for authenticating the CLI to `flows-api`.\n\n")
+
         b.WriteString("### Top-level commands\n\n")
         for _, c := range root.Commands() {
                 if !c.IsAvailableCommand() {
