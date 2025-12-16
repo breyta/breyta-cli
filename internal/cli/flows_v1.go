@@ -23,7 +23,41 @@ func isAPIValidFlowSlug(s string) bool {
 }
 
 func newFlowsCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "flows", Aliases: []string{"flow"}, Short: "Inspect and edit flows"}
+        cmd := &cobra.Command{
+                Use:     "flows",
+                Aliases: []string{"flow"},
+                Short:   "Inspect and edit flows",
+                Long: strings.TrimSpace(`
+Flow authoring (API mode)
+
+In API mode (BREYTA_API_URL set), flows are edited via a file workflow:
+1) pull a flow to a local .clj file
+2) edit the file (Clojure map literal + DSL)
+3) push -> creates a new draft version
+4) deploy -> promotes latest version to active
+
+Quick commands:
+- breyta flows list
+- breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
+- breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows deploy <slug>
+
+Flow file format (minimal):
+{:slug :my-flow
+ :name "My Flow"
+ :description "..."
+ :tags ["draft"]
+ :concurrency-config {:concurrency :singleton :on-new-version :supersede}
+ :requires nil
+ :templates nil
+ :triggers nil
+ :definition (defflow [input] (step :code :do {:type :code :code '(fn [x] x) :input input}))}
+
+Notes:
+- The server reads the file with *read-eval* disabled.
+- If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source latest.
+`),
+        }
 
         cmd.AddCommand(newFlowsListCmd(app))
         cmd.AddCommand(newFlowsShowCmd(app))
