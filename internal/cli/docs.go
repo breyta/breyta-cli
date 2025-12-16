@@ -194,6 +194,15 @@ func renderDocsIndexMD(root *cobra.Command) string {
         b.WriteString("- Never commit `secrets.edn`.\n\n")
         b.WriteString("CLI env vars (`BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`) are only for authenticating the CLI to `flows-api`.\n\n")
 
+        b.WriteString("### Activation (credentials for `:requires` slots)\n\n")
+        b.WriteString("If a flow declares `:requires` slots (e.g. `:http-api` with `:auth`/`:oauth`), you must activate it once to provide credentials and create an instance/bindings.\n\n")
+        b.WriteString("Symptom if you forget: \"Slot reference requires a flow instance, but no instance-id in context\".\n\n")
+        b.WriteString("Do this:\n")
+        b.WriteString("- Sign in: `http://localhost:8090/login` → Sign in with Google → Dev User\n")
+        b.WriteString("- Activate: `http://localhost:8090/<workspace>/flows/<slug>/activate` (e.g. `/ws-acme/flows/my-flow/activate`)\n")
+        b.WriteString("- Enter API key/token or complete OAuth, submit Activate Flow\n")
+        b.WriteString("- Re-run the flow (CLI `runs start` will then resolve slots via the active instance)\n\n")
+
         b.WriteString("### Top-level commands\n\n")
         for _, c := range root.Commands() {
                 if !c.IsAvailableCommand() {

@@ -56,6 +56,12 @@ Flow file format (minimal):
 Notes:
 - The server reads the file with *read-eval* disabled.
 - If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source latest.
+
+Activation (credentials for :requires):
+- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), you must activate it once to provide credentials and create an instance/bindings.
+- Visit: http://localhost:8090/<workspace>/flows/<slug>/activate (example: http://localhost:8090/ws-acme/flows/my-flow/activate)
+- Sign in (mock OAuth): http://localhost:8090/login → Sign in with Google → Dev User
+- After activation, runs started via the CLI can resolve slot-based connections.
 `),
         }
 
