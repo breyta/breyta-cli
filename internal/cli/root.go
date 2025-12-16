@@ -14,14 +14,15 @@ import (
 )
 
 type App struct {
-        WorkspaceID string
-        StatePath   string
-        PrettyJSON  bool
-        Format      string
-        APIURL      string
-        Token       string
-        Profile     string
-        DevMode     bool
+        WorkspaceID          string
+        StatePath            string
+        PrettyJSON           bool
+        Format               string
+        APIURL               string
+        Token                string
+        Profile              string
+        DevMode              bool
+        visibilityConfigured bool
 }
 
 func NewRootCmd() *cobra.Command {
@@ -29,24 +30,28 @@ func NewRootCmd() *cobra.Command {
 
         cmd := &cobra.Command{
                 Use:          "breyta",
-                Short:        "Breyta CLI (mock)",
+                Short:        "Breyta CLI",
                 SilenceUsage: true,
                 RunE: func(cmd *cobra.Command, args []string) error {
-                        // No subcommand => interactive TUI.
-                        if cmd.HasSubCommands() && len(args) == 0 {
+                        // No subcommand => interactive TUI (mock mode only).
+                        if cmd.HasSubCommands() && len(args) == 0 && !isAPIMode(app) {
                                 return runTUI(app)
                         }
                         return cmd.Help()
                 },
         }
 
-        cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "demo-workspace"), "Workspace id")
+        cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "ws-acme"), "Workspace id")
         cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
         cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
         cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://api.breyta.com)")
         cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
         cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
         cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
+        cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+                configureVisibility(cmd.Root(), app)
+                return nil
+        }
 
         defaultPath, _ := state.DefaultPath()
         cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")

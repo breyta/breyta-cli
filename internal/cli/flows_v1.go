@@ -1,8 +1,12 @@
 package cli
 
 import (
+        "context"
         "errors"
         "fmt"
+        "os"
+        "path/filepath"
+        "regexp"
         "sort"
         "strings"
         "time"
@@ -12,12 +16,21 @@ import (
         "github.com/spf13/cobra"
 )
 
+var apiValidFlowSlugRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
+
+func isAPIValidFlowSlug(s string) bool {
+        return apiValidFlowSlugRe.MatchString(strings.TrimSpace(s))
+}
+
 func newFlowsCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "flows", Aliases: []string{"flow"}, Short: "Inspect and edit flows"}
 
         cmd.AddCommand(newFlowsListCmd(app))
         cmd.AddCommand(newFlowsShowCmd(app))
         cmd.AddCommand(newFlowsCreateCmd(app))
+        cmd.AddCommand(newFlowsPullCmd(app))
+        cmd.AddCommand(newFlowsPushCmd(app))
+        cmd.AddCommand(newFlowsDeployCmd(app))
         cmd.AddCommand(newFlowsUpdateCmd(app))
         cmd.AddCommand(newFlowsDeleteCmd(app))
         cmd.AddCommand(newFlowsSpineCmd(app))
@@ -69,6 +82,12 @@ func newFlowsListCmd(app *App) *cobra.Command {
                 Use:   "list",
                 Short: "List flows",
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                // Server-side pagination defaults apply for now.
+                                // Keep --limit for mock mode; we can add it to the API later.
+                                _ = limit
+                                return doAPICommand(cmd, app, "flows.list", map[string]any{})
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -128,11 +147,23 @@ func newFlowsListCmd(app *App) *cobra.Command {
 
 func newFlowsShowCmd(app *App) *cobra.Command {
         var include string
+        var source string
+        var version int
         cmd := &cobra.Command{
                 Use:   "show <flow-slug>",
                 Short: "Show a flow",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                payload := map[string]any{"flowSlug": args[0]}
+                                if strings.TrimSpace(source) != "" && source != "active" {
+                                        payload["source"] = source
+                                }
+                                if version > 0 {
+                                        payload["version"] = version
+                                }
+                                return doAPICommand(cmd, app, "flows.get", payload)
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -186,6 +217,8 @@ func newFlowsShowCmd(app *App) *cobra.Command {
                 },
         }
         cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
+        cmd.Flags().StringVar(&source, "source", "active", "Fetch source for API mode (active|latest)")
+        cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
         return cmd
 }
 
@@ -198,8 +231,17 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
                         if slug == "" {
                                 return writeErr(cmd, errors.New("missing --slug"))
                         }
+                        if isAPIMode(app) && !isAPIValidFlowSlug(slug) {
+                                return writeErr(cmd, fmt.Errorf("invalid --slug %q (must start with a letter; allowed: letters, digits, hyphen (-), underscore (_); max 128 chars)", slug))
+                        }
                         if name == "" {
                                 name = slug
+                        }
+                        if isAPIMode(app) {
+                                // Create a minimal draft (version) on the server.
+                                // Users/agents can then pull/edit/push and deploy explicitly.
+                                flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition (defflow [input]\n              input)}\n", slug, name, description)
+                                return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
                         }
                         st, store, err := appStore(app)
                         if err != nil {
@@ -229,6 +271,112 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
         cmd.Flags().StringVar(&name, "name", "", "Flow display name")
         cmd.Flags().StringVar(&description, "description", "", "Flow description")
         _ = cmd.MarkFlagRequired("slug")
+        return cmd
+}
+
+func newFlowsPullCmd(app *App) *cobra.Command {
+        var out string
+        var source string
+        var version int
+        cmd := &cobra.Command{
+                Use:   "pull <flow-slug>",
+                Short: "Pull a flow to a local .clj file for editing",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        if !isAPIMode(app) {
+                                return writeNotImplemented(cmd, app, "Pull requires --api/BREYTA_API_URL")
+                        }
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+
+                        slug := args[0]
+                        path := out
+                        if strings.TrimSpace(path) == "" {
+                                path = filepath.Join("tmp", "flows", slug+".clj")
+                        }
+
+                        payload := map[string]any{"flowSlug": slug}
+                        if strings.TrimSpace(source) != "" && source != "active" {
+                                payload["source"] = source
+                        }
+                        if version > 0 {
+                                payload["version"] = version
+                        }
+
+                        client := apiClient(app)
+                        resp, status, err := client.DoCommand(context.Background(), "flows.get", payload)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        if status >= 400 {
+                                return writeAPIResult(cmd, app, resp, status)
+                        }
+
+                        dataAny, _ := resp["data"]
+                        data, _ := dataAny.(map[string]any)
+                        flowLiteral, _ := data["flowLiteral"].(string)
+                        if strings.TrimSpace(flowLiteral) == "" {
+                                return writeErr(cmd, errors.New("missing data.flowLiteral in response"))
+                        }
+
+                        if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeData(cmd, app, nil, map[string]any{"saved": true, "path": path, "flowSlug": slug})
+                },
+        }
+        cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
+        cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest)")
+        cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
+        return cmd
+}
+
+func newFlowsPushCmd(app *App) *cobra.Command {
+        var file string
+        cmd := &cobra.Command{
+                Use:   "push",
+                Short: "Push a local .clj flow file as a new draft version",
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        if !isAPIMode(app) {
+                                return writeNotImplemented(cmd, app, "Push requires --api/BREYTA_API_URL")
+                        }
+                        if strings.TrimSpace(file) == "" {
+                                return writeErr(cmd, errors.New("missing --file"))
+                        }
+                        b, err := os.ReadFile(file)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": string(b)})
+                },
+        }
+        cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
+        _ = cmd.MarkFlagRequired("file")
+        return cmd
+}
+
+func newFlowsDeployCmd(app *App) *cobra.Command {
+        var version int
+        cmd := &cobra.Command{
+                Use:   "deploy <flow-slug>",
+                Short: "Deploy a flow version (make it active)",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        if !isAPIMode(app) {
+                                return writeNotImplemented(cmd, app, "Deploy requires --api/BREYTA_API_URL")
+                        }
+                        payload := map[string]any{"flowSlug": args[0]}
+                        if version > 0 {
+                                payload["version"] = version
+                        }
+                        return doAPICommand(cmd, app, "flows.deploy", payload)
+                },
+        }
+        cmd.Flags().IntVar(&version, "version", 0, "Version (0 = latest)")
         return cmd
 }
 

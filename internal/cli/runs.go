@@ -1,8 +1,12 @@
 package cli
 
 import (
+        "context"
+        "encoding/json"
         "errors"
+        "fmt"
         "sort"
+        "strings"
         "time"
 
         "breyta-cli/internal/state"
@@ -103,6 +107,9 @@ func newRunsShowCmd(app *App) *cobra.Command {
                 Short: "Show run detail (mock)",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                return doAPICommand(cmd, app, "runs.get", map[string]any{"workflowId": args[0]})
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -136,10 +143,86 @@ func newRunsShowCmd(app *App) *cobra.Command {
 func newRunsStartCmd(app *App) *cobra.Command {
         var flow string
         var version int
+        var inputJSON string
+        var wait bool
+        var timeout time.Duration
+        var poll time.Duration
         cmd := &cobra.Command{
                 Use:   "start",
                 Short: "Start a new run (mock)",
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                payload := map[string]any{"flowSlug": flow}
+                                if version > 0 {
+                                        payload["version"] = version
+                                }
+                                if strings.TrimSpace(inputJSON) != "" {
+                                        var v any
+                                        if err := json.Unmarshal([]byte(inputJSON), &v); err != nil {
+                                                return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+                                        }
+                                        m, ok := v.(map[string]any)
+                                        if !ok {
+                                                return writeErr(cmd, errors.New("--input must be a JSON object"))
+                                        }
+                                        payload["input"] = m
+                                }
+
+                                client := apiClient(app)
+                                startResp, status, err := client.DoCommand(context.Background(), "runs.start", payload)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                if !wait {
+                                        return writeAPIResult(cmd, app, startResp, status)
+                                }
+                                if status >= 400 {
+                                        return writeAPIResult(cmd, app, startResp, status)
+                                }
+
+                                dataAny, _ := startResp["data"]
+                                data, _ := dataAny.(map[string]any)
+                                workflowID, _ := data["workflowId"].(string)
+                                if strings.TrimSpace(workflowID) == "" {
+                                        return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
+                                }
+
+                                deadline := time.Now().Add(timeout)
+                                for {
+                                        execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": workflowID})
+                                        if err != nil {
+                                                return writeErr(cmd, err)
+                                        }
+                                        // The execution store may lag slightly after runs.start returns.
+                                        // Treat a transient 404 as "not visible yet" and retry until timeout.
+                                        if execStatus == 404 {
+                                                if time.Now().After(deadline) {
+                                                        return writeAPIResult(cmd, app, execResp, execStatus)
+                                                }
+                                                time.Sleep(poll)
+                                                continue
+                                        }
+                                        if execStatus >= 400 {
+                                                return writeAPIResult(cmd, app, execResp, execStatus)
+                                        }
+                                        execDataAny, _ := execResp["data"]
+                                        execData, _ := execDataAny.(map[string]any)
+                                        runAny, _ := execData["run"]
+                                        run, _ := runAny.(map[string]any)
+                                        statusStr, _ := run["status"].(string)
+
+                                        if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" {
+                                                return writeAPIResult(cmd, app, execResp, execStatus)
+                                        }
+                                        if time.Now().After(deadline) {
+                                                return writeErr(cmd, fmt.Errorf("timed out waiting for run completion (workflowId=%s)", workflowID))
+                                        }
+                                        time.Sleep(poll)
+                                }
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -156,6 +239,10 @@ func newRunsStartCmd(app *App) *cobra.Command {
         }
         cmd.Flags().StringVar(&flow, "flow", "", "Flow slug")
         cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
+        cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
+        cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
+        cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")
+        cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
         _ = cmd.MarkFlagRequired("flow")
         return cmd
 }

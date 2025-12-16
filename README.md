@@ -1,16 +1,74 @@
-## Breyta CLI (mock)
+## Breyta CLI (local dev)
 
-A standalone **Go** CLI + **Bubble Tea** TUI for exploring the Breyta product experience **without any real backend**.
+This is a standalone **Go** CLI + **Bubble Tea** TUI for working with Breyta locally.
 
 - Running **`breyta`** launches an interactive TUI.
-- Running **`breyta flows ...`**, **`breyta runs ...`**, etc. returns **JSON** by default (or EDN with `--format edn`).
-- All commands share a single **mock state file**, so you can keep the TUI open in one terminal and drive changes from another.
+- Running **`breyta flows ...`** returns **JSON** by default (or EDN with `--format edn`).
+
+This CLI supports two modes:
+- **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
+- **Mock mode (dev/TUI)**: uses a local mock state file.
 
 ### Goals
 
 - **Truth surface first**: inspect flows and drill down into step detail.
 - **Scriptable CLI**: every command returns stable JSON (optionally `--pretty`).
-- **Mock-only for now**: no HTTP calls, no Temporal, no Firestore.
+- **API-backed flows (local)**: operate on real flow store/versioning via `flows-api`.
+
+### Quick start: operate on flows via flows-api (API mode)
+
+Start the server (repo root):
+
+```bash
+./breyta/scripts/start-flows-api.sh --emulator --auth-mock
+```
+
+Configure the CLI:
+
+```bash
+export BREYTA_API_URL="http://localhost:8090"
+export BREYTA_WORKSPACE="ws-acme"
+export BREYTA_TOKEN="dev-user-123"
+```
+
+Then:
+
+```bash
+breyta flows list --pretty
+breyta flows pull simple-http --out ./tmp/flows/simple-http.clj --pretty
+# edit file
+breyta flows push --file ./tmp/flows/simple-http.clj --pretty
+breyta flows deploy simple-http --pretty
+breyta flows show simple-http --pretty
+```
+
+Notes:
+- Mock auth accepts any non-empty token, but the API enforces **workspace membership**. The dev server seeds `ws-acme` and `dev-user-123`.
+- By default, most mock/future command groups are hidden. Use `--dev` / `BREYTA_DEV=1` to access the full mocked surface.
+- Flow slugs in API mode must match the API slug format: `^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`.
+
+### Run a flow and read its output (API mode)
+
+Runs are available via the `runs.*` command endpoint. In the CLI, use `--dev` to access `breyta runs ...`:
+
+```bash
+# Start a run and wait for completion. Output is in:
+#   data.run.resultPreview.data.result
+breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --pretty
+
+# Inspect a run by workflow ID
+breyta --dev runs show flow-run-hello-ws-acme --pretty
+```
+
+### Skill bundle (for agents)
+This repo includes an Anthropic-style skill bundle at `skills/breyta-flows-cli/` (with `SKILL.md` + a `bin/breyta` wrapper).
+
+Install by copying it into your tool’s skills directory. Common locations:
+- Claude Code: `~/.claude/skills/user/breyta-flows-cli/`
+- Cursor: `~/.cursor/skills/breyta-flows-cli/`
+- Codex: `~/.codex/skills/breyta-flows-cli/`
+
+See `skills/breyta-flows-cli/SKILL.md` for the exact copy/paste verification flow.
 
 ### CLI docs for agents
 
@@ -190,8 +248,8 @@ Override location with:
 
 Workspace selection:
 
-- `--workspace demo-workspace`
-- or `BREYTA_WORKSPACE=demo-workspace`
+- `--workspace ws-acme`
+- or `BREYTA_WORKSPACE=ws-acme`
 
 ### Two-terminal workflow (recommended)
 
@@ -225,11 +283,11 @@ Or:
 go test ./...
 ```
 
-### Next steps (when you want to go beyond mock)
+### Next steps
 
-- Replace the mock store with an HTTP-backed store that talks to `flows-api`.
-- Add an SSE client for live run updates.
-- Keep the TUI structure unchanged: **flows → spine → step**.
+- Expand the API-backed surface area beyond flows (runs/instances/triggers/etc).
+- Add route-level tests for auth/membership failure cases on the command endpoint.
+- Consider adding a “workspace bootstrap” command for local dev (create workspace + membership).
 
 ### V1 CLI surface (spec, mocked)
 

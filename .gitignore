@@ -10,3 +10,4 @@
 # Local state
 **/state.json
 /.gocache/
+/tmp/
