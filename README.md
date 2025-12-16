@@ -5,6 +5,11 @@ This is a standalone **Go** CLI + **Bubble Tea** TUI for working with Breyta loc
 - Running **`breyta`** launches an interactive TUI.
 - Running **`breyta flows ...`** returns **JSON** by default (or EDN with `--format edn`).
 
+### Docs
+- Install: `docs/install.md`
+- Local flows authoring (flows-api): `docs/flows-api-local.md`
+- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
+
 This CLI supports two modes:
 - **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
 - **Mock mode (dev/TUI)**: uses a local mock state file.
@@ -20,7 +25,8 @@ This CLI supports two modes:
 Start the server (repo root):
 
 ```bash
-./breyta/scripts/start-flows-api.sh --emulator --auth-mock
+cd ../breyta
+./scripts/start-flows-api.sh --emulator --auth-mock
 ```
 
 Configure the CLI:
@@ -61,14 +67,14 @@ breyta --dev runs show flow-run-hello-ws-acme --pretty
 ```
 
 ### Skill bundle (for agents)
-This repo includes an Anthropic-style skill bundle at `skills/breyta-flows-cli/` (with `SKILL.md` + a `bin/breyta` wrapper).
+The Breyta server repo includes an Anthropic-style skill bundle at `breyta/skills/breyta-flows-cli/` (with `SKILL.md` + a `bin/breyta` wrapper).
 
 Install by copying it into your tool’s skills directory. Common locations:
 - Claude Code: `~/.claude/skills/user/breyta-flows-cli/`
 - Cursor: `~/.cursor/skills/breyta-flows-cli/`
 - Codex: `~/.codex/skills/breyta-flows-cli/`
 
-See `skills/breyta-flows-cli/SKILL.md` for the exact copy/paste verification flow.
+See `breyta/skills/breyta-flows-cli/SKILL.md` for the exact copy/paste verification flow.
 
 ### CLI docs for agents
 
