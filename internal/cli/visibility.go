@@ -53,6 +53,7 @@ func configureVisibility(root *cobra.Command, app *App) {
                 "pull":   true,
                 "push":   true,
                 "deploy": true,
+                "activate-url": true,
         }
         for _, sc := range flowsCmd.Commands() {
                 if !allowFlows[sc.Name()] {

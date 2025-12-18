@@ -17,13 +17,17 @@ export BREYTA_TOKEN="dev-user-123"
 
 Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).
 
-- **Option A (recommended for local dev)**: create a local `secrets.edn` file (gitignored)
+- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI
+  - Activation URL pattern: `http://localhost:8090/<workspace>/flows/<slug>/activate`
+  - Or print it: `breyta flows activate-url <slug>`
+
+- **Option B (local dev / server-global)**: create a local `secrets.edn` file (gitignored)
   - Copy template: `cp breyta/secrets.edn.example secrets.edn`
   - Fill in the keys you need (OpenAI/Anthropic, OAuth client IDs/secrets, etc.)
   - Restart `flows-api` after changing `secrets.edn`
   - Never commit `secrets.edn`
 
-- **Option B (CLI/env only)**: set CLI env vars for talking to the server
+- **Option C (CLI/env only)**: set CLI env vars for talking to the server
   - `BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`
   - These are for authenticating the CLI to `flows-api`, **not** for providing third-party API keys to flow executions.
 

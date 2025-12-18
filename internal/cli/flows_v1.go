@@ -62,12 +62,16 @@ Activation (credentials for :requires):
 - Visit: http://localhost:8090/<workspace>/flows/<slug>/activate (example: http://localhost:8090/ws-acme/flows/my-flow/activate)
 - Sign in (mock OAuth): http://localhost:8090/login → Sign in with Google → Dev User
 - After activation, runs started via the CLI can resolve slot-based connections.
+
+Tip:
+- Print the activation URL from the CLI: breyta flows activate-url <slug>
 `),
         }
 
         cmd.AddCommand(newFlowsListCmd(app))
         cmd.AddCommand(newFlowsShowCmd(app))
         cmd.AddCommand(newFlowsCreateCmd(app))
+        cmd.AddCommand(newFlowsActivateURLCmd(app))
         cmd.AddCommand(newFlowsPullCmd(app))
         cmd.AddCommand(newFlowsPushCmd(app))
         cmd.AddCommand(newFlowsDeployCmd(app))
@@ -93,6 +97,35 @@ Activation (credentials for :requires):
         cmd.AddCommand(newFlowsValidateCmd(app))
         cmd.AddCommand(newFlowsCompileCmd(app))
 
+        return cmd
+}
+
+func newFlowsActivateURLCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{
+                Use:   "activate-url <flow-slug>",
+                Short: "Print the activation URL for a flow",
+                Long: strings.TrimSpace(`
+Activation is where users provide credentials for :requires slots (including :llm-provider).
+
+Example:
+- Sign in: http://localhost:8090/login → Sign in with Google → Dev User
+- Activate: http://localhost:8090/<workspace>/flows/<slug>/activate
+`),
+                Args: cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        base := strings.TrimRight(app.APIURL, "/")
+                        if strings.TrimSpace(base) == "" {
+                                // Default to local flows-api URL if API mode wasn't configured.
+                                base = "http://localhost:8090"
+                        }
+                        url := fmt.Sprintf("%s/%s/flows/%s/activate", base, app.WorkspaceID, args[0])
+                        return writeData(cmd, app, nil, map[string]any{
+                                "workspaceId":   app.WorkspaceID,
+                                "flowSlug":      args[0],
+                                "activationUrl": url,
+                        })
+                },
+        }
         return cmd
 }
 
