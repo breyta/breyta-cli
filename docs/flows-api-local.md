@@ -30,6 +30,19 @@ If your flow uses `:requires` slots (including `:type :llm-provider` for LLM key
 - Activation URL: `http://localhost:8090/<workspace>/flows/<slug>/activate`
 - Or print it: `breyta flows activate-url <slug>`
 
+### Flow body constraints (SCI / orchestration DSL)
+
+Flow definitions run in a constrained runtime intended for **orchestration**, not transformation:
+- Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
+- Keep orchestration in the flow body (sequence of `step` calls)
+- Do data transformation in `:code` steps (or other explicit steps)
+
+### Input keys from `--input` (string vs keyword keys)
+
+The CLI sends `--input` as JSON, so keys arrive as strings.
+
+The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added), but author flows as if you will read keyword keys (e.g. `(get input :n)`).
+
 ### Flow edit loop (pull → edit → push draft → deploy)
 
 ```bash

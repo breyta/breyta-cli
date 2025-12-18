@@ -206,6 +206,17 @@ func renderDocsIndexMD(root *cobra.Command) string {
         b.WriteString("- Enter API key/token or complete OAuth, submit Activate Flow\n")
         b.WriteString("- Re-run the flow (CLI `runs start` will then resolve slots via the active instance)\n\n")
 
+        b.WriteString("### Flow body constraints (SCI / orchestration DSL)\n\n")
+        b.WriteString("Flow bodies are intentionally constrained to keep the \"flow language\" small for visualization and translation (Temporal-like orchestration), and to reduce the security surface area.\n\n")
+        b.WriteString("Practical consequences:\n")
+        b.WriteString("- Many everyday Clojure functions are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)\n")
+        b.WriteString("- Keep the flow body focused on orchestration (a sequence of `step` calls)\n")
+        b.WriteString("- Put data transformation into explicit `:code` steps (more verbose, but explicit + durable)\n\n")
+
+        b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
+        b.WriteString("`breyta --dev runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
+        b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
+
         b.WriteString("### Top-level commands\n\n")
         for _, c := range root.Commands() {
                 if !c.IsAvailableCommand() {

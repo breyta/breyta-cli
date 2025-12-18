@@ -77,6 +77,11 @@ Use these commands to manage flows:
 To run a flow and see output:
 - breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
 - read output at: data.run.resultPreview.data.result
+
+Notes for agents:
+- If a flow declares `:requires` slots, it must be activated in the UI so credentials are bound (visit `http://localhost:8090/<workspace>/flows/<slug>/activate` or use `breyta flows activate-url <slug>`).
+- Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:code` steps.
+- `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
 ```
 
 ### Troubleshooting
