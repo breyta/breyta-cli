@@ -1,9 +1,14 @@
 package cli
 
 import (
+        "context"
+        "encoding/json"
         "errors"
         "fmt"
+        "net/http"
+        "net/url"
         "sort"
+        "strconv"
         "strings"
         "time"
 
@@ -458,17 +463,47 @@ func newWaitsCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "waits", Short: "Manage waits"}
         cmd.AddCommand(newWaitsListCmd(app))
         cmd.AddCommand(newWaitsShowCmd(app))
+        cmd.AddCommand(newWaitsApproveCmd(app))
+        cmd.AddCommand(newWaitsRejectCmd(app))
         cmd.AddCommand(newWaitsCompleteCmd(app))
         cmd.AddCommand(newWaitsCancelCmd(app))
+        cmd.AddCommand(newWaitsActionCmd(app))
         return cmd
 }
 
 func newWaitsListCmd(app *App) *cobra.Command {
         var runID string
+        var workflowID string
+        var flowSlug string
+        var showsInUIOnly bool
+        var limit int
         cmd := &cobra.Command{
                 Use:   "list",
                 Short: "List waits",
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                q := url.Values{}
+                                if strings.TrimSpace(workflowID) != "" {
+                                        q.Set("workflowId", strings.TrimSpace(workflowID))
+                                }
+                                if strings.TrimSpace(flowSlug) != "" {
+                                        q.Set("flowSlug", strings.TrimSpace(flowSlug))
+                                }
+                                if showsInUIOnly {
+                                        q.Set("showsInUiOnly", "true")
+                                }
+                                if limit > 0 {
+                                        q.Set("limit", strconv.Itoa(limit))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/waits", q, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, _, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -488,11 +523,51 @@ func newWaitsListCmd(app *App) *cobra.Command {
                 },
         }
         cmd.Flags().StringVar(&runID, "run", "", "Filter by run id")
+        cmd.Flags().StringVar(&workflowID, "workflow-id", "", "Filter by workflow id (API mode)")
+        cmd.Flags().StringVar(&flowSlug, "flow", "", "Filter by flow slug (API mode)")
+        cmd.Flags().BoolVar(&showsInUIOnly, "shows-in-ui-only", false, "Only waits with UI notify config (API mode)")
+        cmd.Flags().IntVar(&limit, "limit", 50, "Max results (API mode)")
         return cmd
 }
 
 func newWaitsShowCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "show <wait-id>", Short: "Show wait", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        // Prefer dedicated endpoint when present.
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/waits/"+url.PathEscape(waitID), nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        // Backwards-compat fallback: if server doesn't yet have GET /api/waits/:wait-id, try list and filter.
+                        if status == 404 {
+                                q := url.Values{}
+                                q.Set("limit", "200")
+                                listOut, listStatus, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/waits", q, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                if listStatus >= 400 {
+                                        return writeREST(cmd, app, listStatus, listOut)
+                                }
+                                // Expect listOut to be a map with "items".
+                                if m, ok := listOut.(map[string]any); ok {
+                                        if itemsAny, ok := m["items"].([]any); ok {
+                                                for _, it := range itemsAny {
+                                                        if w, ok := it.(map[string]any); ok {
+                                                                if id, _ := w["waitId"].(string); id == waitID {
+                                                                        return writeREST(cmd, app, 200, map[string]any{"wait": w})
+                                                                }
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
                 st, _, err := appStore(app)
                 if err != nil {
                         return writeErr(cmd, err)
@@ -513,6 +588,30 @@ func newWaitsShowCmd(app *App) *cobra.Command {
 func newWaitsCompleteCmd(app *App) *cobra.Command {
         var payload string
         cmd := &cobra.Command{Use: "complete <wait-id>", Short: "Complete wait", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        // Payload is JSON in API mode (default {}).
+                        body := map[string]any{}
+                        if strings.TrimSpace(payload) != "" {
+                                var v any
+                                if err := json.Unmarshal([]byte(payload), &v); err != nil {
+                                        return writeErr(cmd, errors.New("invalid --payload JSON"))
+                                }
+                                if m, ok := v.(map[string]any); ok {
+                                        body = m
+                                } else {
+                                        return writeErr(cmd, errors.New("--payload must be a JSON object"))
+                                }
+                        }
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/waits/"+url.PathEscape(waitID)+"/complete", nil, body)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
                 st, store, err := appStore(app)
                 if err != nil {
                         return writeErr(cmd, err)
@@ -533,12 +632,23 @@ func newWaitsCompleteCmd(app *App) *cobra.Command {
                 }
                 return writeData(cmd, app, nil, map[string]any{"wait": w})
         }}
-        cmd.Flags().StringVar(&payload, "payload", "", "Payload (mock string)")
+        cmd.Flags().StringVar(&payload, "payload", "", "Payload (mock: string; API mode: JSON object)")
         return cmd
 }
 
 func newWaitsCancelCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "cancel <wait-id>", Short: "Cancel wait", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodDelete, "/api/waits/"+url.PathEscape(waitID), nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
                 st, store, err := appStore(app)
                 if err != nil {
                         return writeErr(cmd, err)
@@ -557,6 +667,61 @@ func newWaitsCancelCmd(app *App) *cobra.Command {
                         return writeErr(cmd, err)
                 }
                 return writeData(cmd, app, nil, map[string]any{"wait": w})
+        }}
+        return cmd
+}
+
+func newWaitsApproveCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "approve <wait-id>", Short: "Approve wait", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/waits/"+url.PathEscape(waitID)+"/approve", nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
+                return writeNotImplemented(cmd, app, "Mock-only waits; approvals are only meaningful in API mode")
+        }}
+        return cmd
+}
+
+func newWaitsRejectCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "reject <wait-id>", Short: "Reject wait", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/waits/"+url.PathEscape(waitID)+"/reject", nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
+                return writeNotImplemented(cmd, app, "Mock-only waits; rejections are only meaningful in API mode")
+        }}
+        return cmd
+}
+
+func newWaitsActionCmd(app *App) *cobra.Command {
+        cmd := &cobra.Command{Use: "action <wait-id> <action-name>", Short: "Perform a wait action", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+                if isAPIMode(app) {
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        waitID := strings.TrimSpace(args[0])
+                        action := strings.TrimSpace(args[1])
+                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/waits/"+url.PathEscape(waitID)+"/action/"+url.PathEscape(action), nil, map[string]any{})
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        return writeREST(cmd, app, status, out)
+                }
+                return writeNotImplemented(cmd, app, "Mock-only waits; actions are only meaningful in API mode")
         }}
         return cmd
 }
