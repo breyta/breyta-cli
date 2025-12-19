@@ -399,10 +399,33 @@ func newTriggersCmd(app *App) *cobra.Command {
 
 func newTriggersListCmd(app *App) *cobra.Command {
         var flow string
+        var triggerType string
+        var limit int
+        var cursor string
         cmd := &cobra.Command{
                 Use:   "list",
                 Short: "List triggers",
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                q := url.Values{}
+                                if strings.TrimSpace(triggerType) != "" {
+                                        q.Set("type", strings.TrimSpace(triggerType))
+                                }
+                                if strings.TrimSpace(cursor) != "" {
+                                        q.Set("cursor", strings.TrimSpace(cursor))
+                                }
+                                if limit > 0 {
+                                        q.Set("limit", strconv.Itoa(limit))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, _, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -421,16 +444,42 @@ func newTriggersListCmd(app *App) *cobra.Command {
                         return writeData(cmd, app, meta, map[string]any{"items": items})
                 },
         }
-        cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
+        cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug (mock mode only)")
+        cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (event|schedule|manual|webhook) (API mode only)")
+        cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+        cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
         return cmd
 }
 
 func newTriggersFireCmd(app *App) *cobra.Command {
+        var payload string
         cmd := &cobra.Command{
                 Use:   "fire <trigger-id>",
-                Short: "Fire a trigger (mock)",
+                Short: "Fire a trigger",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                body := map[string]any{}
+                                if strings.TrimSpace(payload) != "" {
+                                        var v any
+                                        if err := json.Unmarshal([]byte(payload), &v); err != nil {
+                                                return writeErr(cmd, errors.New("invalid --payload JSON"))
+                                        }
+                                        m, ok := v.(map[string]any)
+                                        if !ok {
+                                                return writeErr(cmd, errors.New("--payload must be a JSON object"))
+                                        }
+                                        body = m
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/triggers/"+url.PathEscape(args[0])+"/fire", nil, body)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -454,6 +503,7 @@ func newTriggersFireCmd(app *App) *cobra.Command {
                         return writeData(cmd, app, nil, map[string]any{"trigger": t, "run": run})
                 },
         }
+        cmd.Flags().StringVar(&payload, "payload", "", "JSON object payload to send as trigger input (API mode only)")
         return cmd
 }
 

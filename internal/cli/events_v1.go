@@ -29,15 +29,6 @@ Examples:
   breyta events post demo-hook --payload '{"hello":"world"}'
   breyta events post "webhooks/my-flow/ping" --payload '{"ok":true}'
 `),
-                // This is intentionally a dev-only command:
-                // - It wraps a semi-public webhook endpoint (/events/*).
-                // - It's primarily for local/dev testing (agents) to avoid raw curl usage.
-                PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-                        if !app.DevMode {
-                                return errors.New("events is a dev-only command; re-run with --dev (or set BREYTA_DEV=1)")
-                        }
-                        return nil
-                },
                 RunE: func(cmd *cobra.Command, args []string) error {
                         return cmd.Help()
                 },
