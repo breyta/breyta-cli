@@ -12,3 +12,4 @@
 /.gocache/
 /tmp/
 /go-build-cache/
+/.gopath/
