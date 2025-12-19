@@ -102,6 +102,37 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
         }
 }
 
+func isOK(out map[string]any) bool {
+        if out == nil {
+                return false
+        }
+        okAny, ok := out["ok"]
+        if !ok {
+                return false
+        }
+        okb, ok := okAny.(bool)
+        return ok && okb
+}
+
+func flowLiteralDeclaresRequires(out map[string]any) bool {
+        if out == nil {
+                return false
+        }
+        dataAny, ok := out["data"]
+        if !ok {
+                return false
+        }
+        data, ok := dataAny.(map[string]any)
+        if !ok {
+                return false
+        }
+        flowLiteral, _ := data["flowLiteral"].(string)
+        if strings.TrimSpace(flowLiteral) == "" {
+                return false
+        }
+        return strings.Contains(flowLiteral, ":requires") && !strings.Contains(flowLiteral, ":requires nil")
+}
+
 func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) error {
         // Add progressive-disclosure hints for common auth/binding issues (best-effort).
         // This keeps agent/human workflows on the “happy path” without requiring out-of-band docs.
@@ -150,22 +181,35 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
                 return writeErr(cmd, err)
         }
 
-        // Progressive disclosure: if we know the flow slug for this API command, include activation URL.
-        if command == "runs.start" || command == "flows.get" || command == "flows.deploy" {
-                if slug, _ := args["flowSlug"].(string); strings.TrimSpace(slug) != "" {
-                        // Always include it for flows.get/deploy; for runs.start it’s especially useful on binding failures.
-                        addActivationHint(app, out, slug)
-                }
-        }
-
-        // If flows.get returned a literal that declares :requires, add an activation hint even if caller didn’t ask.
-        if command == "flows.get" {
-                if dataAny, ok := out["data"]; ok {
-                        if data, ok := dataAny.(map[string]any); ok {
-                                if flowLiteral, _ := data["flowLiteral"].(string); strings.Contains(flowLiteral, ":requires") && !strings.Contains(flowLiteral, ":requires nil") {
-                                        if slug, _ := args["flowSlug"].(string); strings.TrimSpace(slug) != "" {
-                                                addActivationHint(app, out, slug)
-                                        }
+        // Progressive disclosure (activation): only add activation hints when they are likely relevant.
+        //
+        // Avoid always emitting activationUrl/hints on successful deploys for flows that have no :requires
+        // (this was confusing and produced false hints).
+        if slug, _ := args["flowSlug"].(string); strings.TrimSpace(slug) != "" {
+                switch command {
+                case "flows.get":
+                        if flowLiteralDeclaresRequires(out) {
+                                addActivationHint(app, out, slug)
+                        }
+                case "runs.start":
+                        // Only add when runs.start failed (common when missing activation/bindings).
+                        if status >= 400 || !isOK(out) {
+                                addActivationHint(app, out, slug)
+                        }
+                case "flows.deploy":
+                        // If deploy failed, activation may still be relevant.
+                        if status >= 400 || !isOK(out) {
+                                addActivationHint(app, out, slug)
+                        } else {
+                                // On success, best-effort check whether the deployed flow declares :requires
+                                // before adding activation hints (avoids false positives).
+                                getOut, getStatus, getErr := client.DoCommand(
+                                        context.Background(),
+                                        "flows.get",
+                                        map[string]any{"flowSlug": slug},
+                                )
+                                if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
+                                        addActivationHint(app, out, slug)
                                 }
                         }
                 }

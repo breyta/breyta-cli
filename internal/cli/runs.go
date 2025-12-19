@@ -85,7 +85,7 @@ func newRunsListCmd(app *App) *cobra.Command {
                                 })
                         }
                         if !includeSteps {
-                                meta["hint"] = "List returns summaries. Use `breyta run show <run-id>` for full detail, or pass --include-steps."
+                                meta["hint"] = "List returns summaries. Use `breyta run show <workflow-id>` for full detail, or pass --include-steps."
                         }
 
                         return writeData(cmd, app, meta, map[string]any{
@@ -103,7 +103,7 @@ func newRunsListCmd(app *App) *cobra.Command {
 func newRunsShowCmd(app *App) *cobra.Command {
         var steps int
         cmd := &cobra.Command{
-                Use:   "show <run-id>",
+                Use:   "show <workflow-id>",
                 Short: "Show run detail (mock)",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
@@ -218,7 +218,29 @@ func newRunsStartCmd(app *App) *cobra.Command {
                                                 return writeAPIResult(cmd, app, execResp, execStatus)
                                         }
                                         if time.Now().After(deadline) {
-                                                return writeErr(cmd, fmt.Errorf("timed out waiting for run completion (workflowId=%s)", workflowID))
+                                                // Important UX: still return the workflowId so callers can continue
+                                                // with `breyta runs show <workflow-id>` or inspect waits.
+                                                timeoutOut := map[string]any{
+                                                        "ok": false,
+                                                        "error": map[string]any{
+                                                                "message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
+                                                                "details": map[string]any{
+                                                                        "workflowId": workflowID,
+                                                                        "timeoutMs":  timeout.Milliseconds(),
+                                                                        "pollMs":     poll.Milliseconds(),
+                                                                },
+                                                        },
+                                                        "meta": map[string]any{
+                                                                "timedOut": true,
+                                                                "hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status, or `breyta waits list --workflow <workflow-id>` if the run is waiting for human input.",
+                                                        },
+                                                        "data": map[string]any{
+                                                                "workflowId": workflowID,
+                                                                "start":      startResp,
+                                                                "lastPoll":   execResp,
+                                                        },
+                                                }
+                                                return writeAPIResult(cmd, app, timeoutOut, 200)
                                         }
                                         time.Sleep(poll)
                                 }
