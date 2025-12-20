@@ -17,7 +17,7 @@ export BREYTA_TOKEN="dev-user-123"
 
 Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).
 
-- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI
+- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI (creates a profile)
   - Activation URL pattern: `http://localhost:8090/<workspace>/flows/<slug>/activate`
   - Or print it: `breyta flows activate-url <slug>`
 
@@ -80,6 +80,7 @@ To run a flow and see output:
 
 Notes for agents:
 - If a flow declares `:requires` slots, it must be activated in the UI so credentials are bound (visit `http://localhost:8090/<workspace>/flows/<slug>/activate` or use `breyta flows activate-url <slug>`).
+- Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:code` steps.
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
 ```

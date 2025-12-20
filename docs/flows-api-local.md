@@ -24,11 +24,19 @@ export BREYTA_TOKEN="dev-user-123"
 
 ### Activation (bind credentials for `:requires` slots)
 
-If your flow uses `:requires` slots (including `:type :llm-provider` for LLM keys), users must activate the flow once to bind credentials/connections.
+If your flow uses `:requires` slots (including `:type :llm-provider` for LLM keys), users must activate the flow once to create a profile and bind credentials/connections.
 
 - Sign in: `http://localhost:8090/login` → “Sign in with Google” → “Dev User”
 - Activation URL: `http://localhost:8090/<workspace>/flows/<slug>/activate`
 - Or print it: `breyta flows activate-url <slug>`
+
+### Draft preview bindings
+
+Draft runs use user-scoped draft bindings:
+
+- Draft bindings URL: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings`
+- Or print it: `breyta flows draft-bindings-url <slug>`
+- Run draft: `breyta runs start --flow <slug> --source draft`
 
 ### Flow body constraints (SCI / orchestration DSL)
 

@@ -62,8 +62,8 @@ Runs are available via the `runs.*` command endpoint. In the CLI, use `--dev` to
 #   data.run.resultPreview.data.result
 breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
 
-# Inspect a run by workflow ID
-breyta --dev runs show flow-run-hello-ws-acme
+# Inspect a run by run-id
+breyta --dev runs show abc-123-def
 ```
 
 ### Skill bundle (for agents)
@@ -213,13 +213,13 @@ breyta flows steps list daily-sales-report
 breyta flows steps show daily-sales-report fetch-sales --include schemas,definition
 
 breyta runs list daily-sales-report
-breyta runs show wf-demo-001
-breyta runs show wf-demo-001 --steps 0
+breyta runs show run-abc-123
+breyta runs show run-abc-123 --steps 0
 breyta runs start --flow daily-sales-report
-breyta runs replay 4821
-breyta runs step 4821 process-card
-breyta runs events 4821
-breyta runs cancel wf-demo-001 --reason "stopping demo"
+breyta runs replay run-abc-123
+breyta runs step run-abc-123 process-card
+breyta runs events run-abc-123
+breyta runs cancel run-abc-123 --reason "stopping demo"
 
 breyta revenue show --last 30d
 breyta demand top --window 30d
@@ -291,7 +291,7 @@ go test ./...
 
 ### Next steps
 
-- Expand the API-backed surface area beyond flows (runs/instances/triggers/etc).
+- Expand the API-backed surface area beyond flows (runs/profiles/triggers/etc).
 - Add route-level tests for auth/membership failure cases on the command endpoint.
 - Consider adding a “workspace bootstrap” command for local dev (create workspace + membership).
 
@@ -307,7 +307,7 @@ All commands return a stable envelope:
 
 Command groups (implemented as mocks in this repo):
 
-- **Core**: `flows`, `runs`, `connections`, `instances`, `triggers`, `waits`, `watch`, `auth`, `workspaces`, `docs`, `dev`
+- **Core**: `flows`, `runs`, `connections`, `profiles`, `triggers`, `waits`, `watch`, `auth`, `workspaces`, `docs`, `dev`
 - **Marketplace**:
   - `registry search|show|publish|versions|match|install`
   - `pricing show|set`
