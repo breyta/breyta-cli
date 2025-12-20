@@ -4,8 +4,10 @@ import (
         "context"
         "encoding/json"
         "errors"
+        "fmt"
         "net/http"
         "net/url"
+        "strconv"
         "strings"
 
         "github.com/spf13/cobra"
@@ -28,6 +30,10 @@ This endpoint can do two things:
 Examples:
   breyta events post demo-hook --payload '{"hello":"world"}'
   breyta events post "webhooks/my-flow/ping" --payload '{"ok":true}'
+
+Tip:
+  To discover webhook event URLs for a flow, use:
+    breyta triggers webhook-url --flow <slug>
 `),
                 RunE: func(cmd *cobra.Command, args []string) error {
                         return cmd.Help()
@@ -57,10 +63,11 @@ func escapePathSegments(p string) string {
 
 func newEventsPostCmd(app *App) *cobra.Command {
         var payload string
+        var webhookTriggerID string
         cmd := &cobra.Command{
-                Use:   "post <event-path>",
+                Use:   "post [event-path]",
                 Short: "POST a JSON event payload to /events/*",
-                Args:  cobra.ExactArgs(1),
+                Args:  cobra.MaximumNArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
                         if !isAPIMode(app) {
                                 return writeNotImplemented(cmd, app, "events requires --api/BREYTA_API_URL (API mode)")
@@ -69,7 +76,67 @@ func newEventsPostCmd(app *App) *cobra.Command {
                                 return writeErr(cmd, err)
                         }
 
-                        eventPath := escapePathSegments(args[0])
+                        eventPathRaw := ""
+                        if strings.TrimSpace(webhookTriggerID) != "" {
+                                // Resolve trigger -> webhook path.
+                                client := apiClient(app)
+                                q := url.Values{}
+                                q.Set("type", "webhook")
+                                q.Set("limit", strconv.Itoa(100))
+
+                                foundPath := ""
+                                for {
+                                        outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)
+                                        if err != nil {
+                                                return writeErr(cmd, err)
+                                        }
+                                        if status >= 400 {
+                                                return writeREST(cmd, app, status, outAny)
+                                        }
+
+                                        out, _ := outAny.(map[string]any)
+                                        rawTriggers, _ := out["triggers"].([]any)
+                                        for _, tAny := range rawTriggers {
+                                                t, _ := tAny.(map[string]any)
+                                                if t == nil {
+                                                        continue
+                                                }
+                                                id, _ := t["id"].(string)
+                                                if strings.TrimSpace(id) != strings.TrimSpace(webhookTriggerID) {
+                                                        continue
+                                                }
+                                                config, _ := t["config"].(map[string]any)
+                                                path, _ := config["path"].(string)
+                                                if strings.TrimSpace(path) == "" {
+                                                        return writeErr(cmd, fmt.Errorf("trigger %s has no config.path", webhookTriggerID))
+                                                }
+                                                foundPath = path
+                                                break
+                                        }
+                                        if strings.TrimSpace(foundPath) != "" {
+                                                break
+                                        }
+
+                                        hasMore, _ := out["has-more"].(bool)
+                                        nextCursor, _ := out["next-cursor"].(string)
+                                        if !hasMore || strings.TrimSpace(nextCursor) == "" {
+                                                break
+                                        }
+                                        q.Set("cursor", nextCursor)
+                                }
+
+                                if strings.TrimSpace(foundPath) == "" {
+                                        return writeErr(cmd, fmt.Errorf("webhook trigger not found: %s", webhookTriggerID))
+                                }
+                                eventPathRaw = foundPath
+                        } else {
+                                if len(args) != 1 {
+                                        return writeErr(cmd, errors.New("missing event-path (or provide --trigger)"))
+                                }
+                                eventPathRaw = args[0]
+                        }
+
+                        eventPath := escapePathSegments(eventPathRaw)
                         if eventPath == "" {
                                 return writeErr(cmd, errors.New("empty event-path"))
                         }
@@ -95,5 +162,6 @@ func newEventsPostCmd(app *App) *cobra.Command {
                 },
         }
         cmd.Flags().StringVar(&payload, "payload", "", "JSON object payload to POST (default: {})")
+        cmd.Flags().StringVar(&webhookTriggerID, "trigger", "", "Resolve and POST to the webhook trigger's event path (webhook triggers only)")
         return cmd
 }
