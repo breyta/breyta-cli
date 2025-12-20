@@ -417,10 +417,17 @@ func flowStepTitle(s *state.FlowStep) string {
 func newRunsCancelCmd(app *App) *cobra.Command {
         var reason string
         cmd := &cobra.Command{
-                Use:   "cancel <run-id>",
-                Short: "Cancel a run (mock)",
+                Use:   "cancel <workflow-id>",
+                Short: "Cancel a run",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                payload := map[string]any{"workflowId": args[0]}
+                                if strings.TrimSpace(reason) != "" {
+                                        payload["reason"] = strings.TrimSpace(reason)
+                                }
+                                return doAPICommand(cmd, app, "runs.cancel", payload)
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
