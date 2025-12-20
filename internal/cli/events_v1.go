@@ -7,7 +7,6 @@ import (
         "fmt"
         "net/http"
         "net/url"
-        "strconv"
         "strings"
 
         "github.com/spf13/cobra"
@@ -80,55 +79,27 @@ func newEventsPostCmd(app *App) *cobra.Command {
                         if strings.TrimSpace(webhookTriggerID) != "" {
                                 // Resolve trigger -> webhook path.
                                 client := apiClient(app)
-                                q := url.Values{}
-                                q.Set("type", "webhook")
-                                q.Set("limit", strconv.Itoa(100))
-
-                                foundPath := ""
-                                for {
-                                        outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)
-                                        if err != nil {
-                                                return writeErr(cmd, err)
-                                        }
-                                        if status >= 400 {
-                                                return writeREST(cmd, app, status, outAny)
-                                        }
-
-                                        out, _ := outAny.(map[string]any)
-                                        rawTriggers, _ := out["triggers"].([]any)
-                                        for _, tAny := range rawTriggers {
-                                                t, _ := tAny.(map[string]any)
-                                                if t == nil {
-                                                        continue
-                                                }
-                                                id, _ := t["id"].(string)
-                                                if strings.TrimSpace(id) != strings.TrimSpace(webhookTriggerID) {
-                                                        continue
-                                                }
-                                                config, _ := t["config"].(map[string]any)
-                                                path, _ := config["path"].(string)
-                                                if strings.TrimSpace(path) == "" {
-                                                        return writeErr(cmd, fmt.Errorf("trigger %s has no config.path", webhookTriggerID))
-                                                }
-                                                foundPath = path
-                                                break
-                                        }
-                                        if strings.TrimSpace(foundPath) != "" {
-                                                break
-                                        }
-
-                                        hasMore, _ := out["has-more"].(bool)
-                                        nextCursor, _ := out["next-cursor"].(string)
-                                        if !hasMore || strings.TrimSpace(nextCursor) == "" {
-                                                break
-                                        }
-                                        q.Set("cursor", nextCursor)
+                                triggerID := strings.TrimSpace(webhookTriggerID)
+                                outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/triggers/"+url.PathEscape(triggerID), nil, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                if status >= 400 {
+                                        return writeREST(cmd, app, status, outAny)
                                 }
 
-                                if strings.TrimSpace(foundPath) == "" {
-                                        return writeErr(cmd, fmt.Errorf("webhook trigger not found: %s", webhookTriggerID))
+                                out, _ := outAny.(map[string]any)
+                                triggerAny := out["trigger"]
+                                trigger, _ := triggerAny.(map[string]any)
+                                if trigger == nil {
+                                        return writeErr(cmd, fmt.Errorf("missing trigger payload for id=%s", triggerID))
                                 }
-                                eventPathRaw = foundPath
+                                config, _ := trigger["config"].(map[string]any)
+                                path, _ := config["path"].(string)
+                                if strings.TrimSpace(path) == "" {
+                                        return writeErr(cmd, fmt.Errorf("trigger %s has no config.path", triggerID))
+                                }
+                                eventPathRaw = path
                         } else {
                                 if len(args) != 1 {
                                         return writeErr(cmd, errors.New("missing event-path (or provide --trigger)"))
