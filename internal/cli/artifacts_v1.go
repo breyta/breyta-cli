@@ -26,13 +26,10 @@ API routes:
   GET /<workspace>/api/executions/<workflow-id>/steps/<step-id>/artifact/url
 
 Notes:
-- This is currently dev-only in the CLI. It’s useful for agents to debug and to fetch
-  results that were returned as {:type :artifact-ref ...} when a step uses :expect :ref.
+- Useful for agents to debug and to fetch results that were returned as
+  {:type :artifact-ref ...} when a step uses :expect :ref.
 `),
                 PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-                        if !app.DevMode {
-                                return errors.New("artifacts is a dev-only command; re-run with --dev (or set BREYTA_DEV=1)")
-                        }
                         if !isAPIMode(app) {
                                 return errors.New("artifacts requires API mode (set BREYTA_API_URL)")
                         }
