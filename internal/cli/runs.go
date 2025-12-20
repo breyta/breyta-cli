@@ -30,19 +30,41 @@ func newRunsCmd(app *App) *cobra.Command {
 
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
+	var status string
 	var limit int
+	var cursor string
 	var includeSteps bool
 	cmd := &cobra.Command{
 		Use:   "list [flow-slug]",
-		Short: "List runs (mock)",
+		Short: "List runs",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && flow == "" {
+				flow = args[0]
+			}
+			if isAPIMode(app) {
+				payload := map[string]any{}
+				if strings.TrimSpace(flow) != "" {
+					payload["flowSlug"] = strings.TrimSpace(flow)
+				}
+				if strings.TrimSpace(status) != "" {
+					payload["status"] = strings.TrimSpace(status)
+				}
+				if strings.TrimSpace(cursor) != "" {
+					payload["cursor"] = strings.TrimSpace(cursor)
+				}
+				if limit > 0 {
+					payload["limit"] = limit
+				}
+				if includeSteps {
+					return writeNotImplemented(cmd, app, "--include-steps is not supported in API mode yet (use `runs show <workflow-id>`)")
+				}
+				return doAPICommand(cmd, app, "runs.list", payload)
+			}
+
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
-			}
-			if len(args) == 1 && flow == "" {
-				flow = args[0]
 			}
 			runs, err := store.ListRuns(st, flow)
 			if err != nil {
@@ -85,7 +107,7 @@ func newRunsListCmd(app *App) *cobra.Command {
 				})
 			}
 			if !includeSteps {
-				meta["hint"] = "List returns summaries. Use `breyta run show <run-id>` for full detail, or pass --include-steps. Note: run-id is the stable identifier (not workflow-id)."
+				meta["hint"] = "List returns summaries. Use `breyta runs show <workflow-id>` for full detail, or pass --include-steps."
 			}
 
 			return writeData(cmd, app, meta, map[string]any{
@@ -95,7 +117,9 @@ func newRunsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in list results")
 	return cmd
 }
@@ -104,7 +128,7 @@ func newRunsShowCmd(app *App) *cobra.Command {
 	var steps int
 	cmd := &cobra.Command{
 		Use:   "show <workflow-id>",
-		Short: "Show run detail (mock)",
+		Short: "Show run detail",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
@@ -150,7 +174,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start a new run (mock)",
+		Short: "Start a new run",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				if err := requireAPI(app); err != nil {
@@ -187,7 +211,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 					return writeAPIResult(cmd, app, startResp, status)
 				}
 
-				dataAny, _ := startResp["data"]
+				dataAny := startResp["data"]
 				data, _ := dataAny.(map[string]any)
 				workflowID, _ := data["workflowId"].(string)
 				if strings.TrimSpace(workflowID) == "" {
@@ -212,9 +236,9 @@ func newRunsStartCmd(app *App) *cobra.Command {
 					if execStatus >= 400 {
 						return writeAPIResult(cmd, app, execResp, execStatus)
 					}
-					execDataAny, _ := execResp["data"]
+					execDataAny := execResp["data"]
 					execData, _ := execDataAny.(map[string]any)
-					runAny, _ := execData["run"]
+					runAny := execData["run"]
 					run, _ := runAny.(map[string]any)
 					statusStr, _ := run["status"].(string)
 
@@ -399,10 +423,17 @@ func flowStepTitle(s *state.FlowStep) string {
 func newRunsCancelCmd(app *App) *cobra.Command {
 	var reason string
 	cmd := &cobra.Command{
-		Use:   "cancel <run-id>",
-		Short: "Cancel a run (mock)",
+		Use:   "cancel <workflow-id>",
+		Short: "Cancel a run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				payload := map[string]any{"workflowId": args[0]}
+				if strings.TrimSpace(reason) != "" {
+					payload["reason"] = strings.TrimSpace(reason)
+				}
+				return doAPICommand(cmd, app, "runs.cancel", payload)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
