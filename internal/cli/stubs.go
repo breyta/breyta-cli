@@ -393,8 +393,21 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
 func newTriggersCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
         cmd.AddCommand(newTriggersListCmd(app))
+        cmd.AddCommand(newTriggersWebhookURLCmd(app))
         cmd.AddCommand(newTriggersFireCmd(app))
         return cmd
+}
+
+func webhookEventURL(app *App, webhookPath string) string {
+        p := strings.TrimSpace(webhookPath)
+        if p == "" {
+                return ""
+        }
+        p = strings.TrimPrefix(p, "/")
+        if p == "" {
+                return ""
+        }
+        return fmt.Sprintf("%s/%s/events/%s", baseURL(app), app.WorkspaceID, p)
 }
 
 func newTriggersListCmd(app *App) *cobra.Command {
@@ -451,6 +464,123 @@ func newTriggersListCmd(app *App) *cobra.Command {
         cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (event|schedule|manual|webhook) (API mode only)")
         cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
         cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
+        return cmd
+}
+
+func newTriggersWebhookURLCmd(app *App) *cobra.Command {
+        var flow string
+        var limit int
+
+        cmd := &cobra.Command{
+                Use:   "webhook-url",
+                Short: "Show webhook URL(s) for webhook triggers",
+                Long: strings.TrimSpace(`
+Webhook triggers are fired via the public events endpoint:
+  POST /<workspace>/events/<path>
+
+This command lists webhook trigger URLs so you can copy/paste them into external systems.
+`),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                if limit <= 0 {
+                                        limit = 100
+                                }
+
+                                q := url.Values{}
+                                q.Set("type", "webhook")
+                                if strings.TrimSpace(flow) != "" {
+                                        q.Set("flow", strings.TrimSpace(flow))
+                                }
+                                q.Set("limit", strconv.Itoa(limit))
+
+                                outAny, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                if status >= 400 {
+                                        return writeREST(cmd, app, status, outAny)
+                                }
+
+                                out, _ := outAny.(map[string]any)
+                                rawTriggers, _ := out["triggers"].([]any)
+
+                                items := make([]map[string]any, 0, len(rawTriggers))
+                                for _, tAny := range rawTriggers {
+                                        t, _ := tAny.(map[string]any)
+                                        if t == nil {
+                                                continue
+                                        }
+
+                                        id, _ := t["id"].(string)
+                                        label, _ := t["label"].(string)
+                                        flowSlug, _ := t["flow-slug"].(string)
+                                        if flowSlug == "" {
+                                                flowSlug, _ = t["flowSlug"].(string)
+                                        }
+                                        config, _ := t["config"].(map[string]any)
+                                        path, _ := config["path"].(string)
+
+                                        items = append(items, map[string]any{
+                                                "triggerId": id,
+                                                "flowSlug":  flowSlug,
+                                                "label":     label,
+                                                "path":      path,
+                                                "url":       webhookEventURL(app, path),
+                                        })
+                                }
+
+                                meta := map[string]any{
+                                        "total": len(items),
+                                }
+                                if next, _ := out["next-cursor"].(string); strings.TrimSpace(next) != "" {
+                                        meta["nextCursor"] = next
+                                }
+                                if hasMore, ok := out["has-more"].(bool); ok {
+                                        meta["hasMore"] = hasMore
+                                }
+                                return writeData(cmd, app, meta, map[string]any{"items": items})
+                        }
+
+                        st, _, err := appStore(app)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        ws, err := getWorkspace(st, app.WorkspaceID)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+
+                        items := make([]map[string]any, 0)
+                        for _, t := range ws.Triggers {
+                                if t == nil {
+                                        continue
+                                }
+                                if flow != "" && t.FlowSlug != flow {
+                                        continue
+                                }
+                                if strings.ToLower(strings.TrimSpace(t.Type)) != "webhook" {
+                                        continue
+                                }
+                                cfg, _ := t.Config.(map[string]any)
+                                path, _ := cfg["path"].(string)
+                                items = append(items, map[string]any{
+                                        "triggerId": t.ID,
+                                        "flowSlug":  t.FlowSlug,
+                                        "label":     t.Name,
+                                        "path":      path,
+                                        "url":       webhookEventURL(app, path),
+                                })
+                        }
+                        meta := map[string]any{"total": len(items)}
+                        return writeData(cmd, app, meta, map[string]any{"items": items})
+                },
+        }
+
+        cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
+        cmd.Flags().IntVar(&limit, "limit", 100, "Max items per page (API mode only)")
         return cmd
 }
 
