@@ -22,6 +22,14 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+### Workspace bootstrap (fix “not a workspace member”)
+
+If you see `403 Access denied: not a workspace member` (often after restarting dev servers), bootstrap the workspace and membership via the dev debug endpoint:
+
+```bash
+breyta workspaces bootstrap ws-acme
+```
+
 ### Activation (bind credentials for `:requires` slots)
 
 If your flow uses `:requires` slots (including `:type :llm-provider` for LLM keys), users must activate the flow once to create a profile and bind credentials/connections.

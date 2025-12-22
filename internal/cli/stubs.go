@@ -1,6 +1,7 @@
 package cli
 
 import (
+        "bytes"
         "context"
         "encoding/json"
         "errors"
@@ -1335,6 +1336,65 @@ func newWorkspacesCmd(app *App) *cobra.Command {
         cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
                 return writeNotImplemented(cmd, app, "Planned: write local config/profile")
         }})
+
+        var bootstrapName string
+        bootstrapCmd := &cobra.Command{Use: "bootstrap <workspace-id>", Short: "Bootstrap workspace + membership (API mode)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                if err := requireAPI(app); err != nil {
+                        return writeErr(cmd, err)
+                }
+                workspaceID := strings.TrimSpace(args[0])
+                if workspaceID == "" {
+                        return writeErr(cmd, errors.New("workspace-id required"))
+                }
+
+                endpoint := strings.TrimRight(app.APIURL, "/") + "/api/debug/workspace/bootstrap"
+                payload := map[string]any{"workspaceId": workspaceID}
+                if strings.TrimSpace(bootstrapName) != "" {
+                        payload["name"] = strings.TrimSpace(bootstrapName)
+                }
+
+                var buf bytes.Buffer
+                if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+                        return writeErr(cmd, err)
+                }
+                req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, &buf)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                req.Header.Set("Content-Type", "application/json")
+                if strings.TrimSpace(app.Token) != "" {
+                        req.Header.Set("Authorization", "Bearer "+app.Token)
+                        req.Header.Set("x-debug-user-id", app.Token)
+                }
+
+                resp, err := http.DefaultClient.Do(req)
+                if err != nil {
+                        return writeErr(cmd, err)
+                }
+                defer resp.Body.Close()
+
+                var out any
+                if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+                        out = map[string]any{"error": err.Error()}
+                }
+
+                meta := map[string]any{"status": resp.StatusCode}
+                if resp.StatusCode < 400 {
+                        meta["hint"] = "Now run commands with --workspace " + workspaceID + " (or export BREYTA_WORKSPACE=" + workspaceID + ")"
+                }
+                _ = writeOut(cmd, app, map[string]any{
+                        "ok":          resp.StatusCode < 400,
+                        "workspaceId": workspaceID,
+                        "data":        out,
+                        "meta":        meta,
+                })
+                if resp.StatusCode >= 400 {
+                        return errors.New("api error")
+                }
+                return nil
+        }}
+        bootstrapCmd.Flags().StringVar(&bootstrapName, "name", "", "Workspace name (optional)")
+        cmd.AddCommand(bootstrapCmd)
         return cmd
 }
 
