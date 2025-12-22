@@ -29,7 +29,8 @@ func runCLI(t *testing.T, statePath string, args ...string) (string, string, err
         cmd.SetErr(errOut)
 
         // Contract tests cover the full (dev-only) surface area.
-        base := []string{"--workspace", "demo-workspace", "--state", statePath, "--dev"}
+        // Force mock mode even if the developer has BREYTA_API_URL set in their shell.
+        base := []string{"--workspace", "demo-workspace", "--state", statePath, "--api", "", "--dev"}
         cmd.SetArgs(append(base, args...))
 
         err := cmd.Execute()

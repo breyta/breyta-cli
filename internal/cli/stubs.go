@@ -231,10 +231,48 @@ func newProfilesCmd(app *App) *cobra.Command {
 
 func newProfilesListCmd(app *App) *cobra.Command {
         var flow string
+        var profileType string
+        var userID string
+        var enabled string
+        var limit int
+        var cursor string
         cmd := &cobra.Command{
                 Use:   "list",
                 Short: "List profiles",
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                q := url.Values{}
+                                if strings.TrimSpace(flow) != "" {
+                                        q.Set("flow-slug", strings.TrimSpace(flow))
+                                }
+                                if strings.TrimSpace(profileType) != "" {
+                                        q.Set("profile-type", strings.TrimSpace(profileType))
+                                }
+                                if strings.TrimSpace(userID) != "" {
+                                        q.Set("user-id", strings.TrimSpace(userID))
+                                }
+                                if strings.TrimSpace(enabled) != "" {
+                                        e := strings.ToLower(strings.TrimSpace(enabled))
+                                        if e != "true" && e != "false" {
+                                                return writeErr(cmd, errors.New("--enabled must be true or false"))
+                                        }
+                                        q.Set("enabled", e)
+                                }
+                                if limit > 0 {
+                                        q.Set("limit", strconv.Itoa(limit))
+                                }
+                                if strings.TrimSpace(cursor) != "" {
+                                        q.Set("cursor", strings.TrimSpace(cursor))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/flow-profiles", q, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, _, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -254,6 +292,11 @@ func newProfilesListCmd(app *App) *cobra.Command {
                 },
         }
         cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
+        cmd.Flags().StringVar(&profileType, "profile-type", "", "Filter by profile type (prod|draft) (API mode only)")
+        cmd.Flags().StringVar(&userID, "user-id", "", "Filter by user id (API mode only)")
+        cmd.Flags().StringVar(&enabled, "enabled", "", "Filter by enabled (true|false) (API mode only)")
+        cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+        cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
         return cmd
 }
 
@@ -263,6 +306,20 @@ func newProfilesShowCmd(app *App) *cobra.Command {
                 Short: "Show profile",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                id := strings.TrimSpace(args[0])
+                                if id == "" {
+                                        return writeErr(cmd, errors.New("missing id"))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/flow-profiles/"+url.PathEscape(id), nil, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, _, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -284,12 +341,57 @@ func newProfilesShowCmd(app *App) *cobra.Command {
 func newProfilesCreateCmd(app *App) *cobra.Command {
         var flow, name string
         var version int
+        var profileType string
+        var bindingsJSON string
+        var configJSON string
         cmd := &cobra.Command{
                 Use:   "create",
                 Short: "Create profile",
                 RunE: func(cmd *cobra.Command, args []string) error {
                         if flow == "" {
                                 return writeErr(cmd, errors.New("missing --flow"))
+                        }
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                body := map[string]any{
+                                        "flow-slug":    strings.TrimSpace(flow),
+                                        "profile-type": strings.ToLower(strings.TrimSpace(profileType)),
+                                        "bindings":     map[string]any{},
+                                        "config":       map[string]any{},
+                                }
+                                if version > 0 {
+                                        body["version"] = version
+                                }
+                                if strings.TrimSpace(bindingsJSON) != "" {
+                                        var v any
+                                        if err := json.Unmarshal([]byte(bindingsJSON), &v); err != nil {
+                                                return writeErr(cmd, errors.New("invalid --bindings JSON"))
+                                        }
+                                        m, ok := v.(map[string]any)
+                                        if !ok {
+                                                return writeErr(cmd, errors.New("--bindings must be a JSON object"))
+                                        }
+                                        body["bindings"] = m
+                                }
+                                if strings.TrimSpace(configJSON) != "" {
+                                        var v any
+                                        if err := json.Unmarshal([]byte(configJSON), &v); err != nil {
+                                                return writeErr(cmd, errors.New("invalid --config JSON"))
+                                        }
+                                        m, ok := v.(map[string]any)
+                                        if !ok {
+                                                return writeErr(cmd, errors.New("--config must be a JSON object"))
+                                        }
+                                        body["config"] = m
+                                }
+
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/flow-profiles", nil, body)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
                         }
                         st, store, err := appStore(app)
                         if err != nil {
@@ -326,6 +428,9 @@ func newProfilesCreateCmd(app *App) *cobra.Command {
         cmd.Flags().StringVar(&flow, "flow", "", "Flow slug")
         cmd.Flags().IntVar(&version, "version", 0, "Version")
         cmd.Flags().StringVar(&name, "name", "", "Profile name")
+        cmd.Flags().StringVar(&profileType, "profile-type", "prod", "Profile type (prod|draft) (API mode only)")
+        cmd.Flags().StringVar(&bindingsJSON, "bindings", "", "Bindings JSON object (API mode only)")
+        cmd.Flags().StringVar(&configJSON, "config", "", "Config JSON object (API mode only)")
         return cmd
 }
 
@@ -336,6 +441,31 @@ func newProfilesBindingsSetCmd(app *App) *cobra.Command {
                 Short: "Set profile bindings",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                id := strings.TrimSpace(args[0])
+                                if id == "" {
+                                        return writeErr(cmd, errors.New("missing id"))
+                                }
+                                if strings.TrimSpace(bindings) == "" {
+                                        return writeErr(cmd, errors.New("missing --bindings"))
+                                }
+                                var v any
+                                if err := json.Unmarshal([]byte(bindings), &v); err != nil {
+                                        return writeErr(cmd, errors.New("invalid --bindings JSON"))
+                                }
+                                m, ok := v.(map[string]any)
+                                if !ok {
+                                        return writeErr(cmd, errors.New("--bindings must be a JSON object"))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPut, "/api/flow-profiles/"+url.PathEscape(id)+"/bindings", nil, m)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)
@@ -357,7 +487,7 @@ func newProfilesBindingsSetCmd(app *App) *cobra.Command {
                         return writeData(cmd, app, nil, map[string]any{"profile": it})
                 },
         }
-        cmd.Flags().StringVar(&bindings, "bindings", "", "Bindings (mock string)")
+        cmd.Flags().StringVar(&bindings, "bindings", "", "Bindings (mock: string; API mode: JSON object)")
         return cmd
 }
 
@@ -367,6 +497,20 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
                 Short: "Delete profile",
                 Args:  cobra.ExactArgs(1),
                 RunE: func(cmd *cobra.Command, args []string) error {
+                        if isAPIMode(app) {
+                                if err := requireAPI(app); err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                id := strings.TrimSpace(args[0])
+                                if id == "" {
+                                        return writeErr(cmd, errors.New("missing id"))
+                                }
+                                out, status, err := apiClient(app).DoREST(context.Background(), http.MethodDelete, "/api/flow-profiles/"+url.PathEscape(id), nil, nil)
+                                if err != nil {
+                                        return writeErr(cmd, err)
+                                }
+                                return writeREST(cmd, app, status, out)
+                        }
                         st, store, err := appStore(app)
                         if err != nil {
                                 return writeErr(cmd, err)

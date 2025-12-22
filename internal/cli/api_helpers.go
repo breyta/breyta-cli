@@ -5,12 +5,15 @@ import (
         "errors"
         "fmt"
         "net/http"
+        "regexp"
         "strings"
 
         "breyta-cli/internal/api"
 
         "github.com/spf13/cobra"
 )
+
+var pasteURLRe = regexp.MustCompile(`https?://paste\.rs/[^\s"}]+`)
 
 func isAPIMode(app *App) bool {
         return strings.TrimSpace(app.APIURL) != ""
@@ -190,6 +193,15 @@ func extractRunPasteURL(out map[string]any) string {
         if !ok {
                 return ""
         }
+        // Fallback: some servers return resultPreview.data as an EDN string.
+        // Extract the paste URL without needing a full EDN parser.
+        if s, ok := rpDataAny.(string); ok {
+                if m := pasteURLRe.FindString(s); strings.TrimSpace(m) != "" {
+                        return strings.TrimSpace(m)
+                }
+                return ""
+        }
+
         rpData, ok := rpDataAny.(map[string]any)
         if !ok {
                 return ""

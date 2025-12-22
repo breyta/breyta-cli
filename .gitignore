@@ -13,3 +13,5 @@
 /tmp/
 /go-build-cache/
 /.gopath/
+/_cache/
+/bin/
