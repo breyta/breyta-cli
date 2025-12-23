@@ -110,12 +110,6 @@ func envOr(k, d string) string {
 	return d
 }
 
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 func writeOut(cmd *cobra.Command, app *App, v any) error {
 	return format.Write(cmd.OutOrStdout(), v, app.Format, app.PrettyJSON)
 }
@@ -123,4 +117,10 @@ func writeOut(cmd *cobra.Command, app *App, v any) error {
 func writeErr(cmd *cobra.Command, err error) error {
 	fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
 	return err
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
 }

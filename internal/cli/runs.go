@@ -294,7 +294,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
-	_ = cmd.MarkFlagRequired("flow")
+	must(cmd.MarkFlagRequired("flow"))
 	return cmd
 }
 
