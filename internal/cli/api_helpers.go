@@ -2,6 +2,7 @@ package cli
 
 import (
         "context"
+        "encoding/json"
         "errors"
         "fmt"
         "net/http"
@@ -82,6 +83,25 @@ func getErrorMessage(out map[string]any) string {
                 }
         }
         return ""
+}
+
+func formatAPIError(out map[string]any) string {
+        msg := getErrorMessage(out)
+        if strings.TrimSpace(msg) != "" {
+                return msg
+        }
+        if out == nil {
+                return "unknown error"
+        }
+        payload, err := json.Marshal(out)
+        if err != nil {
+                return "unknown error"
+        }
+        rendered := string(payload)
+        if len(rendered) > 1000 {
+                return rendered[:1000] + "..."
+        }
+        return rendered
 }
 
 func ensureMeta(out map[string]any) map[string]any {
@@ -269,7 +289,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 
         // Determine exit code: non-2xx OR ok=false => exit non-zero.
         if status >= 400 {
-                return fmt.Errorf("api error (status=%d)", status)
+                return fmt.Errorf("api error (status=%d): %s", status, formatAPIError(v))
         }
         if okAny, ok := v["ok"]; ok {
                 if okb, ok := okAny.(bool); ok && !okb {
@@ -281,7 +301,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
                                         }
                                 }
                         }
-                        return errors.New("command failed")
+                        return fmt.Errorf("command failed: %s", formatAPIError(v))
                 }
         }
         return nil

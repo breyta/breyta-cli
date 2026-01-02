@@ -129,7 +129,13 @@ func newRunsShowCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <workflow-id>",
 		Short: "Show run detail",
-		Args:  cobra.ExactArgs(1),
+		Long: `Show run detail.
+
+To access run resources, use the resources command:
+  breyta resources workflow list <workflow-id>  # List all resources for workflow
+  breyta resources read <resource-uri>          # Read resource content
+`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				return doAPICommand(cmd, app, "runs.get", map[string]any{"workflowId": args[0]})

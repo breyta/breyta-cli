@@ -536,11 +536,12 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
 // --- Triggers ----------------------------------------------------------------
 
 func newTriggersCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
-        cmd.AddCommand(newTriggersListCmd(app))
-        cmd.AddCommand(newTriggersWebhookURLCmd(app))
-        cmd.AddCommand(newTriggersFireCmd(app))
-        return cmd
+	cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
+	cmd.AddCommand(newTriggersListCmd(app))
+	cmd.AddCommand(newTriggersWebhookURLCmd(app))
+	cmd.AddCommand(newTriggersWebhookSecretCmd(app))
+	cmd.AddCommand(newTriggersFireCmd(app))
+	return cmd
 }
 
 func webhookEventURL(app *App, webhookPath string) string {
@@ -727,6 +728,40 @@ This command lists webhook trigger URLs so you can copy/paste them into external
         cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
         cmd.Flags().IntVar(&limit, "limit", 100, "Max items per page (API mode only)")
         return cmd
+}
+
+func newTriggersWebhookSecretCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "webhook-secret <trigger-id>",
+		Short: "Generate webhook signing secret",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to generate webhook secrets.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			out, status, err := apiClient(app).DoREST(
+				context.Background(),
+				http.MethodPost,
+				"/api/triggers/"+url.PathEscape(args[0])+"/webhook-secret",
+				nil,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if status >= 400 {
+				return writeREST(cmd, app, status, out)
+			}
+			meta := map[string]any{
+				"warning": "Secret is shown once. Regenerating invalidates the previous secret.",
+			}
+			return writeData(cmd, app, meta, out)
+		},
+	}
+	return cmd
 }
 
 func newTriggersFireCmd(app *App) *cobra.Command {

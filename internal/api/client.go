@@ -119,14 +119,14 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
                 c.HTTP = &http.Client{Timeout: 30 * time.Second}
         }
 
-        payload := map[string]any{"command": command}
+        filtered := map[string]any{}
         for k, v := range args {
-                // Allow args to override nothing except we protect "command".
                 if k == "command" {
                         continue
                 }
-                payload[k] = v
+                filtered[k] = v
         }
+        payload := map[string]any{"command": command, "args": filtered}
 
         var buf bytes.Buffer
         if err := json.NewEncoder(&buf).Encode(payload); err != nil {

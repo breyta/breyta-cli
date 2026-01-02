@@ -288,7 +288,7 @@ func latestCompletedOutput(r *state.Run) any {
 }
 
 func stepOutput(stepType, stepID string, input any, tick int64, now time.Time) any {
-	// Keep outputs "shaped" so they look like real execution artifacts,
+	// Keep outputs "shaped" so they look like real execution resources,
 	// and so pass-through input→output→input stays coherent.
 	switch stepType {
 	case "http":

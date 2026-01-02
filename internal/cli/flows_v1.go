@@ -51,10 +51,11 @@ Flow file format (minimal):
  :requires nil
  :templates nil
  :triggers nil
- :definition (defflow [input] (step :code :do {:type :code :code '(fn [x] x) :input input}))}
+  :definition '(defflow [input] (step :code :do {:type :code :code '(fn [x] x) :input input}))}
 
 Notes:
 - The server reads the file with *read-eval* disabled.
+- :definition should be a quoted form, e.g. :definition '(defflow [input] ...). (quote ...) is also accepted.
 - If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
 
 Activation (credentials for :requires):
@@ -342,7 +343,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				// Create a minimal draft (version) on the server.
 				// Users/agents can then pull/edit/push and deploy explicitly.
-				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition (defflow [input]\n              input)}\n", slug, name, description)
+				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition '(defflow [input]\n              input)}\n", slug, name, description)
 				return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
 			}
 			st, store, err := appStore(app)
@@ -495,6 +496,19 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 		Short: "Update flow metadata",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0]}
+				if strings.TrimSpace(name) != "" {
+					payload["name"] = name
+				}
+				if strings.TrimSpace(description) != "" {
+					payload["description"] = description
+				}
+				if strings.TrimSpace(tags) != "" {
+					payload["tags"] = tags
+				}
+				return doAPICommand(cmd, app, "flows.update", payload)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -753,6 +767,9 @@ func newFlowsVersionsListCmd(app *App) *cobra.Command {
 		Short: "List published versions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return doAPICommand(cmd, app, "flows.versions.list", map[string]any{"flowSlug": args[0]})
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -780,6 +797,13 @@ func newFlowsVersionsPublishCmd(app *App) *cobra.Command {
 		Short: "Publish a new immutable version",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0]}
+				if strings.TrimSpace(note) != "" {
+					payload["note"] = note
+				}
+				return doAPICommand(cmd, app, "flows.versions.publish", payload)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -830,6 +854,10 @@ func newFlowsVersionsActivateCmd(app *App) *cobra.Command {
 			if version == 0 {
 				return writeErr(cmd, errors.New("missing --version"))
 			}
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0], "version": version}
+				return doAPICommand(cmd, app, "flows.versions.activate", payload)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -873,6 +901,9 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 		Short: "Diff two versions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Diff requires local store (API not implemented)")
+			}
 			if from == 0 || to == 0 {
 				return writeErr(cmd, errors.New("missing --from and/or --to"))
 			}
@@ -909,6 +940,9 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 		Short: "Validate a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return doAPICommand(cmd, app, "flows.validate", map[string]any{"flowSlug": args[0]})
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -944,6 +978,9 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 		Short: "Compile a flow (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return doAPICommand(cmd, app, "flows.compile", map[string]any{"flowSlug": args[0]})
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)

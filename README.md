@@ -66,6 +66,14 @@ breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
 breyta --dev runs show abc-123-def
 ```
 
+Resources are the preferred unified surface (results, imports, files). Example:
+
+```bash
+breyta resources workflow list abc-123-def
+breyta resources get res://v1/ws/ws-acme/result/run/abc-123-def/step/fetch/output
+breyta resources read res://v1/ws/ws-acme/result/run/abc-123-def/step/fetch/output
+```
+
 ### Skill bundle (for agents)
 The Breyta server repo includes an Anthropic-style skill bundle at `breyta/skills/breyta-flows-cli/` (with `SKILL.md` + a `bin/breyta` wrapper).
 

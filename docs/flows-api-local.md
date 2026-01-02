@@ -87,7 +87,7 @@ cat > ./tmp/flows/run-hello.clj <<'EOF'
  :templates nil
  :triggers nil
  :definition
- (defflow [input]
+ '(defflow [input]
    (let [out (step :code :make-output
                    {:type :code
                     :title "Make output"
@@ -106,4 +106,13 @@ breyta flows deploy run-hello
 # Start a run and wait. Output is in:
 #   data.run.resultPreview.data.result
 breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --timeout 30s
+
+### Resources (preferred unified interface)
+
+Resources are the preferred unified surface for results, imports, and files.
+
+```bash
+breyta resources workflow list flow-run-hello-ws-acme
+breyta resources get res://v1/ws/ws-acme/result/run/flow-run-hello-ws-acme/step/make-output/output
+breyta resources read res://v1/ws/ws-acme/result/run/flow-run-hello-ws-acme/step/make-output/output
 ```
