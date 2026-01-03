@@ -60,6 +60,8 @@ Notes:
 
 Activation (credentials for :requires):
 - If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), you must activate it once to create a profile and bind credentials.
+- Slot names must be non-namespaced keywords (e.g., :api, not :ns/api).
+- Manual trigger and wait notify field names use non-namespaced keywords (e.g., {:name :user-id ...}).
 - Visit: http://localhost:8090/<workspace>/flows/<slug>/activate (example: http://localhost:8090/ws-acme/flows/my-flow/activate)
 - Sign in (mock OAuth): http://localhost:8090/login → Sign in with Google → Dev User
 - After activation, runs started via the CLI can resolve slot-based connections.

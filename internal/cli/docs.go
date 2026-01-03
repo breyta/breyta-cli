@@ -189,6 +189,8 @@ func renderDocsIndexMD(root *cobra.Command) string {
         b.WriteString("### Credentials / API keys for flows\n\n")
         b.WriteString("Flows execute inside `flows-api`. There are two ways credentials can be provided:\n\n")
         b.WriteString("- **Recommended (per-user / production-like)**: declare `:requires` slots (e.g. `:llm-provider`, `:http-api`) and have the user **activate** the flow in the UI to bind credentials.\n")
+        b.WriteString("  Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).\n")
+        b.WriteString("  Manual trigger and wait notify field names use non-namespaced keywords (e.g., `{:name :user-id ...}`).\n")
         b.WriteString("- **Local-only (server-global)**: create `secrets.edn` (gitignored) to provide dev keys directly to the server process.\n\n")
         b.WriteString("Local-only `secrets.edn`:\n")
         b.WriteString("- `cp breyta/secrets.edn.example secrets.edn`\n")
@@ -197,7 +199,8 @@ func renderDocsIndexMD(root *cobra.Command) string {
         b.WriteString("CLI env vars (`BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`) are only for authenticating the CLI to `flows-api`.\n\n")
 
         b.WriteString("### Activation (credentials for `:requires` slots)\n\n")
-        b.WriteString("If a flow declares `:requires` slots (e.g. `:http-api` with `:auth`/`:oauth`, or `:llm-provider`), you must activate it once to create a profile and bind credentials.\n\n")
+        b.WriteString("If a flow declares `:requires` slots (e.g. `:http-api` with `:auth`/`:oauth`, or `:llm-provider`), you must activate it once to create a profile and bind credentials.\n")
+        b.WriteString("Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).\n\n")
         b.WriteString("Symptom if you forget: \"Slot reference requires a flow profile, but no profile-id in context\".\n\n")
         b.WriteString("Do this:\n")
         b.WriteString("- Sign in: `http://localhost:8090/login` → Sign in with Google → Dev User\n")

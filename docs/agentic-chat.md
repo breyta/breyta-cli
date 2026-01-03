@@ -17,7 +17,8 @@ export BREYTA_TOKEN="dev-user-123"
 
 Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).
 
-- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI (creates a profile)
+- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI (creates a profile). Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).
+- **Manual trigger fields / wait notify fields**: `:fields` items use non-namespaced keyword names (e.g., `{:name :user-id ...}`).
   - Activation URL pattern: `http://localhost:8090/<workspace>/flows/<slug>/activate`
   - Or print it: `breyta flows activate-url <slug>`
 
