@@ -536,12 +536,12 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
 // --- Triggers ----------------------------------------------------------------
 
 func newTriggersCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
-	cmd.AddCommand(newTriggersListCmd(app))
-	cmd.AddCommand(newTriggersWebhookURLCmd(app))
-	cmd.AddCommand(newTriggersWebhookSecretCmd(app))
-	cmd.AddCommand(newTriggersFireCmd(app))
-	return cmd
+        cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
+        cmd.AddCommand(newTriggersListCmd(app))
+        cmd.AddCommand(newTriggersWebhookURLCmd(app))
+        cmd.AddCommand(newTriggersWebhookSecretCmd(app))
+        cmd.AddCommand(newTriggersFireCmd(app))
+        return cmd
 }
 
 func webhookEventURL(app *App, webhookPath string) string {
@@ -731,37 +731,37 @@ This command lists webhook trigger URLs so you can copy/paste them into external
 }
 
 func newTriggersWebhookSecretCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "webhook-secret <trigger-id>",
-		Short: "Generate webhook signing secret",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Use API mode to generate webhook secrets.")
-			}
-			if err := requireAPI(app); err != nil {
-				return writeErr(cmd, err)
-			}
-			out, status, err := apiClient(app).DoREST(
-				context.Background(),
-				http.MethodPost,
-				"/api/triggers/"+url.PathEscape(args[0])+"/webhook-secret",
-				nil,
-				nil,
-			)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			if status >= 400 {
-				return writeREST(cmd, app, status, out)
-			}
-			meta := map[string]any{
-				"warning": "Secret is shown once. Regenerating invalidates the previous secret.",
-			}
-			return writeData(cmd, app, meta, out)
-		},
-	}
-	return cmd
+        cmd := &cobra.Command{
+                Use:   "webhook-secret <trigger-id>",
+                Short: "Generate webhook signing secret",
+                Args:  cobra.ExactArgs(1),
+                RunE: func(cmd *cobra.Command, args []string) error {
+                        if !isAPIMode(app) {
+                                return writeNotImplemented(cmd, app, "Use API mode to generate webhook secrets.")
+                        }
+                        if err := requireAPI(app); err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        out, status, err := apiClient(app).DoREST(
+                                context.Background(),
+                                http.MethodPost,
+                                "/api/triggers/"+url.PathEscape(args[0])+"/webhook-secret",
+                                nil,
+                                nil,
+                        )
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+                        if status >= 400 {
+                                return writeREST(cmd, app, status, out)
+                        }
+                        meta := map[string]any{
+                                "warning": "Secret is shown once. Regenerating invalidates the previous secret.",
+                        }
+                        return writeData(cmd, app, meta, out)
+                },
+        }
+        return cmd
 }
 
 func newTriggersFireCmd(app *App) *cobra.Command {
@@ -1470,21 +1470,6 @@ func firstTagOr(d string, tags []string) string {
                 return d
         }
         return tags[0]
-}
-
-func newAuthCmd(app *App) *cobra.Command {
-        cmd := &cobra.Command{Use: "auth", Short: "Authenticate"}
-        cmd.AddCommand(&cobra.Command{Use: "whoami", Short: "Show identity", RunE: func(cmd *cobra.Command, args []string) error {
-                meta := map[string]any{"hint": "Mock auth; use --token/BREYTA_TOKEN when wired to real API"}
-                return writeData(cmd, app, meta, map[string]any{"tokenPresent": app.Token != ""})
-        }})
-        cmd.AddCommand(&cobra.Command{Use: "login", Short: "Login", RunE: func(cmd *cobra.Command, args []string) error {
-                return writeNotImplemented(cmd, app, "Planned: device/browser login")
-        }})
-        cmd.AddCommand(&cobra.Command{Use: "logout", Short: "Logout", RunE: func(cmd *cobra.Command, args []string) error {
-                return writeNotImplemented(cmd, app, "Planned: clear local auth")
-        }})
-        return cmd
 }
 
 func newWorkspacesCmd(app *App) *cobra.Command {

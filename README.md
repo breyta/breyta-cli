@@ -34,7 +34,15 @@ Configure the CLI:
 ```bash
 export BREYTA_API_URL="http://localhost:8090"
 export BREYTA_WORKSPACE="ws-acme"
+# In local mock auth, any non-empty token works (membership is still enforced).
 export BREYTA_TOKEN="dev-user-123"
+```
+
+Login helper (API mode):
+
+```bash
+# Prints: export BREYTA_TOKEN='...'
+breyta auth login --email you@example.com --password-stdin --print export
 ```
 
 Then:
