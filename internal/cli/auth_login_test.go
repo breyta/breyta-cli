@@ -5,6 +5,7 @@ import (
         "encoding/json"
         "net/http"
         "net/http/httptest"
+        "path/filepath"
         "strings"
         "testing"
 
@@ -26,6 +27,7 @@ func runCLIArgsWithIn(t *testing.T, stdin string, args ...string) (string, strin
 
 func TestAuthLogin_PrintsExportLine(t *testing.T) {
         var got map[string]any
+        storePath := filepath.Join(t.TempDir(), "auth.json")
         srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 if r.URL.Path != "/api/auth/token" {
                         http.NotFound(w, r)
@@ -49,6 +51,7 @@ func TestAuthLogin_PrintsExportLine(t *testing.T) {
                 "--api", srv.URL,
                 "--workspace", "ws-acme",
                 "auth", "login",
+                "--store", storePath,
                 "--email", "a@b.com",
                 "--password", "pw",
                 "--print", "export",
@@ -65,6 +68,7 @@ func TestAuthLogin_PrintsExportLine(t *testing.T) {
 }
 
 func TestAuthLogin_PasswordStdin_PrintsToken(t *testing.T) {
+        storePath := filepath.Join(t.TempDir(), "auth.json")
         srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 if r.URL.Path != "/api/auth/token" {
                         http.NotFound(w, r)
@@ -80,6 +84,7 @@ func TestAuthLogin_PasswordStdin_PrintsToken(t *testing.T) {
         stdout, _, err := runCLIArgsWithIn(t, "pw-from-stdin\n",
                 "--api", srv.URL,
                 "auth", "login",
+                "--store", storePath,
                 "--email", "a@b.com",
                 "--password-stdin",
                 "--print", "token",

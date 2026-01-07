@@ -41,7 +41,13 @@ export BREYTA_TOKEN="dev-user-123"
 Login helper (API mode):
 
 ```bash
-# Prints: export BREYTA_TOKEN='...'
+# Opens a browser to login, then stores the token locally (recommended):
+breyta auth login
+
+# Optional: print an export line for the current shell:
+breyta auth login --print export
+
+# Legacy (password exchange):
 breyta auth login --email you@example.com --password-stdin --print export
 ```
 
