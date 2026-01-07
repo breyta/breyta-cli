@@ -67,7 +67,11 @@ func NewRootCmd() *cobra.Command {
                                 apiFlagExplicit = apiFlagExplicit || root.PersistentFlags().Changed("api")
                         }
                 }
-                if len(args) > 0 && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+                // NOTE: `args` here are the positional args to the *invoked* command, not a signal
+                // of whether a subcommand is being executed. For commands like `breyta auth login`,
+                // args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
+                isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
+                if isSubcommand && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
                         if p, err := configstore.DefaultPath(); err == nil && p != "" {
                                 if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
                                         app.APIURL = st.APIURL

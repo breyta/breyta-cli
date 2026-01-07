@@ -3,6 +3,7 @@ package cli
 import (
         "errors"
         "fmt"
+        "os"
         "strings"
 
         "breyta-cli/internal/configstore"
@@ -92,13 +93,20 @@ func newAPIUseCmd(app *App) *cobra.Command {
                                 return writeErr(cmd, err)
                         }
 
-                        meta := map[string]any{
-                                "storePath": path,
-                                "stored":    true,
-                                "hint":      "You can still override per-run via --api or BREYTA_API_URL.",
-                        }
-                        return writeData(cmd, app, meta, map[string]any{"apiUrl": apiURL})
-                },
-        }
-        return cmd
+                                                meta := map[string]any{
+                                                                "storePath": path,
+                                                                "stored":    true,
+                                                                "hint":      "You can still override per-run via --api or BREYTA_API_URL.",
+                                                }
+                                                if envURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); envURL != "" {
+                                                                envURL = strings.TrimRight(envURL, "/")
+                                                                if envURL != apiURL {
+                                                                                meta["warning"] = "BREYTA_API_URL is set and will override this config in your current shell."
+                                                                                meta["unsetEnv"] = "unset BREYTA_API_URL"
+                                                                }
+                                                }
+                                                return writeData(cmd, app, meta, map[string]any{"apiUrl": apiURL})
+                                },
+                }
+                return cmd
 }
