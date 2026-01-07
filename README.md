@@ -14,6 +14,15 @@ This CLI supports two modes:
 - **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
 - **Mock mode (dev/TUI)**: uses a local mock state file.
 
+Default API target (when you run any subcommand) is `https://flows.breyta.io`.
+Switch between prod/local without exporting env vars:
+
+```bash
+breyta api use prod
+breyta api use local
+breyta api show
+```
+
 ### Goals
 
 - **Truth surface first**: inspect flows and drill down into step detail.
@@ -32,7 +41,7 @@ cd ../breyta
 Configure the CLI:
 
 ```bash
-export BREYTA_API_URL="http://localhost:8090"
+breyta api use local
 export BREYTA_WORKSPACE="ws-acme"
 # In local mock auth, any non-empty token works (membership is still enforced).
 export BREYTA_TOKEN="dev-user-123"

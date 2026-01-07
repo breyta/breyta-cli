@@ -43,7 +43,7 @@ func apiClient(app *App) api.Client {
 func baseURL(app *App) string {
         b := strings.TrimSpace(app.APIURL)
         if b == "" {
-                return "http://localhost:8090"
+                return "https://flows.breyta.io"
         }
         return strings.TrimRight(b, "/")
 }

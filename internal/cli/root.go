@@ -7,6 +7,7 @@ import (
         "strings"
 
         "breyta-cli/internal/authstore"
+        "breyta-cli/internal/configstore"
         "breyta-cli/internal/format"
         "breyta-cli/internal/mock"
         "breyta-cli/internal/state"
@@ -46,11 +47,37 @@ func NewRootCmd() *cobra.Command {
         cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "ws-acme"), "Workspace id")
         cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
         cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
-        cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://api.breyta.com)")
+        cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.io)")
         cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
         cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
         cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
         cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+                // Default API URL:
+                // - explicit --api / BREYTA_API_URL wins
+                // - otherwise try ~/.config/breyta/config.json
+                // - otherwise fall back to prod (https://flows.breyta.io)
+                //
+                // IMPORTANT: We only default when a subcommand is invoked, so `breyta`
+                // still launches the mock/TUI surface by default.
+                apiFlagExplicit := false
+                if cmd != nil {
+                        // Respect an explicitly passed `--api` even if it's empty (tests and mock mode).
+                        apiFlagExplicit = cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api")
+                        if root := cmd.Root(); root != nil {
+                                apiFlagExplicit = apiFlagExplicit || root.PersistentFlags().Changed("api")
+                        }
+                }
+                if len(args) > 0 && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+                        if p, err := configstore.DefaultPath(); err == nil && p != "" {
+                                if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
+                                        app.APIURL = st.APIURL
+                                }
+                        }
+                        if strings.TrimSpace(app.APIURL) == "" {
+                                app.APIURL = configstore.DefaultProdAPIURL
+                        }
+                }
+
                 // If token isn't explicitly provided, try to load it from the local auth store.
                 // This enables: `breyta auth login` once, then normal `breyta ...` commands.
                 if strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIURL) != "" {
@@ -88,6 +115,7 @@ func NewRootCmd() *cobra.Command {
         cmd.AddCommand(newCreatorCmd(app))
         cmd.AddCommand(newAnalyticsCmd(app))
         cmd.AddCommand(newAuthCmd(app))
+        cmd.AddCommand(newAPICmd(app))
         cmd.AddCommand(newWorkspacesCmd(app))
         cmd.AddCommand(newDevCmd(app))
         cmd.AddCommand(newRevenueCmd(app))
