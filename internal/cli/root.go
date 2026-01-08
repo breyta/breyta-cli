@@ -1,172 +1,203 @@
 package cli
 
 import (
-        "errors"
-        "fmt"
-        "os"
-        "strings"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
 
-        "breyta-cli/internal/authstore"
-        "breyta-cli/internal/configstore"
-        "breyta-cli/internal/format"
-        "breyta-cli/internal/mock"
-        "breyta-cli/internal/state"
-        "breyta-cli/internal/tui"
+	"breyta-cli/internal/authstore"
+	"breyta-cli/internal/configstore"
+	"breyta-cli/internal/format"
+	"breyta-cli/internal/mock"
+	"breyta-cli/internal/state"
+	"breyta-cli/internal/tui"
 
-        "github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 type App struct {
-        WorkspaceID          string
-        StatePath            string
-        PrettyJSON           bool
-        Format               string
-        APIURL               string
-        Token                string
-        Profile              string
-        DevMode              bool
-        visibilityConfigured bool
+	WorkspaceID          string
+	StatePath            string
+	PrettyJSON           bool
+	Format               string
+	APIURL               string
+	Token                string
+	Profile              string
+	DevMode              bool
+	visibilityConfigured bool
 }
 
 func NewRootCmd() *cobra.Command {
-        app := &App{}
+	app := &App{}
 
-        cmd := &cobra.Command{
-                Use:          "breyta",
-                Short:        "Breyta CLI",
-                SilenceUsage: true,
-                RunE: func(cmd *cobra.Command, args []string) error {
-                        // No subcommand => interactive TUI (mock mode only).
-                        if cmd.HasSubCommands() && len(args) == 0 && !isAPIMode(app) {
-                                return runTUI(app)
-                        }
-                        return cmd.Help()
-                },
-        }
+	cmd := &cobra.Command{
+		Use:          "breyta",
+		Short:        "Breyta CLI",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand => interactive TUI.
+			if cmd.HasSubCommands() && len(args) == 0 {
+				return runTUI(app)
+			}
+			return cmd.Help()
+		},
+	}
 
-        cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", "ws-acme"), "Workspace id")
-        cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
-        cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
-        cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.io)")
-        cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
-        cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
-        cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
-        cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-                // Default API URL:
-                // - explicit --api / BREYTA_API_URL wins
-                // - otherwise try ~/.config/breyta/config.json
-                // - otherwise fall back to prod (https://flows.breyta.io)
-                //
-                // IMPORTANT: We only default when a subcommand is invoked, so `breyta`
-                // still launches the mock/TUI surface by default.
-                apiFlagExplicit := false
-                if cmd != nil {
-                        // Respect an explicitly passed `--api` even if it's empty (tests and mock mode).
-                        apiFlagExplicit = cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api")
-                        if root := cmd.Root(); root != nil {
-                                apiFlagExplicit = apiFlagExplicit || root.PersistentFlags().Changed("api")
-                        }
-                }
-                // NOTE: `args` here are the positional args to the *invoked* command, not a signal
-                // of whether a subcommand is being executed. For commands like `breyta auth login`,
-                // args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
-                isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-                if isSubcommand && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
-                        if p, err := configstore.DefaultPath(); err == nil && p != "" {
-                                if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
-                                        app.APIURL = st.APIURL
-                                }
-                        }
-                        if strings.TrimSpace(app.APIURL) == "" {
-                                app.APIURL = configstore.DefaultProdAPIURL
-                        }
-                }
+	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
+	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
+	cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
+	cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.io)")
+	cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
+	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
+	cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
+	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Default workspace id:
+		// - explicit --workspace / BREYTA_WORKSPACE wins
+		// - otherwise try ~/.config/breyta/config.json (workspaceId), but only when the
+		//   config's apiUrl matches the active API URL (prevents local mock workspace ids
+		//   leaking into prod).
+		workspaceFlagExplicit := false
+		if cmd != nil {
+			workspaceFlagExplicit = cmd.Flags().Changed("workspace") || cmd.InheritedFlags().Changed("workspace")
+			if root := cmd.Root(); root != nil {
+				workspaceFlagExplicit = workspaceFlagExplicit || root.PersistentFlags().Changed("workspace")
+			}
+		}
+		workspaceEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
 
-                // If token isn't explicitly provided, try to load it from the local auth store.
-                // This enables: `breyta auth login` once, then normal `breyta ...` commands.
-                if strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIURL) != "" {
-                        path, _ := authstore.DefaultPath()
-                        if path != "" {
-                                if st, err := authstore.Load(path); err == nil {
-                                        if tok, ok := st.Get(app.APIURL); ok {
-                                                app.Token = tok
-                                        }
-                                }
-                        }
-                }
-                configureVisibility(cmd.Root(), app)
-                return nil
-        }
+		// Default API URL:
+		// - explicit --api / BREYTA_API_URL wins
+		// - otherwise try ~/.config/breyta/config.json
+		// - otherwise fall back to prod (https://flows.breyta.io)
+		//
+		// IMPORTANT: We only default when a subcommand is invoked, so `breyta`
+		// still launches the mock/TUI surface by default.
+		apiFlagExplicit := false
+		if cmd != nil {
+			// Respect an explicitly passed `--api` even if it's empty (tests and mock mode).
+			apiFlagExplicit = cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api")
+			if root := cmd.Root(); root != nil {
+				apiFlagExplicit = apiFlagExplicit || root.PersistentFlags().Changed("api")
+			}
+		}
+		// NOTE: `args` here are the positional args to the *invoked* command, not a signal
+		// of whether a subcommand is being executed. For commands like `breyta auth login`,
+		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
+		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
+		if isSubcommand && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+			if p, err := configstore.DefaultPath(); err == nil && p != "" {
+				if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
+					app.APIURL = st.APIURL
+				}
+			}
+			if strings.TrimSpace(app.APIURL) == "" {
+				app.APIURL = configstore.DefaultProdAPIURL
+			}
+		}
 
-        defaultPath, _ := state.DefaultPath()
-        cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
+		if !workspaceFlagExplicit && !workspaceEnvExplicit && strings.TrimSpace(app.WorkspaceID) == "" {
+			// Only apply default workspace when config apiUrl matches current api url.
+			if p, err := configstore.DefaultPath(); err == nil && p != "" {
+				if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.WorkspaceID) != "" {
+					cfgAPI := strings.TrimRight(strings.TrimSpace(st.APIURL), "/")
+					appAPI := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+					if cfgAPI != "" && appAPI != "" && cfgAPI == appAPI {
+						app.WorkspaceID = st.WorkspaceID
+					}
+				}
+			}
+		}
 
-        cmd.AddCommand(newFlowsCmd(app))
-        cmd.AddCommand(newRunsCmd(app))
-        cmd.AddCommand(newConnectionsCmd(app))
-        cmd.AddCommand(newProfilesCmd(app))
-        cmd.AddCommand(newTriggersCmd(app))
-        cmd.AddCommand(newEventsCmd(app))
-        cmd.AddCommand(newResourcesCmd(app))
-        cmd.AddCommand(newDebugCmd(app))
-        cmd.AddCommand(newWaitsCmd(app))
-        cmd.AddCommand(newWatchCmd(app))
-        cmd.AddCommand(newRegistryCmd(app))
-        cmd.AddCommand(newPricingCmd(app))
-        cmd.AddCommand(newPurchasesCmd(app))
-        cmd.AddCommand(newEntitlementsCmd(app))
-        cmd.AddCommand(newPayoutsCmd(app))
-        cmd.AddCommand(newCreatorCmd(app))
-        cmd.AddCommand(newAnalyticsCmd(app))
-        cmd.AddCommand(newAuthCmd(app))
-        cmd.AddCommand(newAPICmd(app))
-        cmd.AddCommand(newWorkspacesCmd(app))
-        cmd.AddCommand(newDevCmd(app))
-        cmd.AddCommand(newRevenueCmd(app))
-        cmd.AddCommand(newDemandCmd(app))
-        cmd.AddCommand(newDocsCmd(cmd, app))
+		// If token isn't explicitly provided, try to load it from the local auth store.
+		// This enables: `breyta auth login` once, then normal `breyta ...` commands.
+		if strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIURL) != "" {
+			path, _ := authstore.DefaultPath()
+			if path != "" {
+				if st, err := authstore.Load(path); err == nil {
+					if tok, ok := st.Get(app.APIURL); ok {
+						app.Token = tok
+					}
+				}
+			}
+		}
+		configureVisibility(cmd.Root(), app)
+		return nil
+	}
 
-        return cmd
+	defaultPath, _ := state.DefaultPath()
+	cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
+
+	cmd.AddCommand(newFlowsCmd(app))
+	cmd.AddCommand(newRunsCmd(app))
+	cmd.AddCommand(newConnectionsCmd(app))
+	cmd.AddCommand(newProfilesCmd(app))
+	cmd.AddCommand(newTriggersCmd(app))
+	cmd.AddCommand(newEventsCmd(app))
+	cmd.AddCommand(newResourcesCmd(app))
+	cmd.AddCommand(newDebugCmd(app))
+	cmd.AddCommand(newWaitsCmd(app))
+	cmd.AddCommand(newWatchCmd(app))
+	cmd.AddCommand(newRegistryCmd(app))
+	cmd.AddCommand(newPricingCmd(app))
+	cmd.AddCommand(newPurchasesCmd(app))
+	cmd.AddCommand(newEntitlementsCmd(app))
+	cmd.AddCommand(newPayoutsCmd(app))
+	cmd.AddCommand(newCreatorCmd(app))
+	cmd.AddCommand(newAnalyticsCmd(app))
+	cmd.AddCommand(newAuthCmd(app))
+	cmd.AddCommand(newAPICmd(app))
+	cmd.AddCommand(newWorkspacesCmd(app))
+	cmd.AddCommand(newDevCmd(app))
+	cmd.AddCommand(newRevenueCmd(app))
+	cmd.AddCommand(newDemandCmd(app))
+	cmd.AddCommand(newDocsCmd(cmd, app))
+
+	return cmd
 }
 
 func runTUI(app *App) error {
-        st, store, err := appStore(app)
-        if err != nil {
-                return err
-        }
-        return tui.Run(app.WorkspaceID, app.StatePath, store, st)
+	return tui.RunHome(tui.HomeConfig{
+		APIURL:      app.APIURL,
+		Token:       app.Token,
+		WorkspaceID: app.WorkspaceID,
+		StatePath:   app.StatePath,
+	})
 }
 
 func appStore(app *App) (*state.State, mock.Store, error) {
-        if app.StatePath == "" {
-                return nil, mock.Store{}, errors.New("missing --state")
-        }
-        store := mock.Store{Path: app.StatePath, WorkspaceID: app.WorkspaceID}
-        st, err := store.Ensure()
-        if err != nil {
-                return nil, store, err
-        }
-        return st, store, nil
+	if isAPIMode(app) {
+		return nil, mock.Store{}, errors.New("mock state is disabled in API mode (use API commands, or pass --api= to force mock mode)")
+	}
+	if app.StatePath == "" {
+		return nil, mock.Store{}, errors.New("missing --state")
+	}
+	store := mock.Store{Path: app.StatePath, WorkspaceID: app.WorkspaceID}
+	st, err := store.Ensure()
+	if err != nil {
+		return nil, store, err
+	}
+	return st, store, nil
 }
 
 func envOr(k, d string) string {
-        if v := os.Getenv(k); v != "" {
-                return v
-        }
-        return d
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
 }
 
 func writeOut(cmd *cobra.Command, app *App, v any) error {
-        return format.Write(cmd.OutOrStdout(), v, app.Format, app.PrettyJSON)
+	return format.Write(cmd.OutOrStdout(), v, app.Format, app.PrettyJSON)
 }
 
 func writeErr(cmd *cobra.Command, err error) error {
-        fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
-        return err
+	fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+	return err
 }
 
 func must(err error) {
-        if err != nil {
-                panic(err)
-        }
+	if err != nil {
+		panic(err)
+	}
 }
