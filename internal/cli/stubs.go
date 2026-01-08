@@ -1474,7 +1474,33 @@ func firstTagOr(d string, tags []string) string {
 
 func newWorkspacesCmd(app *App) *cobra.Command {
         cmd := &cobra.Command{Use: "workspaces", Short: "Manage workspaces"}
-        cmd.AddCommand(&cobra.Command{Use: "list", Short: "List workspaces (from state)", RunE: func(cmd *cobra.Command, args []string) error {
+        cmd.AddCommand(&cobra.Command{Use: "list", Short: "List workspaces", RunE: func(cmd *cobra.Command, args []string) error {
+                // Prefer API-backed listing when authenticated, otherwise fall back to local mock state.
+                if err := requireAPI(app); err == nil {
+                        ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+                        defer cancel()
+
+                        out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+
+                        m, ok := out.(map[string]any)
+                        if !ok {
+                                return writeFailure(cmd, app, "workspaces_list_unexpected_response", fmt.Errorf("unexpected response (status=%d)", status), "Expected JSON object from /api/me", out)
+                        }
+
+                        raw, _ := m["workspaces"].([]any)
+                        items := make([]any, 0, len(raw))
+                        for _, v := range raw {
+                                if v != nil {
+                                        items = append(items, v)
+                                }
+                        }
+                        meta := map[string]any{"total": len(items), "httpStatus": status}
+                        return writeData(cmd, app, meta, map[string]any{"items": items})
+                }
+
                 st, _, err := appStore(app)
                 if err != nil {
                         return writeErr(cmd, err)
@@ -1483,19 +1509,61 @@ func newWorkspacesCmd(app *App) *cobra.Command {
                 for id, ws := range st.Workspaces {
                         items = append(items, map[string]any{"id": id, "name": ws.Name, "plan": ws.Plan, "owner": ws.Owner, "updatedAt": ws.UpdatedAt})
                 }
-                return writeData(cmd, app, map[string]any{"total": len(items)}, map[string]any{"items": items})
+                meta := map[string]any{
+                        "total": len(items),
+                        "hint":  "Not logged in to an API (or token missing). Showing local mock state; run `breyta auth login` to list real workspaces.",
+                }
+                return writeData(cmd, app, meta, map[string]any{"items": items})
         }})
-        cmd.AddCommand(&cobra.Command{Use: "show <workspace-id>", Short: "Show workspace (from state)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+
+        cmd.AddCommand(&cobra.Command{Use: "show <workspace-id>", Short: "Show workspace", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+                workspaceID := strings.TrimSpace(args[0])
+                if workspaceID == "" {
+                        return writeErr(cmd, errors.New("workspace-id required"))
+                }
+
+                // Prefer API-backed lookup when authenticated, otherwise fall back to local mock state.
+                if err := requireAPI(app); err == nil {
+                        ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+                        defer cancel()
+
+                        out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+                        if err != nil {
+                                return writeErr(cmd, err)
+                        }
+
+                        m, ok := out.(map[string]any)
+                        if !ok {
+                                return writeFailure(cmd, app, "workspaces_show_unexpected_response", fmt.Errorf("unexpected response (status=%d)", status), "Expected JSON object from /api/me", out)
+                        }
+
+                        raw, _ := m["workspaces"].([]any)
+                        for _, v := range raw {
+                                wm, ok := v.(map[string]any)
+                                if !ok {
+                                        continue
+                                }
+                                if id, _ := wm["id"].(string); strings.TrimSpace(id) == workspaceID {
+                                        meta := map[string]any{"httpStatus": status, "hint": "Use --workspace to select"}
+                                        return writeData(cmd, app, meta, map[string]any{"workspace": wm})
+                                }
+                        }
+                        return writeErr(cmd, errors.New("workspace not found"))
+                }
+
                 st, _, err := appStore(app)
                 if err != nil {
                         return writeErr(cmd, err)
                 }
-                ws := st.Workspaces[args[0]]
+                ws := st.Workspaces[workspaceID]
                 if ws == nil {
                         return writeErr(cmd, errors.New("workspace not found"))
                 }
                 data := map[string]any{"id": ws.ID, "name": ws.Name, "plan": ws.Plan, "owner": ws.Owner, "updatedAt": ws.UpdatedAt, "flows": len(ws.Flows), "runs": len(ws.Runs)}
-                return writeData(cmd, app, map[string]any{"hint": "Use --workspace to select"}, map[string]any{"workspace": data})
+                meta := map[string]any{
+                        "hint": "Use --workspace to select",
+                }
+                return writeData(cmd, app, meta, map[string]any{"workspace": data})
         }})
         cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
                 return writeNotImplemented(cmd, app, "Planned: write local config/profile")
