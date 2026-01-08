@@ -215,7 +215,11 @@ via flows-api (/api/auth/token). Prefer browser login.
 				}
 				if line := shellExportTokenLine(token); line != "" {
 					meta["export"] = line
-					meta["hint"] = "Token is stored locally; you can also set BREYTA_TOKEN explicitly."
+					if strings.TrimSpace(refreshToken) != "" {
+						meta["hint"] = "Token is stored locally with a refresh token; unset BREYTA_TOKEN and rely on the store for auto-refresh."
+					} else {
+						meta["hint"] = "Token is stored locally; you can also set BREYTA_TOKEN explicitly."
+					}
 				}
 				data := map[string]any{"token": token}
 				if uid != nil {
@@ -267,6 +271,7 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 			if all {
 				st.Tokens = map[string]authstore.Record{}
 			} else {
+				ensureAPIURL(app)
 				if strings.TrimSpace(app.APIURL) == "" {
 					return writeErr(cmd, errors.New("missing --api or BREYTA_API_URL (or use --all)"))
 				}
