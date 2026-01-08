@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"breyta-cli/internal/api"
 	"breyta-cli/internal/authstore"
@@ -43,8 +44,16 @@ func requireAPI(app *App) error {
 	if strings.TrimSpace(app.Token) == "" {
 		if path, _ := authstore.DefaultPath(); strings.TrimSpace(path) != "" {
 			if st, err := authstore.Load(path); err == nil && st != nil {
-				if tok, ok := st.Get(app.APIURL); ok {
-					app.Token = tok
+				if rec, ok := st.GetRecord(app.APIURL); ok {
+					app.Token = rec.Token
+					// Refresh proactively when close to expiry.
+					if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < 2*time.Minute {
+						if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
+							st.SetRecord(app.APIURL, next)
+							_ = authstore.SaveAtomic(path, st)
+							app.Token = next.Token
+						}
+					}
 				}
 			}
 		}
@@ -53,6 +62,71 @@ func requireAPI(app *App) error {
 		return errors.New("missing --token or BREYTA_TOKEN")
 	}
 	return nil
+}
+
+func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Record, error) {
+	apiBaseURL = strings.TrimRight(strings.TrimSpace(apiBaseURL), "/")
+	refreshToken = strings.TrimSpace(refreshToken)
+	if apiBaseURL == "" {
+		return authstore.Record{}, errors.New("missing api base url")
+	}
+	if refreshToken == "" {
+		return authstore.Record{}, errors.New("missing refresh token")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	client := api.Client{BaseURL: apiBaseURL}
+	out, status, err := client.DoRootREST(ctx, http.MethodPost, "/api/auth/refresh", nil, map[string]any{
+		"refreshToken": refreshToken,
+	})
+	if err != nil {
+		return authstore.Record{}, err
+	}
+	if status < 200 || status > 299 {
+		return authstore.Record{}, fmt.Errorf("refresh failed (status=%d)", status)
+	}
+
+	m, ok := out.(map[string]any)
+	if !ok {
+		return authstore.Record{}, fmt.Errorf("refresh returned unexpected response (status=%d)", status)
+	}
+	if success, _ := m["success"].(bool); !success {
+		msg := getErrorMessage(m)
+		if strings.TrimSpace(msg) == "" {
+			msg = "refresh failed"
+		}
+		return authstore.Record{}, fmt.Errorf("%s (status=%d)", msg, status)
+	}
+	token, _ := m["token"].(string)
+	if strings.TrimSpace(token) == "" {
+		return authstore.Record{}, fmt.Errorf("refresh returned no token (status=%d)", status)
+	}
+	nextRefresh, _ := m["refreshToken"].(string)
+	if strings.TrimSpace(nextRefresh) == "" {
+		nextRefresh = refreshToken
+	}
+
+	rec := authstore.Record{
+		Token:        strings.TrimSpace(token),
+		RefreshToken: strings.TrimSpace(nextRefresh),
+	}
+
+	// expiresIn is sometimes a string (Firebase APIs), sometimes a number; tolerate both.
+	var expiresInSeconds int64
+	switch v := m["expiresIn"].(type) {
+	case string:
+		if n, err := parseExpiresInSeconds(v); err == nil {
+			expiresInSeconds = n
+		}
+	case float64:
+		expiresInSeconds = int64(v)
+	}
+	if expiresInSeconds > 0 {
+		rec.ExpiresAt = time.Now().UTC().Add(time.Duration(expiresInSeconds) * time.Second)
+	}
+	return rec, nil
 }
 
 func apiClient(app *App) api.Client {

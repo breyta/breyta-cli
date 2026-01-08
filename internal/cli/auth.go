@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,6 +97,8 @@ via flows-api (/api/auth/token). Prefer browser login.
 			email = strings.TrimSpace(email)
 
 			var token string
+			var refreshToken string
+			var expiresInStr string
 			var status int
 			var tokenSource string
 			var uid any
@@ -152,11 +155,16 @@ via flows-api (/api/auth/token). Prefer browser login.
 
 			default:
 				// Browser login flow.
-				tok, err := browserLogin(cmd.Context(), baseURL(app), cmd.ErrOrStderr())
+				res, err := browserLogin(cmd.Context(), baseURL(app), cmd.ErrOrStderr())
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				token = strings.TrimSpace(tok)
+				token = strings.TrimSpace(res.Token)
+				refreshToken = strings.TrimSpace(res.RefreshToken)
+				expiresInStr = strings.TrimSpace(res.ExpiresIn)
+				if expiresInStr != "" {
+					expiresIn = expiresInStr
+				}
 				status = 200
 				tokenSource = "browser"
 			}
@@ -175,7 +183,13 @@ via flows-api (/api/auth/token). Prefer browser login.
 				if st == nil {
 					st = &authstore.Store{}
 				}
-				st.Set(app.APIURL, token)
+				rec := authstore.Record{Token: token, RefreshToken: refreshToken}
+				if refreshToken != "" {
+					if n, err := parseExpiresInSeconds(expiresInStr); err == nil && n > 0 {
+						rec.ExpiresAt = time.Now().UTC().Add(time.Duration(n) * time.Second)
+					}
+				}
+				st.SetRecord(app.APIURL, rec)
 				if err := authstore.SaveAtomic(storePath, st); err != nil {
 					return writeErr(cmd, err)
 				}
@@ -286,28 +300,47 @@ func maybeAuthDebug(v any) {
 	_ = json.NewEncoder(io.Discard).Encode(v)
 }
 
-func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (string, error) {
+func parseExpiresInSeconds(v string) (int64, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, errors.New("missing expiresIn")
+	}
+	// APIs return expires_in as a string number of seconds.
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+type browserLoginResult struct {
+	Token        string
+	RefreshToken string
+	ExpiresIn    string
+}
+
+func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browserLoginResult, error) {
 	apiBaseURL = strings.TrimRight(strings.TrimSpace(apiBaseURL), "/")
 	if apiBaseURL == "" {
-		return "", errors.New("missing api base url")
+		return browserLoginResult{}, errors.New("missing api base url")
 	}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "", err
+		return browserLoginResult{}, err
 	}
 	defer l.Close()
 
 	st := make([]byte, 32)
 	if _, err := rand.Read(st); err != nil {
-		return "", err
+		return browserLoginResult{}, err
 	}
 	state := base64.RawURLEncoding.EncodeToString(st)
 
 	addr := l.Addr().String()
 	callbackURL := "http://" + addr + "/callback"
 
-	tokenCh := make(chan string, 1)
+	tokenCh := make(chan browserLoginResult, 1)
 	errCh := make(chan error, 1)
 
 	mux := http.NewServeMux()
@@ -323,9 +356,11 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (string
 			http.Error(w, "missing token", http.StatusBadRequest)
 			return
 		}
+		refresh := strings.TrimSpace(q.Get("refresh_token"))
+		expiresIn := strings.TrimSpace(q.Get("expires_in"))
 		_, _ = io.WriteString(w, "<html><body>Login complete. You can close this tab.</body></html>")
 		select {
-		case tokenCh <- tok:
+		case tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:
 		default:
 		}
 	})
@@ -347,18 +382,18 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (string
 
 	timeout := 2 * time.Minute
 	select {
-	case tok := <-tokenCh:
+	case res := <-tokenCh:
 		_ = srv.Shutdown(context.Background())
-		return tok, nil
+		return res, nil
 	case err := <-errCh:
 		_ = srv.Shutdown(context.Background())
-		return "", err
+		return browserLoginResult{}, err
 	case <-time.After(timeout):
 		_ = srv.Shutdown(context.Background())
-		return "", errors.New("login timed out (no callback received)")
+		return browserLoginResult{}, errors.New("login timed out (no callback received)")
 	case <-ctx.Done():
 		_ = srv.Shutdown(context.Background())
-		return "", ctx.Err()
+		return browserLoginResult{}, ctx.Err()
 	}
 }
 
