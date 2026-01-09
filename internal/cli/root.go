@@ -47,7 +47,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
 	cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
-	cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.io)")
+	cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.ai)")
 	cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
 	cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
@@ -69,7 +69,7 @@ func NewRootCmd() *cobra.Command {
 		// Default API URL:
 		// - explicit --api / BREYTA_API_URL wins
 		// - otherwise try ~/.config/breyta/config.json
-		// - otherwise fall back to prod (https://flows.breyta.io)
+		// - otherwise fall back to prod (https://flows.breyta.ai)
 		//
 		// IMPORTANT: We only default when a subcommand is invoked, so `breyta`
 		// still launches the mock/TUI surface by default.

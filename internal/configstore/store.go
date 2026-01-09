@@ -10,7 +10,7 @@ import (
 
 // Default values used when no config file exists.
 const (
-	DefaultProdAPIURL  = "https://flows.breyta.io"
+	DefaultProdAPIURL  = "https://flows.breyta.ai"
 	DefaultLocalAPIURL = "http://localhost:8090"
 )
 

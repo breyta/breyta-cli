@@ -14,7 +14,7 @@ This CLI supports two modes:
 - **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
 - **Mock mode (dev/TUI)**: uses a local mock state file.
 
-Default API target (when you run any subcommand) is `https://flows.breyta.io`.
+Default API target (when you run any subcommand) is `https://flows.breyta.ai`.
 Switch between prod/local without exporting env vars:
 
 ```bash
