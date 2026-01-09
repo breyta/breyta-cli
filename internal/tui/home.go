@@ -205,6 +205,15 @@ type homeWorkspacesMsg struct {
 	err        error
 }
 
+type homeLoginStartMsg struct {
+	apiURL  string
+	authURL string
+	openErr error
+	status  string
+	err     error
+	session *browserLoginSession
+}
+
 type homeLoginMsg struct {
 	token  string
 	status string
@@ -343,18 +352,59 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshOptions()
 		return m, nil
 
+	case homeLoginStartMsg:
+		if msg.err != nil {
+			m.apiError = msg.err.Error()
+			if strings.TrimSpace(msg.status) != "" {
+				m.lastInfo = strings.TrimSpace(msg.status)
+			}
+			m.refreshOptions()
+			return m, nil
+		}
+
+		m.apiError = ""
+		m.lastInfo = "login url: " + strings.TrimSpace(msg.authURL)
+		if msg.openErr != nil {
+			m.apiError = "could not open browser automatically"
+			if strings.TrimSpace(msg.openErr.Error()) != "" {
+				m.apiError = m.apiError + ": " + msg.openErr.Error()
+			}
+		}
+		m.refreshOptions()
+
+		sess := msg.session
+		apiURL := msg.apiURL
+		return m, func() tea.Msg {
+			res, err := sess.Wait(context.Background())
+			if err != nil {
+				return homeLoginMsg{err: err, status: "login failed"}
+			}
+			tok := strings.TrimSpace(res.Token)
+			if tok == "" {
+				return homeLoginMsg{err: errors.New("missing token"), status: "login failed"}
+			}
+			if err := storeToken(apiURL, tok); err != nil {
+				return homeLoginMsg{err: err, status: "login failed"}
+			}
+			return homeLoginMsg{token: tok, status: "logged in"}
+		}
+
 	case homeLoginMsg:
 		if msg.err != nil {
-			if m.modal != nil {
-				m.modal.err = msg.err
-				m.modal.status = msg.status
+			m.apiError = msg.err.Error()
+			if strings.TrimSpace(msg.status) != "" {
+				m.lastInfo = strings.TrimSpace(msg.status)
 			}
+			m.refreshOptions()
 			return m, nil
 		}
 		m.token = msg.token
 		m.connected = false
 		m.httpStatus = 0
 		m.apiError = ""
+		if strings.TrimSpace(msg.status) != "" {
+			m.lastInfo = strings.TrimSpace(msg.status)
+		}
 		m.refreshOptions()
 		return m, tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
 
@@ -1000,18 +1050,17 @@ func (m *homeModel) applyModal() tea.Cmd {
 			return m.checkConnectionCmd()
 		default: // login
 			return func() tea.Msg {
-				res, err := browserLogin(context.Background(), apiURL, nil)
+				sess, openErr, err := startBrowserLogin(apiURL)
 				if err != nil {
-					return homeLoginMsg{err: err, status: "login failed"}
+					return homeLoginStartMsg{apiURL: apiURL, status: "login failed", err: err}
 				}
-				tok := strings.TrimSpace(res.Token)
-				if tok == "" {
-					return homeLoginMsg{err: errors.New("missing token"), status: "login failed"}
+				return homeLoginStartMsg{
+					apiURL:  apiURL,
+					authURL: strings.TrimSpace(sess.AuthURL),
+					openErr: openErr,
+					status:  "login started",
+					session: sess,
 				}
-				if err := storeToken(apiURL, tok); err != nil {
-					return homeLoginMsg{err: err, status: "login failed"}
-				}
-				return homeLoginMsg{token: tok, status: "logged in"}
 			}
 		}
 

@@ -12,14 +12,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"breyta-cli/internal/api"
 	"breyta-cli/internal/authstore"
+	"breyta-cli/internal/browseropen"
 
 	"github.com/spf13/cobra"
 )
@@ -403,19 +402,5 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 }
 
 func openBrowser(u string) error {
-	u = strings.TrimSpace(u)
-	if u == "" {
-		return errors.New("missing url")
-	}
-
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", u)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
-	default:
-		cmd = exec.Command("xdg-open", u)
-	}
-	return cmd.Start()
+	return browseropen.Open(u)
 }
