@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"breyta-cli/internal/api"
+	"breyta-cli/internal/authinfo"
 	"breyta-cli/internal/authstore"
 	"breyta-cli/internal/configstore"
+	"breyta-cli/skills"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
@@ -84,6 +87,7 @@ const (
 	modalAuth
 	modalDiagnostics
 	modalWorkspaceDefault
+	modalAgentSkills
 )
 
 type modalResult int
@@ -474,6 +478,9 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		m.modal = m.newDiagnosticsModal()
 		return m, cmd
+	case "s":
+		m.modal = m.newAgentSkillsModal()
+		return m, cmd
 	case "r":
 		return m, tea.Batch(cmd, m.checkConnectionCmd(), m.fetchWorkspacesCmd())
 	case "enter":
@@ -511,6 +518,9 @@ func (m homeModel) updateWorkspaceMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "x":
 		m.modal = m.newDiagnosticsModal()
+		return m, nil
+	case "s":
+		m.modal = m.newAgentSkillsModal()
 		return m, nil
 	case "tab":
 		if m.workspaceFocus == homeFocusFlows {
@@ -551,6 +561,28 @@ func (m homeModel) View() string {
 	return base
 }
 
+func (m homeModel) headerHeight() int {
+	leftLines := 5 // Context, Env, Auth, Default, WS
+	if strings.TrimSpace(m.lastInfo) != "" {
+		leftLines++
+	}
+	if strings.TrimSpace(m.apiError) != "" {
+		leftLines++
+	}
+
+	midLines := len(m.headerKeyHints())
+
+	// Logo is 6 lines when shown.
+	rightLines := 0
+	w := maxInt(40, m.width)
+	rightW := minInt(44, maxInt(0, w-78))
+	if rightW >= 40 {
+		rightLines = 6
+	}
+
+	return maxInt(leftLines, maxInt(midLines, rightLines)) + 1 // + separator line
+}
+
 func (m homeModel) renderHeader() string {
 	meta := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render
 	label := lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Render
@@ -562,9 +594,13 @@ func (m homeModel) renderHeader() string {
 		envLabel = "prod"
 	}
 
-	authLabel := "logged out"
+	authLabel := "-"
 	if strings.TrimSpace(m.token) != "" {
-		authLabel = "logged in"
+		if email := authinfo.EmailFromToken(m.token); email != "" {
+			authLabel = truncateRunes(email, 48)
+		} else {
+			authLabel = "(unknown user)"
+		}
 	}
 
 	connLabel := "offline"
@@ -574,24 +610,10 @@ func (m homeModel) renderHeader() string {
 		connLabel = "connected"
 	}
 
-	defWS := cmpOrDash(m.workspaceNameOrID(m.defaultWS))
+	defWS := cmpOrDash(m.workspaceName(m.defaultWS))
 	activeWS := "-"
 	if strings.TrimSpace(m.selectedWorkspaceID) != "" {
 		activeWS = strings.TrimSpace(m.selectedWorkspaceID)
-	}
-
-	left := []string{
-		label("Context: ") + meta(apiURL),
-		label("Env:     ") + meta(envLabel+" ("+connLabel+")"),
-		label("Auth:    ") + meta(authLabel),
-		label("Default: ") + meta(defWS),
-		label("WS:      ") + meta(activeWS),
-	}
-	if info := strings.TrimSpace(m.lastInfo); info != "" {
-		left = append(left, label("Info:    ")+meta(info))
-	}
-	if errLine := strings.TrimSpace(m.apiError); errLine != "" {
-		left = append(left, label("Error:   ")+meta(errLine))
 	}
 
 	keys := m.headerKeyHints()
@@ -613,8 +635,32 @@ func (m homeModel) renderHeader() string {
 	midW := minInt(36, maxInt(24, w-2-rightW-32))
 	leftW := maxInt(24, w-2-midW-rightW)
 
+	renderKV := func(k, v string) string {
+		avail := maxInt(0, leftW-len([]rune(k)))
+		return label(k) + meta(truncateRunes(v, avail))
+	}
+
+	left := []string{
+		renderKV("Context: ", apiURL),
+		renderKV("Env:     ", envLabel+" ("+connLabel+")"),
+		renderKV("Auth:    ", authLabel),
+		renderKV("Default: ", defWS),
+		renderKV("WS:      ", activeWS),
+	}
+	if info := strings.TrimSpace(m.lastInfo); info != "" {
+		left = append(left, renderKV("Info:    ", info))
+	}
+	if errLine := strings.TrimSpace(m.apiError); errLine != "" {
+		left = append(left, renderKV("Error:   ", errLine))
+	}
+
+	styledKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		styledKeys = append(styledKeys, meta(truncateRunes(k, midW)))
+	}
+
 	leftCol := lipgloss.NewStyle().Width(leftW).Render(strings.Join(left, "\n"))
-	midCol := lipgloss.NewStyle().Width(midW).Render(strings.Join(keys, "\n"))
+	midCol := lipgloss.NewStyle().Width(midW).Render(strings.Join(styledKeys, "\n"))
 	rightCol := ""
 	// Only show logo when it fits; avoid truncation that can make it read wrong.
 	if rightW >= 40 {
@@ -642,14 +688,14 @@ func (m homeModel) renderBody() string {
 }
 
 func (m homeModel) headerKeyHints() []string {
-	meta := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render
-	kv := func(k, v string) string { return meta(fmt.Sprintf("<%s> %s", k, v)) }
+	kv := func(k, v string) string { return fmt.Sprintf("<%s> %s", k, v) }
 
 	common := []string{
 		kv("e", "Environment"),
 		kv("a", "Auth"),
 		kv("w", "Default WS"),
 		kv("x", "Diagnostics"),
+		kv("s", "Agent skills"),
 		kv("r", "Refresh"),
 	}
 	switch m.mode {
@@ -702,10 +748,7 @@ func (m homeModel) renderWorkspace() string {
 }
 
 func (m *homeModel) layout() {
-	headerH := 8
-	if strings.TrimSpace(m.apiError) != "" {
-		headerH = 9
-	}
+	headerH := m.headerHeight()
 
 	bodyH := m.height - headerH
 	if bodyH < 5 {
@@ -799,6 +842,19 @@ func (m homeModel) workspaceNameOrID(workspaceID string) string {
 	return workspaceID
 }
 
+func (m homeModel) workspaceName(workspaceID string) string {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		return ""
+	}
+	for _, ws := range m.workspaces {
+		if strings.TrimSpace(ws.ID) == workspaceID {
+			return strings.TrimSpace(ws.Name)
+		}
+	}
+	return ""
+}
+
 func (m *homeModel) resolveToken() string {
 	if tok := strings.TrimSpace(m.cfg.Token); tok != "" {
 		return tok
@@ -858,7 +914,7 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 	client := api.Client{BaseURL: apiURL, Token: token}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	_, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+	_, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
 	if err != nil {
 		info := ""
 		if includeInfo {
@@ -880,6 +936,45 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 	info := ""
 	if includeInfo {
 		info = fmt.Sprintf("connected (status=%d)", status)
+	}
+	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info}
+}
+
+func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
+	apiURL := m.apiBaseURL()
+	token := m.resolveToken()
+	if token == "" {
+		info := ""
+		if includeInfo {
+			info = "not logged in"
+		}
+		return homeDiagMsg{connected: false, httpStatus: 0, apiError: "not logged in", info: info}
+	}
+	client := api.Client{BaseURL: apiURL, Token: token}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+	if err != nil {
+		info := ""
+		if includeInfo {
+			st := "-"
+			if status != 0 {
+				st = fmt.Sprintf("%d", status)
+			}
+			info = "offline (status=" + st + ")"
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: err.Error(), info: info}
+	}
+	if status >= 400 {
+		info := ""
+		if includeInfo {
+			info = fmt.Sprintf("offline (status=%d)", status)
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: fmt.Sprintf("api error (status=%d)", status), info: info}
+	}
+	info := ""
+	if includeInfo {
+		info = fmt.Sprintf("ok (status=%d)", status)
 	}
 	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info}
 }
@@ -961,8 +1056,8 @@ func (m *homeModel) newDiagnosticsModal() *modalModel {
 		list:  newModalList("Pick diagnostic action", false),
 	}
 	_ = md.list.SetItems([]list.Item{
-		modalItem{id: "check", name: "Check connection", desc: "Call /api/me"},
-		modalItem{id: "verify", name: "Verify token", desc: "Call /api/auth/verify"},
+		modalItem{id: "check", name: "Check connection", desc: "Call /api/auth/verify"},
+		modalItem{id: "me", name: "Check workspaces", desc: "Call /api/me"},
 	})
 	return md
 }
@@ -1002,6 +1097,97 @@ func (m *homeModel) newWorkspaceDefaultModal() *modalModel {
 		}
 	}
 	return md
+}
+
+func (m *homeModel) newAgentSkillsModal() *modalModel {
+	md := &modalModel{
+		kind:  modalAgentSkills,
+		title: "Agent skills",
+		list:  newModalList("Install: teach your agent to use the Breyta CLI", false),
+	}
+
+	_ = md.list.SetItems([]list.Item{
+		modalItem{
+			id:   "install:codex",
+			name: "Install (Codex)",
+			desc: "Writes: ~/.codex/skills/breyta-flows-cli/SKILL.md",
+		},
+		modalItem{
+			id:   "install:cursor",
+			name: "Install (Cursor)",
+			desc: "Writes: ~/.codex/cursor/skills/breyta-flows-cli/SKILL.md",
+		},
+		modalItem{
+			id:   "install:claude",
+			name: "Install (Claude Code)",
+			desc: "Writes: ~/.claude/skills/user/breyta-flows-cli/SKILL.md",
+		},
+		modalItem{
+			id:   "copy-shell:codex",
+			name: "Copy shell install command (Codex)",
+			desc: "Copies a shell command that writes SKILL.md to Codex skills",
+		},
+		modalItem{
+			id:   "copy-shell:cursor",
+			name: "Copy shell install command (Cursor)",
+			desc: "Copies a shell command that writes SKILL.md to Cursor skills",
+		},
+		modalItem{
+			id:   "copy-shell:claude",
+			name: "Copy shell install command (Claude Code)",
+			desc: "Copies a shell command that writes SKILL.md to Claude skills",
+		},
+	})
+	return md
+}
+
+func shQuote(s string) string {
+	// POSIX-ish single-quote escaping: ' -> '\''.
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func previewShellScript(s string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= maxLines {
+		return s
+	}
+	return strings.Join(lines[:maxLines], "\n") + "\n…"
+}
+
+func buildSkillInstallShell(homeDir string, provider skills.Provider) (string, error) {
+	md, err := skills.BreytaFlowsCLISkillMarkdown()
+	if err != nil {
+		return "", err
+	}
+	body := strings.TrimRight(string(md), "\n") + "\n"
+
+	blockFor := func(t skills.InstallTarget) string {
+		// Keep as a single pasteable chunk. Use a quoted heredoc marker to disable expansion.
+		return strings.TrimSpace(fmt.Sprintf(
+			"mkdir -p %s && cat > %s <<'EOF'\n%sEOF\n",
+			shQuote(t.Dir),
+			shQuote(t.File),
+			body,
+		)) + "\n"
+	}
+
+	switch provider {
+	case skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude:
+		t, err := skills.Target(homeDir, provider)
+		if err != nil {
+			return "", err
+		}
+		return blockFor(t), nil
+
+	default:
+		return "", fmt.Errorf("unknown provider %q", provider)
+	}
 }
 
 func (m *homeModel) applyModal() tea.Cmd {
@@ -1075,7 +1261,11 @@ func (m *homeModel) applyModal() tea.Cmd {
 		}
 		client := api.Client{BaseURL: apiURL, Token: token}
 		switch it.id {
-		case "verify":
+		case "me":
+			return func() tea.Msg {
+				return m.checkMeMsg(true)
+			}
+		case "check":
 			return func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -1105,6 +1295,105 @@ func (m *homeModel) applyModal() tea.Cmd {
 			return nil
 		}
 		m.defaultWS = ws.id
+		m.refreshOptions()
+		return nil
+
+	case modalAgentSkills:
+		it, _ := m.modal.list.SelectedItem().(modalItem)
+		id := strings.TrimSpace(it.id)
+		if id == "" {
+			m.apiError = "no action selected"
+			m.refreshOptions()
+			return nil
+		}
+
+		install := func(p skills.Provider) {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.apiError = err.Error()
+				return
+			}
+			paths, err := skills.InstallBreytaFlowsCLI(home, p)
+			if err != nil {
+				m.apiError = err.Error()
+				return
+			}
+			m.apiError = ""
+			if len(paths) == 1 {
+				m.lastInfo = "installed skill: " + paths[0]
+			} else {
+				m.lastInfo = fmt.Sprintf("installed skill to %d locations", len(paths))
+			}
+		}
+
+		switch id {
+		case "install:codex":
+			install(skills.ProviderCodex)
+		case "install:cursor":
+			install(skills.ProviderCursor)
+		case "install:claude":
+			install(skills.ProviderClaude)
+
+		case "copy-shell:codex":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			script, err := buildSkillInstallShell(home, skills.ProviderCodex)
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			if tool, err := copyToClipboard(script); err != nil {
+				m.apiError = err.Error()
+				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
+			} else {
+				m.apiError = ""
+				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
+			}
+
+		case "copy-shell:cursor":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			script, err := buildSkillInstallShell(home, skills.ProviderCursor)
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			if tool, err := copyToClipboard(script); err != nil {
+				m.apiError = err.Error()
+				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
+			} else {
+				m.apiError = ""
+				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
+			}
+
+		case "copy-shell:claude":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			script, err := buildSkillInstallShell(home, skills.ProviderClaude)
+			if err != nil {
+				m.apiError = err.Error()
+				break
+			}
+			if tool, err := copyToClipboard(script); err != nil {
+				m.apiError = err.Error()
+				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
+			} else {
+				m.apiError = ""
+				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
+			}
+		default:
+			m.apiError = "unknown action: " + id
+		}
+
 		m.refreshOptions()
 		return nil
 	}

@@ -36,7 +36,7 @@ For HTTP integrations that require API keys, the intended path is to declare a c
 
 ### Claude Code (Anthropic skills)
 
-This repo includes a skill bundle at `breyta/skills/breyta-flows-cli/`.
+This repo includes a skill bundle at `breyta-cli/skills/breyta-flows-cli/`.
 
 Copy it to:
 - `~/.claude/skills/user/breyta-flows-cli/`
@@ -45,8 +45,12 @@ Example:
 
 ```bash
 mkdir -p ~/.claude/skills/user/breyta-flows-cli
-rsync -a breyta/skills/breyta-flows-cli/ ~/.claude/skills/user/breyta-flows-cli/
+rsync -a breyta-cli/skills/breyta-flows-cli/ ~/.claude/skills/user/breyta-flows-cli/
 ```
+
+You can also install it directly from the CLI/TUI:
+- TUI: press `s` → pick an install target
+- CLI: `breyta skills install --provider claude`
 
 ### Cursor / Codex / “generic agent”
 

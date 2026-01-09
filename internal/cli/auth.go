@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"breyta-cli/internal/api"
+	"breyta-cli/internal/authinfo"
 	"breyta-cli/internal/authstore"
 	"breyta-cli/internal/browseropen"
 
@@ -68,7 +69,11 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, map[string]any{"httpStatus": status}, map[string]any{"verify": out})
+			data := map[string]any{"verify": out}
+			if email := authinfo.EmailFromToken(app.Token); email != "" {
+				data["email"] = email
+			}
+			return writeData(cmd, app, map[string]any{"httpStatus": status}, data)
 		},
 	}
 }

@@ -98,14 +98,16 @@ breyta resources read res://v1/ws/ws-acme/result/run/abc-123-def/step/fetch/outp
 ```
 
 ### Skill bundle (for agents)
-The Breyta server repo includes an Anthropic-style skill bundle at `breyta/skills/breyta-flows-cli/` (with `SKILL.md` + a `bin/breyta` wrapper).
+This repo includes an agent skill bundle at `breyta-cli/skills/breyta-flows-cli/SKILL.md`.
 
-Install by copying it into your tool’s skills directory. Common locations:
+Install from the TUI/CLI (recommended):
+- TUI: press `s` → pick an install target
+- CLI: `breyta skills install --provider codex|cursor|claude`
+
+Common locations (used by `breyta skills install`):
 - Claude Code: `~/.claude/skills/user/breyta-flows-cli/`
-- Cursor: `~/.cursor/skills/breyta-flows-cli/`
+- Cursor (Codex-managed): `~/.codex/cursor/skills/breyta-flows-cli/`
 - Codex: `~/.codex/skills/breyta-flows-cli/`
-
-See `breyta/skills/breyta-flows-cli/SKILL.md` for the exact copy/paste verification flow.
 
 ### CLI docs for agents
 
