@@ -48,11 +48,11 @@ func Target(homeDir string, provider Provider) (InstallTarget, error) {
 func targetForProvider(homeDir string, provider Provider) InstallTarget {
 	switch provider {
 	case ProviderClaude:
-		dir := filepath.Join(homeDir, ".claude", "skills", "user", BreytaFlowsCLISlug)
+		dir := filepath.Join(homeDir, ".claude", "skills", BreytaFlowsCLISlug)
 		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
 	case ProviderCursor:
-		dir := filepath.Join(homeDir, ".codex", "cursor", "skills", BreytaFlowsCLISlug)
-		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
+		dir := filepath.Join(homeDir, ".cursor", "rules", BreytaFlowsCLISlug)
+		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "RULE.md")}
 	default: // codex
 		dir := filepath.Join(homeDir, ".codex", "skills", BreytaFlowsCLISlug)
 		return InstallTarget{Provider: ProviderCodex, Dir: dir, File: filepath.Join(dir, "SKILL.md")}

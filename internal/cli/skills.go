@@ -27,11 +27,14 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 		Use:   "install",
 		Short: "Install the breyta-flows-cli agent skill bundle",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			p := skills.Provider(strings.TrimSpace(provider))
+
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return err
 			}
-			paths, err := skills.InstallBreytaFlowsCLI(home, skills.Provider(strings.TrimSpace(provider)))
+
+			paths, err := skills.InstallBreytaFlowsCLI(home, p)
 			if err != nil {
 				return err
 			}

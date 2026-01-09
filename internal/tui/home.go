@@ -122,8 +122,12 @@ func (i modalItem) FilterValue() string { return i.name + " " + i.desc }
 func newModalList(title string, filter bool) list.Model {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = true
+	d.Styles = breytaDefaultItemStyles()
 	l := list.New([]list.Item{}, d, 0, 0)
 	l.Title = title
+	// Title is rendered by the modal frame, not the embedded list.
+	l.SetShowTitle(false)
+	l.Styles = breytaListStyles()
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
 	l.SetShowPagination(false)
@@ -141,7 +145,7 @@ func (m modalModel) View(w, h int) string {
 	boxW := minInt(90, maxInt(40, w-6))
 	boxH := minInt(22, maxInt(10, h-6))
 
-	title := lipgloss.NewStyle().Bold(true).Render(m.title)
+	title := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render(m.title)
 
 	innerW := boxW - 4
 	innerH := boxH - 4 // title + status
@@ -153,10 +157,10 @@ func (m modalModel) View(w, h int) string {
 
 	status := ""
 	if strings.TrimSpace(m.status) != "" {
-		status = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(m.status)
+		status = lipgloss.NewStyle().Foreground(breytaMuted).Render(m.status)
 	}
 	if m.err != nil {
-		status = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.err.Error())
+		status = lipgloss.NewStyle().Foreground(breytaDanger).Bold(true).Render(m.err.Error())
 	}
 
 	body := strings.Join([]string{title, "", m.list.View(), "", status}, "\n")
@@ -165,7 +169,7 @@ func (m modalModel) View(w, h int) string {
 		Width(boxW).
 		Height(boxH).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(breytaBorder).
 		Padding(1, 1).
 		Render(body)
 
@@ -201,12 +205,16 @@ type homeDiagMsg struct {
 	httpStatus int
 	apiError   string
 	info       string
+	userEmail  string
+	wsCount    int
 }
 
 type homeWorkspacesMsg struct {
 	workspaces []meWorkspace
 	httpStatus int
 	err        error
+	userEmail  string
+	wsCount    int
 }
 
 type homeLoginStartMsg struct {
@@ -240,6 +248,7 @@ type homeModel struct {
 	httpStatus int
 	apiError   string
 	lastInfo   string
+	userEmail  string
 
 	// workspace listing
 	workspaces    []meWorkspace
@@ -269,10 +278,12 @@ func RunHome(cfg HomeConfig) error {
 func newHomeModel(cfg HomeConfig) homeModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = true
+	delegate.Styles = breytaDefaultItemStyles()
 
 	options := list.New([]list.Item{}, delegate, 0, 0)
 	options.Title = "Workspaces"
 	options.SetFilteringEnabled(true)
+	options.Styles = breytaListStyles()
 	options.SetShowHelp(false)
 	options.SetShowStatusBar(false)
 	options.SetShowPagination(false)
@@ -324,12 +335,18 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.TrimSpace(msg.info) != "" {
 			m.lastInfo = strings.TrimSpace(msg.info)
 		}
+		if strings.TrimSpace(msg.userEmail) != "" {
+			m.userEmail = strings.TrimSpace(msg.userEmail)
+		}
 		m.refreshOptions()
 		return m, nil
 
 	case homeWorkspacesMsg:
 		m.workspacesErr = msg.err
 		m.workspaces = msg.workspaces
+		if strings.TrimSpace(msg.userEmail) != "" {
+			m.userEmail = strings.TrimSpace(msg.userEmail)
+		}
 		// Never keep showing / using a stale default workspace id (e.g. from mock/local).
 		if msg.err == nil && strings.TrimSpace(m.defaultWS) != "" && len(msg.workspaces) > 0 {
 			found := false
@@ -555,7 +572,7 @@ func (m homeModel) View() string {
 	base := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderBody())
 	if m.modal != nil {
 		// Dim base with a faint style.
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(base)
+		dim := lipgloss.NewStyle().Foreground(breytaMuted).Render(base)
 		return dim + "\n" + m.modal.View(m.width, m.height)
 	}
 	return base
@@ -584,8 +601,8 @@ func (m homeModel) headerHeight() int {
 }
 
 func (m homeModel) renderHeader() string {
-	meta := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render
-	label := lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Render
+	meta := lipgloss.NewStyle().Foreground(breytaMuted).Render
+	label := lipgloss.NewStyle().Foreground(breytaTextColor).Render
 
 	apiURL := strings.TrimSpace(m.apiBaseURL())
 
@@ -596,7 +613,9 @@ func (m homeModel) renderHeader() string {
 
 	authLabel := "-"
 	if strings.TrimSpace(m.token) != "" {
-		if email := authinfo.EmailFromToken(m.token); email != "" {
+		if email := strings.TrimSpace(m.userEmail); email != "" {
+			authLabel = truncateRunes(email, 48)
+		} else if email := authinfo.EmailFromToken(m.token); email != "" {
 			authLabel = truncateRunes(email, 48)
 		} else {
 			authLabel = "(unknown user)"
@@ -664,7 +683,7 @@ func (m homeModel) renderHeader() string {
 	rightCol := ""
 	// Only show logo when it fits; avoid truncation that can make it read wrong.
 	if rightW >= 40 {
-		rightCol = lipgloss.NewStyle().Width(rightW).Foreground(lipgloss.Color("8")).Render(strings.Join(logo, "\n"))
+		rightCol = lipgloss.NewStyle().Width(rightW).Foreground(breytaMuted).Render(strings.Join(logo, "\n"))
 	}
 
 	header := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, "  ", midCol)
@@ -672,7 +691,7 @@ func (m homeModel) renderHeader() string {
 		header = lipgloss.JoinHorizontal(lipgloss.Top, header, "  ", rightCol)
 	}
 
-	sep := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(strings.Repeat("─", maxInt(0, m.width)))
+	sep := lipgloss.NewStyle().Foreground(breytaBorder).Render(strings.Repeat("─", maxInt(0, m.width)))
 	return header + "\n" + sep
 }
 
@@ -718,9 +737,9 @@ func (m homeModel) renderWorkspace() string {
 		return "Loading workspace…"
 	}
 
-	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render
+	metaStyle := lipgloss.NewStyle().Foreground(breytaMuted).Render
 	h := []string{
-		lipgloss.NewStyle().Bold(true).Render("Workspace"),
+		lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Workspace"),
 		metaStyle(m.workspaceMeta.Name + " (" + m.workspaceMeta.ID + ")"),
 	}
 	if strings.TrimSpace(m.workspaceMeta.Plan) != "" {
@@ -914,7 +933,7 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 	client := api.Client{BaseURL: apiURL, Token: token}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	_, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
+	out, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
 	if err != nil {
 		info := ""
 		if includeInfo {
@@ -933,11 +952,12 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 		}
 		return homeDiagMsg{connected: false, httpStatus: status, apiError: fmt.Sprintf("api error (status=%d)", status), info: info}
 	}
+	userEmail := parseVerifyEmail(out)
 	info := ""
 	if includeInfo {
 		info = fmt.Sprintf("connected (status=%d)", status)
 	}
-	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info}
+	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info, userEmail: userEmail}
 }
 
 func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
@@ -953,7 +973,7 @@ func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
 	client := api.Client{BaseURL: apiURL, Token: token}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	_, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+	out, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
 	if err != nil {
 		info := ""
 		if includeInfo {
@@ -972,11 +992,16 @@ func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
 		}
 		return homeDiagMsg{connected: false, httpStatus: status, apiError: fmt.Sprintf("api error (status=%d)", status), info: info}
 	}
+	userEmail, wsCount := parseMeUserAndCount(out)
 	info := ""
 	if includeInfo {
-		info = fmt.Sprintf("ok (status=%d)", status)
+		if wsCount >= 0 {
+			info = fmt.Sprintf("ok (status=%d, workspaces=%d)", status, wsCount)
+		} else {
+			info = fmt.Sprintf("ok (status=%d)", status)
+		}
 	}
-	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info}
+	return homeDiagMsg{connected: true, httpStatus: status, apiError: "", info: info, userEmail: userEmail, wsCount: wsCount}
 }
 
 func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
@@ -997,6 +1022,7 @@ func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
 		if err != nil {
 			return homeWorkspacesMsg{httpStatus: status, err: err}
 		}
+		userEmail, wsCount := parseMeUserAndCount(out)
 		sort.Slice(raw, func(i, j int) bool {
 			li := strings.TrimSpace(raw[i].Name)
 			if li == "" {
@@ -1008,7 +1034,7 @@ func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
 			}
 			return li < lj
 		})
-		return homeWorkspacesMsg{workspaces: raw, httpStatus: status, err: nil}
+		return homeWorkspacesMsg{workspaces: raw, httpStatus: status, err: nil, userEmail: userEmail, wsCount: wsCount}
 	}
 }
 
@@ -1056,8 +1082,8 @@ func (m *homeModel) newDiagnosticsModal() *modalModel {
 		list:  newModalList("Pick diagnostic action", false),
 	}
 	_ = md.list.SetItems([]list.Item{
-		modalItem{id: "check", name: "Check connection", desc: "Call /api/auth/verify"},
 		modalItem{id: "me", name: "Check workspaces", desc: "Call /api/me"},
+		modalItem{id: "check", name: "Verify token", desc: "Call /api/auth/verify"},
 	})
 	return md
 }
@@ -1104,90 +1130,33 @@ func (m *homeModel) newAgentSkillsModal() *modalModel {
 		kind:  modalAgentSkills,
 		title: "Agent skills",
 		list:  newModalList("Install: teach your agent to use the Breyta CLI", false),
+		status: strings.TrimSpace(`
+This installs Breyta workflow authoring instructions into your agent tool.
+It writes a local file only (no network). Choose your agent:
+- Codex: ~/.codex/skills/breyta-flows-cli/SKILL.md
+- Cursor: ~/.cursor/rules/breyta-flows-cli/RULE.md
+- Claude Code: ~/.claude/skills/breyta-flows-cli/SKILL.md
+`),
 	}
 
 	_ = md.list.SetItems([]list.Item{
 		modalItem{
 			id:   "install:codex",
-			name: "Install (Codex)",
+			name: "Codex",
 			desc: "Writes: ~/.codex/skills/breyta-flows-cli/SKILL.md",
 		},
 		modalItem{
 			id:   "install:cursor",
-			name: "Install (Cursor)",
-			desc: "Writes: ~/.codex/cursor/skills/breyta-flows-cli/SKILL.md",
+			name: "Cursor",
+			desc: "Writes: ~/.cursor/rules/breyta-flows-cli/RULE.md",
 		},
 		modalItem{
 			id:   "install:claude",
-			name: "Install (Claude Code)",
-			desc: "Writes: ~/.claude/skills/user/breyta-flows-cli/SKILL.md",
-		},
-		modalItem{
-			id:   "copy-shell:codex",
-			name: "Copy shell install command (Codex)",
-			desc: "Copies a shell command that writes SKILL.md to Codex skills",
-		},
-		modalItem{
-			id:   "copy-shell:cursor",
-			name: "Copy shell install command (Cursor)",
-			desc: "Copies a shell command that writes SKILL.md to Cursor skills",
-		},
-		modalItem{
-			id:   "copy-shell:claude",
-			name: "Copy shell install command (Claude Code)",
-			desc: "Copies a shell command that writes SKILL.md to Claude skills",
+			name: "Claude Code",
+			desc: "Writes: ~/.claude/skills/breyta-flows-cli/SKILL.md",
 		},
 	})
 	return md
-}
-
-func shQuote(s string) string {
-	// POSIX-ish single-quote escaping: ' -> '\''.
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func previewShellScript(s string, maxLines int) string {
-	if maxLines <= 0 {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	if len(lines) <= maxLines {
-		return s
-	}
-	return strings.Join(lines[:maxLines], "\n") + "\n…"
-}
-
-func buildSkillInstallShell(homeDir string, provider skills.Provider) (string, error) {
-	md, err := skills.BreytaFlowsCLISkillMarkdown()
-	if err != nil {
-		return "", err
-	}
-	body := strings.TrimRight(string(md), "\n") + "\n"
-
-	blockFor := func(t skills.InstallTarget) string {
-		// Keep as a single pasteable chunk. Use a quoted heredoc marker to disable expansion.
-		return strings.TrimSpace(fmt.Sprintf(
-			"mkdir -p %s && cat > %s <<'EOF'\n%sEOF\n",
-			shQuote(t.Dir),
-			shQuote(t.File),
-			body,
-		)) + "\n"
-	}
-
-	switch provider {
-	case skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude:
-		t, err := skills.Target(homeDir, provider)
-		if err != nil {
-			return "", err
-		}
-		return blockFor(t), nil
-
-	default:
-		return "", fmt.Errorf("unknown provider %q", provider)
-	}
 }
 
 func (m *homeModel) applyModal() tea.Cmd {
@@ -1313,6 +1282,7 @@ func (m *homeModel) applyModal() tea.Cmd {
 				m.apiError = err.Error()
 				return
 			}
+
 			paths, err := skills.InstallBreytaFlowsCLI(home, p)
 			if err != nil {
 				m.apiError = err.Error()
@@ -1333,63 +1303,6 @@ func (m *homeModel) applyModal() tea.Cmd {
 			install(skills.ProviderCursor)
 		case "install:claude":
 			install(skills.ProviderClaude)
-
-		case "copy-shell:codex":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			script, err := buildSkillInstallShell(home, skills.ProviderCodex)
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			if tool, err := copyToClipboard(script); err != nil {
-				m.apiError = err.Error()
-				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
-			} else {
-				m.apiError = ""
-				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
-			}
-
-		case "copy-shell:cursor":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			script, err := buildSkillInstallShell(home, skills.ProviderCursor)
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			if tool, err := copyToClipboard(script); err != nil {
-				m.apiError = err.Error()
-				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
-			} else {
-				m.apiError = ""
-				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
-			}
-
-		case "copy-shell:claude":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			script, err := buildSkillInstallShell(home, skills.ProviderClaude)
-			if err != nil {
-				m.apiError = err.Error()
-				break
-			}
-			if tool, err := copyToClipboard(script); err != nil {
-				m.apiError = err.Error()
-				m.lastInfo = "shell install command (preview):\n" + previewShellScript(script, 8)
-			} else {
-				m.apiError = ""
-				m.lastInfo = "copied shell install command to clipboard (" + tool + "):\n" + previewShellScript(script, 8)
-			}
 		default:
 			m.apiError = "unknown action: " + id
 		}
@@ -1486,6 +1399,36 @@ func parseMeWorkspaces(out any) ([]meWorkspace, error) {
 		items = append(items, meWorkspace{ID: id, Name: name, Raw: wm})
 	}
 	return items, nil
+}
+
+func parseMeUserAndCount(out any) (email string, wsCount int) {
+	wsCount = -1
+	m, ok := out.(map[string]any)
+	if !ok {
+		return "", -1
+	}
+	if u, ok := m["user"].(map[string]any); ok {
+		if e, _ := u["email"].(string); strings.TrimSpace(e) != "" {
+			email = strings.TrimSpace(e)
+		}
+	}
+	if raw, ok := m["workspaces"].([]any); ok {
+		wsCount = len(raw)
+	}
+	return email, wsCount
+}
+
+func parseVerifyEmail(out any) string {
+	m, ok := out.(map[string]any)
+	if !ok {
+		return ""
+	}
+	u, ok := m["user"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	email, _ := u["email"].(string)
+	return strings.TrimSpace(email)
 }
 
 func cycleAPIURL(current string) string {

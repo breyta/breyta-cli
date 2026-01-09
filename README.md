@@ -105,8 +105,8 @@ Install from the TUI/CLI (recommended):
 - CLI: `breyta skills install --provider codex|cursor|claude`
 
 Common locations (used by `breyta skills install`):
-- Claude Code: `~/.claude/skills/user/breyta-flows-cli/`
-- Cursor (Codex-managed): `~/.codex/cursor/skills/breyta-flows-cli/`
+- Claude Code: `~/.claude/skills/breyta-flows-cli/`
+- Cursor: `~/.cursor/rules/breyta-flows-cli/RULE.md`
 - Codex: `~/.codex/skills/breyta-flows-cli/`
 
 ### CLI docs for agents

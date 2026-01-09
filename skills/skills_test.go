@@ -40,3 +40,17 @@ func TestInstallBreytaFlowsCLI_WritesFiles(t *testing.T) {
 		t.Fatalf("missing installed path %q (got: %#v)", wantCodex, paths)
 	}
 }
+
+func TestTarget_ProviderPaths(t *testing.T) {
+	home := "/tmp/home"
+
+	if got, err := Target(home, ProviderCodex); err != nil || got.File != filepath.Join(home, ".codex", "skills", BreytaFlowsCLISlug, "SKILL.md") {
+		t.Fatalf("codex target mismatch: %+v (err=%v)", got, err)
+	}
+	if got, err := Target(home, ProviderCursor); err != nil || got.File != filepath.Join(home, ".cursor", "rules", BreytaFlowsCLISlug, "RULE.md") {
+		t.Fatalf("cursor target mismatch: %+v (err=%v)", got, err)
+	}
+	if got, err := Target(home, ProviderClaude); err != nil || got.File != filepath.Join(home, ".claude", "skills", BreytaFlowsCLISlug, "SKILL.md") {
+		t.Fatalf("claude target mismatch: %+v (err=%v)", got, err)
+	}
+}

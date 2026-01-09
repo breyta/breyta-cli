@@ -39,13 +39,13 @@ For HTTP integrations that require API keys, the intended path is to declare a c
 This repo includes a skill bundle at `breyta-cli/skills/breyta-flows-cli/`.
 
 Copy it to:
-- `~/.claude/skills/user/breyta-flows-cli/`
+- `~/.claude/skills/breyta-flows-cli/`
 
 Example:
 
 ```bash
-mkdir -p ~/.claude/skills/user/breyta-flows-cli
-rsync -a breyta-cli/skills/breyta-flows-cli/ ~/.claude/skills/user/breyta-flows-cli/
+mkdir -p ~/.claude/skills/breyta-flows-cli
+rsync -a breyta-cli/skills/breyta-flows-cli/ ~/.claude/skills/breyta-flows-cli/
 ```
 
 You can also install it directly from the CLI/TUI:
