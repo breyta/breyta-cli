@@ -26,10 +26,16 @@ func TestBreytaDefaultItemStyles_SelectedHasAccentBorder(t *testing.T) {
 	if !s.SelectedTitle.GetBorderLeft() {
 		t.Fatalf("expected SelectedTitle to have left border enabled")
 	}
+	if !s.SelectedDesc.GetBorderLeft() {
+		t.Fatalf("expected SelectedDesc to have left border enabled")
+	}
 
 	var wantAccent lipgloss.TerminalColor = breytaAccent
 	if got := s.SelectedTitle.GetBorderLeftForeground(); got != wantAccent {
 		t.Fatalf("expected SelectedTitle left border foreground %v, got %v", wantAccent, got)
+	}
+	if got := s.SelectedDesc.GetBorderLeftForeground(); got != wantAccent {
+		t.Fatalf("expected SelectedDesc left border foreground %v, got %v", wantAccent, got)
 	}
 
 	if !s.SelectedTitle.GetBold() {

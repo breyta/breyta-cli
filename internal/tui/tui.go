@@ -1107,7 +1107,7 @@ func (m Model) renderHeader() string {
 	}
 
 	left := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Breyta")
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 
 	mid := meta.Render(name)
 	if plan != "" {
@@ -1130,7 +1130,7 @@ func (m Model) renderDashboard(bodyH int) string {
 	if ws != nil {
 		stats = fmt.Sprintf("Flows: %d  Runs: %d  Updated: %s", len(ws.Flows), len(ws.Runs), ws.UpdatedAt.Format(time.RFC3339))
 	}
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 	statsLine := meta.Render(stats)
 	shortcutsLine := meta.Render("f flows · r runs · m marketplace · s settings · q quit")
 
@@ -1151,13 +1151,13 @@ func (m Model) renderDashboard(bodyH int) string {
 
 func (m Model) renderFlowsTableView(bodyH int) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Flows")
-	hint := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("enter open · esc back · g dashboard")
+	hint := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("enter open · esc back · g dashboard")
 	return lipgloss.JoinVertical(lipgloss.Left, title, rule(m.width), hint, m.flowsTable.View())
 }
 
 func (m Model) renderRunsTableView(bodyH int) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Runs")
-	hint := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("enter open · esc back · g dashboard")
+	hint := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("enter open · esc back · g dashboard")
 	return lipgloss.JoinVertical(lipgloss.Left, title, rule(m.width), hint, m.runsTable.View())
 }
 
@@ -1244,9 +1244,9 @@ func (m Model) renderStep() string {
 		lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Output (concrete)"),
 		prettyJSON(output),
 		"",
-		lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Schemas (reference)"),
-		lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Input:  " + step.InputSchema),
-		lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Output: " + step.OutputSchema),
+		faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Schemas (reference)"),
+		faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Input:  " + step.InputSchema),
+		faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Output: " + step.OutputSchema),
 	}
 	return joinLines(lines)
 }
@@ -1287,7 +1287,7 @@ func (m Model) renderFlowLeftPane() string {
 	if w <= 0 {
 		w = 40
 	}
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 
 	tags := "-"
 	if len(f.Tags) > 0 {
@@ -1318,7 +1318,7 @@ func (m Model) renderRunLeftPane() string {
 	if w <= 0 {
 		w = 40
 	}
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 
 	total := len(r.Steps)
 	done := 0
@@ -1380,7 +1380,7 @@ func (m Model) renderFlowGraph() string {
 	if err != nil || f == nil {
 		return "Flow not found"
 	}
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Flow graph"),
 		meta.Render(f.Name + " · " + f.Slug),
@@ -1418,7 +1418,7 @@ func (m Model) renderFlowFocusedStepDetail() string {
 
 	it, ok := m.steps.SelectedItem().(flowOutlineItem)
 	if !ok {
-		return lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Select a step on the left.")
+		return faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Select a step on the left.")
 	}
 	if it.stepID == "" {
 		return renderFlowStructureDetail(it.line)
@@ -1452,10 +1452,10 @@ func (m Model) renderFlowFocusedStepDetail() string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render(step.ID))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render(step.Type))
+	b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render(step.Type))
 	if step.Title != "" {
 		b.WriteString(" · ")
-		b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render(step.Title))
+		b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render(step.Title))
 	}
 	b.WriteString("\n\n")
 
@@ -1474,16 +1474,16 @@ func (m Model) renderFlowFocusedStepDetail() string {
 	b.WriteString(prettyJSON(output))
 	b.WriteString("\n\n")
 
-	b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Schemas"))
+	b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Schemas"))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("in  " + step.InputSchema))
+	b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("in  " + step.InputSchema))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("out " + step.OutputSchema))
+	b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("out " + step.OutputSchema))
 	return b.String()
 }
 
 func renderFlowStructureDetail(line string) string {
-	meta := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	meta := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 	s := strings.TrimSpace(line)
 	l := strings.ToLower(s)
 
@@ -1552,7 +1552,7 @@ func (m Model) renderRunFocusedStepDetail() string {
 
 	it, ok := m.runSteps.SelectedItem().(runStepItem)
 	if !ok || it.stepID == "" {
-		return lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("Select a step on the left.")
+		return faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("Select a step on the left.")
 	}
 
 	var exec *state.StepExecution
@@ -1569,10 +1569,10 @@ func (m Model) renderRunFocusedStepDetail() string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render(exec.StepID))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render(exec.Status))
+	b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render(exec.Status))
 	if exec.Title != "" {
 		b.WriteString(" · ")
-		b.WriteString(lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render(exec.Title))
+		b.WriteString(faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render(exec.Title))
 	}
 	b.WriteString("\n\n")
 
@@ -1741,7 +1741,7 @@ func (m Model) renderMarketplaceTableView(bodyH int) string {
 		title += " · Payouts"
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render(title)
-	hint := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render("1 revenue · 2 demand · 3 registry · 4 payouts · esc back · g dashboard")
+	hint := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("1 revenue · 2 demand · 3 registry · 4 payouts · esc back · g dashboard")
 	return lipgloss.JoinVertical(lipgloss.Left, header, rule(m.width), hint, m.marketTable.View())
 }
 
@@ -1777,7 +1777,7 @@ func renderProgressBar(width int, pct float64) string {
 		filled = inner
 	}
 	bar := "[" + strings.Repeat("=", filled) + strings.Repeat(".", inner-filled) + "]"
-	return lipgloss.NewStyle().Render(bar) + " " + lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Render(fmt.Sprintf("%3.0f%%", pct*100))
+	return lipgloss.NewStyle().Render(bar) + " " + faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render(fmt.Sprintf("%3.0f%%", pct*100))
 }
 
 func (m Model) keysForMode() keyMap {
@@ -1879,7 +1879,7 @@ func paneStyle(active bool) lipgloss.Style {
 }
 
 func footerStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	return faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 }
 
 func joinLines(lines []string) string {
@@ -2069,7 +2069,7 @@ func rule(width int) string {
 	if width <= 0 {
 		width = 10
 	}
-	return lipgloss.NewStyle().Foreground(breytaBorder).Faint(true).Render(strings.Repeat("-", width))
+	return faintIfDark(lipgloss.NewStyle().Foreground(breytaBorder)).Render(strings.Repeat("-", width))
 }
 
 func splitPaneStyle() lipgloss.Style {
@@ -2088,7 +2088,7 @@ func vRule(height int) string {
 		}
 		b.WriteByte('|')
 	}
-	return lipgloss.NewStyle().Foreground(breytaBorder).Faint(true).Render(b.String())
+	return faintIfDark(lipgloss.NewStyle().Foreground(breytaBorder)).Render(b.String())
 }
 
 // --- Help / keymap -----------------------------------------------------------
@@ -2209,7 +2209,7 @@ func minimalTableStyles() table.Styles {
 	s := table.DefaultStyles()
 	// Plain header/cells, but keep a tiny bit of horizontal breathing room.
 	// (table columns are "tight" otherwise and feel cramped.)
-	s.Header = lipgloss.NewStyle().Foreground(breytaMuted).Faint(true).Padding(0, 1)
+	s.Header = faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Padding(0, 1)
 	s.Cell = lipgloss.NewStyle().Padding(0, 1)
 	// Selected row: typographic emphasis rather than color blocks.
 	s.Selected = lipgloss.NewStyle().Bold(true).Underline(true)
@@ -2271,7 +2271,7 @@ func (d minimalDelegate) Render(w io.Writer, m list.Model, index int, item list.
 			titleStyle = titleStyle.Foreground(breytaMuted)
 		}
 	}
-	descStyle := lipgloss.NewStyle().Foreground(breytaMuted).Faint(true)
+	descStyle := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted))
 
 	out := titleStyle.Render(titleRaw)
 	if descRaw != "" {

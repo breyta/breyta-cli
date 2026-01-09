@@ -10,10 +10,18 @@ import (
 var (
 	breytaTextColor = lipgloss.AdaptiveColor{Light: "#311f35", Dark: "#f8f4fb"} // colors.text / colors["text-10"]
 	breytaMuted     = lipgloss.AdaptiveColor{Light: "#88708d", Dark: "#eae3f0"} // colors["text-40"] / colors["text-20"]
-	breytaBorder    = lipgloss.AdaptiveColor{Light: "#eae3f0", Dark: "#88708d"} // colors["text-20"] / colors["text-40"]
-	breytaAccent    = lipgloss.AdaptiveColor{Light: "#6556c3", Dark: "#8870bd"} // colors.link / colors.subtle
-	breytaDanger    = lipgloss.AdaptiveColor{Light: "#a32138", Dark: "#b82727"} // colors.danger / colors.rooster
+	// Borders must remain visible on light terminals; keep light-theme borders darker.
+	breytaBorder = lipgloss.AdaptiveColor{Light: "#88708d", Dark: "#eae3f0"} // colors["text-40"] / colors["text-20"]
+	breytaAccent = lipgloss.AdaptiveColor{Light: "#6556c3", Dark: "#8870bd"} // colors.link / colors.subtle
+	breytaDanger = lipgloss.AdaptiveColor{Light: "#a32138", Dark: "#b82727"} // colors.danger / colors.rooster
 )
+
+func faintIfDark(s lipgloss.Style) lipgloss.Style {
+	if lipgloss.HasDarkBackground() {
+		return s.Faint(true)
+	}
+	return s
+}
 
 func breytaListStyles() list.Styles {
 	s := list.DefaultStyles()
@@ -61,9 +69,9 @@ func breytaDefaultItemStyles() list.DefaultItemStyles {
 		Bold(true).
 		Padding(0, 0, 0, 1)
 
-	s.SelectedDesc = lipgloss.NewStyle().
-		Foreground(breytaMuted).
-		Padding(0, 0, 0, 2)
+	s.SelectedDesc = s.SelectedTitle.Copy().
+		Bold(false).
+		Foreground(breytaTextColor)
 
 	s.DimmedTitle = lipgloss.NewStyle().
 		Foreground(breytaMuted).
