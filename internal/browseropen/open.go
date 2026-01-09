@@ -9,30 +9,43 @@ import (
 	"strings"
 )
 
+var startCommand = func(name string, args ...string) error {
+	return exec.Command(name, args...).Start()
+}
+
 func Open(u string) error {
 	u = strings.TrimSpace(u)
 	if u == "" {
 		return errors.New("missing url")
 	}
 
-	switch runtime.GOOS {
+	goos := runtime.GOOS
+	wsl := false
+	if goos == "linux" {
+		wsl = isWSL()
+	}
+	return openFor(goos, wsl, strings.TrimSpace(os.Getenv("BROWSER")), u)
+}
+
+func openFor(goos string, wsl bool, browserEnv string, u string) error {
+	switch goos {
 	case "darwin":
-		return exec.Command("open", u).Start()
+		return startCommand("open", u)
 	case "windows":
 		return openWindows(u)
 	default: // linux et al
-		if runtime.GOOS == "linux" && isWSL() {
+		if goos == "linux" && wsl {
 			if err := openWSL(u); err == nil {
 				return nil
 			}
 		}
 
 		// Respect BROWSER on unix-y systems (best effort).
-		if err := openViaBrowserEnv(u); err == nil {
+		if err := openViaBrowserEnv(browserEnv, u); err == nil {
 			return nil
 		}
 
-		return exec.Command("xdg-open", u).Start()
+		return startCommand("xdg-open", u)
 	}
 }
 
@@ -48,8 +61,7 @@ func openWSL(u string) error {
 		if len(args) == 0 {
 			continue
 		}
-		cmd := exec.Command(args[0], args[1:]...)
-		if err := cmd.Start(); err == nil {
+		if err := startCommand(args[0], args[1:]...); err == nil {
 			return nil
 		} else {
 			errs = append(errs, err)
@@ -70,8 +82,7 @@ func openWindows(u string) error {
 		if len(args) == 0 {
 			continue
 		}
-		cmd := exec.Command(args[0], args[1:]...)
-		if err := cmd.Start(); err == nil {
+		if err := startCommand(args[0], args[1:]...); err == nil {
 			return nil
 		} else {
 			errs = append(errs, err)
@@ -83,8 +94,8 @@ func openWindows(u string) error {
 	return fmt.Errorf("open browser failed: %v", errs)
 }
 
-func openViaBrowserEnv(u string) error {
-	raw := strings.TrimSpace(os.Getenv("BROWSER"))
+func openViaBrowserEnv(raw string, u string) error {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return errors.New("BROWSER not set")
 	}
@@ -110,8 +121,7 @@ func openViaBrowserEnv(u string) error {
 		} else {
 			argv = append(argv, u)
 		}
-		cmd := exec.Command(argv[0], argv[1:]...)
-		if err := cmd.Start(); err == nil {
+		if err := startCommand(argv[0], argv[1:]...); err == nil {
 			return nil
 		} else {
 			errs = append(errs, err)

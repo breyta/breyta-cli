@@ -17,6 +17,6 @@ fmt:
 test:
 	go test ./...
 
-install:
+install: test
 	go install ./cmd/breyta
 	@echo "Installed: $$(go env GOPATH)/bin/$(BINARY_NAME)"
