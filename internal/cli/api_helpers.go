@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,10 @@ import (
 )
 
 var pasteURLRe = regexp.MustCompile(`https?://paste\.rs/[^\s"}]+`)
+
+// authRefreshHTTPClient is a test hook to avoid binding local ports in restricted
+// sandboxes. When nil, refreshTokenViaAPI uses the default HTTP client behavior.
+var authRefreshHTTPClient *http.Client
 
 func isAPIMode(app *App) bool {
 	return strings.TrimSpace(app.APIURL) != ""
@@ -43,7 +48,7 @@ func requireAPI(app *App) error {
 	ensureAPIURL(app)
 	// In mock-auth mode, any non-blank token works, but we still require callers
 	// to be explicit about auth being in play.
-	if strings.TrimSpace(app.Token) == "" {
+	if !app.TokenExplicit {
 		loadTokenFromAuthStore(app)
 	}
 	if strings.TrimSpace(app.Token) == "" {
@@ -56,11 +61,15 @@ func loadTokenFromAuthStore(app *App) {
 	if strings.TrimSpace(app.APIURL) == "" {
 		return
 	}
-	path, _ := authstore.DefaultPath()
-	if strings.TrimSpace(path) == "" {
+	storePath := strings.TrimSpace(os.Getenv("BREYTA_AUTH_STORE"))
+	if storePath == "" {
+		p, _ := authstore.DefaultPath()
+		storePath = strings.TrimSpace(p)
+	}
+	if strings.TrimSpace(storePath) == "" {
 		return
 	}
-	st, err := authstore.Load(path)
+	st, err := authstore.Load(storePath)
 	if err != nil || st == nil {
 		return
 	}
@@ -89,7 +98,7 @@ func loadTokenFromAuthStore(app *App) {
 	}
 	if updated {
 		st.SetRecord(app.APIURL, rec)
-		_ = authstore.SaveAtomic(path, st)
+		_ = authstore.SaveAtomic(storePath, st)
 	}
 	app.Token = rec.Token
 }
@@ -151,7 +160,7 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	client := api.Client{BaseURL: apiBaseURL}
+	client := api.Client{BaseURL: apiBaseURL, HTTP: authRefreshHTTPClient}
 	out, status, err := client.DoRootREST(ctx, http.MethodPost, "/api/auth/refresh", nil, map[string]any{
 		"refreshToken": refreshToken,
 	})

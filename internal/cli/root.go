@@ -21,6 +21,7 @@ type App struct {
 	Format               string
 	APIURL               string
 	Token                string
+	TokenExplicit        bool
 	Profile              string
 	DevMode              bool
 	visibilityConfigured bool
@@ -116,6 +117,7 @@ func NewRootCmd() *cobra.Command {
 		}
 		tokenEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != ""
 		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
+		app.TokenExplicit = tokenExplicit
 
 		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
 		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
