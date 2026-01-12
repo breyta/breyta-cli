@@ -25,7 +25,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install the breyta-flows-cli agent skill bundle",
+		Short: "Install the breyta agent skill bundle",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := skills.Provider(strings.TrimSpace(provider))
 
@@ -34,7 +34,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 				return err
 			}
 
-			paths, err := skills.InstallBreytaFlowsCLI(home, p)
+			paths, err := skills.InstallBreytaSkill(home, p)
 			if err != nil {
 				return err
 			}

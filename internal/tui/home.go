@@ -629,7 +629,8 @@ func (m homeModel) renderHeader() string {
 		connLabel = "connected"
 	}
 
-	defWS := cmpOrDash(m.workspaceName(m.defaultWS))
+	// Show the workspace id until we've loaded a workspace list that can resolve it to a name.
+	defWS := cmpOrDash(m.workspaceNameOrID(m.defaultWS))
 	activeWS := "-"
 	if strings.TrimSpace(m.selectedWorkspaceID) != "" {
 		activeWS = strings.TrimSpace(m.selectedWorkspaceID)
@@ -1133,9 +1134,9 @@ func (m *homeModel) newAgentSkillsModal() *modalModel {
 		status: strings.TrimSpace(`
 This installs Breyta workflow authoring instructions into your agent tool.
 It writes a local file only (no network). Choose your agent:
-- Codex: ~/.codex/skills/breyta-flows-cli/SKILL.md
-- Cursor: ~/.cursor/rules/breyta-flows-cli/RULE.md
-- Claude Code: ~/.claude/skills/breyta-flows-cli/SKILL.md
+- Codex: ~/.codex/skills/breyta/SKILL.md
+- Cursor: ~/.cursor/rules/breyta/RULE.md
+- Claude Code: ~/.claude/skills/breyta/SKILL.md
 `),
 	}
 
@@ -1143,17 +1144,17 @@ It writes a local file only (no network). Choose your agent:
 		modalItem{
 			id:   "install:codex",
 			name: "Codex",
-			desc: "Writes: ~/.codex/skills/breyta-flows-cli/SKILL.md",
+			desc: "Writes: ~/.codex/skills/breyta/SKILL.md",
 		},
 		modalItem{
 			id:   "install:cursor",
 			name: "Cursor",
-			desc: "Writes: ~/.cursor/rules/breyta-flows-cli/RULE.md",
+			desc: "Writes: ~/.cursor/rules/breyta/RULE.md",
 		},
 		modalItem{
 			id:   "install:claude",
 			name: "Claude Code",
-			desc: "Writes: ~/.claude/skills/breyta-flows-cli/SKILL.md",
+			desc: "Writes: ~/.claude/skills/breyta/SKILL.md",
 		},
 	})
 	return md
@@ -1258,12 +1259,14 @@ func (m *homeModel) applyModal() tea.Cmd {
 			m.refreshOptions()
 			return nil
 		}
-		if err := setDefaultWorkspace(ws.id); err != nil {
+		// Persist default workspace together with the current API URL, so it can be reliably loaded on restart.
+		if err := setConfig(m.apiURL, ws.id); err != nil {
 			m.apiError = err.Error()
 			m.refreshOptions()
 			return nil
 		}
 		m.defaultWS = ws.id
+		m.cfg.WorkspaceID = ws.id
 		m.refreshOptions()
 		return nil
 
@@ -1283,7 +1286,7 @@ func (m *homeModel) applyModal() tea.Cmd {
 				return
 			}
 
-			paths, err := skills.InstallBreytaFlowsCLI(home, p)
+			paths, err := skills.InstallBreytaSkill(home, p)
 			if err != nil {
 				m.apiError = err.Error()
 				return
@@ -1643,23 +1646,6 @@ func setConfig(apiURL, workspaceID string) error {
 		APIURL:      strings.TrimSpace(apiURL),
 		WorkspaceID: strings.TrimSpace(workspaceID),
 	})
-}
-
-func setDefaultWorkspace(workspaceID string) error {
-	workspaceID = strings.TrimSpace(workspaceID)
-	p, err := configstore.DefaultPath()
-	if err != nil {
-		return err
-	}
-	st, err := configstore.Load(p)
-	if err != nil {
-		st = &configstore.Store{}
-	}
-	if st == nil {
-		st = &configstore.Store{}
-	}
-	st.WorkspaceID = workspaceID
-	return configstore.SaveAtomic(p, st)
 }
 
 func storeToken(apiURL, token string) error {

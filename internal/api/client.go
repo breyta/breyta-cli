@@ -37,19 +37,27 @@ func (c Client) endpoint() (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
 	}
+	if strings.TrimSpace(c.WorkspaceID) == "" {
+		return "", fmt.Errorf("missing workspace id")
+	}
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
 	if err != nil {
 		return "", fmt.Errorf("invalid api url: %w", err)
 	}
 	prefix := strings.TrimRight(u.Path, "/")
-	u.Path = prefix + "/api/commands"
-	u.RawPath = prefix + "/api/commands"
+	wsPath := strings.TrimSpace(c.WorkspaceID)
+	wsRaw := url.PathEscape(wsPath)
+	u.Path = prefix + "/" + wsPath + "/api/commands"
+	u.RawPath = prefix + "/" + wsRaw + "/api/commands"
 	return u.String(), nil
 }
 
 func (c Client) endpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
+	}
+	if strings.TrimSpace(c.WorkspaceID) == "" {
+		return "", fmt.Errorf("missing workspace id")
 	}
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
 	if err != nil {
@@ -58,8 +66,10 @@ func (c Client) endpointFor(path string) (string, error) {
 	p := strings.TrimSpace(path)
 	p = strings.TrimPrefix(p, "/")
 	prefix := strings.TrimRight(u.Path, "/")
-	u.Path = prefix + "/" + p
-	u.RawPath = prefix + "/" + p
+	wsPath := strings.TrimSpace(c.WorkspaceID)
+	wsRaw := url.PathEscape(wsPath)
+	u.Path = prefix + "/" + wsPath + "/" + p
+	u.RawPath = prefix + "/" + wsRaw + "/" + p
 	return u.String(), nil
 }
 
@@ -124,9 +134,6 @@ func (c Client) DoREST(ctx context.Context, method string, path string, query ur
 	if err != nil {
 		return nil, 0, err
 	}
-	if strings.TrimSpace(c.WorkspaceID) == "" {
-		return nil, 0, fmt.Errorf("missing workspace id")
-	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -186,9 +193,6 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	endpoint, err := c.endpoint()
 	if err != nil {
 		return nil, 0, err
-	}
-	if strings.TrimSpace(c.WorkspaceID) == "" {
-		return nil, 0, fmt.Errorf("missing workspace id")
 	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}

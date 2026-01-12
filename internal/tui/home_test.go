@@ -1,53 +1,55 @@
 package tui
 
 import (
+	"path/filepath"
 	"testing"
 
 	"breyta-cli/internal/configstore"
+
+	"github.com/charmbracelet/bubbles/list"
 )
 
-func TestParseMeWorkspaces(t *testing.T) {
-	out := map[string]any{
-		"workspaces": []any{
-			map[string]any{"id": "ws-a", "name": "A"},
-			map[string]any{"id": "ws-b", "name": "B"},
-		},
+func TestApplyModal_WorkspaceDefault_PersistsAPIURLAndWorkspace(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "xdg"))
+
+	apiURL := "https://example.invalid"
+
+	m := newHomeModel(HomeConfig{APIURL: apiURL})
+
+	l := newModalList("Pick default workspace", true)
+	_ = l.SetItems([]list.Item{
+		modalItem{id: "ws-1", name: "ws-1", desc: "ws-1"},
+	})
+	l.Select(0)
+
+	m.modal = &modalModel{
+		kind: modalWorkspaceDefault,
+		list: l,
 	}
-	ws, err := parseMeWorkspaces(out)
+
+	m.applyModal()
+
+	p, err := configstore.DefaultPath()
 	if err != nil {
-		t.Fatalf("parseMeWorkspaces error: %v", err)
+		t.Fatalf("DefaultPath: %v", err)
 	}
-	if len(ws) != 2 {
-		t.Fatalf("expected 2 workspaces, got %d", len(ws))
+	st, err := configstore.Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	if ws[0].ID != "ws-a" || ws[0].Name != "A" {
-		t.Fatalf("unexpected first workspace: %+v", ws[0])
+	if st.APIURL != apiURL {
+		t.Fatalf("APIURL: got %q want %q", st.APIURL, apiURL)
 	}
-	if ws[1].ID != "ws-b" || ws[1].Name != "B" {
-		t.Fatalf("unexpected second workspace: %+v", ws[1])
-	}
-}
-
-func TestParseMeWorkspaces_Unexpected(t *testing.T) {
-	_, err := parseMeWorkspaces("not a map")
-	if err == nil {
-		t.Fatalf("expected error")
+	if st.WorkspaceID != "ws-1" {
+		t.Fatalf("WorkspaceID: got %q want %q", st.WorkspaceID, "ws-1")
 	}
 }
 
-func TestCycleAPIURL(t *testing.T) {
-	if got := cycleAPIURL(""); got != configstore.DefaultLocalAPIURL {
-		t.Fatalf("expected local, got %q", got)
-	}
-	if got := cycleAPIURL(configstore.DefaultLocalAPIURL); got != configstore.DefaultProdAPIURL {
-		t.Fatalf("expected prod, got %q", got)
-	}
-	if got := cycleAPIURL(configstore.DefaultProdAPIURL); got != configstore.DefaultLocalAPIURL {
-		t.Fatalf("expected local, got %q", got)
-	}
-	// Unknown/custom should snap to local.
-	if got := cycleAPIURL("https://example.com"); got != configstore.DefaultLocalAPIURL {
-		t.Fatalf("expected local, got %q", got)
+func TestWorkspaceNameOrID_FallsBackToID(t *testing.T) {
+	m := homeModel{workspaces: nil}
+	if got := m.workspaceNameOrID("ws-1"); got != "ws-1" {
+		t.Fatalf("workspaceNameOrID: got %q want %q", got, "ws-1")
 	}
 }
-

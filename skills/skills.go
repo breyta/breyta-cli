@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-//go:embed breyta-flows-cli/SKILL.md
+//go:embed breyta/SKILL.md
 var embedded embed.FS
 
-const BreytaFlowsCLISlug = "breyta-flows-cli"
+const BreytaSkillSlug = "breyta"
 
 type Provider string
 
@@ -28,8 +28,8 @@ type InstallTarget struct {
 	File     string
 }
 
-func BreytaFlowsCLISkillMarkdown() ([]byte, error) {
-	return embedded.ReadFile("breyta-flows-cli/SKILL.md")
+func BreytaSkillMarkdown() ([]byte, error) {
+	return embedded.ReadFile("breyta/SKILL.md")
 }
 
 func Target(homeDir string, provider Provider) (InstallTarget, error) {
@@ -48,19 +48,19 @@ func Target(homeDir string, provider Provider) (InstallTarget, error) {
 func targetForProvider(homeDir string, provider Provider) InstallTarget {
 	switch provider {
 	case ProviderClaude:
-		dir := filepath.Join(homeDir, ".claude", "skills", BreytaFlowsCLISlug)
+		dir := filepath.Join(homeDir, ".claude", "skills", BreytaSkillSlug)
 		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
 	case ProviderCursor:
-		dir := filepath.Join(homeDir, ".cursor", "rules", BreytaFlowsCLISlug)
+		dir := filepath.Join(homeDir, ".cursor", "rules", BreytaSkillSlug)
 		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "RULE.md")}
 	default: // codex
-		dir := filepath.Join(homeDir, ".codex", "skills", BreytaFlowsCLISlug)
+		dir := filepath.Join(homeDir, ".codex", "skills", BreytaSkillSlug)
 		return InstallTarget{Provider: ProviderCodex, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
 	}
 }
 
-func InstallBreytaFlowsCLI(homeDir string, provider Provider) ([]string, error) {
-	md, err := BreytaFlowsCLISkillMarkdown()
+func InstallBreytaSkill(homeDir string, provider Provider) ([]string, error) {
+	md, err := BreytaSkillMarkdown()
 	if err != nil {
 		return nil, err
 	}

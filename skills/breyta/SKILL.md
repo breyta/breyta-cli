@@ -1,5 +1,5 @@
 ---
-name: breyta-flows-cli
+name: breyta
 description: >-
   Use Breyta to build and operate workflows (“flows”): multi-step backend
   processes with triggers, steps, waits, versioning, deploys, and runnable
