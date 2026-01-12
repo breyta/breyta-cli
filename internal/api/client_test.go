@@ -22,14 +22,14 @@ func TestClient_baseEndpointFor_AppendsPath(t *testing.T) {
 	}
 }
 
-func TestClient_endpointFor_EscapesWorkspaceID(t *testing.T) {
+func TestClient_endpointFor_AppendsPath(t *testing.T) {
 	c := Client{BaseURL: "http://example.test", WorkspaceID: "ws/acme"}
 	got, err := c.endpointFor("/api/me")
 	if err != nil {
 		t.Fatalf("endpointFor: %v", err)
 	}
-	if !strings.Contains(got, "/ws%2Facme/api/me") {
-		t.Fatalf("expected escaped workspace segment, got %q", got)
+	if got != "http://example.test/api/me" {
+		t.Fatalf("unexpected endpoint: %q", got)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	var got map[string]any
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws-acme/api/commands" {
+		if r.URL.Path != "/api/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
 		b, _ := io.ReadAll(r.Body)

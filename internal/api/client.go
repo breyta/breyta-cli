@@ -40,16 +40,7 @@ func (c Client) endpoint() (string, error) {
 	if strings.TrimSpace(c.WorkspaceID) == "" {
 		return "", fmt.Errorf("missing workspace id")
 	}
-	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
-	if err != nil {
-		return "", fmt.Errorf("invalid api url: %w", err)
-	}
-	prefix := strings.TrimRight(u.Path, "/")
-	wsPath := strings.TrimSpace(c.WorkspaceID)
-	wsRaw := url.PathEscape(wsPath)
-	u.Path = prefix + "/" + wsPath + "/api/commands"
-	u.RawPath = prefix + "/" + wsRaw + "/api/commands"
-	return u.String(), nil
+	return c.baseEndpointFor("/api/commands")
 }
 
 func (c Client) endpointFor(path string) (string, error) {
@@ -59,18 +50,7 @@ func (c Client) endpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.WorkspaceID) == "" {
 		return "", fmt.Errorf("missing workspace id")
 	}
-	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
-	if err != nil {
-		return "", fmt.Errorf("invalid api url: %w", err)
-	}
-	p := strings.TrimSpace(path)
-	p = strings.TrimPrefix(p, "/")
-	prefix := strings.TrimRight(u.Path, "/")
-	wsPath := strings.TrimSpace(c.WorkspaceID)
-	wsRaw := url.PathEscape(wsPath)
-	u.Path = prefix + "/" + wsPath + "/" + p
-	u.RawPath = prefix + "/" + wsRaw + "/" + p
-	return u.String(), nil
+	return c.baseEndpointFor(path)
 }
 
 func (c Client) DoRootREST(ctx context.Context, method string, path string, query url.Values, body any) (any, int, error) {
