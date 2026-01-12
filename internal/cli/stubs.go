@@ -34,6 +34,16 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 		Use:   "list",
 		Short: "List connections",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections", nil, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
 			st, _, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -59,6 +69,20 @@ func newConnectionsShowCmd(app *App) *cobra.Command {
 		Short: "Show connection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				id := strings.TrimSpace(args[0])
+				if id == "" {
+					return writeErr(cmd, errors.New("missing id"))
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections/"+url.PathEscape(id), nil, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
 			st, _, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -78,7 +102,7 @@ func newConnectionsShowCmd(app *App) *cobra.Command {
 }
 
 func newConnectionsCreateCmd(app *App) *cobra.Command {
-	var name, typ string
+	var name, typ, baseURL, description, slot, apiKey, configJSON string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create connection",
@@ -88,6 +112,39 @@ func newConnectionsCreateCmd(app *App) *cobra.Command {
 			}
 			if name == "" {
 				name = typ
+			}
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				body := map[string]any{
+					"type": typ,
+					"name": name,
+				}
+				if strings.TrimSpace(baseURL) != "" {
+					body["base-url"] = strings.TrimSpace(baseURL)
+				}
+				if strings.TrimSpace(description) != "" {
+					body["description"] = strings.TrimSpace(description)
+				}
+				if strings.TrimSpace(slot) != "" {
+					body["slot"] = strings.TrimSpace(slot)
+				}
+				if strings.TrimSpace(apiKey) != "" {
+					body["api-key"] = strings.TrimSpace(apiKey)
+				}
+				if strings.TrimSpace(configJSON) != "" {
+					var v any
+					if err := json.Unmarshal([]byte(configJSON), &v); err != nil {
+						return writeErr(cmd, errors.New("invalid --config JSON"))
+					}
+					body["config"] = v
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/connections", nil, body)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -113,6 +170,11 @@ func newConnectionsCreateCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Connection name")
 	cmd.Flags().StringVar(&typ, "type", "", "Connection type")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Base URL (HTTP connections)")
+	cmd.Flags().StringVar(&description, "description", "", "Description")
+	cmd.Flags().StringVar(&slot, "slot", "", "Suggested slot name")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "API key (connection-dependent)")
+	cmd.Flags().StringVar(&configJSON, "config", "", "Config JSON object (API mode)")
 	return cmd
 }
 
@@ -123,6 +185,27 @@ func newConnectionsUpdateCmd(app *App) *cobra.Command {
 		Short: "Update connection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				id := strings.TrimSpace(args[0])
+				if id == "" {
+					return writeErr(cmd, errors.New("missing id"))
+				}
+				body := map[string]any{"id": id}
+				if name != "" {
+					body["name"] = name
+				}
+				if status != "" {
+					body["status"] = status
+				}
+				out, httpStatus, err := apiClient(app).DoREST(context.Background(), http.MethodPut, "/api/connections/"+url.PathEscape(id), nil, body)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, httpStatus, out)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -160,6 +243,20 @@ func newConnectionsDeleteCmd(app *App) *cobra.Command {
 		Short: "Delete connection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				id := strings.TrimSpace(args[0])
+				if id == "" {
+					return writeErr(cmd, errors.New("missing id"))
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodDelete, "/api/connections/"+url.PathEscape(id), nil, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -188,6 +285,20 @@ func newConnectionsTestCmd(app *App) *cobra.Command {
 		Short: "Test connection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				id := strings.TrimSpace(args[0])
+				if id == "" {
+					return writeErr(cmd, errors.New("missing id"))
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/connections/"+url.PathEscape(id)+"/test", nil, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -217,6 +328,7 @@ func newConnectionsTestCmd(app *App) *cobra.Command {
 
 func newProfilesCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "profiles", Short: "Manage flow profiles (activation/bindings)"}
+	cmd.AddCommand(newProfilesActivateCmd(app))
 	cmd.AddCommand(newProfilesListCmd(app))
 	cmd.AddCommand(newProfilesShowCmd(app))
 	cmd.AddCommand(newProfilesCreateCmd(app))
@@ -226,6 +338,71 @@ func newProfilesCmd(app *App) *cobra.Command {
 	bindings.AddCommand(newProfilesBindingsSetCmd(app))
 	cmd.AddCommand(bindings)
 
+	return cmd
+}
+
+func newProfilesActivateCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "activate <flow-slug>",
+		Short: "Activate flow profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			flow := strings.TrimSpace(args[0])
+			if flow == "" {
+				return writeErr(cmd, errors.New("missing flow slug"))
+			}
+			if isAPIMode(app) {
+				return doAPICommand(cmd, app, "profiles.activate", map[string]any{"flowSlug": flow})
+			}
+			st, store, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			f := ws.Flows[flow]
+			if f == nil {
+				return writeErr(cmd, errors.New("flow not found"))
+			}
+			if ws.Profiles == nil {
+				ws.Profiles = map[string]*state.Profile{}
+			}
+			var active *state.Profile
+			for _, it := range ws.Profiles {
+				if it.FlowSlug == flow && it.ProfileType == "prod" {
+					active = it
+					break
+				}
+			}
+			now := time.Now().UTC()
+			if active == nil {
+				id := "prof-" + now.Format("20060102-150405")
+				active = &state.Profile{
+					ID:          id,
+					FlowSlug:    flow,
+					Version:     f.ActiveVersion,
+					Name:        flow,
+					Enabled:     true,
+					ProfileType: "prod",
+					UpdatedAt:   now,
+				}
+				ws.Profiles[id] = active
+			} else {
+				active.Enabled = true
+				if f.ActiveVersion > 0 {
+					active.Version = f.ActiveVersion
+				}
+				active.UpdatedAt = now
+			}
+			ws.UpdatedAt = now
+			if err := store.Save(st); err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeData(cmd, app, nil, map[string]any{"profile": active, "activated": true})
+		},
+	}
 	return cmd
 }
 
@@ -460,7 +637,8 @@ func newProfilesBindingsSetCmd(app *App) *cobra.Command {
 				if !ok {
 					return writeErr(cmd, errors.New("--bindings must be a JSON object"))
 				}
-				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPut, "/api/flow-profiles/"+url.PathEscape(id)+"/bindings", nil, m)
+				payload := map[string]any{"bindings": m}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPut, "/api/flow-profiles/"+url.PathEscape(id)+"/bindings", nil, payload)
 				if err != nil {
 					return writeErr(cmd, err)
 				}

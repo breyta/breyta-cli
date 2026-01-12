@@ -1,17 +1,15 @@
 package cli
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"strings"
-
-	"breyta-cli/internal/authstore"
 	"breyta-cli/internal/configstore"
 	"breyta-cli/internal/format"
 	"breyta-cli/internal/mock"
 	"breyta-cli/internal/state"
 	"breyta-cli/internal/tui"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -109,17 +107,20 @@ func NewRootCmd() *cobra.Command {
 			}
 		}
 
-		// If token isn't explicitly provided, try to load it from the local auth store.
-		// This enables: `breyta auth login` once, then normal `breyta ...` commands.
-		if strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIURL) != "" {
-			path, _ := authstore.DefaultPath()
-			if path != "" {
-				if st, err := authstore.Load(path); err == nil {
-					if tok, ok := st.Get(app.APIURL); ok {
-						app.Token = tok
-					}
-				}
+		tokenFlagExplicit := false
+		if cmd != nil {
+			tokenFlagExplicit = cmd.Flags().Changed("token") || cmd.InheritedFlags().Changed("token")
+			if root := cmd.Root(); root != nil {
+				tokenFlagExplicit = tokenFlagExplicit || root.PersistentFlags().Changed("token")
 			}
+		}
+		tokenEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != ""
+		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
+
+		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
+		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
+		if !tokenExplicit && strings.TrimSpace(app.APIURL) != "" {
+			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
 		return nil

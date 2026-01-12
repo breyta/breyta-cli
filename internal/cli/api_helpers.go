@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,26 +44,98 @@ func requireAPI(app *App) error {
 	// In mock-auth mode, any non-blank token works, but we still require callers
 	// to be explicit about auth being in play.
 	if strings.TrimSpace(app.Token) == "" {
-		if path, _ := authstore.DefaultPath(); strings.TrimSpace(path) != "" {
-			if st, err := authstore.Load(path); err == nil && st != nil {
-				if rec, ok := st.GetRecord(app.APIURL); ok {
-					app.Token = rec.Token
-					// Refresh proactively when close to expiry.
-					if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < 2*time.Minute {
-						if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
-							st.SetRecord(app.APIURL, next)
-							_ = authstore.SaveAtomic(path, st)
-							app.Token = next.Token
-						}
-					}
-				}
-			}
-		}
+		loadTokenFromAuthStore(app)
 	}
 	if strings.TrimSpace(app.Token) == "" {
 		return errors.New("missing --token or BREYTA_TOKEN")
 	}
 	return nil
+}
+
+func loadTokenFromAuthStore(app *App) {
+	if strings.TrimSpace(app.APIURL) == "" {
+		return
+	}
+	path, _ := authstore.DefaultPath()
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	st, err := authstore.Load(path)
+	if err != nil || st == nil {
+		return
+	}
+	rec, ok := st.GetRecord(app.APIURL)
+	if !ok {
+		return
+	}
+	updated := false
+	if rec.ExpiresAt.IsZero() {
+		if exp, ok := parseJWTExpiry(rec.Token); ok {
+			rec.ExpiresAt = exp
+			updated = true
+		}
+	}
+	if strings.TrimSpace(rec.RefreshToken) != "" && rec.ExpiresAt.IsZero() {
+		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
+			rec = next
+			updated = true
+		}
+	}
+	if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < 2*time.Minute {
+		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
+			rec = next
+			updated = true
+		}
+	}
+	if updated {
+		st.SetRecord(app.APIURL, rec)
+		_ = authstore.SaveAtomic(path, st)
+	}
+	app.Token = rec.Token
+}
+
+func parseJWTExpiry(token string) (time.Time, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return time.Time{}, false
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return time.Time{}, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return time.Time{}, false
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return time.Time{}, false
+	}
+	expAny, ok := claims["exp"]
+	if !ok {
+		return time.Time{}, false
+	}
+	var expSeconds int64
+	switch v := expAny.(type) {
+	case float64:
+		expSeconds = int64(v)
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			expSeconds = n
+		}
+	case int64:
+		expSeconds = v
+	case int:
+		expSeconds = int64(v)
+	case string:
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			expSeconds = n
+		}
+	}
+	if expSeconds <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(expSeconds, 0).UTC(), true
 }
 
 func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Record, error) {

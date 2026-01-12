@@ -37,25 +37,19 @@ func (c Client) endpoint() (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
 	}
-	if strings.TrimSpace(c.WorkspaceID) == "" {
-		return "", fmt.Errorf("missing workspace id")
-	}
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
 	if err != nil {
 		return "", fmt.Errorf("invalid api url: %w", err)
 	}
 	prefix := strings.TrimRight(u.Path, "/")
-	u.Path = prefix + "/" + c.WorkspaceID + "/api/commands"
-	u.RawPath = prefix + "/" + url.PathEscape(c.WorkspaceID) + "/api/commands"
+	u.Path = prefix + "/api/commands"
+	u.RawPath = prefix + "/api/commands"
 	return u.String(), nil
 }
 
 func (c Client) endpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
-	}
-	if strings.TrimSpace(c.WorkspaceID) == "" {
-		return "", fmt.Errorf("missing workspace id")
 	}
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
 	if err != nil {
@@ -64,8 +58,8 @@ func (c Client) endpointFor(path string) (string, error) {
 	p := strings.TrimSpace(path)
 	p = strings.TrimPrefix(p, "/")
 	prefix := strings.TrimRight(u.Path, "/")
-	u.Path = prefix + "/" + c.WorkspaceID + "/" + p
-	u.RawPath = prefix + "/" + url.PathEscape(c.WorkspaceID) + "/" + p
+	u.Path = prefix + "/" + p
+	u.RawPath = prefix + "/" + p
 	return u.String(), nil
 }
 
@@ -130,6 +124,9 @@ func (c Client) DoREST(ctx context.Context, method string, path string, query ur
 	if err != nil {
 		return nil, 0, err
 	}
+	if strings.TrimSpace(c.WorkspaceID) == "" {
+		return nil, 0, fmt.Errorf("missing workspace id")
+	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -162,6 +159,7 @@ func (c Client) DoREST(ctx context.Context, method string, path string, query ur
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
+	req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -189,6 +187,9 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	if err != nil {
 		return nil, 0, err
 	}
+	if strings.TrimSpace(c.WorkspaceID) == "" {
+		return nil, 0, fmt.Errorf("missing workspace id")
+	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -215,6 +216,7 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
+	req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

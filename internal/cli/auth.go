@@ -189,7 +189,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 				}
 				rec := authstore.Record{Token: token, RefreshToken: refreshToken}
 				if refreshToken != "" {
-					if n, err := parseExpiresInSeconds(expiresInStr); err == nil && n > 0 {
+					if n, ok := expiresInSeconds(expiresInStr, expiresIn); ok {
 						rec.ExpiresAt = time.Now().UTC().Add(time.Duration(n) * time.Second)
 					}
 				}
@@ -320,6 +320,35 @@ func parseExpiresInSeconds(v string) (int64, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+func expiresInSeconds(expiresInStr string, expiresIn any) (int64, bool) {
+	if n, err := parseExpiresInSeconds(expiresInStr); err == nil && n > 0 {
+		return n, true
+	}
+	switch v := expiresIn.(type) {
+	case string:
+		if n, err := parseExpiresInSeconds(v); err == nil && n > 0 {
+			return n, true
+		}
+	case float64:
+		if v > 0 {
+			return int64(v), true
+		}
+	case int64:
+		if v > 0 {
+			return v, true
+		}
+	case int:
+		if v > 0 {
+			return int64(v), true
+		}
+	case json.Number:
+		if n, err := v.Int64(); err == nil && n > 0 {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 type browserLoginResult struct {

@@ -125,7 +125,8 @@ func newEventsPostCmd(app *App) *cobra.Command {
                                 body = m
                         }
 
-                        out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/events/"+eventPath, nil, body)
+                        eventURL := fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
+                        out, status, err := apiClient(app).DoRootREST(context.Background(), http.MethodPost, eventURL, nil, body)
                         if err != nil {
                                 return writeErr(cmd, err)
                         }
