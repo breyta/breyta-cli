@@ -27,13 +27,17 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev gcc-aarch64-linux-gnu
+          sudo apt-get install -y clang libclang-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: Build (amd64)
-        run: cargo build --release
+        run: cargo build --release --bin parinfer-rust
 
       - name: Build (arm64)
-        run: cargo build --release --target aarch64-unknown-linux-gnu
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --bin parinfer-rust --target aarch64-unknown-linux-gnu
 
       - name: Collect artifacts
         shell: bash
@@ -65,10 +69,10 @@ jobs:
           targets: x86_64-apple-darwin
 
       - name: Build (arm64)
-        run: cargo build --release
+        run: cargo build --release --bin parinfer-rust
 
       - name: Build (amd64)
-        run: cargo build --release --target x86_64-apple-darwin
+        run: cargo build --release --bin parinfer-rust --target x86_64-apple-darwin
 
       - name: Collect artifacts
         shell: bash
@@ -98,7 +102,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --bin parinfer-rust
 
       - name: Collect artifacts
         shell: bash
@@ -111,4 +115,3 @@ jobs:
         with:
           name: parinfer-rust-windows-${{ inputs.ref }}
           path: out/windows
-
