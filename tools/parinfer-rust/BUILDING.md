@@ -2,7 +2,7 @@
 
 We bundle a pinned `parinfer-rust` executable alongside `breyta` release artifacts so end users don’t need extra tooling installed.
 
-This is intentionally **manual**: we build once, commit the binaries into this repo under `dist/tools/parinfer-rust/`, and then keep them stable.
+This is intentionally **manual**: we build once, commit the binaries into this repo under `tools/parinfer-rust/`, and then keep them stable.
 
 ## Build in GitHub Actions
 
@@ -18,11 +18,11 @@ This is intentionally **manual**: we build once, commit the binaries into this r
 
 Unzip each artifact and copy the contained binaries into:
 
-- `dist/tools/parinfer-rust/darwin/amd64/parinfer-rust`
-- `dist/tools/parinfer-rust/darwin/arm64/parinfer-rust`
-- `dist/tools/parinfer-rust/linux/amd64/parinfer-rust`
-- `dist/tools/parinfer-rust/linux/arm64/parinfer-rust`
-- `dist/tools/parinfer-rust/windows/amd64/parinfer-rust.exe`
+- `tools/parinfer-rust/darwin/amd64/parinfer-rust`
+- `tools/parinfer-rust/darwin/arm64/parinfer-rust`
+- `tools/parinfer-rust/linux/amd64/parinfer-rust`
+- `tools/parinfer-rust/linux/arm64/parinfer-rust`
+- `tools/parinfer-rust/windows/amd64/parinfer-rust.exe`
 
 Commit the binaries (and ideally also record the chosen ref somewhere, e.g. in a release note or PR description).
 
@@ -37,4 +37,3 @@ If a developer builds `breyta` locally (without vendored binaries present), the 
 Override path:
 
 - `BREYTA_PARINFER_RUST=/path/to/parinfer-rust`
-

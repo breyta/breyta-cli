@@ -5,11 +5,7 @@
 
 # Local builds
 /breyta
-/dist/*
-!/dist/tools/
-!/dist/tools/parinfer-rust/
-!/dist/tools/parinfer-rust/**
-!/dist/tools/parinfer-rust/windows/amd64/parinfer-rust.exe
+/dist/
 
 # Local state
 **/state.json

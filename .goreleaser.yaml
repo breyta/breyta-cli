@@ -40,7 +40,7 @@ archives:
       - goos: windows
         format: zip
     files:
-      - src: dist/tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
+      - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
         dst: parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
 
 checksum:
