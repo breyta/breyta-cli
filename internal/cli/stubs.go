@@ -103,7 +103,7 @@ func newConnectionsShowCmd(app *App) *cobra.Command {
 }
 
 func newConnectionsCreateCmd(app *App) *cobra.Command {
-	var name, typ, baseURL, description, slot, apiKey, configJSON string
+	var name, typ, baseURL, description, slot, apiKey, backend, configJSON string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create connection",
@@ -133,6 +133,9 @@ func newConnectionsCreateCmd(app *App) *cobra.Command {
 				}
 				if strings.TrimSpace(apiKey) != "" {
 					body["api-key"] = strings.TrimSpace(apiKey)
+				}
+				if strings.TrimSpace(backend) != "" {
+					body["backend"] = strings.TrimSpace(backend)
 				}
 				if strings.TrimSpace(configJSON) != "" {
 					var v any
@@ -171,6 +174,7 @@ func newConnectionsCreateCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Connection name")
 	cmd.Flags().StringVar(&typ, "type", "", "Connection type")
+	cmd.Flags().StringVar(&backend, "backend", "", "Connection backend (API mode)")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "Base URL (HTTP connections)")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
 	cmd.Flags().StringVar(&slot, "slot", "", "Suggested slot name")
@@ -180,7 +184,7 @@ func newConnectionsCreateCmd(app *App) *cobra.Command {
 }
 
 func newConnectionsUpdateCmd(app *App) *cobra.Command {
-	var name, status string
+	var name, status, configJSON string
 	cmd := &cobra.Command{
 		Use:   "update <id>",
 		Short: "Update connection",
@@ -200,6 +204,13 @@ func newConnectionsUpdateCmd(app *App) *cobra.Command {
 				}
 				if status != "" {
 					body["status"] = status
+				}
+				if strings.TrimSpace(configJSON) != "" {
+					var v any
+					if err := json.Unmarshal([]byte(configJSON), &v); err != nil {
+						return writeErr(cmd, errors.New("invalid --config JSON"))
+					}
+					body["config"] = v
 				}
 				out, httpStatus, err := apiClient(app).DoREST(context.Background(), http.MethodPut, "/api/connections/"+url.PathEscape(id), nil, body)
 				if err != nil {
@@ -225,6 +236,13 @@ func newConnectionsUpdateCmd(app *App) *cobra.Command {
 			if status != "" {
 				c.Status = status
 			}
+			if strings.TrimSpace(configJSON) != "" {
+				var v any
+				if err := json.Unmarshal([]byte(configJSON), &v); err != nil {
+					return writeErr(cmd, errors.New("invalid --config JSON"))
+				}
+				c.Config = v
+			}
 			c.UpdatedAt = time.Now().UTC()
 			ws.UpdatedAt = c.UpdatedAt
 			if err := store.Save(st); err != nil {
@@ -235,6 +253,7 @@ func newConnectionsUpdateCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Name")
 	cmd.Flags().StringVar(&status, "status", "", "Status")
+	cmd.Flags().StringVar(&configJSON, "config", "", "Config JSON object (API mode)")
 	return cmd
 }
 
