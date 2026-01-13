@@ -45,6 +45,9 @@ A flow is a versioned workflow definition stored on the server. It typically has
 
 If you need human-facing setup instructions, see `breyta-cli/docs/agentic-chat.md`.
 
+If you need guidance on integrating external compute (custom services called via `:http`), see:
+- `breyta-cli/docs/bring-your-own-compute.md`
+
 ## Configure CLI for local development
 Set these environment variables (or pass flags):
 
