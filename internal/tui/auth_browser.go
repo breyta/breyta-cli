@@ -106,7 +106,13 @@ func startBrowserLogin(apiBaseURL string) (*browserLoginSession, error, error) {
 			return
 		}
 		refresh := strings.TrimSpace(q.Get("refresh_token"))
+		if refresh == "" {
+			refresh = strings.TrimSpace(q.Get("refreshToken"))
+		}
 		expiresIn := strings.TrimSpace(q.Get("expires_in"))
+		if expiresIn == "" {
+			expiresIn = strings.TrimSpace(q.Get("expiresIn"))
+		}
 		_, _ = io.WriteString(w, "<html><body>Login complete. You can close this tab.</body></html>")
 		select {
 		case sess.tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:

@@ -317,7 +317,7 @@ func newHomeModel(cfg HomeConfig) homeModel {
 }
 
 func (m homeModel) Init() tea.Cmd {
-	return tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
+	return m.refreshTokenCmd()
 }
 
 func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -404,7 +404,7 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tok == "" {
 				return homeLoginMsg{err: errors.New("missing token"), status: "login failed"}
 			}
-			if err := storeToken(apiURL, tok); err != nil {
+			if err := storeAuthRecord(apiURL, tok, res.RefreshToken, res.ExpiresIn); err != nil {
 				return homeLoginMsg{err: err, status: "login failed"}
 			}
 			return homeLoginMsg{token: tok, status: "logged in"}
@@ -425,6 +425,19 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apiError = ""
 		if strings.TrimSpace(msg.status) != "" {
 			m.lastInfo = strings.TrimSpace(msg.status)
+		}
+		m.refreshOptions()
+		return m, tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
+
+	case homeTokenRefreshedMsg:
+		if strings.TrimSpace(msg.token) != "" {
+			m.token = strings.TrimSpace(msg.token)
+		}
+		if msg.err != nil && strings.TrimSpace(m.token) == "" {
+			m.apiError = msg.err.Error()
+		}
+		if msg.refreshed {
+			m.lastInfo = "refreshed token"
 		}
 		m.refreshOptions()
 		return m, tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
@@ -883,7 +896,7 @@ func (m *homeModel) resolveToken() string {
 	if apiURL == "" {
 		return ""
 	}
-	p, err := authstore.DefaultPath()
+	p, err := authStorePath()
 	if err != nil || strings.TrimSpace(p) == "" {
 		return ""
 	}
@@ -893,6 +906,20 @@ func (m *homeModel) resolveToken() string {
 	}
 	tok, _ := st.Get(apiURL)
 	return strings.TrimSpace(tok)
+}
+
+type homeTokenRefreshedMsg struct {
+	token     string
+	refreshed bool
+	err       error
+}
+
+func (m *homeModel) refreshTokenCmd() tea.Cmd {
+	return func() tea.Msg {
+		apiURL := m.apiBaseURL()
+		token, refreshed, err := resolveTokenForAPI(apiURL, m.cfg.Token)
+		return homeTokenRefreshedMsg{token: token, refreshed: refreshed, err: err}
+	}
 }
 
 func (m *homeModel) apiBaseURL() string {
@@ -923,7 +950,7 @@ func (m *homeModel) checkConnectionInfoCmd(source string) tea.Cmd {
 
 func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 	apiURL := m.apiBaseURL()
-	token := m.resolveToken()
+	token, _, refreshErr := resolveTokenForAPI(apiURL, m.cfg.Token)
 	if token == "" {
 		info := ""
 		if includeInfo {
@@ -944,14 +971,22 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 			}
 			info = "offline (status=" + st + ")"
 		}
-		return homeDiagMsg{connected: false, httpStatus: status, apiError: err.Error(), info: info}
+		apiErr := err.Error()
+		if refreshErr != nil {
+			apiErr = "auth refresh failed: " + refreshErr.Error()
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: apiErr, info: info}
 	}
 	if status >= 400 {
 		info := ""
 		if includeInfo {
 			info = fmt.Sprintf("offline (status=%d)", status)
 		}
-		return homeDiagMsg{connected: false, httpStatus: status, apiError: fmt.Sprintf("api error (status=%d)", status), info: info}
+		apiErr := fmt.Sprintf("api error (status=%d)", status)
+		if refreshErr != nil {
+			apiErr = "auth refresh failed: " + refreshErr.Error()
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: apiErr, info: info}
 	}
 	userEmail := parseVerifyEmail(out)
 	info := ""
@@ -963,7 +998,7 @@ func (m *homeModel) checkConnectionMsg(includeInfo bool) tea.Msg {
 
 func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
 	apiURL := m.apiBaseURL()
-	token := m.resolveToken()
+	token, _, refreshErr := resolveTokenForAPI(apiURL, m.cfg.Token)
 	if token == "" {
 		info := ""
 		if includeInfo {
@@ -984,14 +1019,22 @@ func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
 			}
 			info = "offline (status=" + st + ")"
 		}
-		return homeDiagMsg{connected: false, httpStatus: status, apiError: err.Error(), info: info}
+		apiErr := err.Error()
+		if refreshErr != nil {
+			apiErr = "auth refresh failed: " + refreshErr.Error()
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: apiErr, info: info}
 	}
 	if status >= 400 {
 		info := ""
 		if includeInfo {
 			info = fmt.Sprintf("offline (status=%d)", status)
 		}
-		return homeDiagMsg{connected: false, httpStatus: status, apiError: fmt.Sprintf("api error (status=%d)", status), info: info}
+		apiErr := fmt.Sprintf("api error (status=%d)", status)
+		if refreshErr != nil {
+			apiErr = "auth refresh failed: " + refreshErr.Error()
+		}
+		return homeDiagMsg{connected: false, httpStatus: status, apiError: apiErr, info: info}
 	}
 	userEmail, wsCount := parseMeUserAndCount(out)
 	info := ""
@@ -1008,9 +1051,12 @@ func (m *homeModel) checkMeMsg(includeInfo bool) tea.Msg {
 func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
 	return func() tea.Msg {
 		apiURL := m.apiBaseURL()
-		token := m.resolveToken()
+		token, _, err := resolveTokenForAPI(apiURL, m.cfg.Token)
 		if token == "" {
 			return homeWorkspacesMsg{err: errors.New("not logged in")}
+		}
+		if err != nil {
+			return homeWorkspacesMsg{err: err}
 		}
 		client := api.Client{BaseURL: apiURL, Token: token}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1223,10 +1269,15 @@ func (m *homeModel) applyModal() tea.Cmd {
 	case modalDiagnostics:
 		it, _ := m.modal.list.SelectedItem().(modalItem)
 		apiURL := m.apiBaseURL()
-		token := m.resolveToken()
+		token, _, err := resolveTokenForAPI(apiURL, m.cfg.Token)
 		if token == "" {
 			return func() tea.Msg {
 				return homeDiagMsg{connected: false, httpStatus: 0, apiError: "not logged in", info: "not logged in"}
+			}
+		}
+		if err != nil {
+			return func() tea.Msg {
+				return homeDiagMsg{connected: false, httpStatus: 0, apiError: err.Error(), info: "auth refresh failed"}
 			}
 		}
 		client := api.Client{BaseURL: apiURL, Token: token}
@@ -1319,9 +1370,12 @@ func (m *homeModel) applyModal() tea.Cmd {
 func (m *homeModel) loadWorkspaceCmd(workspaceID string) tea.Cmd {
 	return func() tea.Msg {
 		apiURL := m.apiBaseURL()
-		token := m.resolveToken()
+		token, _, err := resolveTokenForAPI(apiURL, m.cfg.Token)
 		if token == "" {
 			return homeWorkspaceLoadedMsg{workspaceID: workspaceID, err: errors.New("not logged in")}
+		}
+		if err != nil {
+			return homeWorkspaceLoadedMsg{workspaceID: workspaceID, err: err}
 		}
 		meta, flowsValues, runsValues, err := loadWorkspaceDetailAPI(apiURL, token, workspaceID)
 		if err != nil {
@@ -1649,16 +1703,7 @@ func setConfig(apiURL, workspaceID string) error {
 }
 
 func storeToken(apiURL, token string) error {
-	p, err := authstore.DefaultPath()
-	if err != nil {
-		return err
-	}
-	st, _ := authstore.Load(p)
-	if st == nil {
-		st = &authstore.Store{}
-	}
-	st.Set(apiURL, token)
-	return authstore.SaveAtomic(p, st)
+	return storeAuthRecord(apiURL, token, "", "")
 }
 
 func logoutStoredToken(apiURL string) error {
@@ -1666,7 +1711,7 @@ func logoutStoredToken(apiURL string) error {
 	if apiURL == "" {
 		return nil
 	}
-	p, err := authstore.DefaultPath()
+	p, err := authStorePath()
 	if err != nil {
 		return err
 	}

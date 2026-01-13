@@ -149,3 +149,46 @@ func TestRequireAPI_DoesNotRefreshWhenTokenExplicit(t *testing.T) {
 		t.Fatalf("expected refresh not called, got %d", refreshCalls.Load())
 	}
 }
+
+func TestRefreshTokenViaAPI_ToleratesSnakeCase(t *testing.T) {
+	var gotRefreshToken string
+	var gotRefreshTokenSnake string
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/auth/refresh" || r.Method != http.MethodPost {
+				return httpJSON(404, map[string]any{"success": false, "error": "not found"})
+			}
+			payloadBytes, _ := io.ReadAll(r.Body)
+			var payload map[string]any
+			_ = json.Unmarshal(payloadBytes, &payload)
+			if v, _ := payload["refreshToken"].(string); strings.TrimSpace(v) != "" {
+				gotRefreshToken = strings.TrimSpace(v)
+			}
+			if v, _ := payload["refresh_token"].(string); strings.TrimSpace(v) != "" {
+				gotRefreshTokenSnake = strings.TrimSpace(v)
+			}
+			return httpJSON(200, map[string]any{
+				"success":       true,
+				"token":         "tok-2",
+				"refresh_token": "ref-2",
+				"expires_in":    "3600",
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	rec, err := refreshTokenViaAPI("https://example.test", "ref-1")
+	if err != nil {
+		t.Fatalf("refreshTokenViaAPI: %v", err)
+	}
+	if rec.Token != "tok-2" || rec.RefreshToken != "ref-2" {
+		t.Fatalf("expected tok-2/ref-2, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+	if rec.ExpiresAt.IsZero() || time.Until(rec.ExpiresAt) < 59*time.Minute {
+		t.Fatalf("expected ExpiresAt ~1h in future, got %v", rec.ExpiresAt)
+	}
+	if gotRefreshToken != "ref-1" || gotRefreshTokenSnake != "ref-1" {
+		t.Fatalf("expected refresh token sent in both fields, got refreshToken=%q refresh_token=%q", gotRefreshToken, gotRefreshTokenSnake)
+	}
+}

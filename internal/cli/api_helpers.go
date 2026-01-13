@@ -162,7 +162,9 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 
 	client := api.Client{BaseURL: apiBaseURL, HTTP: authRefreshHTTPClient}
 	out, status, err := client.DoRootREST(ctx, http.MethodPost, "/api/auth/refresh", nil, map[string]any{
-		"refreshToken": refreshToken,
+		// Be tolerant: different backends use different JSON naming conventions.
+		"refreshToken":  refreshToken,
+		"refresh_token": refreshToken,
 	})
 	if err != nil {
 		return authstore.Record{}, err
@@ -188,6 +190,9 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 	}
 	nextRefresh, _ := m["refreshToken"].(string)
 	if strings.TrimSpace(nextRefresh) == "" {
+		nextRefresh, _ = m["refresh_token"].(string)
+	}
+	if strings.TrimSpace(nextRefresh) == "" {
 		nextRefresh = refreshToken
 	}
 
@@ -198,7 +203,11 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 
 	// expiresIn is sometimes a string (Firebase APIs), sometimes a number; tolerate both.
 	var expiresInSeconds int64
-	switch v := m["expiresIn"].(type) {
+	expiresInAny := m["expiresIn"]
+	if expiresInAny == nil {
+		expiresInAny = m["expires_in"]
+	}
+	switch v := expiresInAny.(type) {
 	case string:
 		if n, err := parseExpiresInSeconds(v); err == nil {
 			expiresInSeconds = n
