@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"breyta-cli/internal/mock"
-	"breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/mock"
+	"github.com/breyta/breyta-cli/internal/state"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"breyta-cli/internal/cli"
+	"github.com/breyta/breyta-cli/internal/cli"
 )
 
 func runCLIArgs(t *testing.T, args ...string) (string, string, error) {

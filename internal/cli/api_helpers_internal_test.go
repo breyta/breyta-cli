@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/authstore"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

@@ -1,4 +1,4 @@
-module breyta-cli
+module github.com/breyta/breyta-cli
 
 go 1.23.6
 

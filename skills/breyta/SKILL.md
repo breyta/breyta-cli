@@ -54,6 +54,20 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+## Check which workspace you’re using
+The CLI always includes `workspaceId` in its JSON envelope, but for quick human-readable checks:
+
+```bash
+# Show the configured workspace (and resolve name when possible)
+breyta workspaces current --pretty
+
+# List all accessible workspaces and see which one is current
+breyta workspaces list --pretty
+
+# Show which API + config store the CLI is using
+breyta api show --pretty
+```
+
 ## Credentials / API keys for flows (recommended pattern)
 Flows execute server-side, so credentials must be bound **in the server context** (not just your shell).
 

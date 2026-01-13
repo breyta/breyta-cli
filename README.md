@@ -47,6 +47,12 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+Confirm which workspace the CLI will target:
+
+```bash
+breyta workspaces current --pretty
+```
+
 Login helper (API mode):
 
 ```bash
@@ -124,7 +130,20 @@ Dev-only commands:
 
 ### Install / build
 
-#### Option A: `go install` (recommended)
+#### Option A: Homebrew (macOS)
+
+Once the Homebrew tap is set up:
+
+```bash
+brew tap breyta/tap
+brew install breyta
+```
+
+#### Option B: download a prebuilt binary (no Go required)
+
+See https://github.com/breyta/breyta-cli/releases
+
+#### Option C: `go install` (Go required)
 
 From this directory:
 
@@ -132,9 +151,13 @@ From this directory:
 go install ./cmd/breyta
 ```
 
-This installs `breyta` into `$(go env GOPATH)/bin`.
+Or install a tagged release (SemVer-shaped tags):
 
-#### Option B: build a local binary
+```bash
+go install github.com/breyta/breyta-cli/cmd/breyta@v1.2.3
+```
+
+#### Option D: build a local binary (Go required)
 
 ```bash
 make build

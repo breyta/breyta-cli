@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"breyta-cli/skills"
+	"github.com/breyta/breyta-cli/skills"
 
 	"github.com/spf13/cobra"
 )

@@ -13,6 +13,12 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+Sanity check:
+
+```bash
+breyta workspaces current --pretty
+```
+
 ### Local API keys / secrets (for flows-api + OAuth)
 
 Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).

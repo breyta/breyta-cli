@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"breyta-cli/internal/browseropen"
+	"github.com/breyta/breyta-cli/internal/browseropen"
 )
 
 type browserLoginResult struct {

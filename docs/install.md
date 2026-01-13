@@ -1,6 +1,25 @@
 ## Install breyta CLI
 
-### Option A: build from source (recommended)
+### Option A: Homebrew (macOS)
+
+Once the Homebrew tap is set up, install/update with:
+
+```bash
+brew tap breyta/tap
+brew install breyta
+```
+
+If you don’t have access to the tap yet, use Option B (download a prebuilt binary).
+
+### Option B: download a prebuilt binary (no Go required)
+
+Download the latest release artifact for your OS/arch from:
+
+- https://github.com/breyta/breyta-cli/releases
+
+Then extract it and put `breyta` on your `PATH`.
+
+### Option C: build from source (Go required)
 
 This option installs `breyta` into your Go bin directory so you can run it from anywhere.
 
@@ -25,6 +44,12 @@ From the **repo root**:
 ```bash
 cd breyta-cli
 go install ./cmd/breyta
+```
+
+You can also install a tagged release directly (requires SemVer-shaped tags):
+
+```bash
+go install github.com/breyta/breyta-cli/cmd/breyta@v1.2.3
 ```
 
 #### 3) Make sure Go’s bin directory is on your PATH
@@ -70,7 +95,7 @@ Verify:
 breyta --help
 ```
 
-### Option B: build a local binary
+### Option D: build a local binary (Go required)
 
 This builds a binary into `breyta-cli/dist/` and runs it from that folder (useful if you don’t want to touch PATH).
 

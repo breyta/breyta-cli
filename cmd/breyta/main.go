@@ -1,14 +1,14 @@
 package main
 
 import (
-        "os"
+	"os"
 
-        "breyta-cli/internal/cli"
+	"github.com/breyta/breyta-cli/internal/cli"
 )
 
 func main() {
-        cmd := cli.NewRootCmd()
-        if err := cmd.Execute(); err != nil {
-                os.Exit(1)
-        }
+	cmd := cli.NewRootCmd()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }

@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/state"
 
 	"github.com/spf13/cobra"
 )
@@ -1674,9 +1675,18 @@ func newWorkspacesCmd(app *App) *cobra.Command {
 			raw, _ := m["workspaces"].([]any)
 			items := make([]any, 0, len(raw))
 			for _, v := range raw {
-				if v != nil {
-					items = append(items, v)
+				wm, ok := v.(map[string]any)
+				if !ok || wm == nil {
+					continue
 				}
+				// Mark the configured default workspace for quick scanning in terminals.
+				id, _ := wm["id"].(string)
+				m2 := make(map[string]any, len(wm)+1)
+				for k, vv := range wm {
+					m2[k] = vv
+				}
+				m2["current"] = strings.TrimSpace(id) != "" && strings.TrimSpace(id) == strings.TrimSpace(app.WorkspaceID)
+				items = append(items, m2)
 			}
 			meta := map[string]any{"total": len(items), "httpStatus": status}
 			return writeData(cmd, app, meta, map[string]any{"items": items})
@@ -1688,9 +1698,92 @@ func newWorkspacesCmd(app *App) *cobra.Command {
 		}
 		items := make([]map[string]any, 0, len(st.Workspaces))
 		for id, ws := range st.Workspaces {
-			items = append(items, map[string]any{"id": id, "name": ws.Name, "plan": ws.Plan, "owner": ws.Owner, "updatedAt": ws.UpdatedAt})
+			items = append(items, map[string]any{"id": id, "name": ws.Name, "plan": ws.Plan, "owner": ws.Owner, "updatedAt": ws.UpdatedAt, "current": strings.TrimSpace(id) != "" && strings.TrimSpace(id) == strings.TrimSpace(app.WorkspaceID)})
 		}
 		return writeData(cmd, app, map[string]any{"total": len(items)}, map[string]any{"items": items})
+	}})
+
+	cmd.AddCommand(&cobra.Command{Use: "current", Short: "Show current workspace", RunE: func(cmd *cobra.Command, args []string) error {
+		wsID := strings.TrimSpace(app.WorkspaceID)
+		source := "config"
+		workspaceFlagExplicit := false
+		if cmd != nil {
+			workspaceFlagExplicit = cmd.Flags().Changed("workspace") || cmd.InheritedFlags().Changed("workspace")
+			if root := cmd.Root(); root != nil {
+				workspaceFlagExplicit = workspaceFlagExplicit || root.PersistentFlags().Changed("workspace")
+			}
+		}
+		workspaceEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
+		if workspaceFlagExplicit {
+			source = "flag"
+		} else if workspaceEnvExplicit {
+			source = "env"
+		} else if wsID == "" {
+			source = "none"
+		}
+
+		if wsID == "" {
+			meta := map[string]any{
+				"workspaceIdSource": source,
+				"hint":              "Set a workspace via --workspace or BREYTA_WORKSPACE.",
+			}
+			return writeData(cmd, app, meta, map[string]any{"workspace": map[string]any{"id": "", "name": ""}})
+		}
+
+		// Prefer a name/plan/owner if we can resolve it, but don't require auth just to show the configured id.
+		if isAPIMode(app) {
+			// Try to load a stored token (if any) so we can resolve workspace details without requiring explicit flags/env.
+			if !app.TokenExplicit && strings.TrimSpace(app.Token) == "" {
+				loadTokenFromAuthStore(app)
+			}
+		}
+		if isAPIMode(app) && strings.TrimSpace(app.Token) != "" {
+			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+			defer cancel()
+
+			out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+			if err == nil {
+				if m, ok := out.(map[string]any); ok {
+					if raw, ok := m["workspaces"].([]any); ok {
+						for _, v := range raw {
+							wm, ok := v.(map[string]any)
+							if !ok || wm == nil {
+								continue
+							}
+							if id, _ := wm["id"].(string); strings.TrimSpace(id) == wsID {
+								m2 := make(map[string]any, len(wm)+1)
+								for k, vv := range wm {
+									m2[k] = vv
+								}
+								m2["current"] = true
+								meta := map[string]any{"httpStatus": status, "workspaceIdSource": source, "hint": "Override per-run via --workspace or BREYTA_WORKSPACE."}
+								return writeData(cmd, app, meta, map[string]any{"workspace": m2})
+							}
+						}
+					}
+				}
+			}
+			// Fall through to a minimal response if the API call fails; the command is still useful offline.
+		}
+
+		if !isAPIMode(app) {
+			st, _, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if ws := st.Workspaces[wsID]; ws != nil {
+				meta := map[string]any{"workspaceIdSource": source, "hint": "Override per-run via --workspace or BREYTA_WORKSPACE."}
+				data := map[string]any{"id": ws.ID, "name": ws.Name, "plan": ws.Plan, "owner": ws.Owner, "updatedAt": ws.UpdatedAt, "current": true}
+				return writeData(cmd, app, meta, map[string]any{"workspace": data})
+			}
+		}
+
+		meta := map[string]any{
+			"workspaceIdSource": source,
+			"warning":           "Unable to resolve workspace details (missing token, API error, or workspace not found); showing workspaceId only.",
+			"hint":              "Run `breyta auth login` (API mode) or `breyta workspaces list` to see available workspaces.",
+		}
+		return writeData(cmd, app, meta, map[string]any{"workspace": map[string]any{"id": wsID, "name": "", "current": true}})
 	}})
 
 	cmd.AddCommand(&cobra.Command{Use: "show <workspace-id>", Short: "Show workspace", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {

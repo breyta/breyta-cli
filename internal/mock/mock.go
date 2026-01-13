@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/state"
 )
 
 const (

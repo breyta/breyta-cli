@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/state"
 
 	"github.com/spf13/cobra"
 )

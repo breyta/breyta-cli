@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"breyta-cli/internal/api"
-	"breyta-cli/internal/authstore"
-	"breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/internal/api"
+	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/configstore"
 
 	"github.com/spf13/cobra"
 )

@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: breyta
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: breyta
+    main: ./cmd/breyta
+    binary: breyta
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Commit={{ .Commit }}
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    builds:
+      - breyta
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  prerelease: auto
+
+brews:
+  - name: breyta
+    ids:
+      - default
+    repository:
+      owner: breyta
+      name: homebrew-tap
+      branch: main
+    directory: Formula
+    homepage: https://flows.breyta.ai
+    description: "Breyta CLI + TUI for working with flows"
+    install: |
+      bin.install "breyta"
+    test: |
+      system "#{bin}/breyta", "version"
+    commit_author:
+      name: breyta-ci
+      email: github-actions@breyta.ai

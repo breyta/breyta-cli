@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"breyta-cli/internal/api"
-	"breyta-cli/internal/authinfo"
-	"breyta-cli/internal/authstore"
-	"breyta-cli/internal/configstore"
-	"breyta-cli/skills"
+	"github.com/breyta/breyta-cli/internal/api"
+	"github.com/breyta/breyta-cli/internal/authinfo"
+	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/skills"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"

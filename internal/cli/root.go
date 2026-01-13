@@ -1,13 +1,13 @@
 package cli
 
 import (
-	"breyta-cli/internal/configstore"
-	"breyta-cli/internal/format"
-	"breyta-cli/internal/mock"
-	"breyta-cli/internal/state"
-	"breyta-cli/internal/tui"
 	"errors"
 	"fmt"
+	"github.com/breyta/breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/internal/format"
+	"github.com/breyta/breyta-cli/internal/mock"
+	"github.com/breyta/breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/tui"
 	"os"
 	"strings"
 
@@ -156,6 +156,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newRevenueCmd(app))
 	cmd.AddCommand(newDemandCmd(app))
 	cmd.AddCommand(newDocsCmd(cmd, app))
+	cmd.AddCommand(newVersionCmd(app))
 
 	return cmd
 }

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/internal/configstore"
 
 	"github.com/charmbracelet/bubbles/list"
 )
