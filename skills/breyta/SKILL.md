@@ -57,6 +57,28 @@ export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
 ```
 
+## Clojure delimiter repair
+If you get stuck in a delimiter/paren error loop while editing flow files, use a dedicated repair tool instead of trying to manually balance `()[]{}`.
+
+Good defaults:
+- `breyta flows push` attempts best-effort delimiter repair by default (`--repair-delimiters=true`). If you hit reader/paren errors, retry `push` once before doing anything else.
+- `breyta flows push` writes repaired content back to your local `--file` by default; opt out with `--no-repair-writeback`.
+
+Local check (fast feedback):
+
+```bash
+breyta flows paren-check ./tmp/flows/<slug>.clj
+```
+
+Local repair:
+
+```bash
+breyta flows paren-repair ./tmp/flows/<slug>.clj
+```
+
+If errors persist after repair:
+- Fix the underlying syntax issue (common: unterminated string), then rerun `paren-repair` and `push`.
+
 ## Check which workspace you’re using
 The CLI always includes `workspaceId` in its JSON envelope, but for quick human-readable checks:
 

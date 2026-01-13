@@ -39,6 +39,9 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+    files:
+      - src: dist/tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
+        dst: parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
 
 checksum:
   name_template: checksums.txt
@@ -59,6 +62,7 @@ brews:
     description: "Breyta CLI + TUI for working with flows"
     install: |
       bin.install "breyta"
+      bin.install "parinfer-rust"
     test: |
       system "#{bin}/breyta", "version"
     commit_author:

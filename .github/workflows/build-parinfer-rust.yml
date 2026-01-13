@@ -1,0 +1,114 @@
+name: Build parinfer-rust (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "parinfer-rust git ref (tag or commit SHA)"
+        required: true
+        default: "v0.4.3"
+
+jobs:
+  linux:
+    name: Linux (amd64 + arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout parinfer-rust
+        uses: actions/checkout@v4
+        with:
+          repository: eraserhd/parinfer-rust
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev gcc-aarch64-linux-gnu
+
+      - name: Build (amd64)
+        run: cargo build --release
+
+      - name: Build (arm64)
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out/linux/amd64 out/linux/arm64
+          cp -v target/release/parinfer-rust out/linux/amd64/parinfer-rust
+          cp -v target/aarch64-unknown-linux-gnu/release/parinfer-rust out/linux/arm64/parinfer-rust
+          chmod +x out/linux/amd64/parinfer-rust out/linux/arm64/parinfer-rust
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: parinfer-rust-linux-${{ inputs.ref }}
+          path: out/linux
+
+  darwin:
+    name: macOS (amd64 + arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout parinfer-rust
+        uses: actions/checkout@v4
+        with:
+          repository: eraserhd/parinfer-rust
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Build (arm64)
+        run: cargo build --release
+
+      - name: Build (amd64)
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out/darwin/amd64 out/darwin/arm64
+          cp -v target/x86_64-apple-darwin/release/parinfer-rust out/darwin/amd64/parinfer-rust
+          cp -v target/release/parinfer-rust out/darwin/arm64/parinfer-rust
+          chmod +x out/darwin/amd64/parinfer-rust out/darwin/arm64/parinfer-rust
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: parinfer-rust-darwin-${{ inputs.ref }}
+          path: out/darwin
+
+  windows:
+    name: Windows (amd64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout parinfer-rust
+        uses: actions/checkout@v4
+        with:
+          repository: eraserhd/parinfer-rust
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out/windows/amd64
+          cp -v target/release/parinfer-rust.exe out/windows/amd64/parinfer-rust.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: parinfer-rust-windows-${{ inputs.ref }}
+          path: out/windows
+

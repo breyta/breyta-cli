@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/clojure/parenrepair"
+	"github.com/breyta/breyta-cli/internal/clojure/parinfer"
 	"github.com/breyta/breyta-cli/internal/state"
+	"github.com/breyta/breyta-cli/internal/tools"
 
 	"github.com/spf13/cobra"
 )
@@ -21,6 +24,9 @@ var apiValidFlowSlugRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
 func isAPIValidFlowSlug(s string) bool {
 	return apiValidFlowSlugRe.MatchString(strings.TrimSpace(s))
 }
+
+// doAPICommandFn is a test hook to stub API calls in command unit tests.
+var doAPICommandFn = doAPICommand
 
 func newFlowsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -82,6 +88,8 @@ Tip:
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
 	cmd.AddCommand(newFlowsPushCmd(app))
+	cmd.AddCommand(newFlowsParenRepairCmd(app))
+	cmd.AddCommand(newFlowsParenCheckCmd(app))
 	cmd.AddCommand(newFlowsDeployCmd(app))
 	cmd.AddCommand(newFlowsUpdateCmd(app))
 	cmd.AddCommand(newFlowsDeleteCmd(app))
@@ -106,6 +114,144 @@ Tip:
 	cmd.AddCommand(newFlowsCompileCmd(app))
 
 	return cmd
+}
+
+func newFlowsParenRepairCmd(app *App) *cobra.Command {
+	var write bool
+	var verbose bool
+
+	cmd := &cobra.Command{
+		Use:   "paren-repair <files...>",
+		Short: "Repair unbalanced Clojure delimiters in flow files (local)",
+		Long: strings.TrimSpace(`
+Repair unbalanced delimiters in one or more local .clj flow files.
+
+This is intended as an escape hatch when LLM edits introduce delimiter errors.
+`),
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			results := make([]map[string]any, 0, len(args))
+			changedAny := false
+
+			parinferPath := tools.FindParinferRust()
+			parinferRunner := parinfer.Runner{BinaryPath: parinferPath}
+
+			for _, path := range args {
+				b, err := os.ReadFile(path)
+				if err != nil {
+					return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
+				}
+
+				orig := string(b)
+				engine := "fallback"
+				repaired := orig
+				var report any
+
+				if parinferPath != "" {
+					engine = "parinfer-rust"
+					if out, ans, err := parinferRunner.RepairIndent(orig); err == nil {
+						repaired = out
+						report = ans
+					} else {
+						engine = "fallback"
+					}
+				}
+
+				if engine == "fallback" {
+					out, rep, err := parenrepair.Repair(orig, verbose)
+					if err != nil {
+						return writeFailure(cmd, app, "clojure_paren_repair_failed", err, "Fix the underlying syntax issue (e.g. unterminated string), then retry.", map[string]any{"path": path, "report": rep})
+					}
+					repaired = out
+					report = rep
+				}
+
+				changed := repaired != orig
+				if changed {
+					changedAny = true
+				}
+
+				if write && changed {
+					if err := atomicWriteFile(path, []byte(repaired), 0o644); err != nil {
+						return writeFailure(cmd, app, "write_failed", err, "Check the path and permissions.", map[string]any{"path": path})
+					}
+				}
+
+				r := map[string]any{
+					"path":    path,
+					"changed": changed,
+					"written": write && changed,
+					"engine":  engine,
+					"report":  report,
+				}
+				results = append(results, r)
+			}
+
+			return writeData(cmd, app, nil, map[string]any{
+				"changed": changedAny,
+				"results": results,
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&write, "write", true, "Write changes to files (in-place)")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Include per-fix details in output (fallback engine only)")
+	return cmd
+}
+
+func newFlowsParenCheckCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "paren-check <file>",
+		Short: "Check that a flow file has balanced delimiters (local)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := args[0]
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
+			}
+			if err := parenrepair.Check(string(b)); err != nil {
+				return writeFailure(cmd, app, "clojure_delimiters_invalid", err, "Run: breyta flows paren-repair --write <file>", map[string]any{"path": path})
+			}
+			return writeData(cmd, app, nil, map[string]any{"path": path, "ok": true})
+		},
+	}
+	return cmd
+}
+
+func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	perm := defaultPerm
+	if st, err := os.Stat(path); err == nil {
+		perm = st.Mode().Perm()
+	}
+
+	tmp, err := os.CreateTemp(dir, ".breyta.tmp.*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return nil
 }
 
 func newFlowsActivateURLCmd(app *App) *cobra.Command {
@@ -448,6 +594,8 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 
 func newFlowsPushCmd(app *App) *cobra.Command {
 	var file string
+	var repairDelimiters bool
+	var noRepairWriteback bool
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push a local .clj flow file as a new draft version",
@@ -462,10 +610,35 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": string(b)})
+
+			orig := string(b)
+			flowLiteral := orig
+			if repairDelimiters {
+				parinferPath := tools.FindParinferRust()
+				if parinferPath != "" {
+					if repaired, _, err := (parinfer.Runner{BinaryPath: parinferPath}).RepairIndent(flowLiteral); err == nil {
+						flowLiteral = repaired
+					}
+				}
+				// Fallback best-effort repair (always runs if parinfer isn't available or fails).
+				if repaired, _, err := parenrepair.Repair(flowLiteral, false); err == nil {
+					flowLiteral = repaired
+				}
+			}
+
+			repairWriteback := !noRepairWriteback
+			if repairWriteback && flowLiteral != orig {
+				if err := atomicWriteFile(file, []byte(flowLiteral), 0o644); err != nil {
+					return writeErr(cmd, err)
+				}
+			}
+
+			return doAPICommandFn(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
+	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
+	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
 }
