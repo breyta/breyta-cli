@@ -9,6 +9,7 @@ This is a standalone **Go** CLI + **Bubble Tea** TUI for working with Breyta loc
 - Install: `docs/install.md`
 - Local flows authoring (flows-api): `docs/flows-api-local.md`
 - Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
+- Distribution (releases + Homebrew): `docs/distribution.md`
 
 This CLI supports two modes:
 - **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
