@@ -301,7 +301,7 @@ func stepOutput(stepType, stepID string, input any, tick int64, now time.Time) a
 				"serverNow": now.Format(time.RFC3339),
 			},
 		}
-	case "code":
+	case "code", "function":
 		return map[string]any{
 			"ok":     true,
 			"step":   stepID,

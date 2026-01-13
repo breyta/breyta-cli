@@ -147,7 +147,7 @@ Flow bodies are intentionally **constrained**. The goal is to keep the “flow l
 Practical consequence:
 - Many functional ops in normal Clojure are **denied in the flow body** (e.g. `mapv`, `filterv`, `reduce`, etc.).
 - Do orchestration in the flow body (sequence of `step` calls).
-- Do data transformation in explicit `:code` steps (or other steps), where it’s more verbose but also clearer and easier to reason about/replay.
+- Do data transformation in explicit `:function` steps (`:code` alias), where it’s more verbose but also clearer and easier to reason about/replay.
 
 ## Input keys from `--input` (string vs keyword keys)
 When you run a flow with `breyta --dev runs start --input '{...}'`, the JSON keys arrive as **strings**.
@@ -229,14 +229,14 @@ Minimal runnable template (code-only):
  :concurrency-config {:concurrency :singleton :on-new-version :supersede}
  :requires nil
  :templates nil
+ :functions nil
  :triggers [{:type :manual :label "Run" :enabled true :config {}}]
  :definition
  '(defflow [input]
-   (step :code :make-output
-         {:type :code
-          :title "Make output"
+   (step :function :make-output
+         {:title "Make output"
           :code '(fn [{:keys [n]}]
-                   {:ok true :n (or n 0) :nPlusOne (inc (or n 0))})
+                              {:ok true :n (or n 0) :nPlusOne (inc (or n 0))})}
           :input input}))}
 ```
 

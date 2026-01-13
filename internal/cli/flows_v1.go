@@ -56,8 +56,9 @@ Flow file format (minimal):
  :concurrency-config {:concurrency :singleton :on-new-version :supersede}
  :requires nil
  :templates nil
+ :functions nil
  :triggers nil
-  :definition '(defflow [input] (step :code :do {:type :code :code '(fn [x] x) :input input}))}
+ :definition '(defflow [input] (step :function :do {:code '(fn [x] x)} :input input}))}
 
 Notes:
 - The server reads the file with *read-eval* disabled.
@@ -491,7 +492,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				// Create a minimal draft (version) on the server.
 				// Users/agents can then pull/edit/push and deploy explicitly.
-				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition '(defflow [input]\n              input)}\n", slug, name, description)
+				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition '(defflow [input]\n              input)}\n", slug, name, description)
 				return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
 			}
 			st, store, err := appStore(app)
@@ -838,7 +839,7 @@ func newFlowsStepsSetCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("flow not found"))
 			}
 			if stepType == "" {
-				stepType = "code"
+				stepType = "function"
 			}
 			if title == "" {
 				title = args[1]
@@ -854,7 +855,7 @@ func newFlowsStepsSetCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"flow": f})
 		},
 	}
-	cmd.Flags().StringVar(&stepType, "type", "", "Step type (http|code|wait|notify|llm)")
+	cmd.Flags().StringVar(&stepType, "type", "", "Step type (http|function|code|wait|notify|llm)")
 	cmd.Flags().StringVar(&title, "title", "", "Step title")
 	cmd.Flags().StringVar(&inputSchema, "input-schema", "", "Input schema")
 	cmd.Flags().StringVar(&outputSchema, "output-schema", "", "Output schema")

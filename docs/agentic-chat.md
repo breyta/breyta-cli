@@ -92,7 +92,7 @@ To run a flow and see output:
 Notes for agents:
 - If a flow declares `:requires` slots, it must be activated in the UI so credentials are bound (visit `http://localhost:8090/<workspace>/flows/<slug>/activate` or use `breyta flows activate-url <slug>`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
-- Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:code` steps.
+- Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
 ```
 

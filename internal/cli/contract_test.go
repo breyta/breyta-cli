@@ -87,7 +87,7 @@ func TestContract_FlowsCreateEditValidateCompile(t *testing.T) {
 	}
 
 	// Add a step
-	stdout, _, err = runCLI(t, statePath, "flows", "steps", "set", "contract-flow", "step-a", "--type", "code", "--title", "Step A", "--definition", "(step :code :step-a ...)", "--pretty")
+	stdout, _, err = runCLI(t, statePath, "flows", "steps", "set", "contract-flow", "step-a", "--type", "function", "--title", "Step A", "--definition", "(step :function :step-a ...)", "--pretty")
 	if err != nil {
 		t.Fatalf("steps set failed: %v\n%s", err, stdout)
 	}

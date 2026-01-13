@@ -220,7 +220,7 @@ func renderDocsIndexMD(root *cobra.Command) string {
 	b.WriteString("Practical consequences:\n")
 	b.WriteString("- Many everyday Clojure functions are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)\n")
 	b.WriteString("- Keep the flow body focused on orchestration (a sequence of `step` calls)\n")
-	b.WriteString("- Put data transformation into explicit `:code` steps (more verbose, but explicit + durable)\n\n")
+	b.WriteString("- Put data transformation into explicit `:function` steps (`:code` alias)\n\n")
 
 	b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
 	b.WriteString("`breyta --dev runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")

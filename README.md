@@ -246,7 +246,7 @@ breyta analytics overview
 ```bash
 breyta flows create --slug hello-market --name "Hello Market"
 breyta flows steps set hello-market fetch --type http --title "Fetch sample payload" --definition "(step :http :fetch {:connection :demo :path \"/sample\"})"
-breyta flows steps set hello-market summarize --type code --title "Summarize payload" --definition "(step :code :summarize {:code '(fn [x] ...)})"
+breyta flows steps set hello-market summarize --type function --title "Summarize payload" --definition "(step :function :summarize {:code '(fn [x] ...)})"
 breyta flows validate hello-market
 breyta runs start --flow hello-market
 BREYTA_DEV=1 breyta dev advance --ticks 3

@@ -53,7 +53,7 @@ Draft runs use user-scoped draft bindings:
 Flow definitions run in a constrained runtime intended for **orchestration**, not transformation:
 - Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
 - Keep orchestration in the flow body (sequence of `step` calls)
-- Do data transformation in `:code` steps (or other explicit steps)
+- Do data transformation in `:function` steps (`:code` alias).
 
 ### Input keys from `--input` (string vs keyword keys)
 
@@ -87,17 +87,17 @@ cat > ./tmp/flows/run-hello.clj <<'EOF'
                       :on-new-version :supersede}
  :requires nil
  :templates nil
+ :functions nil
  :triggers nil
  :definition
  '(defflow [input]
-   (let [out (step :code :make-output
-                   {:type :code
-                    :title "Make output"
+   (let [out (step :function :make-output
+                   {:title "Make output"
                     :code (quote (fn [{:keys [n]}]
-                                   {:ok true
-                                    :message "hello"
-                                    :n (or n 0)
-                                    :nPlusOne (inc (or n 0))}))
+                                              {:ok true
+                                               :message "hello"
+                                               :n (or n 0)
+                                               :nPlusOne (inc (or n 0))}))}
                     :input input})]
      out))}
 EOF
