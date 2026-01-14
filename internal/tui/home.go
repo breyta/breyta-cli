@@ -592,7 +592,7 @@ func (m homeModel) View() string {
 }
 
 func (m homeModel) headerHeight() int {
-	leftLines := 5 // Context, Env, Auth, Default, WS
+	leftLines := 6 // Version, Context, Env, Auth, Default, WS
 	if strings.TrimSpace(m.lastInfo) != "" {
 		leftLines++
 	}
@@ -674,6 +674,7 @@ func (m homeModel) renderHeader() string {
 	}
 
 	left := []string{
+		renderKV("Version: ", buildInfoInline()),
 		renderKV("Context: ", apiURL),
 		renderKV("Env:     ", envLabel+" ("+connLabel+")"),
 		renderKV("Auth:    ", authLabel),

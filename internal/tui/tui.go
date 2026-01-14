@@ -1117,7 +1117,7 @@ func (m Model) renderHeader() string {
 		mid += meta.Render(" · " + owner)
 	}
 
-	right := meta.Render(filepath.Base(m.statePath))
+	right := meta.Render(filepath.Base(m.statePath)) + meta.Render(" · "+buildInfoInline())
 	if m.err != nil {
 		right = lipgloss.NewStyle().Foreground(breytaDanger).Bold(true).Render("ERROR: " + m.err.Error())
 	}
@@ -2030,8 +2030,7 @@ func padToRight(n int) string {
 }
 
 func lenVisible(s string) int {
-	// naive; good enough for our header.
-	return len([]rune(s))
+	return lipgloss.Width(s)
 }
 
 func prettyJSON(v any) string {
