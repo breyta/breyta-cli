@@ -204,6 +204,9 @@ via flows-api (/api/auth/token). Prefer browser login.
 				fmt.Fprintln(cmd.OutOrStdout(), token)
 				return nil
 			case "export":
+				if !app.DevMode {
+					return writeErr(cmd, errors.New("`--print export` is not available"))
+				}
 				line := shellExportTokenLine(token)
 				if line == "" {
 					return writeFailure(cmd, app, "auth_login_shell_export_unsafe", errors.New("cannot render safe shell export"), "Token contained unexpected characters; use --print token or --format json.", nil)
@@ -217,12 +220,14 @@ via flows-api (/api/auth/token). Prefer browser login.
 					"storePath":  storePath,
 					"source":     tokenSource,
 				}
-				if line := shellExportTokenLine(token); line != "" {
-					meta["export"] = line
-					if strings.TrimSpace(refreshToken) != "" {
-						meta["hint"] = "Token is stored locally with a refresh token; unset BREYTA_TOKEN and rely on the store for auto-refresh."
-					} else {
-						meta["hint"] = "Token is stored locally; you can also set BREYTA_TOKEN explicitly."
+				if strings.TrimSpace(refreshToken) != "" {
+					meta["hint"] = "Token is stored locally with a refresh token; future commands will auto-refresh."
+				} else {
+					meta["hint"] = "Token is stored locally for future commands."
+				}
+				if app.DevMode {
+					if line := shellExportTokenLine(token); line != "" {
+						meta["export"] = line
 					}
 				}
 				data := map[string]any{"token": token}
@@ -240,7 +245,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 	cmd.Flags().StringVar(&email, "email", envOr("BREYTA_EMAIL", ""), "Email address (legacy password flow)")
 	cmd.Flags().StringVar(&password, "password", envOr("BREYTA_PASSWORD", ""), "Password (legacy; use --password-stdin to avoid shell history)")
 	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read password from stdin (legacy)")
-	cmd.Flags().StringVar(&printMode, "print", envOr("BREYTA_AUTH_PRINT", "json"), "Output mode: json|token|export")
+	cmd.Flags().StringVar(&printMode, "print", envOr("BREYTA_AUTH_PRINT", "json"), "Output mode: json|token")
 	cmd.Flags().StringVar(&storePath, "store", envOr("BREYTA_AUTH_STORE", ""), "Path to auth store (default: user config dir)")
 
 	return cmd
@@ -277,7 +282,7 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 			} else {
 				ensureAPIURL(app)
 				if strings.TrimSpace(app.APIURL) == "" {
-					return writeErr(cmd, errors.New("missing --api or BREYTA_API_URL (or use --all)"))
+					return writeErr(cmd, errors.New("missing api url (or use --all)"))
 				}
 				st.Delete(app.APIURL)
 			}
@@ -289,7 +294,9 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 			meta := map[string]any{
 				"stored":    false,
 				"storePath": storePath,
-				"hint":      "Unset BREYTA_TOKEN in your shell if you exported it manually.",
+			}
+			if app.DevMode {
+				meta["hint"] = "If you exported a token into your shell, unset it to use the auth store."
 			}
 			return writeData(cmd, app, meta, map[string]any{"tokenPresent": strings.TrimSpace(app.Token) != ""})
 		},

@@ -49,6 +49,7 @@ func TestAuthLogin_PrintsExportLine(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--api", srv.URL,
 		"--workspace", "ws-acme",
 		"auth", "login",
@@ -83,6 +84,7 @@ func TestAuthLogin_PasswordStdin_PrintsToken(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgsWithIn(t, "pw-from-stdin\n",
+		"--dev",
 		"--api", srv.URL,
 		"auth", "login",
 		"--store", storePath,
@@ -114,6 +116,7 @@ func TestAuthWhoami_CallsVerify(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--api", srv.URL,
 		"--token", "tok",
 		"auth", "whoami",
@@ -147,6 +150,7 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--api", srv.URL,
 		"--token", tok,
 		"auth", "whoami",

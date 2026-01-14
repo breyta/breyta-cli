@@ -46,11 +46,22 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
 	cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
-	cmd.PersistentFlags().StringVar(&app.APIURL, "api", envOr("BREYTA_API_URL", ""), "API base URL (e.g. https://flows.breyta.ai)")
-	cmd.PersistentFlags().StringVar(&app.Token, "token", envOr("BREYTA_TOKEN", ""), "API token (or set BREYTA_TOKEN)")
+	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. https://flows.breyta.ai)")
+	cmd.PersistentFlags().StringVar(&app.Token, "token", "", "API token")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
 	cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
+
+	// Ensure dev-only flags and commands remain hidden in help output unless explicitly enabled.
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		configureVisibility(cmd, app)
+		configureFlagVisibility(cmd, app)
+		defaultHelp(c, args)
+	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Parse-time: app.DevMode is set from flags/env. Hide dev-only controls unless explicitly enabled.
+		configureFlagVisibility(cmd.Root(), app)
+
 		// Default workspace id:
 		// - explicit --workspace / BREYTA_WORKSPACE wins
 		// - otherwise try ~/.config/breyta/config.json (workspaceId), but only when the
@@ -66,8 +77,9 @@ func NewRootCmd() *cobra.Command {
 		workspaceEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
 
 		// Default API URL:
-		// - explicit --api / BREYTA_API_URL wins
-		// - otherwise try ~/.config/breyta/config.json
+		// - explicit --api wins (dev mode only)
+		// - otherwise if dev mode and BREYTA_API_URL set, use it
+		// - otherwise in dev mode: try ~/.config/breyta/config.json
 		// - otherwise fall back to prod (https://flows.breyta.ai)
 		//
 		// IMPORTANT: We only default when a subcommand is invoked, so `breyta`
@@ -84,14 +96,26 @@ func NewRootCmd() *cobra.Command {
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		if isSubcommand && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
-			if p, err := configstore.DefaultPath(); err == nil && p != "" {
-				if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
-					app.APIURL = st.APIURL
+		if isSubcommand {
+			if !app.DevMode && apiFlagExplicit {
+				return writeErr(cmd, errors.New("--api override is disabled"))
+			}
+			if app.DevMode && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+				if envURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); envURL != "" {
+					app.APIURL = envURL
 				}
 			}
-			if strings.TrimSpace(app.APIURL) == "" {
-				app.APIURL = configstore.DefaultProdAPIURL
+			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+				if app.DevMode {
+					if p, err := configstore.DefaultPath(); err == nil && p != "" {
+						if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
+							app.APIURL = st.APIURL
+						}
+					}
+				}
+				if strings.TrimSpace(app.APIURL) == "" {
+					app.APIURL = configstore.DefaultProdAPIURL
+				}
 			}
 		}
 
@@ -115,8 +139,14 @@ func NewRootCmd() *cobra.Command {
 				tokenFlagExplicit = tokenFlagExplicit || root.PersistentFlags().Changed("token")
 			}
 		}
-		tokenEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != ""
+		tokenEnvExplicit := app.DevMode && strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != ""
 		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
+		if !app.DevMode && tokenFlagExplicit {
+			return writeErr(cmd, errors.New("--token override is disabled; use `breyta auth login` instead"))
+		}
+		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
+			app.Token = strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
+		}
 		app.TokenExplicit = tokenExplicit
 
 		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.

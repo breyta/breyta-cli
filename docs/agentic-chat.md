@@ -3,11 +3,14 @@
 The only hard requirements for an agentic tool are:
 - it can execute a local CLI command
 - the `breyta` binary is on `PATH`
-- the environment variables are set (or the agent passes flags)
+- for local development: dev mode is enabled and the environment variables are set (or the agent passes flags)
+
+By default, `breyta` targets the production API and does not expose `--api` / `--token` overrides unless dev mode is enabled.
 
 ### Common environment (recommended)
 
 ```bash
+export BREYTA_DEV=1
 export BREYTA_API_URL="http://localhost:8090"
 export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
@@ -73,7 +76,8 @@ Snippet to paste:
 This project has a local flow-authoring CLI.
 
 - Start the server (from breyta/): ./scripts/start-flows-api.sh --emulator --auth-mock
-- breyta CLI calls flows-api over HTTP:
+- breyta CLI calls flows-api over HTTP (dev mode only):
+  - BREYTA_DEV=1
   - BREYTA_API_URL=http://localhost:8090
   - BREYTA_WORKSPACE=ws-acme
   - BREYTA_TOKEN=dev-user-123

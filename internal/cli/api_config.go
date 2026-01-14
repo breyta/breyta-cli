@@ -15,6 +15,12 @@ func newAPICmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "api",
 		Short: "Configure API base URL",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if !app.DevMode {
+				return errors.New("api configuration is disabled")
+			}
+			return nil
+		},
 	}
 	cmd.AddCommand(newAPIShowCmd(app))
 	cmd.AddCommand(newAPIUseCmd(app))

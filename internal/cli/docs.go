@@ -51,18 +51,18 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 
 			// No args => index page.
 			if target == root && len(args) == 0 {
-				md := renderDocsIndexMD(root)
+				md := renderDocsIndexMD(root, app.DevMode)
 				_, _ = io.WriteString(cmd.OutOrStdout(), md)
 				return nil
 			}
 
 			switch outFormat {
 			case "md", "markdown":
-				md := renderCommandDocsMD(target, path)
+				md := renderCommandDocsMD(target, path, app.DevMode)
 				_, _ = io.WriteString(cmd.OutOrStdout(), md)
 				return nil
 			case "json", "edn":
-				d := docCommandFrom(target, full)
+				d := docCommandFrom(target, full, app.DevMode)
 				return format.Write(cmd.OutOrStdout(), map[string]any{
 					"ok":          true,
 					"workspaceId": app.WorkspaceID,
@@ -84,7 +84,7 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 	return cmd
 }
 
-func docCommandFrom(c *cobra.Command, full bool) docCommand {
+func docCommandFrom(c *cobra.Command, full bool, includeHidden bool) docCommand {
 	out := docCommand{
 		Use:     c.Use,
 		Aliases: append([]string{}, c.Aliases...),
@@ -93,15 +93,15 @@ func docCommandFrom(c *cobra.Command, full bool) docCommand {
 		Example: strings.TrimSpace(c.Example),
 	}
 
-	out.Flags = append(out.Flags, docFlags(c.InheritedFlags(), true)...)     // persistent inherited
-	out.Flags = append(out.Flags, docFlags(c.NonInheritedFlags(), false)...) // local
+	out.Flags = append(out.Flags, docFlags(c.InheritedFlags(), true, includeHidden)...)     // persistent inherited
+	out.Flags = append(out.Flags, docFlags(c.NonInheritedFlags(), false, includeHidden)...) // local
 
 	if full {
 		subs := c.Commands()
 		out.Subcommands = make([]docCommand, 0, len(subs))
 		for _, sc := range subs {
 			if sc.IsAvailableCommand() {
-				out.Subcommands = append(out.Subcommands, docCommandFrom(sc, full))
+				out.Subcommands = append(out.Subcommands, docCommandFrom(sc, full, includeHidden))
 			}
 		}
 	} else {
@@ -121,12 +121,15 @@ func docCommandFrom(c *cobra.Command, full bool) docCommand {
 	return out
 }
 
-func docFlags(fs *pflag.FlagSet, persistent bool) []docFlag {
+func docFlags(fs *pflag.FlagSet, persistent bool, includeHidden bool) []docFlag {
 	items := []docFlag{}
 	if fs == nil {
 		return items
 	}
 	fs.VisitAll(func(f *pflag.Flag) {
+		if f.Hidden && !includeHidden {
+			return
+		}
 		items = append(items, docFlag{
 			Name:        f.Name,
 			Shorthand:   f.Shorthand,
@@ -177,7 +180,7 @@ func findDirectSubcommand(parent *cobra.Command, tok string) *cobra.Command {
 	return nil
 }
 
-func renderDocsIndexMD(root *cobra.Command) string {
+func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	var b strings.Builder
 	b.WriteString("## Breyta CLI docs\n\n")
 	b.WriteString("This is on-demand documentation intended for agents and humans.\n\n")
@@ -187,33 +190,34 @@ func renderDocsIndexMD(root *cobra.Command) string {
 	b.WriteString("- For structured docs: `breyta docs <command...> --format json|edn`\n\n")
 
 	b.WriteString("### Credentials / API keys for flows\n\n")
-	b.WriteString("Flows execute inside `flows-api`. There are two ways credentials can be provided:\n\n")
+	b.WriteString("Flows execute inside the Breyta server. There are two ways credentials can be provided:\n\n")
 	b.WriteString("- **Recommended (per-user / production-like)**: declare `:requires` slots (e.g. `:llm-provider`, `:http-api`) and have the user **activate** the flow in the UI to bind credentials.\n")
 	b.WriteString("  Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).\n")
 	b.WriteString("  Manual trigger and wait notify field names use non-namespaced keywords (e.g., `{:name :user-id ...}`).\n")
-	b.WriteString("- **Local-only (server-global)**: create `secrets.edn` (gitignored) to provide dev keys directly to the server process.\n\n")
-	b.WriteString("Local-only `secrets.edn`:\n")
-	b.WriteString("- `cp breyta/secrets.edn.example secrets.edn`\n")
-	b.WriteString("- Add the keys you need and restart `flows-api`\n")
-	b.WriteString("- Never commit `secrets.edn`\n\n")
-	b.WriteString("CLI env vars (`BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`) are only for authenticating the CLI to `flows-api`.\n\n")
+	if devMode {
+		b.WriteString("- **Dev-only (server-global)**: create `secrets.edn` (gitignored) to provide dev keys directly to the server process.\n\n")
+		b.WriteString("Dev-only `secrets.edn`:\n")
+		b.WriteString("- `cp breyta/secrets.edn.example secrets.edn`\n")
+		b.WriteString("- Add the keys you need and restart `flows-api`\n")
+		b.WriteString("- Never commit `secrets.edn`\n\n")
+		b.WriteString("Dev mode exposes local override flags and env vars for authenticating the CLI to a local `flows-api`.\n\n")
+	}
 
 	b.WriteString("### Activation (credentials for `:requires` slots)\n\n")
 	b.WriteString("If a flow declares `:requires` slots (e.g. `:http-api` with `:auth`/`:oauth`, or `:llm-provider`), you must activate it once to create a profile and bind credentials.\n")
 	b.WriteString("Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).\n\n")
 	b.WriteString("Symptom if you forget: \"Slot reference requires a flow profile, but no profile-id in context\".\n\n")
 	b.WriteString("Do this:\n")
-	b.WriteString("- Sign in: `http://localhost:8090/login` → Sign in with Google → Dev User\n")
-	b.WriteString("- Activate: `http://localhost:8090/<workspace>/flows/<slug>/activate` (e.g. `/ws-acme/flows/my-flow/activate`)\n")
-	b.WriteString("- Or use: `breyta flows activate-url <slug>` to print the URL\n")
+	b.WriteString("- Use `breyta flows activate-url <slug>` to print the activation URL\n")
 	b.WriteString("- Enter API key/token or complete OAuth, submit Activate Flow\n")
 	b.WriteString("- Re-run the flow (CLI `runs start` will then resolve slots via the active profile)\n\n")
 
-	b.WriteString("### Draft preview bindings\n\n")
-	b.WriteString("Draft runs use a user-scoped draft profile and require draft bindings.\n\n")
-	b.WriteString("- Draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings`\n")
-	b.WriteString("- Or use: `breyta flows draft-bindings-url <slug>` to print the URL\n")
-	b.WriteString("- Run draft: `breyta runs start --flow <slug> --source draft`\n\n")
+	if devMode {
+		b.WriteString("### Draft preview bindings\n\n")
+		b.WriteString("Draft runs use a user-scoped draft profile and require draft bindings.\n\n")
+		b.WriteString("- Use: `breyta flows draft-bindings-url <slug>` to print the URL\n")
+		b.WriteString("- Run draft: `breyta runs start --flow <slug> --source draft`\n\n")
+	}
 
 	b.WriteString("### Flow body constraints (SCI / orchestration DSL)\n\n")
 	b.WriteString("Flow bodies are intentionally constrained to keep the \"flow language\" small for visualization and translation (Temporal-like orchestration), and to reduce the security surface area.\n\n")
@@ -222,9 +226,11 @@ func renderDocsIndexMD(root *cobra.Command) string {
 	b.WriteString("- Keep the flow body focused on orchestration (a sequence of `step` calls)\n")
 	b.WriteString("- Put data transformation into explicit `:function` steps (`:code` alias)\n\n")
 
-	b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
-	b.WriteString("`breyta --dev runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
-	b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
+	if devMode {
+		b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
+		b.WriteString("`breyta --dev runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
+		b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
+	}
 
 	b.WriteString("### Top-level commands\n\n")
 	for _, c := range root.Commands() {
@@ -240,7 +246,7 @@ func renderDocsIndexMD(root *cobra.Command) string {
 	return b.String()
 }
 
-func renderCommandDocsMD(c *cobra.Command, path string) string {
+func renderCommandDocsMD(c *cobra.Command, path string, includeHidden bool) string {
 	var b strings.Builder
 	b.WriteString("## " + path + "\n\n")
 	if c.Short != "" {
@@ -253,8 +259,8 @@ func renderCommandDocsMD(c *cobra.Command, path string) string {
 	b.WriteString("### Usage\n\n")
 	b.WriteString("`" + c.UseLine() + "`\n\n")
 
-	flags := docFlags(c.InheritedFlags(), true)
-	flags = append(flags, docFlags(c.NonInheritedFlags(), false)...)
+	flags := docFlags(c.InheritedFlags(), true, includeHidden)
+	flags = append(flags, docFlags(c.NonInheritedFlags(), false, includeHidden)...)
 	if len(flags) > 0 {
 		b.WriteString("### Flags\n\n")
 		for _, f := range flags {

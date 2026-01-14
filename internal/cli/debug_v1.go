@@ -24,10 +24,10 @@ These commands are primarily useful for agent-driven testing and debugging of:
 `),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if !app.DevMode {
-				return errors.New("debug is a dev-only command; re-run with --dev (or set BREYTA_DEV=1)")
+				return errors.New("debug is a dev-only command")
 			}
 			if !isAPIMode(app) {
-				return errors.New("debug requires API mode (set BREYTA_API_URL)")
+				return errors.New("debug requires API mode")
 			}
 			return requireAPI(app)
 		},

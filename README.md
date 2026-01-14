@@ -12,13 +12,14 @@ This is a standalone **Go** CLI + **Bubble Tea** TUI for working with Breyta loc
 - Distribution (releases + Homebrew): `docs/distribution.md`
 
 This CLI supports two modes:
-- **API mode (recommended for flows authoring)**: `--api` / `BREYTA_API_URL` points to a locally running `flows-api`.
+- **API mode (default)**: targets production API when you run subcommands.
 - **Mock mode (dev/TUI)**: uses a local mock state file.
 
 Default API target (when you run any subcommand) is `https://flows.breyta.ai`.
-Switch between prod/local without exporting env vars:
+For local development, enable dev mode to access API override commands:
 
 ```bash
+export BREYTA_DEV=1
 breyta api use prod
 breyta api use local
 breyta api show
@@ -42,6 +43,7 @@ cd ../breyta
 Configure the CLI:
 
 ```bash
+export BREYTA_DEV=1
 breyta api use local
 export BREYTA_WORKSPACE="ws-acme"
 # In local mock auth, any non-empty token works (membership is still enforced).
@@ -60,7 +62,7 @@ Login helper (API mode):
 # Opens a browser to login, then stores the token locally (recommended):
 breyta auth login
 
-# Optional: print an export line for the current shell:
+# Optional (dev mode only): print an export line for the current shell:
 breyta auth login --print export
 
 # Legacy (password exchange):

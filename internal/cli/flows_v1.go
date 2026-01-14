@@ -34,9 +34,7 @@ func newFlowsCmd(app *App) *cobra.Command {
 		Aliases: []string{"flow"},
 		Short:   "Inspect and edit flows",
 		Long: strings.TrimSpace(`
-Flow authoring (API mode)
-
-In API mode (BREYTA_API_URL set), flows are edited via a file workflow:
+Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
 3) push -> creates a new draft version
@@ -48,37 +46,9 @@ Quick commands:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows deploy <slug>
 
-Flow file format (minimal):
-{:slug :my-flow
- :name "My Flow"
- :description "..."
- :tags ["draft"]
- :concurrency-config {:concurrency :singleton :on-new-version :supersede}
- :requires nil
- :templates nil
- :functions nil
- :triggers nil
- :definition '(defflow [input] (step :function :do {:code '(fn [x] x)} :input input}))}
-
-Notes:
-- The server reads the file with *read-eval* disabled.
-- :definition should be a quoted form, e.g. :definition '(defflow [input] ...). (quote ...) is also accepted.
-- If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
-
 Activation (credentials for :requires):
-- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), you must activate it once to create a profile and bind credentials.
-- Slot names must be non-namespaced keywords (e.g., :api, not :ns/api).
-- Manual trigger and wait notify field names use non-namespaced keywords (e.g., {:name :user-id ...}).
-- Visit: http://localhost:8090/<workspace>/flows/<slug>/activate (example: http://localhost:8090/ws-acme/flows/my-flow/activate)
-- Sign in (mock OAuth): http://localhost:8090/login → Sign in with Google → Dev User
-- After activation, runs started via the CLI can resolve slot-based connections.
-
-Draft preview bindings:
-- Draft runs use their own bindings. Set them at: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
-- Then run: breyta runs start --flow <slug> --source draft
-
-Tip:
-- Print URLs from the CLI: breyta flows activate-url <slug> | breyta flows draft-bindings-url <slug>
+- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), activate it once to create a profile and bind credentials.
+- Print activation URLs from the CLI: breyta flows activate-url <slug> and breyta flows draft-bindings-url <slug>
 `),
 	}
 

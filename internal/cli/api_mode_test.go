@@ -23,8 +23,9 @@ func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
 	return out.String(), errOut.String(), err
 }
 
-func TestDocs_Index_HidesMockSurfaceInAPIMode(t *testing.T) {
+func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://localhost:9999",
 		"--token", "user-dev",
@@ -33,8 +34,8 @@ func TestDocs_Index_HidesMockSurfaceInAPIMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docs failed: %v\n%s", err, stdout)
 	}
-	if bytes.Contains([]byte(stdout), []byte("registry")) {
-		t.Fatalf("expected docs index to hide registry in api mode\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("registry")) {
+		t.Fatalf("expected docs index to include registry in dev mode\n---\n%s", stdout)
 	}
 	if !bytes.Contains([]byte(stdout), []byte("`flows`")) {
 		t.Fatalf("expected docs index to include flows\n---\n%s", stdout)
@@ -89,6 +90,7 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -117,6 +119,7 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// (Some older tests set --state; API mode should not depend on it.)
 	_ = filepath.Separator
 	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://localhost:9999",
 		"--token", "user-dev",

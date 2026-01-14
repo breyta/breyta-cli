@@ -41,21 +41,7 @@ A flow is a versioned workflow definition stored on the server. It typically has
 ## Preconditions (local-only)
 - A local Breyta API server is already running (mock auth is fine).
 - `breyta` is already installed and available on `PATH`.
-- Your environment is configured to point the CLI at the local server.
-
-If you need human-facing setup instructions, see `breyta-cli/docs/agentic-chat.md`.
-
-If you need guidance on integrating external compute (custom services called via `:http`), see:
-- `breyta-cli/docs/bring-your-own-compute.md`
-
-## Configure CLI for local development
-Set these environment variables (or pass flags):
-
-```bash
-export BREYTA_API_URL="http://localhost:8090"
-export BREYTA_WORKSPACE="ws-acme"
-export BREYTA_TOKEN="dev-user-123"
-```
+- Your environment is configured to point the CLI at the correct server.
 
 ## Clojure delimiter repair
 If you get stuck in a delimiter/paren error loop while editing flow files, use a dedicated repair tool instead of trying to manually balance `()[]{}`.
@@ -79,20 +65,6 @@ breyta flows paren-repair ./tmp/flows/<slug>.clj
 If errors persist after repair:
 - Fix the underlying syntax issue (common: unterminated string), then rerun `paren-repair` and `push`.
 
-## Check which workspace you’re using
-The CLI always includes `workspaceId` in its JSON envelope, but for quick human-readable checks:
-
-```bash
-# Show the configured workspace (and resolve name when possible)
-breyta workspaces current --pretty
-
-# List all accessible workspaces and see which one is current
-breyta workspaces list --pretty
-
-# Show which API + config store the CLI is using
-breyta api show --pretty
-```
-
 ## Credentials / API keys for flows (recommended pattern)
 Flows execute server-side, so credentials must be bound **in the server context** (not just your shell).
 
@@ -101,7 +73,6 @@ Flows execute server-side, so credentials must be bound **in the server context*
 - Activate the flow in the UI to bind credentials (per-user, production-like)
 
 Notes:
-- CLI env vars (`BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`) are only for authenticating the CLI to the local Breyta API server.
 - Server-side config such as OAuth client IDs/secrets may still live in server config (e.g. `secrets.edn` locally), but **end-user API keys (like OpenAI keys)** should be provided via activation bindings.
 - Mock auth accepts any **non-empty** token, but the API still enforces **workspace membership**.
 - The dev server seeds a workspace (`ws-acme`) and a dev user (`dev-user-123`) with access.
@@ -120,21 +91,15 @@ Typical symptom if you forget:
 - “Slot reference `:<slot>` requires a flow profile, but no profile-id in context”
 
 What to do:
-1) Sign in to the local UI (mock OAuth):
-   - Visit `http://localhost:8090/login`
-   - Click **Sign in with Google** → **Dev User**
-2) Open the activation page:
-   - `http://localhost:8090/<workspace>/flows/<slug>/activate` (example: `http://localhost:8090/ws-acme/flows/my-flow/activate`)
-   - Or print it from the CLI: `breyta flows activate-url <slug>`
-3) Enter API key/token (or complete OAuth) and submit **Activate Flow**
-4) Re-run the flow (CLI `runs start` will then resolve slots via the active instance)
+1) Open the activation page (print it from the CLI): `breyta flows activate-url <slug>`
+2) Enter API key/token (or complete OAuth) and submit **Activate Flow**
+3) Re-run the flow; the runtime will resolve slot-based connections via the active instance.
 
 ## Draft bindings (testing draft runs safely)
 Draft runs use **draft bindings** (separate from deployed bindings).
 
 1) Set draft bindings:
-   - `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings`
-   - Or print it: `breyta flows draft-bindings-url <slug>`
+   - Print the URL: `breyta flows draft-bindings-url <slug>`
 2) Run the draft:
    - `breyta runs start --flow <slug> --source draft`
 
@@ -150,7 +115,7 @@ Practical consequence:
 - Do data transformation in explicit `:function` steps (`:code` alias), where it’s more verbose but also clearer and easier to reason about/replay.
 
 ## Input keys from `--input` (string vs keyword keys)
-When you run a flow with `breyta --dev runs start --input '{...}'`, the JSON keys arrive as **strings**.
+When you run a flow with `--input '{...}'`, the JSON keys arrive as **strings**.
 
 Platform behavior:
 - The runtime normalizes input so **both** string keys and keyword keys work (safe keyword aliases are added).
@@ -189,22 +154,6 @@ breyta flows push --file ./tmp/flows/simple-http.clj
 
 ```bash
 breyta flows deploy simple-http
-```
-
-### Run flow and read output
-
-```bash
-# Start a run and wait for completion.
-# Output is in: data.run.resultPreview.data.result
-breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
-```
-
-Example (optional activation-bound LLM + email):
-```bash
-# weather-digest uses optional :requires slots (e.g. :llm-provider, :http-api for SendGrid).
-# Activate first if you want LLM/email behavior, then run with input flags.
-breyta flows activate-url weather-digest
-breyta --dev runs start --flow weather-digest --input '{"use-llm?":true,"email-to":"you@example.com"}' --wait
 ```
 
 ## Flow file format (Clojure DSL quick guide)

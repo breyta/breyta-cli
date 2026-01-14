@@ -52,7 +52,10 @@ func requireAPI(app *App) error {
 		loadTokenFromAuthStore(app)
 	}
 	if strings.TrimSpace(app.Token) == "" {
-		return errors.New("missing --token or BREYTA_TOKEN")
+		if app.DevMode {
+			return errors.New("missing --token or BREYTA_TOKEN")
+		}
+		return errors.New("missing token (run `breyta auth login`)")
 	}
 	return nil
 }
