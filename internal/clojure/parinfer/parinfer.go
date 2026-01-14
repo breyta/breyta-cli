@@ -54,12 +54,18 @@ func (r Runner) RepairIndent(text string) (string, Answer, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	_ = cmd.Run()
+	err := cmd.Run()
 
 	outStr := strings.TrimSpace(stdout.String())
 	if outStr == "" {
 		if ctx.Err() != nil {
 			return text, Answer{}, fmt.Errorf("parinfer-rust timed out: %w", ctx.Err())
+		}
+		if err != nil {
+			if strings.TrimSpace(stderr.String()) != "" {
+				return text, Answer{}, fmt.Errorf("parinfer-rust failed: %s", strings.TrimSpace(stderr.String()))
+			}
+			return text, Answer{}, fmt.Errorf("parinfer-rust exec failed: %w", err)
 		}
 		if strings.TrimSpace(stderr.String()) != "" {
 			return text, Answer{}, fmt.Errorf("parinfer-rust failed: %s", strings.TrimSpace(stderr.String()))

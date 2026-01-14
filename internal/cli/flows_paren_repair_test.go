@@ -103,6 +103,10 @@ func TestFlowsParenRepair_FallsBackWhenParinferMissing(t *testing.T) {
 		t.Fatalf("write flow: %v", err)
 	}
 
+	// Ensure we don't accidentally pick up a user-installed parinfer-rust from PATH.
+	t.Setenv("PATH", "")
+	t.Setenv("BREYTA_PARINFER_RUST", "")
+
 	app := &App{WorkspaceID: "ws-test", Format: "json"}
 	cmd := newFlowsParenRepairCmd(app)
 	var out bytes.Buffer
