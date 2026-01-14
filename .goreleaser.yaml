@@ -8,7 +8,7 @@ before:
     - go test ./...
 
 builds:
-  - id: breyta
+  - id: breyta-unix
     main: ./cmd/breyta
     binary: breyta
     env:
@@ -21,27 +21,43 @@ builds:
     goos:
       - darwin
       - linux
-      - windows
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
+  - id: breyta-windows
+    main: ./cmd/breyta
+    binary: breyta
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Commit={{ .Commit }}
+      - -X github.com/breyta/breyta-cli/internal/buildinfo.Date={{ .Date }}
+    goos:
+      - windows
+    goarch:
+      - amd64
 
 archives:
-  - id: default
+  - id: unix
     builds:
-      - breyta
+      - breyta-unix
     format: tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
-      - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
-        dst: parinfer-rust{{ if eq .Os "windows" }}.exe{{ end }}
+      - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust
+        dst: parinfer-rust
+  - id: windows
+    builds:
+      - breyta-windows
+    format: zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - src: tools/parinfer-rust/windows/amd64/parinfer-rust.exe
+        dst: parinfer-rust.exe
 
 checksum:
   name_template: checksums.txt
@@ -52,7 +68,7 @@ release:
 brews:
   - name: breyta
     ids:
-      - default
+      - unix
     repository:
       owner: breyta
       name: homebrew-tap
