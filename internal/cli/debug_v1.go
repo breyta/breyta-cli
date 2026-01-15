@@ -26,7 +26,8 @@ These commands are primarily useful for agent-driven testing and debugging of:
 			if !app.DevMode {
 				return errors.New("debug is a dev-only command")
 			}
-			if !isAPIMode(app) {
+			// Respect explicit `--api=` forcing mock mode.
+			if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
 				return errors.New("debug requires API mode")
 			}
 			return requireAPI(app)

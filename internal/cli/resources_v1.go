@@ -40,7 +40,8 @@ Types:
   - external-dir: External directory mount
 `),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
+			// Respect explicit `--api=` forcing mock mode.
+			if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
 				return errors.New("resources requires API mode (set BREYTA_API_URL)")
 			}
 			return requireAPI(app)

@@ -30,6 +30,19 @@ func isAPIMode(app *App) bool {
 	return strings.TrimSpace(app.APIURL) != ""
 }
 
+func apiFlagExplicit(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api") {
+		return true
+	}
+	if root := cmd.Root(); root != nil && root.PersistentFlags().Changed("api") {
+		return true
+	}
+	return false
+}
+
 func ensureAPIURL(app *App) {
 	if strings.TrimSpace(app.APIURL) != "" {
 		app.APIURL = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
