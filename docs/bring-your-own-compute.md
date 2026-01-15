@@ -15,15 +15,15 @@ Use `:requires` with an `:http-api` slot so users bind base URL + credentials at
              :base-url "https://compute.example.com"
              :auth {:type :bearer}}]
  :triggers [{:type :manual :label "Run" :enabled true :config {}}]
- :definition
- '(defflow [{:keys [xs]}]
-    (let [resp (step :http :compute
-                     {:connection :compute
-                      :path "/v1/compute"
-                      :method :post
-                      :json {:xs xs}
-                      :accept :json})]
-      (:body resp)))}
+ :flow
+ '(let [{:keys [xs]} (flow/input)
+        resp (flow/step :http :compute
+                        {:connection :compute
+                         :path "/v1/compute"
+                         :method :post
+                         :json {:xs xs}
+                         :accept :json})]
+    (:body resp))}
 ```
 
 ## Large artifacts: pass by URL (service downloads)

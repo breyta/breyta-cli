@@ -83,23 +83,23 @@ cat > ./tmp/flows/run-hello.clj <<'EOF'
  :name "Run Hello"
  :description "Simple runnable flow (returns deterministic result)"
  :tags ["draft"]
- :concurrency-config {:concurrency :singleton
+ :concurrency {:type :singleton
                       :on-new-version :supersede}
  :requires nil
  :templates nil
  :functions nil
  :triggers nil
- :definition
- '(defflow [input]
-   (let [out (step :function :make-output
-                   {:title "Make output"
-                    :code (quote (fn [{:keys [n]}]
-                                              {:ok true
-                                               :message "hello"
-                                               :n (or n 0)
-                                               :nPlusOne (inc (or n 0))}))}
-                    :input input})]
-     out))}
+ :flow
+ '(let [input (flow/input)
+        out (flow/step :function :make-output
+                       {:title "Make output"
+                        :code (quote (fn [{:keys [n]}]
+                                       {:ok true
+                                        :message "hello"
+                                        :n (or n 0)
+                                        :nPlusOne (inc (or n 0))}))}
+                        :input input})]
+    out)}
 EOF
 
 breyta flows push --file ./tmp/flows/run-hello.clj

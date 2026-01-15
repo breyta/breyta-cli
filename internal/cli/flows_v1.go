@@ -46,6 +46,25 @@ Quick commands:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows deploy <slug>
 
+Flow file format (minimal):
+{:slug :my-flow
+ :name "My Flow"
+ :description "..."
+ :tags ["draft"]
+ :concurrency {:type :singleton :on-new-version :supersede}
+ :requires nil
+ :templates nil
+ :functions nil
+ :triggers nil
+ :flow '(let [input (flow/input)]
+          (flow/step :function :do {:code '(fn [x] x)} :input input))}
+
+Notes:
+- The server reads the file with *read-eval* disabled.
+- :flow should be a quoted form. (quote ...) is also accepted.
+- Use flow/input for inputs and flow/step for steps.
+- If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
+
 Activation (credentials for :requires):
 - If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), activate it once to create a profile and bind credentials.
 - Print activation URLs from the CLI: breyta flows activate-url <slug> and breyta flows draft-bindings-url <slug>
@@ -462,7 +481,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				// Create a minimal draft (version) on the server.
 				// Users/agents can then pull/edit/push and deploy explicitly.
-				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency-config {:concurrency :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :definition '(defflow [input]\n              input)}\n", slug, name, description)
+				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency {:type :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :flow '(let [input (flow/input)]\n          input)}\n", slug, name, description)
 				return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
 			}
 			st, store, err := appStore(app)

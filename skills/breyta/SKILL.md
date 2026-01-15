@@ -163,10 +163,10 @@ breyta flows deploy simple-http
   - `:slug` keyword (e.g. `:daily-sales`)
   - `:name` string
   - `:description` string
-  - `:concurrency-config` map (usually `{:concurrency :singleton :on-new-version :supersede}`)
+  - `:concurrency` map (usually `{:type :singleton :on-new-version :supersede}`)
   - `:requires` connection slots (often `nil` for code-only flows)
   - `:triggers` (**recommended**: include at least one enabled `:manual` trigger)
-  - `:definition` (the orchestration DSL)
+  - `:flow` (the orchestration DSL)
 
 Minimal runnable template (code-only):
 
@@ -175,18 +175,18 @@ Minimal runnable template (code-only):
  :name "Run Hello"
  :description "Simple runnable flow"
  :tags ["draft"]
- :concurrency-config {:concurrency :singleton :on-new-version :supersede}
+ :concurrency {:type :singleton :on-new-version :supersede}
  :requires nil
  :templates nil
  :functions nil
  :triggers [{:type :manual :label "Run" :enabled true :config {}}]
- :definition
- '(defflow [input]
-   (step :function :make-output
-         {:title "Make output"
-          :code '(fn [{:keys [n]}]
-                              {:ok true :n (or n 0) :nPlusOne (inc (or n 0))})}
-          :input input}))}
+ :flow
+ '(let [input (flow/input)]
+    (flow/step :function :make-output
+               {:title "Make output"
+                :code '(fn [{:keys [n]}]
+                         {:ok true :n (or n 0) :nPlusOne (inc (or n 0))})
+                :input input}))}
 ```
 
 ## Triggers, drafts, and deploys (current behavior)
