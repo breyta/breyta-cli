@@ -18,3 +18,4 @@
 /bin/
 /.tmp/
 .DS_Store
+/.worktrees/
