@@ -90,7 +90,7 @@ Use these commands to manage flows:
 - breyta flows deploy <slug>
 
 To run a flow and see output:
-- breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
+- breyta runs start --flow run-hello --input '{"n":41}' --wait
 - read output at: data.run.resultPreview.data.result
 
 Notes for agents:

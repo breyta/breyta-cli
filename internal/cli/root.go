@@ -79,7 +79,7 @@ func NewRootCmd() *cobra.Command {
 		// Default API URL:
 		// - explicit --api wins (dev mode only)
 		// - otherwise if dev mode and BREYTA_API_URL set, use it
-		// - otherwise in dev mode: try ~/.config/breyta/config.json
+		// - otherwise: try ~/.config/breyta/config.json (if present)
 		// - otherwise fall back to prod (https://flows.breyta.ai)
 		//
 		// IMPORTANT: We only default when a subcommand is invoked, so `breyta`
@@ -106,11 +106,9 @@ func NewRootCmd() *cobra.Command {
 				}
 			}
 			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
-				if app.DevMode {
-					if p, err := configstore.DefaultPath(); err == nil && p != "" {
-						if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
-							app.APIURL = st.APIURL
-						}
+				if p, err := configstore.DefaultPath(); err == nil && p != "" {
+					if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
+						app.APIURL = st.APIURL
 					}
 				}
 				if strings.TrimSpace(app.APIURL) == "" {

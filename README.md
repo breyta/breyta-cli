@@ -87,15 +87,15 @@ Notes:
 
 ### Run a flow and read its output (API mode)
 
-Runs are available via the `runs.*` command endpoint. In the CLI, use `--dev` to access `breyta runs ...`:
+Runs are available via the `runs.*` command endpoint:
 
 ```bash
 # Start a run and wait for completion. Output is in:
 #   data.run.resultPreview.data.result
-breyta --dev runs start --flow run-hello --input '{"n":41}' --wait
+breyta runs start --flow run-hello --input '{"n":41}' --wait
 
 # Inspect a run by run-id
-breyta --dev runs show abc-123-def
+breyta runs show abc-123-def
 ```
 
 Resources are the preferred unified surface (results, imports, files). Example:
