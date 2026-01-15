@@ -11,6 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func requireResourcesAPI(cmd *cobra.Command, app *App) error {
+	// Respect explicit `--api=` forcing mock mode.
+	if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
+		return errors.New("resources requires API mode (set BREYTA_API_URL)")
+	}
+	return requireAPI(app)
+}
+
 func newResourcesCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resources",
@@ -39,13 +47,6 @@ Types:
   - bundle: Bundle-backed resource
   - external-dir: External directory mount
 `),
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Respect explicit `--api=` forcing mock mode.
-			if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
-				return errors.New("resources requires API mode (set BREYTA_API_URL)")
-			}
-			return requireAPI(app)
-		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -68,6 +69,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List resources in workspace",
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q := url.Values{}
 			if typeFilter != "" {
@@ -109,6 +113,9 @@ func newResourcesGetCmd(app *App) *cobra.Command {
 		Use:   "get <uri>",
 		Short: "Get resource metadata by URI",
 		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			uri := strings.TrimSpace(args[0])
 			if uri == "" {
@@ -139,6 +146,9 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 		Use:   "read <uri>",
 		Short: "Read resource content by URI",
 		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			uri := strings.TrimSpace(args[0])
 			if uri == "" {
@@ -171,6 +181,9 @@ func newResourcesURLCmd(app *App) *cobra.Command {
 		Use:   "url <uri>",
 		Short: "Get signed URL for resource access",
 		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			uri := strings.TrimSpace(args[0])
 			if uri == "" {
@@ -222,6 +235,9 @@ func newResourcesWorkflowListCmd(app *App) *cobra.Command {
 		Use:   "list <workflow-id>",
 		Short: "List all resources for a workflow execution",
 		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := strings.TrimSpace(args[0])
 			if workflowID == "" {
@@ -258,6 +274,9 @@ func newResourcesWorkflowStepCmd(app *App) *cobra.Command {
 		Use:   "step <workflow-id> <step-id>",
 		Short: "List resources for a specific step",
 		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := strings.TrimSpace(args[0])
 			stepID := strings.TrimSpace(args[1])

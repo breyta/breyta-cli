@@ -736,9 +736,50 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
 func newTriggersCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
 	cmd.AddCommand(newTriggersListCmd(app))
+	cmd.AddCommand(newTriggersShowCmd(app))
 	cmd.AddCommand(newTriggersWebhookURLCmd(app))
 	cmd.AddCommand(newTriggersWebhookSecretCmd(app))
 	cmd.AddCommand(newTriggersFireCmd(app))
+	return cmd
+}
+
+func newTriggersShowCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show <trigger-id>",
+		Short: "Show trigger",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			triggerID := strings.TrimSpace(args[0])
+			if triggerID == "" {
+				return writeErr(cmd, errors.New("missing trigger id"))
+			}
+
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/triggers/"+url.PathEscape(triggerID), nil, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
+
+			st, _, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			t := ws.Triggers[triggerID]
+			if t == nil {
+				return writeErr(cmd, errors.New("trigger not found"))
+			}
+			return writeData(cmd, app, nil, map[string]any{"trigger": t})
+		},
+	}
 	return cmd
 }
 

@@ -310,6 +310,9 @@ func newRunsReplayCmd(app *App) *cobra.Command {
 		Short: "Replay a run (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (API replay is not implemented).")
+			}
 			runID := args[0]
 			st, store, err := appStore(app)
 			if err != nil {
@@ -354,6 +357,9 @@ func newRunsStepCmd(app *App) *cobra.Command {
 		Short: "Show step detail for a run (mock)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta runs show <workflow-id>` in API mode).")
+			}
 			runID := args[0]
 			stepID := args[1]
 			st, store, err := appStore(app)
@@ -474,6 +480,9 @@ func newRunsRetryCmd(app *App) *cobra.Command {
 		Short: "Retry a run (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta runs start` to re-run in API mode).")
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -511,6 +520,9 @@ func newRunsEventsCmd(app *App) *cobra.Command {
 		Short: "Show run event timeline (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (API events stream is not implemented).")
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -534,6 +546,9 @@ func newRunsLogsCmd(app *App) *cobra.Command {
 		Short: "Show run logs (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (API logs are not implemented).")
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
