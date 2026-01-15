@@ -107,7 +107,7 @@ breyta flows deploy run-hello
 
 # Start a run and wait. Output is in:
 #   data.run.resultPreview.data.result
-breyta --dev runs start --flow run-hello --input '{"n":41}' --wait --timeout 30s
+breyta runs start --flow run-hello --input '{"n":41}' --wait --timeout 30s
 
 ### Resources (preferred unified interface)
 

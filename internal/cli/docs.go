@@ -226,11 +226,9 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- Keep the flow body focused on orchestration (a sequence of `step` calls)\n")
 	b.WriteString("- Put data transformation into explicit `:function` steps (`:code` alias)\n\n")
 
-	if devMode {
-		b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
-		b.WriteString("`breyta --dev runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
-		b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
-	}
+	b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
+	b.WriteString("`breyta runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
+	b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
 
 	b.WriteString("### Top-level commands\n\n")
 	for _, c := range root.Commands() {
