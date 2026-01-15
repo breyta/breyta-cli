@@ -3,8 +3,7 @@ name: breyta
 description: >-
   Use Breyta to build and operate workflows (“flows”): multi-step backend
   processes with triggers, steps, waits, versioning, deploys, and runnable
-  executions. Use the local `breyta` CLI + a local Breyta API server to create,
-  edit, deploy, and run flows.
+  executions. Use the `breyta` CLI to create, edit, deploy, and run flows.
 ---
 
 ## Purpose
@@ -21,8 +20,8 @@ If the user asks for things like:
 
 …you should suggest using **Breyta flows** and the **`breyta` CLI**.
 
-This skill focuses on the local authoring workflow via the **`breyta` CLI** (Go CLI + TUI)
-talking to a local Breyta API server.
+This skill focuses on the flow authoring workflow via the **`breyta` CLI** (Go CLI + TUI)
+talking to the Breyta API.
 
 The intended workflow is:
 1) list flows
@@ -38,10 +37,10 @@ A flow is a versioned workflow definition stored on the server. It typically has
 - **Waits** (pause/resume) for long-lived processes
 - **Runs** (executions) you can inspect for results and debugging
 
-## Preconditions (local-only)
-- A local Breyta API server is already running (mock auth is fine).
-- `breyta` is already installed and available on `PATH`.
-- Your environment is configured to point the CLI at the correct server.
+## Preconditions (production)
+- `breyta` is installed and available on `PATH`.
+- You are authenticated: run `breyta auth login` once (then the CLI uses the saved token automatically).
+- You know your workspace id (set `BREYTA_WORKSPACE` or pass `--workspace <id>` to commands).
 
 ## Clojure delimiter repair
 If you get stuck in a delimiter/paren error loop while editing flow files, use a dedicated repair tool instead of trying to manually balance `()[]{}`.
@@ -73,12 +72,10 @@ Flows execute server-side, so credentials must be bound **in the server context*
 - Activate the flow in the UI to bind credentials (per-user, production-like)
 
 Notes:
-- Server-side config such as OAuth client IDs/secrets may still live in server config (e.g. `secrets.edn` locally), but **end-user API keys (like OpenAI keys)** should be provided via activation bindings.
-- Mock auth accepts any **non-empty** token, but the API still enforces **workspace membership**.
-- The dev server seeds a workspace (`ws-acme`) and a dev user (`dev-user-123`) with access.
+- **End-user API keys (like OpenAI keys)** should be provided via activation bindings.
 - Flow slugs must match the API slug format (safe for URLs + storage): `^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`.
 
-## Core commands (API mode)
+## Core commands
 If you need command reference, run:
 - `breyta docs`
 - `breyta docs flows`
@@ -110,9 +107,8 @@ Flow bodies are intentionally **constrained**. The goal is to keep the “flow l
 - safe by default
 
 Practical consequence:
-- Many functional ops in normal Clojure are **denied in the flow body** (e.g. `mapv`, `filterv`, `reduce`, etc.).
-- Do orchestration in the flow body (sequence of `step` calls).
-- Do data transformation in explicit `:function` steps (`:code` alias), where it’s more verbose but also clearer and easier to reason about/replay.
+- Keep the flow body focused on orchestration (a sequence of `flow/step` calls).
+- Do data transformation in explicit `:function` steps (sandboxed Clojure), where it’s clearer and easier to test in isolation.
 
 ## Input keys from `--input` (string vs keyword keys)
 When you run a flow with `--input '{...}'`, the JSON keys arrive as **strings**.
@@ -144,11 +140,45 @@ breyta flows show cli-created-flow --source latest
 breyta flows pull simple-http --out ./tmp/flows/simple-http.clj
 ```
 
+### Create a new flow (fresh draft)
+If you’re authoring a new flow from scratch, start by creating a minimal draft on the server, then pull it to disk:
+
+```bash
+breyta flows create --slug my-flow --name "My Flow" --description "..."
+breyta flows pull my-flow --source draft --out ./tmp/flows/my-flow.clj
+```
+
 ### Push updated flow (creates a new draft version)
 
 ```bash
 breyta flows push --file ./tmp/flows/simple-http.clj
 ```
+
+### Validate/compile a draft (fast feedback)
+After pushing, validate and compile on the server to catch structural errors early:
+
+```bash
+breyta flows validate simple-http
+breyta flows compile simple-http
+```
+
+### Run a draft (tight iteration loop)
+Use draft runs to test changes without deploying:
+
+```bash
+breyta runs start --flow simple-http --source draft --input '{"n":41}' --wait
+```
+
+Then inspect what happened:
+
+```bash
+breyta runs show <workflow-id>
+breyta resources workflow list <workflow-id>
+```
+
+To isolate a single step while iterating:
+- Create a tiny “scratch” flow that contains only that step (often a single `:function` step), then run it via `--source draft`.
+- Prefer moving data-wrangling into a `:function` step so it’s easy to test repeatedly with different `--input`.
 
 ### Deploy flow (promote latest version to active)
 
@@ -184,9 +214,81 @@ Minimal runnable template (code-only):
  '(let [input (flow/input)]
     (flow/step :function :make-output
                {:title "Make output"
-                :code '(fn [{:keys [n]}]
-                         {:ok true :n (or n 0) :nPlusOne (inc (or n 0))})
+                :code '(fn [input]
+                         (let [{:keys [n]} input]
+                           {:ok true :n (or n 0) :nPlusOne (inc (or n 0))}))
                 :input input}))}
+```
+
+## Connections, templates, and functions (examples)
+
+### Connection slots (`:requires`)
+Use `:requires` to declare **connection slots** that users bind at activation time (so credentials don’t live in flow code).
+
+Example:
+
+```clojure
+:requires [{:slot :crm
+            :type :http-api
+            :label "CRM API"
+            :base-url "https://api.example.com"
+            :auth {:type :bearer}}
+           {:slot :ai
+            :type :llm-provider
+            :label "AI Provider"
+            :auth {:type :api-key}
+            :optional true}]
+```
+
+Use the slots in steps:
+
+```clojure
+(flow/step :http :fetch-contact {:connection :crm :path "/contacts"})
+
+(when (flow/slot-bound? :ai)
+  (flow/step :llm :summarize {:connection :ai :model "gpt-4o" :input {:prompt "Summarize..."}}))
+```
+
+Bind slots (user action):
+- Deployed bindings: `breyta flows activate-url <slug>` (opens the UI where users create/select connections and bind slots)
+- Draft bindings (for draft runs): `breyta flows draft-bindings-url <slug>`
+
+### Templates (`:templates`)
+Templates let you keep large/reused payloads (HTTP requests, LLM prompts, DB queries) out of step bodies. Templates are referenced by non-namespaced keyword IDs via `:template` + `:data`.
+
+Example:
+
+```clojure
+:templates [{:id :get-user
+             :type :http-request
+             :request {:url "https://api.example.com/users/{{id}}"
+                       :method :get}}
+            {:id :welcome
+             :type :llm-prompt
+             :system "You are helpful."
+             :prompt "Welcome {{user.name}}!"}]
+```
+
+Use them in steps:
+
+```clojure
+(flow/step :http :get-user {:template :get-user :data {:id user-id}})
+(flow/step :llm :welcome {:connection :ai :template :welcome :data {:user input}})
+```
+
+### Functions (`:functions`) + `:function` steps
+Use `:function` steps for sandboxed Clojure transformations. For reuse, define flow-local functions in `:functions` and reference them with `{:ref ...}`.
+
+Example:
+
+```clojure
+:functions [{:id :summarize-user
+             :language :clojure
+             :code "(fn [input] {:ok true :input input})"}]
+
+(flow/step :function :summarize-user
+           {:input {:user user}
+            :ref :summarize-user})
 ```
 
 ## Triggers, drafts, and deploys (current behavior)
