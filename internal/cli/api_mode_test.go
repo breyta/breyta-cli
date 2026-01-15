@@ -133,3 +133,20 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 		t.Fatalf("unexpected state-file error in api mode\n---\nstdout:\n%s\n---\nstderr:\n%s", stdout, stderr)
 	}
 }
+
+func TestResources_DefaultsToAPIMode(t *testing.T) {
+	// Ensure API-only commands don't fail with "requires API mode" just because the API URL
+	// hasn't been defaulted yet; they should proceed to normal auth errors instead.
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(t.TempDir(), "auth.json"))
+
+	_, stderr, err := runCLIArgs(t, "resources", "list")
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if bytes.Contains([]byte(stderr), []byte("requires API mode")) {
+		t.Fatalf("unexpected api-mode error:\n%s", stderr)
+	}
+	if !bytes.Contains([]byte(stderr), []byte("missing token")) {
+		t.Fatalf("expected missing-token error, got:\n%s", stderr)
+	}
+}
