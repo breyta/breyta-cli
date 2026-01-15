@@ -46,6 +46,12 @@ cd breyta-cli
 go install ./cmd/breyta
 ```
 
+If you want `breyta version` to include the current git commit and install/build time, use:
+
+```bash
+make install
+```
+
 You can also install a tagged release directly (requires SemVer-shaped tags):
 
 ```bash
