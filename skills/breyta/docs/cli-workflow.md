@@ -1,0 +1,75 @@
+# CLI workflow
+This workflow splits into authoring (draft) and live operations.
+
+## Authoring a flow (draft)
+1) List flows
+2) Pull a flow to a local `.clj` file
+3) Edit the file
+4) Push a new draft version
+5) Run draft with draft bindings
+
+Core commands:
+- `breyta flows list`
+- `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
+- `breyta flows push --file ./tmp/flows/<slug>.clj`
+- `breyta flows validate <slug>`
+- `breyta flows compile <slug>`
+- `breyta flows draft bindings template <slug> --out draft.edn`
+- `breyta flows draft bindings apply <slug> @draft.edn`
+- `breyta flows draft bindings show <slug>`
+- `breyta flows draft run <slug> --input '{"n":41}' --wait`
+
+Notes:
+- Draft runs use draft bindings and the draft flow definition.
+- `flows push` updates the draft; `flows deploy` publishes a version for prod.
+
+### Templates during development
+When iterating on draft bindings, templates reflect what is already bound:
+- `breyta flows draft bindings template <slug> --out draft.edn`
+- Add `--clean` to emit a requirements-only template without existing bindings.
+
+Use the non-clean template when you want to tweak current bindings; use `--clean` for a fresh, shareable template.
+
+## After deploy (live)
+1) Deploy the draft (publish a version)
+2) Apply prod bindings + activation inputs
+3) Activate the prod profile (enable and pin a version)
+4) Start runs or rely on triggers
+
+Core commands:
+- `breyta flows deploy <slug>`
+- `breyta flows bindings template <slug> --out profile.edn`
+- `breyta flows bindings apply <slug> @profile.edn`
+- `breyta flows bindings show <slug>`
+- `breyta flows activate <slug> --version latest`
+- `breyta runs start --flow <slug> --input '{"n":41}' --wait`
+
+Docs shortcuts:
+- `breyta docs`
+- `breyta docs flows`
+- `breyta docs flows pull` / `push` / `deploy`
+
+Local files:
+- Default path is `./tmp/flows/<slug>.clj` when pulling.
+- Keep each flow in a single file; use `flows pull` and `flows push` to round-trip changes.
+- Use `flows validate` and `flows compile` after pushing to catch server-side errors.
+
+Bindings and activation:
+- See `./bindings-activation.md` for templates, profile files, and inline bindings.
+
+## Clojure delimiter repair
+If you hit delimiter errors while editing flow files:
+- `breyta flows push` attempts delimiter repair by default (`--repair-delimiters=true`).
+- It writes repaired content back to your local file; opt out with `--no-repair-writeback`.
+
+Local check:
+
+```bash
+breyta flows paren-check ./tmp/flows/<slug>.clj
+```
+
+Local repair:
+
+```bash
+breyta flows paren-repair ./tmp/flows/<slug>.clj
+```

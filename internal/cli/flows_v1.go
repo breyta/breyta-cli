@@ -15,7 +15,6 @@ import (
 	"github.com/breyta/breyta-cli/internal/clojure/parinfer"
 	"github.com/breyta/breyta-cli/internal/state"
 	"github.com/breyta/breyta-cli/internal/tools"
-
 	"github.com/spf13/cobra"
 )
 
@@ -65,16 +64,21 @@ Notes:
 - Use flow/input for inputs and flow/step for steps.
 - If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
 
-Activation (credentials for :requires):
-- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), activate it once to create a profile and bind credentials.
-- Print activation URLs from the CLI: breyta flows activate-url <slug> and breyta flows draft-bindings-url <slug>
+Bindings (credentials for :requires):
+- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), apply bindings once, then activate the profile.
+- Generate a template: breyta flows bindings template <slug> --out profile.edn
+- Apply bindings: breyta flows bindings apply <slug> @profile.edn
+- Enable prod profile: breyta flows activate <slug> --version latest
+- Draft bindings URL (UI): breyta flows draft-bindings-url <slug>
 `),
 	}
 
 	cmd.AddCommand(newFlowsListCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
-	cmd.AddCommand(newFlowsActivateURLCmd(app))
+	cmd.AddCommand(newFlowsBindingsCmd(app))
+	cmd.AddCommand(newFlowsActivateCmd(app))
+	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
 	cmd.AddCommand(newFlowsPushCmd(app))
@@ -244,32 +248,24 @@ func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
 	return nil
 }
 
-func newFlowsActivateURLCmd(app *App) *cobra.Command {
+func newFlowsActivateCmd(app *App) *cobra.Command {
+	var version string
 	cmd := &cobra.Command{
-		Use:   "activate-url <flow-slug>",
-		Short: "Print the activation URL for a flow",
-		Long: strings.TrimSpace(`
-Activation is where users provide credentials for :requires slots (including :llm-provider).
-
-Example:
-- Sign in: http://localhost:8090/login → Sign in with Google → Dev User
-- Activate: http://localhost:8090/<workspace>/flows/<slug>/activate
-`),
-		Args: cobra.ExactArgs(1),
+		Use:   "activate <flow-slug>",
+		Short: "Enable the prod profile for a flow",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			base := strings.TrimRight(app.APIURL, "/")
-			if strings.TrimSpace(base) == "" {
-				// Default to local flows-api URL if API mode wasn't configured.
-				base = "http://localhost:8090"
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows activate requires API mode"))
 			}
-			url := fmt.Sprintf("%s/%s/flows/%s/activate", base, app.WorkspaceID, args[0])
-			return writeData(cmd, app, nil, map[string]any{
-				"workspaceId":   app.WorkspaceID,
-				"flowSlug":      args[0],
-				"activationUrl": url,
-			})
+			body := map[string]any{
+				"flowSlug": args[0],
+				"version":  strings.TrimSpace(version),
+			}
+			return doAPICommand(cmd, app, "profiles.activate", body)
 		},
 	}
+	cmd.Flags().StringVar(&version, "version", "latest", "Flow version to activate (number or latest)")
 	return cmd
 }
 

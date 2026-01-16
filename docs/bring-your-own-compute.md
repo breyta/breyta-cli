@@ -5,6 +5,7 @@ Flows are orchestration. If you need specialized computation (Python libraries, 
 ## Recommended pattern: model your service as a connection slot
 
 Use `:requires` with an `:http-api` slot so users bind base URL + credentials at activation time.
+You can also include activation-only inputs in `:requires` via `{:kind :form ...}` (available under `:activation` in run input).
 
 ```clojure
 {:slug :custom-compute

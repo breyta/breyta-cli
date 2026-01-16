@@ -26,11 +26,13 @@ func TestInstallBreytaFlowsCLI_WritesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if len(paths) != 1 {
-		t.Fatalf("expected 1 install path, got %d", len(paths))
+	if len(paths) < 3 {
+		t.Fatalf("expected multiple install paths, got %d", len(paths))
 	}
 
 	wantCodex := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "SKILL.md")
+	wantAuthoring := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "docs", "authoring-reference.md")
+	wantHttp := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "docs", "steps", "http.md")
 
 	found := map[string]bool{}
 	for _, p := range paths {
@@ -38,6 +40,12 @@ func TestInstallBreytaFlowsCLI_WritesFiles(t *testing.T) {
 	}
 	if !found[wantCodex] {
 		t.Fatalf("missing installed path %q (got: %#v)", wantCodex, paths)
+	}
+	if !found[wantAuthoring] {
+		t.Fatalf("missing installed path %q (got: %#v)", wantAuthoring, paths)
+	}
+	if !found[wantHttp] {
+		t.Fatalf("missing installed path %q (got: %#v)", wantHttp, paths)
 	}
 }
 

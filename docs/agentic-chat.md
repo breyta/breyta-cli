@@ -26,10 +26,11 @@ breyta workspaces current --pretty
 
 Flows execute **inside `flows-api`**, so any API keys you want flows to use must be available to the server (not just in your shell).
 
-- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via activation UI (creates a profile). Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).
+- **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via the UI or CLI bindings (creates a profile). Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`). You can also include activation-only inputs with `{:kind :form ...}` (available under `:activation` at run time).
 - **Manual trigger fields / wait notify fields**: `:fields` items use non-namespaced keyword names (e.g., `{:name :user-id ...}`).
-  - Activation URL pattern: `http://localhost:8090/<workspace>/flows/<slug>/activate`
-  - Or print it: `breyta flows activate-url <slug>`
+- Generate a template: `breyta flows bindings template <slug> --out profile.edn` (prefills current `:conn` bindings; use `--clean` for a blank template)
+- Apply bindings with a profile file: `breyta flows bindings apply <slug> @profile.edn`
+- Enable prod profile: `breyta flows activate <slug> --version latest`
 
 - **Option B (local dev / server-global)**: create a local `secrets.edn` file (gitignored)
   - Copy template: `cp breyta/secrets.edn.example secrets.edn`
@@ -41,7 +42,7 @@ Flows execute **inside `flows-api`**, so any API keys you want flows to use must
   - `BREYTA_API_URL`, `BREYTA_WORKSPACE`, `BREYTA_TOKEN`
   - These are for authenticating the CLI to `flows-api`, **not** for providing third-party API keys to flow executions.
 
-For HTTP integrations that require API keys, the intended path is to declare a connection slot in `:requires` and then enter the key / complete OAuth via the `flows-api` activation UI (it stores secrets server-side).
+For HTTP integrations that require API keys, the intended path is to declare a connection slot in `:requires` and then enter the key / complete OAuth via the `flows-api` activation UI (it stores secrets server-side). Activation-only inputs live under `:activation`.
 
 ### Claude Code (Anthropic skills)
 
@@ -94,7 +95,7 @@ To run a flow and see output:
 - read output at: data.run.resultPreview.data.result
 
 Notes for agents:
-- If a flow declares `:requires` slots, it must be activated in the UI so credentials are bound (visit `http://localhost:8090/<workspace>/flows/<slug>/activate` or use `breyta flows activate-url <slug>`).
+- If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.

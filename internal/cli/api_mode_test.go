@@ -134,6 +134,270 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	}
 }
 
+func TestFlowsBindingsApply_UsesProfilesBindingsApplyCommand(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "profiles.bindings.apply" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		inputs, _ := args["inputs"].(map[string]any)
+		if inputs["conn-api"] != "conn-123" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing conn-api",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowSlug": "flow-1",
+				"ok":       true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "bindings", "apply", "flow-1",
+		"--set", "api.conn=conn-123",
+	)
+	if err != nil {
+		t.Fatalf("flows bindings apply failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsActivate_SendsVersionArg(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "profiles.activate" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["version"] != "2" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing version",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowSlug": "flow-2",
+				"enabled":  true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "activate", "flow-2",
+		"--version", "2",
+	)
+	if err != nil {
+		t.Fatalf("flows activate failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
+	t.Helper()
+	statusCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		cmd, _ := body["command"].(string)
+		switch cmd {
+		case "profiles.template":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"requirements": []any{
+						map[string]any{
+							"slot":  "api",
+							"type":  "http-api",
+							"label": "API",
+							"auth":  map[string]any{"type": "api-key"},
+						},
+					},
+				},
+			})
+		case "profiles.status":
+			statusCalled = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"bindingValues": map[string]any{"api": "conn-123"},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "bindings", "template", "flow-1",
+	)
+	if err != nil {
+		t.Fatalf("flows bindings template failed: %v\n%s", err, stdout)
+	}
+	if !statusCalled {
+		t.Fatalf("expected profiles.status to be called")
+	}
+	if !bytes.Contains([]byte(stdout), []byte(`:conn "conn-123"`)) {
+		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
+	t.Helper()
+	statusCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		cmd, _ := body["command"].(string)
+		switch cmd {
+		case "profiles.template":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"requirements": []any{
+						map[string]any{
+							"slot": "api",
+							"type": "http-api",
+							"auth": map[string]any{"type": "api-key"},
+						},
+					},
+				},
+			})
+		case "profiles.status":
+			statusCalled = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "bindings", "template", "flow-1",
+		"--clean",
+	)
+	if err != nil {
+		t.Fatalf("flows bindings template --clean failed: %v\n%s", err, stdout)
+	}
+	if statusCalled {
+		t.Fatalf("expected profiles.status not to be called")
+	}
+	if bytes.Contains([]byte(stdout), []byte(`:conn "`)) {
+		t.Fatalf("expected clean template to omit conn binding, got:\n%s", stdout)
+	}
+}
+
 func TestResources_DefaultsToAPIMode(t *testing.T) {
 	// Ensure API-only commands don't fail with "requires API mode" just because the API URL
 	// hasn't been defaulted yet; they should proceed to normal auth errors instead.

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed breyta/SKILL.md
+//go:embed breyta/SKILL.md breyta/docs/* breyta/docs/steps/*
 var embedded embed.FS
 
 const BreytaSkillSlug = "breyta"
@@ -30,6 +30,36 @@ type InstallTarget struct {
 
 func BreytaSkillMarkdown() ([]byte, error) {
 	return embedded.ReadFile("breyta/SKILL.md")
+}
+
+func BreytaSkillDocs() ([]string, error) {
+	entries, err := embedded.ReadDir("breyta/docs")
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		paths = append(paths, filepath.Join("breyta", "docs", entry.Name()))
+	}
+	return paths, nil
+}
+
+func BreytaSkillStepDocs() ([]string, error) {
+	entries, err := embedded.ReadDir("breyta/docs/steps")
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		paths = append(paths, filepath.Join("breyta", "docs", "steps", entry.Name()))
+	}
+	return paths, nil
 }
 
 func Target(homeDir string, provider Provider) (InstallTarget, error) {
@@ -64,6 +94,14 @@ func InstallBreytaSkill(homeDir string, provider Provider) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	docPaths, err := BreytaSkillDocs()
+	if err != nil {
+		return nil, err
+	}
+	stepPaths, err := BreytaSkillStepDocs()
+	if err != nil {
+		return nil, err
+	}
 
 	switch provider {
 	case ProviderCodex, ProviderCursor, ProviderClaude:
@@ -71,7 +109,14 @@ func InstallBreytaSkill(homeDir string, provider Provider) ([]string, error) {
 		if err := installToTarget(md, t); err != nil {
 			return nil, err
 		}
-		return []string{t.File}, nil
+		written := []string{t.File}
+		if written, err = installDocsToTarget(docPaths, t, written); err != nil {
+			return nil, err
+		}
+		if written, err = installDocsToTarget(stepPaths, t, written); err != nil {
+			return nil, err
+		}
+		return written, nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider %q (expected: codex|cursor|claude)", provider)
@@ -84,4 +129,23 @@ func installToTarget(content []byte, t InstallTarget) error {
 	}
 	// Intentionally overwrite: this is a managed artifact.
 	return os.WriteFile(t.File, content, 0o644)
+}
+
+func installDocsToTarget(paths []string, t InstallTarget, written []string) ([]string, error) {
+	for _, path := range paths {
+		content, err := embedded.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		rel := strings.TrimPrefix(path, "breyta/")
+		dest := filepath.Join(t.Dir, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dest, content, 0o644); err != nil {
+			return nil, err
+		}
+		written = append(written, dest)
+	}
+	return written, nil
 }

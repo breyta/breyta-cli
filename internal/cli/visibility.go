@@ -55,7 +55,9 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"pull":               true,
 		"push":               true,
 		"deploy":             true,
-		"activate-url":       true,
+		"bindings":           true,
+		"activate":           true,
+		"draft":              true,
 		"draft-bindings-url": true,
 	}
 	for _, sc := range flowsCmd.Commands() {

@@ -321,18 +321,12 @@ func ensureMeta(out map[string]any) map[string]any {
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
-	url := activationURL(app, flowSlug)
-	if url == "" {
-		return
-	}
 	meta := ensureMeta(out)
 	if meta == nil {
 		return
 	}
-	// Progressive disclosure: add both a structured field and a human hint.
-	meta["activationUrl"] = url
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Activate it to create a profile and bind credentials: " + url
+		meta["hint"] = "Flow uses :requires slots. Apply bindings, then enable the profile: breyta flows bindings apply " + flowSlug + " @profile.edn; breyta flows activate " + flowSlug + " --version latest"
 	}
 }
 
@@ -457,7 +451,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				meta["hint"] = "This error usually means the flow must be activated to create a profile and bind :requires slots. Use: breyta flows activate-url <slug>"
+				meta["hint"] = "This error usually means the flow needs bindings + activation. Use: breyta flows bindings apply <slug> @profile.edn; breyta flows activate <slug> --version latest"
 			}
 		}
 	}

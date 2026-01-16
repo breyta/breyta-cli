@@ -30,15 +30,18 @@ If you see `403 Access denied: not a workspace member` (often after restarting d
 breyta workspaces bootstrap ws-acme
 ```
 
-### Activation (bind credentials for `:requires` slots)
+### Bindings (bind credentials for `:requires` slots)
 
-If your flow uses `:requires` slots (including `:type :llm-provider` for LLM keys), users must activate the flow once to create a profile and bind credentials/connections. Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).
+If your flow uses `:requires` slots (including `:type :llm-provider` for LLM keys), users must apply bindings once to create a profile, then enable it. Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).
+`(:kind :form ...)` entries in `:requires` add activation-only inputs and are exposed under `:activation` in the run input map.
 
 **UI field names:** manual trigger `:fields` and wait notify `:fields` use non-namespaced keyword names (e.g., `{:name :user-id ...}`).
 
 - Sign in: `http://localhost:8090/login` → “Sign in with Google” → “Dev User”
 - Activation URL: `http://localhost:8090/<workspace>/flows/<slug>/activate`
-- Or print it: `breyta flows activate-url <slug>`
+- Generate a template: `breyta flows bindings template <slug> --out profile.edn` (prefills current `:conn` bindings; use `--clean` for a blank template)
+- Apply bindings via CLI: `breyta flows bindings apply <slug> @profile.edn`
+- Enable prod profile: `breyta flows activate <slug> --version latest`
 
 ### Draft preview bindings
 
