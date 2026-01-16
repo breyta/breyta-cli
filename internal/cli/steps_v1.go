@@ -31,6 +31,7 @@ func newStepsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newStepsRunCmd(app))
 	cmd.AddCommand(newStepsDocsCmd(app))
 	cmd.AddCommand(newStepsExamplesCmd(app))
+	cmd.AddCommand(newStepsTestsCmd(app))
 	return cmd
 }
 
@@ -201,6 +202,95 @@ func newStepsExamplesListCmd(app *App) *cobra.Command {
 			}
 			client := apiClient(app)
 			out, status, err := client.DoCommand(context.Background(), "steps.examples.list", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+	return cmd
+}
+
+func newStepsTestsCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tests",
+		Short: "Manage per-step test cases (API mode)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newStepsTestsAddCmd(app))
+	cmd.AddCommand(newStepsTestsListCmd(app))
+	return cmd
+}
+
+func newStepsTestsAddCmd(app *App) *cobra.Command {
+	var name string
+	var inputJSON string
+	var expectedJSON string
+	var note string
+
+	cmd := &cobra.Command{
+		Use:   "add <flow-slug> <step-id>",
+		Short: "Add a test case for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var input any
+			if strings.TrimSpace(inputJSON) != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+				}
+			}
+			var expected any
+			if strings.TrimSpace(expectedJSON) != "" {
+				if err := json.Unmarshal([]byte(expectedJSON), &expected); err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --expected JSON: %w", err))
+				}
+			}
+
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+				"name":     strings.TrimSpace(name),
+				"input":    input,
+				"expected": expected,
+				"note":     strings.TrimSpace(note),
+			}
+
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.tests.add", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Optional test case name")
+	cmd.Flags().StringVar(&inputJSON, "input", "", "Test input JSON (any value)")
+	cmd.Flags().StringVar(&expectedJSON, "expected", "", "Expected output JSON (any value)")
+	cmd.Flags().StringVar(&note, "note", "", "Optional note")
+	return cmd
+}
+
+func newStepsTestsListCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list <flow-slug> <step-id>",
+		Short: "List test cases for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.tests.list", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
