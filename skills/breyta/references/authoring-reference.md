@@ -143,6 +143,7 @@ curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders" \
 ## Result handling
 - Small results are returned inline; large results become refs.
 - Use `:persist true` on `:http` steps when you expect large payloads.
+- See `./persist.md` for how refs flow to downstream steps.
 
 ## Metadata labels for UI
 Add labels to branches and loops to make the visual editor clearer.

@@ -148,6 +148,7 @@ Details: `./references/authoring-reference.md`
 - Templates are packed to blob storage on deploy; versions store small refs.
 - Flow definition size limit is 100 KB; templates help keep definitions small.
 - Template strings use Handlebars syntax (`{{...}}`); see `references/templating.md` for a short reference.
+- For large step outputs, use `:persist` to store results as refs.
 
 Details: `./references/templates.md`
 
@@ -159,6 +160,11 @@ Details: `./references/templates.md`
 - `:function` for transforms.
 
 Details: `./references/step-reference.md`
+
+## Persisted results
+How `:persist` works, when to use it, and how refs flow to downstream steps.
+
+Details: `./references/persist.md`
 
 ## Patterns and do/dont
 - Bindings then activate; draft stays in draft.

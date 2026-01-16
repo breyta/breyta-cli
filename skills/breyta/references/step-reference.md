@@ -13,3 +13,4 @@ Detailed docs:
 - `./steps/db.md`
 - `./steps/wait.md`
 - `./steps/function.md`
+- `./persist.md`
