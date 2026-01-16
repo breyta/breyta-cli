@@ -147,6 +147,7 @@ Details: `./docs/authoring-reference.md`
 - Reference with `:template` and `:data` in steps.
 - Templates are packed to blob storage on deploy; versions store small refs.
 - Flow definition size limit is 100 KB; templates help keep definitions small.
+- Template strings use Handlebars syntax (`{{...}}`); see `resources/templating.md` for a short reference.
 
 Details: `./docs/templates.md`
 
