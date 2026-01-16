@@ -22,6 +22,7 @@ func newSkillsCmd(app *App) *cobra.Command {
 
 func newSkillsInstallCmd(app *App) *cobra.Command {
 	var provider string
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -34,17 +35,26 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 				return err
 			}
 
+			target, err := skills.Target(home, p)
+			if err != nil {
+				return err
+			}
+
 			paths, err := skills.InstallBreytaSkill(home, p)
 			if err != nil {
 				return err
 			}
-			for _, p := range paths {
-				fmt.Fprintln(cmd.OutOrStdout(), "installed:", p)
+			fmt.Fprintf(cmd.OutOrStdout(), "Installed skill in %s\n", target.Dir)
+			if verbose {
+				for _, installedPath := range paths {
+					fmt.Fprintln(cmd.OutOrStdout(), "installed:", installedPath)
+				}
 			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location (codex|cursor|claude)")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print every installed file path")
 	return cmd
 }
