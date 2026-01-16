@@ -53,9 +53,9 @@ Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
 ```
 
 Next:
-- Authoring details: `./docs/authoring-reference.md`
-- CLI workflow: `./docs/cli-workflow.md`
-- Bindings and activation: `./docs/bindings-activation.md`
+- Authoring details: `./references/authoring-reference.md`
+- CLI workflow: `./references/cli-workflow.md`
+- Bindings and activation: `./references/bindings-activation.md`
 
 Shorter variant (LLM + template + function + requires):
 
@@ -92,7 +92,7 @@ Shorter variant (LLM + template + function + requires):
 - Activation: enables the prod profile after bindings are set; `--version` pins which version to run and does not accept inputs.
 - Draft vs deployed: draft runs use draft bindings and draft version; deploy publishes an immutable version, activate enables prod.
 
-Details: `./docs/core-concepts.md`
+Details: `./references/core-concepts.md`
 
 ## CLI workflow
 The intended workflow is:
@@ -112,7 +112,7 @@ Core commands:
 - `breyta flows compile <slug>`
 - `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
 
-Details: `./docs/cli-workflow.md`
+Details: `./references/cli-workflow.md`
 
 ## Bindings and activation
 Draft workflow (safe testing):
@@ -130,7 +130,7 @@ Prod workflow:
 Templates prefill current bindings by default; add `--clean` for a requirements-only template.
 Profile pinning: set `:profile :autoUpgrade true` to follow latest versions, `false` to pin.
 
-Details: `./docs/bindings-activation.md`
+Details: `./references/bindings-activation.md`
 
 ## Authoring reference
 Flow file format and core fields:
@@ -140,16 +140,16 @@ Flow file format and core fields:
 - `:flow` for orchestration and determinism rules.
 - Limits: definition size 100 KB; inline results up to 10 KB; max step result 1 MB.
 
-Details: `./docs/authoring-reference.md`
+Details: `./references/authoring-reference.md`
 
 ## Templates
 - Use `:templates` for large prompts, request bodies, or SQL.
 - Reference with `:template` and `:data` in steps.
 - Templates are packed to blob storage on deploy; versions store small refs.
 - Flow definition size limit is 100 KB; templates help keep definitions small.
-- Template strings use Handlebars syntax (`{{...}}`); see `resources/templating.md` for a short reference.
+- Template strings use Handlebars syntax (`{{...}}`); see `references/templating.md` for a short reference.
 
-Details: `./docs/templates.md`
+Details: `./references/templates.md`
 
 ## Step reference
 - `:http` for HTTP requests.
@@ -158,28 +158,28 @@ Details: `./docs/templates.md`
 - `:wait` for webhook/human-in-the-loop waits.
 - `:function` for transforms.
 
-Details: `./docs/step-reference.md`
+Details: `./references/step-reference.md`
 
 ## Patterns and do/dont
 - Bindings then activate; draft stays in draft.
 - Keep flow body deterministic.
 - Use connection slots for credentials.
 
-Details: `./docs/patterns.md`
+Details: `./references/patterns.md`
 
 ## Agent guidance
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
 
-Details: `./docs/agent-guidance.md`
+Details: `./references/agent-guidance.md`
 
 ## Reference index
 Quick lists of slot types, auth types, trigger types, step types, and form field types.
 
-Details: `./docs/reference-index.md`
+Details: `./references/reference-index.md`
 
 ## Glossary
 Common terms like flow profile, bindings, activation inputs, and draft bindings.
 
-Details: `./docs/glossary.md`
+Details: `./references/glossary.md`
