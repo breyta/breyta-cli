@@ -29,7 +29,7 @@ func TestFlowsPush_RepairWriteback_WritesFileAndUploadsRepairedLiteral(t *testin
 		t.Fatalf("write: %v", err)
 	}
 
-	app := &App{WorkspaceID: "ws-test", Format: "json", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
 	cmd := newFlowsPushCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -75,7 +75,7 @@ func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	app := &App{WorkspaceID: "ws-test", Format: "json", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
 	cmd := newFlowsPushCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)

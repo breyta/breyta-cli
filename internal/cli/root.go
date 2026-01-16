@@ -18,7 +18,6 @@ type App struct {
 	WorkspaceID          string
 	StatePath            string
 	PrettyJSON           bool
-	Format               string
 	APIURL               string
 	Token                string
 	TokenExplicit        bool
@@ -45,7 +44,6 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
-	cmd.PersistentFlags().StringVar(&app.Format, "format", envOr("BREYTA_FORMAT", "json"), "Output format (json|edn)")
 	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. https://flows.breyta.ai)")
 	cmd.PersistentFlags().StringVar(&app.Token, "token", "", "API token")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
@@ -221,7 +219,7 @@ func envOr(k, d string) string {
 }
 
 func writeOut(cmd *cobra.Command, app *App, v any) error {
-	return format.Write(cmd.OutOrStdout(), v, app.Format, app.PrettyJSON)
+	return format.WriteJSON(cmd.OutOrStdout(), v, app.PrettyJSON)
 }
 
 func writeErr(cmd *cobra.Command, err error) error {

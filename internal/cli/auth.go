@@ -209,7 +209,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 				}
 				line := shellExportTokenLine(token)
 				if line == "" {
-					return writeFailure(cmd, app, "auth_login_shell_export_unsafe", errors.New("cannot render safe shell export"), "Token contained unexpected characters; use --print token or --format json.", nil)
+					return writeFailure(cmd, app, "auth_login_shell_export_unsafe", errors.New("cannot render safe shell export"), "Token contained unexpected characters; use --print token.", nil)
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), line)
 				return nil
