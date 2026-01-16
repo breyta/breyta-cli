@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -42,7 +43,8 @@ func BreytaSkillDocs() ([]string, error) {
 		if entry.IsDir() {
 			continue
 		}
-		paths = append(paths, filepath.Join("breyta", "references", entry.Name()))
+		// embed.FS always uses forward slashes, regardless of OS.
+		paths = append(paths, path.Join("breyta", "references", entry.Name()))
 	}
 	return paths, nil
 }
@@ -57,7 +59,8 @@ func BreytaSkillStepDocs() ([]string, error) {
 		if entry.IsDir() {
 			continue
 		}
-		paths = append(paths, filepath.Join("breyta", "references", "steps", entry.Name()))
+		// embed.FS always uses forward slashes, regardless of OS.
+		paths = append(paths, path.Join("breyta", "references", "steps", entry.Name()))
 	}
 	return paths, nil
 }
@@ -138,7 +141,7 @@ func installDocsToTarget(paths []string, t InstallTarget, written []string) ([]s
 			return nil, err
 		}
 		rel := strings.TrimPrefix(path, "breyta/")
-		dest := filepath.Join(t.Dir, rel)
+		dest := filepath.Join(t.Dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return nil, err
 		}

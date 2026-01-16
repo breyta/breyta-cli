@@ -1331,25 +1331,28 @@ func (m *homeModel) applyModal() tea.Cmd {
 			return nil
 		}
 
-		install := func(p skills.Provider) {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				m.apiError = err.Error()
-				return
-			}
+			install := func(p skills.Provider) {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					m.apiError = err.Error()
+					return
+				}
 
-			paths, err := skills.InstallBreytaSkill(home, p)
-			if err != nil {
-				m.apiError = err.Error()
-				return
+				target, err := skills.Target(home, p)
+				if err != nil {
+					m.apiError = err.Error()
+					return
+				}
+
+				paths, err := skills.InstallBreytaSkill(home, p)
+				if err != nil {
+					m.apiError = err.Error()
+					return
+				}
+				m.apiError = ""
+				_ = paths
+				m.lastInfo = "installed skill in " + target.Dir
 			}
-			m.apiError = ""
-			if len(paths) == 1 {
-				m.lastInfo = "installed skill: " + paths[0]
-			} else {
-				m.lastInfo = fmt.Sprintf("installed skill to %d locations", len(paths))
-			}
-		}
 
 		switch id {
 		case "install:codex":
