@@ -103,6 +103,16 @@ The intended workflow is:
 5) Deploy (publish a version)
 6) Apply bindings + activate the prod profile
 
+Fast loop (agent-friendly): do one step at a time
+1) Add or change exactly one `flow/step`
+2) Run the step in isolation (no flow deploy needed):
+   - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+3) Push/validate/compile, then run the draft flow end-to-end
+
+Notes:
+- `breyta steps run` is best-effort isolation; waits/sleeps/fanout aren’t supported.
+- Keep step ids stable and short; don’t rename ids unless you intend to invalidate history/examples.
+
 Core commands:
 - `breyta flows list`
 - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
@@ -168,6 +178,7 @@ Details: `./references/step-reference.md`
 Details: `./references/patterns.md`
 
 ## Agent guidance
+- Prefer the fast loop: implement one step, run it in isolation, then move to the next step.
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
