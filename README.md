@@ -5,11 +5,11 @@ This repo contains the `breyta` command-line interface (CLI) and terminal UI (TU
 The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, and **Cursor** (and also works great for humans in a terminal).
 
 - `breyta` opens the interactive TUI.
-- `breyta <command>` runs a scriptable CLI command (JSON by default; use `--format edn` for EDN).
+- `breyta <command>` runs a scriptable CLI command (JSON).
 
 ## Agent-first design
 
-- **Scriptable outputs:** CLI commands return stable JSON by default (or EDN via `--format edn`), which makes it easy for agents to parse and act on results.
+- **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
 - **On-demand docs:** `breyta docs` provides Markdown command docs that agent tools can ingest directly.
 - **Agent tooling:** this repo includes a skill bundle at `skills/breyta/SKILL.md` (install instructions in `docs/agentic-chat.md`).
 

@@ -191,14 +191,14 @@ func TestContract_RunsStartAdvanceStepAndEvents(t *testing.T) {
 	}
 }
 
-func TestContract_EDNFormat(t *testing.T) {
+func TestContract_FormatFlagRejected(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	stdout, _, err := runCLI(t, statePath, "flows", "list", "--format", "edn", "--pretty")
-	if err != nil {
-		t.Fatalf("expected success, got error: %v\n%s", err, stdout)
+	stdout, stderr, err := runCLI(t, statePath, "flows", "list", "--format", "edn", "--pretty")
+	if err == nil {
+		t.Fatalf("expected error for --format edn; got success\n---\n%s", stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte(":ok true")) {
-		t.Fatalf("expected EDN output to include ':ok true'\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stderr), []byte("unknown flag: --format")) {
+		t.Fatalf("expected error to mention unknown flag\n---\nstderr:\n%s\n---\nstdout:\n%s", stderr, stdout)
 	}
 }
 

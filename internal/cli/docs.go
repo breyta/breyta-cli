@@ -61,7 +61,7 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 				md := renderCommandDocsMD(target, path, app.DevMode)
 				_, _ = io.WriteString(cmd.OutOrStdout(), md)
 				return nil
-			case "json", "edn":
+			case "json":
 				d := docCommandFrom(target, full, app.DevMode)
 				return format.Write(cmd.OutOrStdout(), map[string]any{
 					"ok":          true,
@@ -79,7 +79,7 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&outFormat, "format", "md", "Docs format (md|json|edn)")
+	cmd.Flags().StringVar(&outFormat, "format", "md", "Docs format (md|json)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include recursive subcommands in structured docs")
 	return cmd
 }
@@ -187,7 +187,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("### How to use\n\n")
 	b.WriteString("- `breyta docs <command...>` prints Markdown docs for that command\n")
 	b.WriteString("- `breyta <command...> --help` prints Cobra help for that command\n")
-	b.WriteString("- For structured docs: `breyta docs <command...> --format json|edn`\n\n")
+	b.WriteString("- For structured docs: `breyta docs <command...> --format json`\n\n")
 
 	b.WriteString("### Credentials / API keys for flows\n\n")
 	b.WriteString("Flows execute inside the Breyta server. There are two ways credentials can be provided:\n\n")

@@ -64,7 +64,7 @@ func TestFlowsParenRepair_UsesParinferWhenAvailable(t *testing.T) {
 	fake := buildFakeParinferBinary(t, `{"text":"(defn f [x]\n  (+ x 1))\n","success":true,"error":null}`, 0)
 	t.Setenv("BREYTA_PARINFER_RUST", fake)
 
-	app := &App{WorkspaceID: "ws-test", Format: "json"}
+	app := &App{WorkspaceID: "ws-test"}
 	cmd := newFlowsParenRepairCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -107,7 +107,7 @@ func TestFlowsParenRepair_FallsBackWhenParinferMissing(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("BREYTA_PARINFER_RUST", "")
 
-	app := &App{WorkspaceID: "ws-test", Format: "json"}
+	app := &App{WorkspaceID: "ws-test"}
 	cmd := newFlowsParenRepairCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
