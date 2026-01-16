@@ -27,6 +27,34 @@ Example:
             :body report})
 ```
 
+## Using resource URLs (refs) directly
+Persisted results expose a resource URI (e.g., `res://...`). You can read them with the CLI or pass them into steps that accept refs.
+
+### Uploading with refs
+When a step returns a ref, pass it as the body to upload without loading it into memory:
+
+```clojure
+(let [report-ref (flow/step :http :download
+                            {:connection :api
+                             :path "/reports/latest"
+                             :persist true})]
+  (flow/step :http :upload
+             {:connection :storage
+              :path "/uploads"
+              :method :post
+              :body report-ref}))
+```
+
+CLI read:
+
+```bash
+breyta resources read res://<resource-id>
+```
+
+Notes:
+- Some steps accept refs directly (e.g., HTTP body), others expect you to load the data first.
+- Resource URIs include size metadata so you can decide whether to persist or inline.
+
 Notes:
 - Inline results are capped; use `:persist` to avoid large inline payloads.
 - Persisted refs include size metadata for auditing.
