@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,6 +29,184 @@ func newStepsCmd(app *App) *cobra.Command {
 	}
 
 	cmd.AddCommand(newStepsRunCmd(app))
+	cmd.AddCommand(newStepsDocsCmd(app))
+	cmd.AddCommand(newStepsExamplesCmd(app))
+	return cmd
+}
+
+func newStepsDocsCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "docs",
+		Short: "Manage per-step docs (API mode)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newStepsDocsGetCmd(app))
+	cmd.AddCommand(newStepsDocsSetCmd(app))
+	return cmd
+}
+
+func newStepsDocsGetCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <flow-slug> <step-id>",
+		Short: "Get docs for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.docs.get", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+	return cmd
+}
+
+func newStepsDocsSetCmd(app *App) *cobra.Command {
+	var markdown string
+	var filePath string
+
+	cmd := &cobra.Command{
+		Use:   "set <flow-slug> <step-id>",
+		Short: "Set docs for a step (API mode)",
+		Long: strings.TrimSpace(`
+Set (upsert) documentation for a step without publishing a new flow version.
+
+Examples:
+  breyta steps docs set my-flow make-output --markdown '# Notes\n\nThis step ...'
+  breyta steps docs set my-flow make-output --file ./notes.md
+`),
+		Args: cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			md := strings.TrimSpace(markdown)
+			if strings.TrimSpace(filePath) != "" {
+				b, err := os.ReadFile(strings.TrimSpace(filePath))
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
+				}
+				md = string(b)
+			}
+			if strings.TrimSpace(md) == "" {
+				return writeErr(cmd, errors.New("missing --markdown (or --file)"))
+			}
+
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+				"markdown": md,
+				"docs":     md, // fallback alias for older servers
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.docs.put", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&markdown, "markdown", "", "Markdown content")
+	cmd.Flags().StringVar(&filePath, "file", "", "Read markdown from file")
+	return cmd
+}
+
+func newStepsExamplesCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "examples",
+		Short: "Manage per-step examples (API mode)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newStepsExamplesAddCmd(app))
+	cmd.AddCommand(newStepsExamplesListCmd(app))
+	return cmd
+}
+
+func newStepsExamplesAddCmd(app *App) *cobra.Command {
+	var inputJSON string
+	var outputJSON string
+	var note string
+
+	cmd := &cobra.Command{
+		Use:   "add <flow-slug> <step-id>",
+		Short: "Add an input/output example for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var input any
+			if strings.TrimSpace(inputJSON) != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+				}
+			}
+			var output any
+			if strings.TrimSpace(outputJSON) != "" {
+				if err := json.Unmarshal([]byte(outputJSON), &output); err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --output JSON: %w", err))
+				}
+			}
+
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+				"input":    input,
+				"output":   output,
+			}
+			if strings.TrimSpace(note) != "" {
+				payload["note"] = strings.TrimSpace(note)
+			}
+
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.examples.add", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&inputJSON, "input", "", "Example input JSON (any value)")
+	cmd.Flags().StringVar(&outputJSON, "output", "", "Example output JSON (any value)")
+	cmd.Flags().StringVar(&note, "note", "", "Optional note")
+	return cmd
+}
+
+func newStepsExamplesListCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list <flow-slug> <step-id>",
+		Short: "List examples for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.examples.list", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
 	return cmd
 }
 
