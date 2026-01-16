@@ -157,6 +157,16 @@ Add labels to branches and loops to make the visual editor clearer.
 ## Functions (`:functions`)
 Use `:function` steps for sandboxed transforms. For reuse, define flow-local functions.
 
+Sandbox helpers (safe, no Java interop) are available under `breyta.sandbox`:
+`base64-encode` `(string|bytes) -> string`, `base64-decode` `(string|bytes) -> string`,
+`base64-decode-bytes` `(string|bytes) -> bytes`, `hex-encode` `(string|bytes) -> string`,
+`hex-decode` `(string) -> string`, `hex-decode-bytes` `(string) -> bytes`,
+`sha256-hex` `(string|bytes) -> string`, `hmac-sha256-hex` `(key,value) -> string`,
+`uuid-from` `(string) -> uuid`, `uuid-from-bytes` `(string|bytes) -> uuid`,
+`parse-instant` `(string) -> java.time.Instant`, `format-instant` `(Instant) -> string`,
+`format-instant-pattern` `(Instant, pattern) -> string`, `url-encode` `(string) -> string`,
+`url-decode` `(string) -> string`.
+
 ```clojure
 :functions [{:id :summarize-user
              :language :clojure

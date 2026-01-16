@@ -57,6 +57,22 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
 - Keep orchestration in the flow body (sequence of `step` calls)
 - Do data transformation in `:function` steps (`:code` alias).
+  - Safe helpers are exposed under `breyta.sandbox` (no Java interop):
+    - `base64-encode` `(string|bytes) -> string`
+    - `base64-decode` `(string|bytes) -> string`
+    - `base64-decode-bytes` `(string|bytes) -> bytes`
+    - `hex-encode` `(string|bytes) -> string`
+    - `hex-decode` `(string) -> string`
+    - `hex-decode-bytes` `(string) -> bytes`
+    - `sha256-hex` `(string|bytes) -> string`
+    - `hmac-sha256-hex` `(key string|bytes, value string|bytes) -> string`
+    - `uuid-from` `(string) -> uuid`
+    - `uuid-from-bytes` `(string|bytes) -> uuid`
+    - `parse-instant` `(string) -> java.time.Instant`
+    - `format-instant` `(Instant) -> string`
+    - `format-instant-pattern` `(Instant, pattern) -> string`
+    - `url-encode` `(string) -> string`
+    - `url-decode` `(string) -> string`
 
 ### Input keys from `--input` (string vs keyword keys)
 
