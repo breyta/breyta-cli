@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed breyta/SKILL.md breyta/docs/* breyta/docs/steps/*
+//go:embed breyta/SKILL.md breyta/references/* breyta/references/steps/*
 var embedded embed.FS
 
 const BreytaSkillSlug = "breyta"
@@ -33,7 +33,7 @@ func BreytaSkillMarkdown() ([]byte, error) {
 }
 
 func BreytaSkillDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/docs")
+	entries, err := embedded.ReadDir("breyta/references")
 	if err != nil {
 		return nil, err
 	}
@@ -42,13 +42,13 @@ func BreytaSkillDocs() ([]string, error) {
 		if entry.IsDir() {
 			continue
 		}
-		paths = append(paths, filepath.Join("breyta", "docs", entry.Name()))
+		paths = append(paths, filepath.Join("breyta", "references", entry.Name()))
 	}
 	return paths, nil
 }
 
 func BreytaSkillStepDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/docs/steps")
+	entries, err := embedded.ReadDir("breyta/references/steps")
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func BreytaSkillStepDocs() ([]string, error) {
 		if entry.IsDir() {
 			continue
 		}
-		paths = append(paths, filepath.Join("breyta", "docs", "steps", entry.Name()))
+		paths = append(paths, filepath.Join("breyta", "references", "steps", entry.Name()))
 	}
 	return paths, nil
 }

@@ -31,8 +31,8 @@ func TestInstallBreytaFlowsCLI_WritesFiles(t *testing.T) {
 	}
 
 	wantCodex := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "SKILL.md")
-	wantAuthoring := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "docs", "authoring-reference.md")
-	wantHttp := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "docs", "steps", "http.md")
+	wantAuthoring := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "references", "authoring-reference.md")
+	wantHttp := filepath.Join(home, ".codex", "skills", BreytaSkillSlug, "references", "steps", "http.md")
 
 	found := map[string]bool{}
 	for _, p := range paths {

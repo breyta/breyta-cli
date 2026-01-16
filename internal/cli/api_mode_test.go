@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -328,10 +329,11 @@ func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 	if !statusCalled {
 		t.Fatalf("expected profiles.status to be called")
 	}
-	if !bytes.Contains([]byte(stdout), []byte(`:conn "conn-123"`)) {
-		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
+		// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
+		if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
+			t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
+		}
 	}
-}
 
 func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 	t.Helper()
