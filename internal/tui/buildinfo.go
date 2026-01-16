@@ -56,4 +56,3 @@ func shortDate(date string) string {
 	}
 	return d
 }
-

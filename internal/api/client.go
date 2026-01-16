@@ -109,6 +109,66 @@ func (c Client) DoRootREST(ctx context.Context, method string, path string, quer
 	return out, resp.StatusCode, nil
 }
 
+// DoRootRESTBytes is like DoRootREST, but sends a pre-encoded request body and optional headers.
+// This is useful for signing webhooks where the signature must match the exact request bytes.
+func (c Client) DoRootRESTBytes(ctx context.Context, method string, path string, query url.Values, body []byte, headers map[string]string) (any, int, error) {
+	endpoint, err := c.baseEndpointFor(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if c.HTTP == nil {
+		c.HTTP = &http.Client{Timeout: 30 * time.Second}
+	}
+
+	if len(query) > 0 {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, 0, err
+		}
+		u.RawQuery = query.Encode()
+		endpoint = u.String()
+	}
+
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
+	if err != nil {
+		return nil, 0, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if strings.TrimSpace(c.Token) != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	for k, v := range headers {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	// Allow non-JSON (HTML 404 pages etc) to surface as a raw string so callers can wrap.
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return string(b), resp.StatusCode, nil
+	}
+	return out, resp.StatusCode, nil
+}
+
 func (c Client) DoREST(ctx context.Context, method string, path string, query url.Values, body any) (any, int, error) {
 	endpoint, err := c.endpointFor(path)
 	if err != nil {

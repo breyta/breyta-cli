@@ -239,4 +239,3 @@ func resolveTokenForAPI(apiBaseURL string, explicitToken string) (string, bool, 
 	}
 	return rec.Token, updated, nil
 }
-

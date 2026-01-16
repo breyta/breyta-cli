@@ -28,6 +28,28 @@ There is no central registry step required beyond the repo existing and being re
 
 ### Release pipeline (manual tags)
 
+### Release checklist (local)
+
+Before tagging:
+
+```bash
+# from breyta-cli/
+make fmt test build
+```
+
+Run the CLI ↔ flows-api integration suite (recommended before every release). This assumes you have the “super-root” checkout with sibling directories `breyta/` and `breyta-cli/`:
+
+```bash
+# from breyta-cli/
+make integration-test
+```
+
+If you want to start flows-api yourself and reuse it across runs:
+
+```bash
+IT_START_SERVER=false ../breyta/bases/flows-api/scripts/integration_tests.sh
+```
+
 Releases are cut by pushing a SemVer tag:
 
 ```bash
@@ -80,4 +102,3 @@ To force Homebrew to pick up a new release:
 brew update
 brew upgrade breyta
 ```
-

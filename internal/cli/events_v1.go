@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,9 +64,17 @@ func escapePathSegments(p string) string {
 	return strings.Join(escaped, "/")
 }
 
+func computeHMACSHA256Base64(secret string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(payload)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
 func newEventsPostCmd(app *App) *cobra.Command {
 	var payload string
 	var webhookTriggerID string
+	var hmacSecret string
+	var signatureHeader string
 	cmd := &cobra.Command{
 		Use:   "post [event-path]",
 		Short: "POST a JSON event payload to /events/*",
@@ -72,7 +84,7 @@ func newEventsPostCmd(app *App) *cobra.Command {
 				return writeNotImplemented(cmd, app, "events requires --api/BREYTA_API_URL (API mode)")
 			}
 			if err := requireAPI(app); err != nil {
-				return writeErr(cmd, err)
+				return writeFailure(cmd, app, "api_auth_required", err, "Provide --token or run `breyta auth login`.", nil)
 			}
 
 			eventPathRaw := ""
@@ -82,7 +94,7 @@ func newEventsPostCmd(app *App) *cobra.Command {
 				triggerID := strings.TrimSpace(webhookTriggerID)
 				outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/triggers/"+url.PathEscape(triggerID), nil, nil)
 				if err != nil {
-					return writeErr(cmd, err)
+					return writeFailure(cmd, app, "trigger_fetch_failed", err, "Check trigger id and API connectivity.", map[string]any{"triggerId": triggerID})
 				}
 				if status >= 400 {
 					return writeREST(cmd, app, status, outAny)
@@ -92,48 +104,67 @@ func newEventsPostCmd(app *App) *cobra.Command {
 				triggerAny := out["trigger"]
 				trigger, _ := triggerAny.(map[string]any)
 				if trigger == nil {
-					return writeErr(cmd, fmt.Errorf("missing trigger payload for id=%s", triggerID))
+					return writeFailure(cmd, app, "trigger_payload_missing", fmt.Errorf("missing trigger payload for id=%s", triggerID), "The server response did not include a trigger object.", outAny)
 				}
 				config, _ := trigger["config"].(map[string]any)
 				path, _ := config["path"].(string)
 				if strings.TrimSpace(path) == "" {
-					return writeErr(cmd, fmt.Errorf("trigger %s has no config.path", triggerID))
+					return writeFailure(cmd, app, "trigger_path_missing", fmt.Errorf("trigger %s has no config.path", triggerID), "Use `breyta triggers webhook-url` to verify trigger configuration.", trigger)
 				}
 				eventPathRaw = path
 			} else {
 				if len(args) != 1 {
-					return writeErr(cmd, errors.New("missing event-path (or provide --trigger)"))
+					return writeFailure(cmd, app, "missing_event_path", errors.New("missing event-path (or provide --trigger)"), "Provide an event-path argument (e.g. `breyta events post demo-hook`) or pass --trigger <id>.", nil)
 				}
 				eventPathRaw = args[0]
 			}
 
 			eventPath := escapePathSegments(eventPathRaw)
 			if eventPath == "" {
-				return writeErr(cmd, errors.New("empty event-path"))
+				return writeFailure(cmd, app, "empty_event_path", errors.New("empty event-path"), "Provide a non-empty event-path (e.g. `webhooks/my-flow/ping`).", map[string]any{"eventPath": eventPathRaw})
 			}
 
 			body := map[string]any{}
 			if strings.TrimSpace(payload) != "" {
 				var v any
 				if err := json.Unmarshal([]byte(payload), &v); err != nil {
-					return writeErr(cmd, errors.New("invalid --payload JSON"))
+					return writeFailure(cmd, app, "invalid_payload_json", errors.New("invalid --payload JSON"), "Provide a JSON object string (example: --payload '{\"ok\":true}').", map[string]any{"payload": payload})
 				}
 				m, ok := v.(map[string]any)
 				if !ok {
-					return writeErr(cmd, errors.New("--payload must be a JSON object"))
+					return writeFailure(cmd, app, "payload_not_object", errors.New("--payload must be a JSON object"), "Provide an object (example: --payload '{\"ok\":true}').", map[string]any{"payload": payload})
 				}
 				body = m
 			}
 
 			eventURL := fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
-			out, status, err := apiClient(app).DoRootREST(context.Background(), http.MethodPost, eventURL, nil, body)
+			headers := map[string]string{}
+			var bodyBytes []byte
+			if body != nil {
+				var buf bytes.Buffer
+				if err := json.NewEncoder(&buf).Encode(body); err != nil {
+					return writeFailure(cmd, app, "payload_encode_failed", errors.New("failed to encode JSON payload"), "Try a simpler payload or report a bug.", nil)
+				}
+				bodyBytes = buf.Bytes()
+			}
+			if strings.TrimSpace(hmacSecret) != "" {
+				h := strings.TrimSpace(signatureHeader)
+				if h == "" {
+					h = "X-Signature"
+				}
+				headers[h] = computeHMACSHA256Base64(hmacSecret, bodyBytes)
+			}
+
+			out, status, err := apiClient(app).DoRootRESTBytes(context.Background(), http.MethodPost, eventURL, nil, bodyBytes, headers)
 			if err != nil {
-				return writeErr(cmd, err)
+				return writeFailure(cmd, app, "events_post_failed", err, "Check API connectivity and auth; verify the trigger/webhook path is correct.", map[string]any{"eventURL": eventURL})
 			}
 			return writeREST(cmd, app, status, out)
 		},
 	}
 	cmd.Flags().StringVar(&payload, "payload", "", "JSON object payload to POST (default: {})")
 	cmd.Flags().StringVar(&webhookTriggerID, "trigger", "", "Resolve and POST to the webhook trigger's event path (webhook triggers only)")
+	cmd.Flags().StringVar(&hmacSecret, "hmac-secret", "", "HMAC signing secret (returned by `breyta triggers webhook-secret ...`) (API mode only)")
+	cmd.Flags().StringVar(&signatureHeader, "signature-header", "X-Signature", "Signature header name for HMAC signing (API mode only)")
 	return cmd
 }

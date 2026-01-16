@@ -1,384 +1,85 @@
-## Breyta CLI (local dev)
+# Breyta CLI (`breyta`)
 
-This is a standalone **Go** CLI + **Bubble Tea** TUI for working with Breyta locally.
+This repo contains the `breyta` command-line interface (CLI) and terminal UI (TUI) for working with Breyta workflows.
 
-- Running **`breyta`** launches an interactive TUI.
-- Running **`breyta flows ...`** returns **JSON** by default (or EDN with `--format edn`).
+The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, and **Cursor** (and also works great for humans in a terminal).
 
-### Docs
-- Install: `docs/install.md`
-- Local flows authoring (flows-api): `docs/flows-api-local.md`
-- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
-- Distribution (releases + Homebrew): `docs/distribution.md`
+- `breyta` opens the interactive TUI.
+- `breyta <command>` runs a scriptable CLI command (JSON by default; use `--format edn` for EDN).
 
-This CLI supports two modes:
-- **API mode (default)**: targets production API when you run subcommands.
-- **Mock mode (dev/TUI)**: uses a local mock state file.
+## Agent-first design
 
-Default API target (when you run any subcommand) is `https://flows.breyta.ai`.
-For local development, enable dev mode to access API override commands:
+- **Scriptable outputs:** CLI commands return stable JSON by default (or EDN via `--format edn`), which makes it easy for agents to parse and act on results.
+- **On-demand docs:** `breyta docs` provides Markdown command docs that agent tools can ingest directly.
+- **Agent tooling:** this repo includes a skill bundle at `skills/breyta/SKILL.md` (install instructions in `docs/agentic-chat.md`).
 
-```bash
-export BREYTA_DEV=1
-breyta api use prod
-breyta api use local
-breyta api show
-```
+### Recommended: set up your agent via the TUI
 
-### Goals
+The easiest setup flow is to use the TUI to:
 
-- **Truth surface first**: inspect flows and drill down into step detail.
-- **Scriptable CLI**: every command returns stable JSON (use `--pretty` only for human-readable formatting).
-- **API-backed flows (local)**: operate on real flow store/versioning via `flows-api`.
+- **Log in** (so the CLI can authenticate to the API)
+- **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code)
+- **Browse flows and runs** (the TUI is a great “truth surface” for what your agent created)
 
-### Quick start: operate on flows via flows-api (API mode)
-
-Start the server (repo root):
+Start the TUI:
 
 ```bash
-cd ../breyta
-./scripts/start-flows-api.sh --emulator --auth-mock
-```
-
-Configure the CLI:
-
-```bash
-export BREYTA_DEV=1
-breyta api use local
-export BREYTA_WORKSPACE="ws-acme"
-# In local mock auth, any non-empty token works (membership is still enforced).
-export BREYTA_TOKEN="dev-user-123"
-```
-
-Confirm which workspace the CLI will target:
-
-```bash
-breyta workspaces current --pretty
-```
-
-Login helper (API mode):
-
-```bash
-# Opens a browser to login, then stores the token locally (recommended):
-breyta auth login
-
-# Optional (dev mode only): print an export line for the current shell:
-breyta auth login --print export
-
-# Legacy (password exchange):
-breyta auth login --email you@example.com --password-stdin --print export
+breyta
 ```
 
 Then:
+Then use:
+
+- **Auth** (press `a`) to log in
+- **Skills** (press `s`) to install the skill bundle
+
+## What is Breyta?
+
+Breyta is a workflow platform. The CLI/TUI helps you:
+
+- Browse workflows (“flows”) and their versions
+- Start runs and inspect results
+- Fetch artifacts via a unified “resources” interface
+
+## Install
+
+Choose one:
+
+- **Homebrew (macOS):**
+  - `brew tap breyta/tap`
+  - `brew install breyta`
+- **Prebuilt binaries (no Go required):** https://github.com/breyta/breyta-cli/releases
+- **From source (Go required):** `go install ./cmd/breyta` (from this repo)
+
+More details (including troubleshooting): `docs/install.md`.
+
+## Quick start
 
 ```bash
-breyta flows list
-breyta flows pull simple-http --out ./tmp/flows/simple-http.clj
-# edit file
-breyta flows push --file ./tmp/flows/simple-http.clj
-breyta flows deploy simple-http
-breyta flows show simple-http
-```
-
-Notes:
-- Mock auth accepts any non-empty token, but the API enforces **workspace membership**. The dev server seeds `ws-acme` and `dev-user-123`.
-- By default, most mock/future command groups are hidden. Use `--dev` / `BREYTA_DEV=1` to access the full mocked surface.
-- Flow slugs in API mode must match the API slug format: `^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`.
-
-### Run a flow and read its output (API mode)
-
-Runs are available via the `runs.*` command endpoint:
-
-```bash
-# Start a run and wait for completion. Output is in:
-#   data.run.resultPreview.data.result
-breyta runs start --flow run-hello --input '{"n":41}' --wait
-
-# Inspect a run by run-id
-breyta runs show abc-123-def
-```
-
-Resources are the preferred unified surface (results, imports, files). Example:
-
-```bash
-breyta resources workflow list abc-123-def
-breyta resources get res://v1/ws/ws-acme/result/run/abc-123-def/step/fetch/output
-breyta resources read res://v1/ws/ws-acme/result/run/abc-123-def/step/fetch/output
-```
-
-### Skill bundle (for agents)
-This repo includes an agent skill bundle at `breyta-cli/skills/breyta/SKILL.md`.
-
-Install from the TUI/CLI (recommended):
-- TUI: press `s` → pick an install target
-- CLI: `breyta skills install --provider codex|cursor|claude`
-
-Common locations (used by `breyta skills install`):
-- Claude Code: `~/.claude/skills/breyta/`
-- Cursor: `~/.cursor/rules/breyta/RULE.md`
-- Codex: `~/.codex/skills/breyta/`
-
-### CLI docs for agents
-
-The CLI supports both:
-
-- `breyta <cmd> --help` for human-readable help
-- `breyta docs` for on-demand docs (Markdown by default)
-  - `breyta docs runs list` (command-specific docs)
-  - `breyta docs runs list --format json|edn` (structured docs)
-  - Add global `--format edn` for EDN output in normal commands.
-
-Dev-only commands:
-- `breyta dev ...` (hidden unless `BREYTA_DEV=1` or `--dev`)
-
-### Install / build
-
-#### Option A: Homebrew (macOS)
-
-Once the Homebrew tap is set up:
-
-```bash
-brew tap breyta/tap
-brew install breyta
-```
-
-#### Option B: download a prebuilt binary (no Go required)
-
-See https://github.com/breyta/breyta-cli/releases
-
-#### Option C: `go install` (Go required)
-
-From this directory:
-
-```bash
-go install ./cmd/breyta
-```
-
-If you want `breyta version` to include the current git commit and install/build time, use:
-
-```bash
-make install
-```
-
-Or install a tagged release (SemVer-shaped tags):
-
-```bash
-go install github.com/breyta/breyta-cli/cmd/breyta@v1.2.3
-```
-
-#### Option D: build a local binary (Go required)
-
-```bash
-make build
-./dist/breyta flows list
-```
-
-### Running
-
-#### TUI
-
-```bash
-breyta
-```
-
-Navigation:
-- **Up/Down**: move selection
-- **Enter**: open
-- **Esc / Backspace**: back
-- **Tab**: switch pane (only in split views)
-- **g**: dashboard
-- **f**: flows table
-- **r**: runs table
-- **m**: marketplace
-- **s**: settings
-- **q**: quit
-
-TUI flow:
-1. **Dashboard** (navigation only)
-2. **Flows** (full table) → Enter on a flow opens **Flow split view** (left: stable flow info + steps, right: focused step IO)
-3. **Runs** (full table) → Enter on a run opens **Run split view** (left: stable run info + steps, right: focused step IO)
-4. **Marketplace** (full table) with tabs:
-   - `1` revenue
-   - `2` demand (clusters)
-   - `3` registry
-   - `4` payouts
-
-### Demo guide (copy/paste)
-
-#### Reset state (recommended before every demo)
-
-```bash
-BREYTA_DEV=1 breyta dev seed
-```
-
-#### Terminal A (truth surface)
-
-```bash
-breyta
-```
-
-- Dashboard opens as a navigation hub.
-- Press `f` to open Flows, select `subscription-renewal`, press Enter.
-- In the split view: left pane is stable flow info + steps; right pane shows focused step data.
-- Press `r` to open Runs; open run `4821` and inspect step IO.
-- Press `m` to open Marketplace; use `1/2/3/4` tabs.
-
-#### Terminal B (drive changes)
-
-Marketplace angle:
-
-```bash
-breyta flows show subscription-renewal
-breyta runs list subscription-renewal
-breyta runs step 4821 process-card
-breyta runs replay 4821
-
-breyta revenue show --last 30d
-breyta demand top --window 30d
-breyta demand clusters
-breyta demand ingest "Need subscription renewal with retries" --offer-cents 1000 --currency USD
-
-breyta registry search "subscription"
-breyta registry show wrk-subscription-renewal
-breyta registry match "Renew subscriptions and retry payments"
-breyta pricing show wrk-subscription-renewal
-breyta purchases create wrk-subscription-renewal --buyer buyer@demo.test
-breyta entitlements list
-breyta payouts list
-breyta creator dashboard
-breyta analytics overview
-```
-
-“Build a flow” angle:
-
-```bash
-breyta flows create --slug hello-market --name "Hello Market"
-breyta flows steps set hello-market fetch --type http --title "Fetch sample payload" --definition "(step :http :fetch {:connection :demo :path \"/sample\"})"
-breyta flows steps set hello-market summarize --type function --title "Summarize payload" --definition "(step :function :summarize {:code '(fn [x] ...)})"
-breyta flows validate hello-market
-breyta runs start --flow hello-market
-BREYTA_DEV=1 breyta dev advance --ticks 3
-```
-
-If Terminal A is open, you should see the dashboard update when you seed/start/advance/replay runs.
-
-#### CLI commands (mock)
-
-```bash
+breyta --help
 breyta docs
-breyta docs flows
-breyta docs flows steps set
-breyta docs runs list
-breyta docs runs list --format edn
-
-breyta flows list
-breyta flows show daily-sales-report
-breyta flows spine daily-sales-report
-breyta flows steps list daily-sales-report
-breyta flows steps show daily-sales-report fetch-sales --include schemas,definition
-
-breyta runs list daily-sales-report
-breyta runs show run-abc-123
-breyta runs show run-abc-123 --steps 0
-breyta runs start --flow daily-sales-report
-breyta runs replay run-abc-123
-breyta runs step run-abc-123 process-card
-breyta runs events run-abc-123
-breyta runs cancel run-abc-123 --reason "stopping demo"
-
-breyta revenue show --last 30d
-breyta demand top --window 30d
-breyta demand clusters
-breyta demand ingest "Need order approval with fraud checks" --offer-cents 250
-
-breyta registry search "sales report"
-breyta registry show wrk-daily-sales-report
-breyta registry publish daily-sales-report --title "Daily Sales Report" --model subscription --amount-cents 1500 --currency USD --interval month --note "Demo publish"
-breyta registry versions wrk-daily-sales-report
-breyta pricing set wrk-daily-sales-report --model subscription --amount-cents 2000 --interval month
-breyta purchases list
-breyta entitlements list
-breyta payouts list
-breyta creator dashboard
-breyta analytics overview
-
-BREYTA_DEV=1 breyta dev seed
-BREYTA_DEV=1 breyta dev advance --ticks 1
-```
-
-### Mock state file
-
-By default the CLI uses an OS config location:
-
-- macOS/Linux: `~/.config/breyta/mock/state.json` (via `os.UserConfigDir()`)
-
-Override location with:
-
-- `--state /path/to/state.json`
-- or `BREYTA_MOCK_STATE=/path/to/state.json`
-
-Workspace selection:
-
-- `--workspace ws-acme`
-- or `BREYTA_WORKSPACE=ws-acme`
-
-### Two-terminal workflow (recommended)
-
-Terminal A:
-
-```bash
 breyta
 ```
 
-Terminal B:
+If you’re using the hosted Breyta API, authenticate with:
 
 ```bash
-breyta run start --flow daily-sales-report
-breyta mock advance --ticks 1
-breyta mock advance --ticks 1
+breyta auth login
+breyta flows list
 ```
 
-The TUI refreshes when the mock state file changes.
+## Docs
 
-### Testing
+- Docs index: `docs/index.md`
+- Install: `docs/install.md`
+- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
+- Distribution / releases: `docs/distribution.md`
 
-The CLI has **command contract tests** that execute commands and assert stable output envelopes.
+## Development
 
-```bash
-make test
-```
+This repo also includes local-development tooling and docs:
 
-Or:
-
-```bash
-go test ./...
-```
-
-### Next steps
-
-- Expand the API-backed surface area beyond flows (runs/profiles/triggers/etc).
-- Add route-level tests for auth/membership failure cases on the command endpoint.
-- Consider adding a “workspace bootstrap” command for local dev (create workspace + membership).
-
-### V1 CLI surface (spec, mocked)
-
-All commands return a stable envelope:
-
-- `ok` (bool)
-- `workspaceId` (string)
-- `meta` (object, optional)
-- `data` (object, optional)
-- `error` (object, optional, when `ok=false`)
-
-Command groups (implemented as mocks in this repo):
-
-- **Core**: `flows`, `runs`, `connections`, `profiles`, `triggers`, `waits`, `watch`, `auth`, `workspaces`, `docs`, `dev`
-- **Marketplace**:
-  - `registry search|show|publish|versions|match|install`
-  - `pricing show|set`
-  - `purchases list|show|create`
-  - `entitlements list|show`
-  - `payouts list|show`
-  - `creator dashboard`
-  - `analytics overview`
-  - `demand top|clusters|cluster|queries|ingest`
+- Build: `go build ./...`
+- Test: `go test ./...`
+- Local `flows-api` (dev): `docs/flows-api-local.md`
+- CLI development notes (mock mode, demos): `docs/development.md`

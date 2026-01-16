@@ -300,6 +300,9 @@ func newFlowsSpineCmd(app *App) *cobra.Command {
 		Short: "Show a flow spine (textual structure)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta flows show` in API mode).")
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)

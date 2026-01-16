@@ -1,9 +1,10 @@
-## breyta-cli docs
+## Breyta CLI docs
 
-These pages explain how to install and use the `breyta` CLI locally, including how to connect it to `flows-api` and how to wire it into agentic chat tools.
+These pages explain how to install and use the `breyta` CLI, plus local development and agent tooling.
 
-- Install: `docs/install.md`
-- Local flows authoring (flows-api): `docs/flows-api-local.md`
-- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
-- Bring your own compute (external services via `:http`): `docs/bring-your-own-compute.md`
-- Distribution (releases + Homebrew): `docs/distribution.md`
+- Install: `install.md`
+- Local flows authoring (flows-api, dev): `flows-api-local.md`
+- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `agentic-chat.md`
+- Bring your own compute (external services via `:http`): `bring-your-own-compute.md`
+- CLI development notes (mock mode, demos): `development.md`
+- Distribution (releases + Homebrew): `distribution.md`
