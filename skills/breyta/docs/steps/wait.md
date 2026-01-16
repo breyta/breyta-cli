@@ -13,6 +13,7 @@ Notes:
 - Use a stable `:key` so external events can resume the flow.
 - Webhook waits are configured on triggers; waits pause execution.
 - `:notify` is optional and depends on your workspace notification setup.
+- For incoming webhooks, bind secret slots (`:type :secret`) via profile bindings to secure requests.
 
 Example:
 

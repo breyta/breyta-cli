@@ -11,6 +11,8 @@ Core fields:
 | `:slug` | keyword | Yes | Non-namespaced keyword (URL-safe) |
 | `:name` | string | Yes | Display name |
 | `:description` | string | No | Help text |
+| `:icon` | keyword | No | UI icon (if supported) |
+| `:tags` | vector | No | Tags for grouping |
 | `:concurrency` | map | Yes | See below |
 | `:requires` | vector | No | Connection slots and activation inputs |
 | `:templates` | vector | No | Template payloads (see `./templates.md`) |
@@ -89,9 +91,67 @@ Common types:
 - `:schedule` with `:config {:cron "..." :timezone "..."}`
 - `:event` with `:config {:source :webhook :path "/webhooks/..." ...}`
 
+Notes:
+- Keep at least one enabled `:manual` trigger so the flow is runnable from the UI.
+- Webhook triggers use `:event` with `:source :webhook` and a path; the payload arrives in `flow/input`.
+- Webhook secrets are declared as `:requires` slots of `:type :secret` and bound via profiles.
+
+Example webhook trigger + secret slot:
+
+```clojure
+{:requires [{:slot :webhook-secret
+             :type :secret
+             :label "Webhook Secret"}]
+ :triggers [{:type :event
+             :label "Inbound webhook"
+             :config {:source :webhook
+                      :path "/webhooks/orders"
+                      :auth {:type :api-key
+                             :secret-ref :webhook-secret}}}]}
+```
+
+Bindings snippet (profile EDN):
+
+```edn
+{:bindings {:webhook-secret {:secret :generate}}}
+```
+
+Webhook setup checklist:
+1) Generate a bindings template and add the secret slot.
+2) Apply bindings to generate/store the secret.
+3) Copy the webhook URL from the trigger UI or API.
+4) Send requests with the secret (header name depends on trigger auth config).
+
+Webhook endpoints:
+- Public (external senders): `POST /:workspace-id/events/<path>`
+- Draft testing (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
+
+Example curl (api-key header):
+
+```bash
+curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders" \
+  -H "X-API-Key: <webhook-secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"orderId":"123"}'
+```
+
 ## `:flow` rules and determinism
-- Keep flow body code deterministic; avoid `rand`, current time, or external calls.
+- Keep flow body code deterministic; avoid `rand`, current time, UUIDs, or external calls.
 - Use `flow/step` for side effects; data transforms belong in `:function` steps.
+- Control flow is plain Clojure (`let`, `if`, `cond`), but avoid `map`/`reduce` in the flow body.
+
+## Result handling
+- Small results are returned inline; large results become refs.
+- Use `:persist true` on `:http` steps when you expect large payloads.
+
+## Metadata labels for UI
+Add labels to branches and loops to make the visual editor clearer.
+
+```clojure
+(if ^{:label "Has user"} (:user input)
+  (flow/step :http :fetch {:connection :api :path "/users"})
+  (flow/step :http :fallback {:connection :api :path "/users/guest"}))
+```
 
 ## Functions (`:functions`)
 Use `:function` steps for sandboxed transforms. For reuse, define flow-local functions.
@@ -108,3 +168,26 @@ Use `:function` steps for sandboxed transforms. For reuse, define flow-local fun
 
 ## Input keys from `--input`
 Inputs provided via `--input '{...}'` arrive as strings, but the runtime normalizes so both string and keyword keys work.
+
+## Limits (author-facing)
+Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for full list):
+
+### Flow definition and templates
+- Flow definition size: 100 KB max.
+- Templates are packed to blob storage on deploy; large prompts/SQL should live in templates.
+
+### Runtime execution
+- Step executions per run: 100
+- HTTP requests per run: 50
+- LLM tokens per run: 100,000
+- Workflow duration: 7 days
+
+### Per-step payloads
+- Inline result threshold: 10 KB (larger results become refs)
+- Max step result: 1 MB
+- HTTP response size: 1 MB
+- DB max rows: 10,000
+
+Tips:
+- Keep results small; return summaries and persist large payloads.
+- Use `:persist true` on `:http` when you need large response bodies.

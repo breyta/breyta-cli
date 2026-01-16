@@ -38,6 +38,7 @@ Notes:
 - `:generate` values are ignored when sending the profile to the server (use for secrets).
 - Templates include comments that list OAuth and secret slots.
 - Template commands print the activation URL to stderr for OAuth flows.
+- `:profile :autoUpgrade` controls pinning: `false` pins to the activated version, `true` auto-upgrades to latest.
 
 ## Template commands and `--clean`
 Template commands reflect current bindings by default:

@@ -128,6 +128,7 @@ Prod workflow:
 - Enable prod profile: `breyta flows activate <slug> --version latest`
 
 Templates prefill current bindings by default; add `--clean` for a requirements-only template.
+Profile pinning: set `:profile :autoUpgrade true` to follow latest versions, `false` to pin.
 
 Details: `./docs/bindings-activation.md`
 
@@ -137,12 +138,15 @@ Flow file format and core fields:
 - `:concurrency` for execution behavior.
 - `:triggers` for run initiation.
 - `:flow` for orchestration and determinism rules.
+- Limits: definition size 100 KB; inline results up to 10 KB; max step result 1 MB.
 
 Details: `./docs/authoring-reference.md`
 
 ## Templates
 - Use `:templates` for large prompts, request bodies, or SQL.
 - Reference with `:template` and `:data` in steps.
+- Templates are packed to blob storage on deploy; versions store small refs.
+- Flow definition size limit is 100 KB; templates help keep definitions small.
 
 Details: `./docs/templates.md`
 

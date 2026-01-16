@@ -18,3 +18,5 @@ Templates keep large payloads out of step bodies and are referenced with `:templ
 Notes:
 - Prefer templates for long prompts, request bodies, or SQL.
 - Keep template IDs stable and referenced via keywords.
+- Templates are packed to blob storage on deploy; flow versions store small refs.
+- Flow definition size limit is 100 KB; templates keep definitions under the limit.
