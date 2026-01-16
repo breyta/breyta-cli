@@ -166,6 +166,13 @@ Details: `./docs/step-reference.md`
 
 Details: `./docs/patterns.md`
 
+## Agent guidance
+- Stop and ask for missing bindings or activation inputs instead of inventing values.
+- Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
+- Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
+
+Details: `./docs/agent-guidance.md`
+
 ## Reference index
 Quick lists of slot types, auth types, trigger types, step types, and form field types.
 
