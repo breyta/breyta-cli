@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +30,7 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 		sid = "<step-id>"
 	}
 
-	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
+	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps run --flow " + fs + " --type <type> --id " + sid + " --params '{...}' --record-example --record-test; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
 }
 
 func requireStepsAPI(cmd *cobra.Command, app *App) error {
@@ -50,11 +51,91 @@ func newStepsCmd(app *App) *cobra.Command {
 	}
 
 	cmd.AddCommand(newStepsRunCmd(app))
+	cmd.AddCommand(newStepsRecordCmd(app))
 	cmd.AddCommand(newStepsShowCmd(app))
 	cmd.AddCommand(newStepsDocsCmd(app))
 	cmd.AddCommand(newStepsExamplesCmd(app))
 	cmd.AddCommand(newStepsTestsCmd(app))
 	return cmd
+}
+
+func extractStepsRunResult(out map[string]any) any {
+	if out == nil {
+		return nil
+	}
+	if dataAny, ok := out["data"]; ok {
+		if data, ok := dataAny.(map[string]any); ok {
+			return data["result"]
+		}
+	}
+	return nil
+}
+
+func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, stepID string, stepType string, params map[string]any, resultAny any, note string, testName string, traceID string, profileID string, recordExample bool, recordTest bool) {
+	if !isOK(out) || (!recordExample && !recordTest) {
+		return
+	}
+
+	meta := ensureMeta(out)
+
+	if recordExample {
+		exPayload := map[string]any{
+			"flowSlug": flowSlug,
+			"stepId":   stepID,
+			"input":    params,
+			"output":   resultAny,
+		}
+		if strings.TrimSpace(note) != "" {
+			exPayload["note"] = strings.TrimSpace(note)
+		}
+		exOut, _, exErr := client.DoCommand(context.Background(), "steps.examples.add", exPayload)
+		if exErr != nil {
+			if meta != nil {
+				meta["recordExampleSaved"] = false
+				meta["recordExampleError"] = exErr.Error()
+			}
+		} else if isOK(exOut) {
+			if meta != nil {
+				meta["recordExampleSaved"] = true
+			}
+		} else if meta != nil {
+			meta["recordExampleSaved"] = false
+			meta["recordExampleError"] = formatAPIError(exOut)
+		}
+	}
+
+	if recordTest {
+		testPayload := map[string]any{
+			"flowSlug":  flowSlug,
+			"stepId":    stepID,
+			"stepType":  stepType,
+			"name":      strings.TrimSpace(testName),
+			"input":     params,
+			"expected":  resultAny,
+			"note":      strings.TrimSpace(note),
+			"traceId":   strings.TrimSpace(traceID),
+			"profileId": strings.TrimSpace(profileID),
+		}
+		for _, k := range []string{"name", "note", "traceId", "profileId"} {
+			if sv, ok := testPayload[k].(string); ok && strings.TrimSpace(sv) == "" {
+				delete(testPayload, k)
+			}
+		}
+		testOut, _, testErr := client.DoCommand(context.Background(), "steps.tests.add", testPayload)
+		if testErr != nil {
+			if meta != nil {
+				meta["recordTestSaved"] = false
+				meta["recordTestError"] = testErr.Error()
+			}
+		} else if isOK(testOut) {
+			if meta != nil {
+				meta["recordTestSaved"] = true
+			}
+		} else if meta != nil {
+			meta["recordTestSaved"] = false
+			meta["recordTestError"] = formatAPIError(testOut)
+		}
+	}
 }
 
 func newStepsShowCmd(app *App) *cobra.Command {
@@ -556,75 +637,7 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if isOK(out) && (recordExample || recordTest) {
-				meta := ensureMeta(out)
-				resultAny := any(nil)
-				if dataAny, ok := out["data"]; ok {
-					if data, ok := dataAny.(map[string]any); ok {
-						resultAny = data["result"]
-					}
-				}
-
-				if recordExample {
-					exPayload := map[string]any{
-						"flowSlug": fs,
-						"stepId":   id,
-						"input":    params,
-						"output":   resultAny,
-					}
-					if strings.TrimSpace(recordNote) != "" {
-						exPayload["note"] = strings.TrimSpace(recordNote)
-					}
-					exOut, _, exErr := client.DoCommand(context.Background(), "steps.examples.add", exPayload)
-					if exErr != nil {
-						if meta != nil {
-							meta["recordExampleSaved"] = false
-							meta["recordExampleError"] = exErr.Error()
-						}
-					} else if isOK(exOut) {
-						if meta != nil {
-							meta["recordExampleSaved"] = true
-						}
-					} else if meta != nil {
-						meta["recordExampleSaved"] = false
-						meta["recordExampleError"] = formatAPIError(exOut)
-					}
-				}
-
-				if recordTest {
-					testPayload := map[string]any{
-						"flowSlug":  fs,
-						"stepId":    id,
-						"stepType":  t,
-						"name":      strings.TrimSpace(recordTestName),
-						"input":     params,
-						"expected":  resultAny,
-						"note":      strings.TrimSpace(recordNote),
-						"traceId":   strings.TrimSpace(traceID),
-						"profileId": strings.TrimSpace(profileID),
-					}
-					// Drop empty optional fields to keep payload clean.
-					for _, k := range []string{"name", "note", "traceId", "profileId"} {
-						if sv, ok := testPayload[k].(string); ok && strings.TrimSpace(sv) == "" {
-							delete(testPayload, k)
-						}
-					}
-					testOut, _, testErr := client.DoCommand(context.Background(), "steps.tests.add", testPayload)
-					if testErr != nil {
-						if meta != nil {
-							meta["recordTestSaved"] = false
-							meta["recordTestError"] = testErr.Error()
-						}
-					} else if isOK(testOut) {
-						if meta != nil {
-							meta["recordTestSaved"] = true
-						}
-					} else if meta != nil {
-						meta["recordTestSaved"] = false
-						meta["recordTestError"] = formatAPIError(testOut)
-					}
-				}
-			}
+			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, profileID, recordExample, recordTest)
 			if isOK(out) {
 				addStepSidecarHint(out, flowSlug, id)
 			}
@@ -642,5 +655,100 @@ Examples:
 	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
 	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")
 	cmd.Flags().StringVar(&recordTestName, "record-test-name", "", "Optional test name for --record-test")
+	return cmd
+}
+
+func newStepsRecordCmd(app *App) *cobra.Command {
+	var stepType string
+	var stepID string
+	var flowSlug string
+	var paramsJSON string
+	var traceID string
+	var profileID string
+	var note string
+	var testName string
+	var noExample bool
+	var noTest bool
+
+	cmd := &cobra.Command{
+		Use:   "record",
+		Short: "Run a step and record examples/tests (API mode)",
+		Long: strings.TrimSpace(`
+Run a single step and persist the observed input/output as step sidecars:
+- Example: input=params, output=result
+- Snapshot test: input=params, expected=result
+
+This is a convenience wrapper around steps run + steps examples add + steps tests add.
+
+Examples:
+  breyta steps record --flow my-flow --type code --id make-output --params '{"input":{"n":2},"code":"(fn [input] {:nPlusOne (inc (:n input))})"}'
+  breyta steps record --flow my-flow --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}' --note 'happy path'
+`),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fs := strings.TrimSpace(flowSlug)
+			if fs == "" {
+				return writeErr(cmd, errors.New("missing --flow"))
+			}
+			t := strings.TrimSpace(stepType)
+			if t == "" {
+				return writeErr(cmd, errors.New("missing --type"))
+			}
+			id := strings.TrimSpace(stepID)
+			if id == "" {
+				return writeErr(cmd, errors.New("missing --id"))
+			}
+
+			params := map[string]any{}
+			if strings.TrimSpace(paramsJSON) != "" {
+				var v any
+				if err := json.Unmarshal([]byte(paramsJSON), &v); err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
+				}
+				m, ok := v.(map[string]any)
+				if !ok {
+					return writeErr(cmd, errors.New("--params must be a JSON object"))
+				}
+				params = m
+			}
+
+			payload := map[string]any{
+				"flowSlug": fs,
+				"stepType": t,
+				"stepId":   id,
+				"params":   params,
+			}
+			if strings.TrimSpace(traceID) != "" {
+				payload["traceId"] = strings.TrimSpace(traceID)
+			}
+			if strings.TrimSpace(profileID) != "" {
+				payload["profileId"] = strings.TrimSpace(profileID)
+			}
+
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.run", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), note, testName, traceID, profileID, !noExample, !noTest)
+			if isOK(out) {
+				addStepSidecarHint(out, fs, id)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&flowSlug, "flow", "", "Flow slug (required)")
+	cmd.Flags().StringVar(&stepType, "type", "", "Step type (e.g. http, llm, code)")
+	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
+	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
+	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
+	cmd.Flags().StringVar(&note, "note", "", "Optional note for the recorded example/test")
+	cmd.Flags().StringVar(&testName, "test-name", "", "Optional test name for the recorded snapshot test")
+	cmd.Flags().BoolVar(&noExample, "no-example", false, "Do not record an example")
+	cmd.Flags().BoolVar(&noTest, "no-test", false, "Do not record a snapshot test")
 	return cmd
 }
