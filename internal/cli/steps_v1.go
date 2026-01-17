@@ -30,7 +30,7 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 		sid = "<step-id>"
 	}
 
-	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps run --flow " + fs + " --type <type> --id " + sid + " --params '{...}' --record-example --record-test; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
+	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps record --flow " + fs + " --type <type> --id " + sid + " --params '{...}'; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
 }
 
 func requireStepsAPI(cmd *cobra.Command, app *App) error {
