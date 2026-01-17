@@ -354,10 +354,12 @@ func newStepsTestsCmd(app *App) *cobra.Command {
 	}
 	cmd.AddCommand(newStepsTestsAddCmd(app))
 	cmd.AddCommand(newStepsTestsListCmd(app))
+	cmd.AddCommand(newStepsTestsVerifyCmd(app))
 	return cmd
 }
 
 func newStepsTestsAddCmd(app *App) *cobra.Command {
+	var stepType string
 	var name string
 	var inputJSON string
 	var expectedJSON string
@@ -392,6 +394,9 @@ func newStepsTestsAddCmd(app *App) *cobra.Command {
 				"expected": expected,
 				"note":     strings.TrimSpace(note),
 			}
+			if strings.TrimSpace(stepType) != "" {
+				payload["stepType"] = strings.TrimSpace(stepType)
+			}
 
 			client := apiClient(app)
 			out, status, err := client.DoCommand(context.Background(), "steps.tests.add", payload)
@@ -405,6 +410,7 @@ func newStepsTestsAddCmd(app *App) *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&stepType, "type", "", "Step type for executing this test (e.g. http, llm, code)")
 	cmd.Flags().StringVar(&name, "name", "", "Optional test case name")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "Test input JSON (any value)")
 	cmd.Flags().StringVar(&expectedJSON, "expected", "", "Expected output JSON (any value)")
@@ -436,6 +442,41 @@ func newStepsTestsListCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
+	return cmd
+}
+
+func newStepsTestsVerifyCmd(app *App) *cobra.Command {
+	var stepType string
+
+	cmd := &cobra.Command{
+		Use:   "verify <flow-slug> <step-id>",
+		Short: "Run stored test cases for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			if strings.TrimSpace(stepType) != "" {
+				payload["stepType"] = strings.TrimSpace(stepType)
+			}
+
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.tests.verify", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&stepType, "type", "", "Step type (required if tests were saved without one)")
 	return cmd
 }
 
