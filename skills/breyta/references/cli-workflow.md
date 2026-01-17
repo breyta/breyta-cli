@@ -35,7 +35,7 @@ When authoring flows with an agent, prefer tight feedback loops:
    - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'`
    - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
    - Tests (as documentation, runnable on demand): `breyta steps tests add <flow-slug> <step-id> --type <type> --name '...' --input '<json>' --expected '<json>'`
-4) Inspect step context quickly: `breyta steps show <flow-slug> <step-id>`
+4) Inspect step context quickly: `breyta steps show <flow-slug> <step-id>` (prints a short "Next actions" helper to stderr in interactive terminals)
 5) Verify stored tests: `breyta steps tests verify <flow-slug> <step-id> --type <type>`
 6) Push + validate/compile, then run the draft flow end-to-end
 

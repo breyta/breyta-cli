@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/breyta/breyta-cli/internal/api"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +33,80 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 	}
 
 	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps record --flow " + fs + " --type <type> --id " + sid + " --params '{...}'; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
+}
+
+func shouldWriteHumanNextActions(app *App, cmd *cobra.Command) bool {
+	if app == nil || cmd == nil {
+		return false
+	}
+	// Only add extra human guidance when the caller explicitly opted into "pretty"
+	// or the user is in an interactive terminal.
+	if app.PrettyJSON {
+		return true
+	}
+	if f, ok := cmd.ErrOrStderr().(*os.File); ok {
+		return isatty.IsTerminal(f.Fd())
+	}
+	return false
+}
+
+func extractHints(out map[string]any) []string {
+	if out == nil {
+		return nil
+	}
+	// Prefer explicit progressive-disclosure hints.
+	if hsAny, ok := out["_hints"]; ok {
+		if hs, ok := hsAny.([]any); ok {
+			var hints []string
+			for _, h := range hs {
+				if s, ok := h.(string); ok && strings.TrimSpace(s) != "" {
+					hints = append(hints, strings.TrimSpace(s))
+				}
+			}
+			if len(hints) > 0 {
+				return hints
+			}
+		}
+	}
+	// Fall back to a single meta.hint if that's all we have.
+	if metaAny, ok := out["meta"]; ok {
+		if meta, ok := metaAny.(map[string]any); ok {
+			if s, _ := meta["hint"].(string); strings.TrimSpace(s) != "" {
+				return []string{strings.TrimSpace(s)}
+			}
+		}
+	}
+	return nil
+}
+
+func renderNextActionsBlock(out map[string]any, max int) string {
+	hints := extractHints(out)
+	if len(hints) == 0 {
+		return ""
+	}
+	if max > 0 && len(hints) > max {
+		hints = hints[:max]
+	}
+
+	var b strings.Builder
+	b.WriteString("Next actions:\n")
+	for _, h := range hints {
+		b.WriteString("  - ")
+		b.WriteString(h)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeNextActionsIfHelpful(app *App, cmd *cobra.Command, out map[string]any) {
+	if !shouldWriteHumanNextActions(app, cmd) {
+		return
+	}
+	block := renderNextActionsBlock(out, 4)
+	if strings.TrimSpace(block) == "" {
+		return
+	}
+	_, _ = io.WriteString(cmd.ErrOrStderr(), block+"\n")
 }
 
 func requireStepsAPI(cmd *cobra.Command, app *App) error {
@@ -231,6 +307,7 @@ func newStepsShowCmd(app *App) *cobra.Command {
 			if isOK(out) {
 				addStepSidecarHint(out, args[0], args[1])
 			}
+			writeNextActionsIfHelpful(app, cmd, out)
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}

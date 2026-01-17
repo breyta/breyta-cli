@@ -116,6 +116,7 @@ Fast loop (agent-friendly): do one step at a time
    - Tests (as documentation, runnable on demand): `breyta steps tests add <flow-slug> <step-id> --type <type> --name '...' --input '<json>' --expected '<json>' --note '...'`
 4) Inspect the step context quickly:
    - `breyta steps show <flow-slug> <step-id>`
+   - Tip: when run interactively, `steps show` also prints a short "Next actions" helper to stderr (stdout remains structured JSON/EDN).
 5) Verify stored tests against the live step runner:
    - `breyta steps tests verify <flow-slug> <step-id> --type <type>`
 6) Push/validate/compile, then run the draft flow end-to-end
