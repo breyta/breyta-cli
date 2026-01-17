@@ -108,7 +108,8 @@ Fast loop (agent-friendly): do one step at a time
 2) Run the step in isolation (no flow deploy needed):
    - `breyta steps run --type <type> --id <id> --params '<json-object>'`
    - Optionally record the observed output as sidecars (requires `--flow`):
-     - `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
+     - `breyta steps record --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --note '...' --test-name '...'`
+     - (or) `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
 3) Capture step sidecars (updatable without a new flow version):
    - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'` (or `--file ./notes.md`)
    - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
