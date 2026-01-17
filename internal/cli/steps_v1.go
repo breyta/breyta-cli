@@ -487,6 +487,10 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var traceID string
 	var profileID string
+	var recordExample bool
+	var recordTest bool
+	var recordNote string
+	var recordTestName string
 
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -513,6 +517,10 @@ Examples:
 			id := strings.TrimSpace(stepID)
 			if id == "" {
 				return writeErr(cmd, errors.New("missing --id"))
+			}
+			fs := strings.TrimSpace(flowSlug)
+			if (recordExample || recordTest) && fs == "" {
+				return writeErr(cmd, errors.New("missing --flow (required for --record-example/--record-test)"))
 			}
 
 			params := map[string]any{}
@@ -548,6 +556,75 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if isOK(out) && (recordExample || recordTest) {
+				meta := ensureMeta(out)
+				resultAny := any(nil)
+				if dataAny, ok := out["data"]; ok {
+					if data, ok := dataAny.(map[string]any); ok {
+						resultAny = data["result"]
+					}
+				}
+
+				if recordExample {
+					exPayload := map[string]any{
+						"flowSlug": fs,
+						"stepId":   id,
+						"input":    params,
+						"output":   resultAny,
+					}
+					if strings.TrimSpace(recordNote) != "" {
+						exPayload["note"] = strings.TrimSpace(recordNote)
+					}
+					exOut, _, exErr := client.DoCommand(context.Background(), "steps.examples.add", exPayload)
+					if exErr != nil {
+						if meta != nil {
+							meta["recordExampleSaved"] = false
+							meta["recordExampleError"] = exErr.Error()
+						}
+					} else if isOK(exOut) {
+						if meta != nil {
+							meta["recordExampleSaved"] = true
+						}
+					} else if meta != nil {
+						meta["recordExampleSaved"] = false
+						meta["recordExampleError"] = formatAPIError(exOut)
+					}
+				}
+
+				if recordTest {
+					testPayload := map[string]any{
+						"flowSlug":  fs,
+						"stepId":    id,
+						"stepType":  t,
+						"name":      strings.TrimSpace(recordTestName),
+						"input":     params,
+						"expected":  resultAny,
+						"note":      strings.TrimSpace(recordNote),
+						"traceId":   strings.TrimSpace(traceID),
+						"profileId": strings.TrimSpace(profileID),
+					}
+					// Drop empty optional fields to keep payload clean.
+					for _, k := range []string{"name", "note", "traceId", "profileId"} {
+						if sv, ok := testPayload[k].(string); ok && strings.TrimSpace(sv) == "" {
+							delete(testPayload, k)
+						}
+					}
+					testOut, _, testErr := client.DoCommand(context.Background(), "steps.tests.add", testPayload)
+					if testErr != nil {
+						if meta != nil {
+							meta["recordTestSaved"] = false
+							meta["recordTestError"] = testErr.Error()
+						}
+					} else if isOK(testOut) {
+						if meta != nil {
+							meta["recordTestSaved"] = true
+						}
+					} else if meta != nil {
+						meta["recordTestSaved"] = false
+						meta["recordTestError"] = formatAPIError(testOut)
+					}
+				}
+			}
 			if isOK(out) {
 				addStepSidecarHint(out, flowSlug, id)
 			}
@@ -561,5 +638,9 @@ Examples:
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Optional flow slug (for logging/templates)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
+	cmd.Flags().BoolVar(&recordExample, "record-example", false, "After a successful run, store the observed input/output as a step example (requires --flow)")
+	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
+	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")
+	cmd.Flags().StringVar(&recordTestName, "record-test-name", "", "Optional test name for --record-test")
 	return cmd
 }
