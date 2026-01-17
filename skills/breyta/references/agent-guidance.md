@@ -5,7 +5,7 @@ When you are authoring flows for a user:
 - Do not fabricate API keys, OAuth credentials, or webhook secrets.
 - Offer the exact CLI commands or template file paths the user should fill.
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
-- Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step.
+- Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps run --record-example/--record-test` to capture quickly).
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
 
 Checklist:

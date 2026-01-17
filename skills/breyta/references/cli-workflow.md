@@ -28,6 +28,8 @@ When authoring flows with an agent, prefer tight feedback loops:
 1) Add or change exactly one `flow/step`
 2) Run that step in isolation (API mode, no flow deploy needed):
    - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+   - Optionally record the observed output as sidecars (requires `--flow`):
+     - `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
 3) Store sidecars for the step (updatable without publishing a new flow version):
    - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'`
    - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`

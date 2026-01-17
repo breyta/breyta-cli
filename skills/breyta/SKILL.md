@@ -107,6 +107,8 @@ Fast loop (agent-friendly): do one step at a time
 1) Add or change exactly one `flow/step`
 2) Run the step in isolation (no flow deploy needed):
    - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+   - Optionally record the observed output as sidecars (requires `--flow`):
+     - `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
 3) Capture step sidecars (updatable without a new flow version):
    - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'` (or `--file ./notes.md`)
    - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
@@ -188,7 +190,7 @@ Details: `./references/patterns.md`
 
 ## Agent guidance
 - Prefer the fast loop: implement one step, run it in isolation, then move to the next step.
-- Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent.
+- Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent (or use `breyta steps run --record-example/--record-test` to capture quickly).
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
