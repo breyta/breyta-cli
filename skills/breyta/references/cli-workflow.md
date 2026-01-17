@@ -23,6 +23,17 @@ Notes:
 - Draft runs use draft bindings and the draft flow definition.
 - `flows push` updates the draft; `flows deploy` publishes a version for prod.
 
+## Fast loop: iterate per step
+When authoring flows with an agent, prefer tight feedback loops:
+1) Add or change exactly one `flow/step`
+2) Run that step in isolation (API mode, no flow deploy needed):
+   - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+3) Store sidecars for the step (updatable without publishing a new flow version):
+   - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'`
+   - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
+   - Tests (as documentation): `breyta steps tests add <flow-slug> <step-id> --name '...' --input '<json>' --expected '<json>'`
+4) Push + validate/compile, then run the draft flow end-to-end
+
 ### Templates during development
 When iterating on draft bindings, templates reflect what is already bound:
 - `breyta flows draft bindings template <slug> --out draft.edn`
