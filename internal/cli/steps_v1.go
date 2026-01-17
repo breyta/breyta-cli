@@ -11,6 +11,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	if _, exists := meta["hint"]; exists {
+		return
+	}
+
+	fs := strings.TrimSpace(flowSlug)
+	if fs == "" {
+		fs = "<flow-slug>"
+	}
+	sid := strings.TrimSpace(stepID)
+	if sid == "" {
+		sid = "<step-id>"
+	}
+
+	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
+}
+
 func requireStepsAPI(cmd *cobra.Command, app *App) error {
 	// Respect explicit `--api=` forcing mock mode.
 	if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
@@ -66,6 +87,9 @@ func newStepsDocsGetCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -113,6 +137,9 @@ Examples:
 			out, status, err := client.DoCommand(context.Background(), "steps.docs.put", payload)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
@@ -177,6 +204,9 @@ func newStepsExamplesAddCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -204,6 +234,9 @@ func newStepsExamplesListCmd(app *App) *cobra.Command {
 			out, status, err := client.DoCommand(context.Background(), "steps.examples.list", payload)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
@@ -265,6 +298,9 @@ func newStepsTestsAddCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -293,6 +329,9 @@ func newStepsTestsListCmd(app *App) *cobra.Command {
 			out, status, err := client.DoCommand(context.Background(), "steps.tests.list", payload)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
@@ -367,6 +406,9 @@ Examples:
 			out, status, err := client.DoCommand(context.Background(), "steps.run", payload)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if isOK(out) {
+				addStepSidecarHint(out, flowSlug, id)
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
