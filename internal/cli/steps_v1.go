@@ -50,9 +50,109 @@ func newStepsCmd(app *App) *cobra.Command {
 	}
 
 	cmd.AddCommand(newStepsRunCmd(app))
+	cmd.AddCommand(newStepsShowCmd(app))
 	cmd.AddCommand(newStepsDocsCmd(app))
 	cmd.AddCommand(newStepsExamplesCmd(app))
 	cmd.AddCommand(newStepsTestsCmd(app))
+	return cmd
+}
+
+func newStepsShowCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show <flow-slug> <step-id>",
+		Short: "Show docs/examples/tests for a step (API mode)",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "steps.artifacts.get", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+
+			// Back-compat: servers predating steps.artifacts.get.
+			if status == 400 && !isOK(out) {
+				if errAny, ok := out["error"].(map[string]any); ok {
+					if code, _ := errAny["code"].(string); code == "unknown_command" {
+						docsOut, docsStatus, docsErr := client.DoCommand(context.Background(), "steps.docs.get", payload)
+						if docsErr != nil {
+							return writeErr(cmd, docsErr)
+						}
+						if docsStatus >= 400 || !isOK(docsOut) {
+							return writeAPIResult(cmd, app, docsOut, docsStatus)
+						}
+
+						exOut, exStatus, exErr := client.DoCommand(context.Background(), "steps.examples.list", payload)
+						if exErr != nil {
+							return writeErr(cmd, exErr)
+						}
+						if exStatus >= 400 || !isOK(exOut) {
+							return writeAPIResult(cmd, app, exOut, exStatus)
+						}
+
+						testsOut, testsStatus, testsErr := client.DoCommand(context.Background(), "steps.tests.list", payload)
+						if testsErr != nil {
+							return writeErr(cmd, testsErr)
+						}
+						if testsStatus >= 400 || !isOK(testsOut) {
+							return writeAPIResult(cmd, app, testsOut, testsStatus)
+						}
+
+						wsid := ""
+						if s, _ := docsOut["workspaceId"].(string); strings.TrimSpace(s) != "" {
+							wsid = strings.TrimSpace(s)
+						}
+						if wsid == "" {
+							wsid = strings.TrimSpace(app.WorkspaceID)
+						}
+
+						data := map[string]any{
+							"flowSlug": args[0],
+							"stepId":   args[1],
+							"docs":     nil,
+							"examples": map[string]any{"items": []any{}, "count": 0},
+							"tests":    map[string]any{"items": []any{}, "count": 0},
+						}
+
+						if d, ok := docsOut["data"].(map[string]any); ok {
+							if docs, ok := d["docs"]; ok {
+								data["docs"] = docs
+							}
+						}
+						if d, ok := exOut["data"].(map[string]any); ok {
+							if items, ok := d["items"].([]any); ok {
+								data["examples"] = map[string]any{"items": items, "count": len(items)}
+							}
+						}
+						if d, ok := testsOut["data"].(map[string]any); ok {
+							if items, ok := d["items"].([]any); ok {
+								data["tests"] = map[string]any{"items": items, "count": len(items)}
+							}
+						}
+
+						out = map[string]any{
+							"ok":          true,
+							"workspaceId": wsid,
+							"data":        data,
+						}
+						addStepSidecarHint(out, args[0], args[1])
+						status = 200
+					}
+				}
+			}
+
+			if isOK(out) {
+				addStepSidecarHint(out, args[0], args[1])
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
 	return cmd
 }
 
