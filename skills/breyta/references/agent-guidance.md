@@ -6,7 +6,7 @@ When you are authoring flows for a user:
 - Offer the exact CLI commands or template file paths the user should fill.
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step.
-- Treat step test cases as documentation: they are not automatically executed by the system today, but they preserve intent and expected behavior.
+- Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
 
 Checklist:
 1) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
