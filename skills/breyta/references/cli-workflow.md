@@ -23,6 +23,22 @@ Notes:
 - Draft runs use draft bindings and the draft flow definition.
 - `flows push` updates the draft; `flows deploy` publishes a version for prod.
 
+## Fast loop: iterate per step
+When authoring flows with an agent, prefer tight feedback loops:
+1) Add or change exactly one `flow/step`
+2) Run that step in isolation (API mode, no flow deploy needed):
+   - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+   - Optionally record the observed output as sidecars (requires `--flow`):
+     - `breyta steps record --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --note '...' --test-name '...'`
+     - (or) `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
+3) Store sidecars for the step (updatable without publishing a new flow version):
+   - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'`
+   - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
+   - Tests (as documentation, runnable on demand): `breyta steps tests add <flow-slug> <step-id> --type <type> --name '...' --input '<json>' --expected '<json>'`
+4) Inspect step context quickly: `breyta steps show <flow-slug> <step-id>` (prints a short "Next actions" helper to stderr in interactive terminals)
+5) Verify stored tests: `breyta steps tests verify <flow-slug> <step-id> --type <type>`
+6) Push + validate/compile, then run the draft flow end-to-end
+
 ### Templates during development
 When iterating on draft bindings, templates reflect what is already bound:
 - `breyta flows draft bindings template <slug> --out draft.edn`

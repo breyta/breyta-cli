@@ -103,6 +103,29 @@ The intended workflow is:
 5) Deploy (publish a version)
 6) Apply bindings + activate the prod profile
 
+Fast loop (agent-friendly): do one step at a time
+1) Add or change exactly one `flow/step`
+2) Run the step in isolation (no flow deploy needed):
+   - `breyta steps run --type <type> --id <id> --params '<json-object>'`
+   - Optionally record the observed output as sidecars (requires `--flow`):
+     - `breyta steps record --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --note '...' --test-name '...'`
+     - (or) `breyta steps run --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --record-example --record-test --record-note '...' --record-test-name '...'`
+3) Capture step sidecars (updatable without a new flow version):
+   - Docs: `breyta steps docs set <flow-slug> <step-id> --markdown '...'` (or `--file ./notes.md`)
+   - Examples: `breyta steps examples add <flow-slug> <step-id> --input '<json>' --output '<json>' --note '...'`
+   - Tests (as documentation, runnable on demand): `breyta steps tests add <flow-slug> <step-id> --type <type> --name '...' --input '<json>' --expected '<json>' --note '...'`
+4) Inspect the step context quickly:
+   - `breyta steps show <flow-slug> <step-id>`
+   - Tip: when run interactively, `steps show` also prints a short "Next actions" helper to stderr (stdout remains structured JSON/EDN).
+5) Verify stored tests against the live step runner:
+   - `breyta steps tests verify <flow-slug> <step-id> --type <type>`
+6) Push/validate/compile, then run the draft flow end-to-end
+
+Notes:
+- `breyta steps run` is best-effort isolation; waits/sleeps/fanout aren’t supported.
+- Keep step ids stable and short; don’t rename ids unless you intend to invalidate history/examples.
+- Step ids and flow slugs accept either keywords or strings on the server; the CLI takes plain strings (e.g. `make-output`, not `:make-output`).
+
 Core commands:
 - `breyta flows list`
 - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
@@ -174,6 +197,10 @@ Details: `./references/persist.md`
 Details: `./references/patterns.md`
 
 ## Agent guidance
+- Prefer the fast loop: implement one step, run it in isolation, then move to the next step.
+- Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent (or use `breyta steps run --record-example/--record-test` to capture quickly).
+- Use `breyta steps show` to load docs/examples/tests before editing a step.
+- Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.

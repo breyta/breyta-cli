@@ -159,6 +159,7 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newFlowsCmd(app))
 	cmd.AddCommand(newRunsCmd(app))
+	cmd.AddCommand(newStepsCmd(app))
 	cmd.AddCommand(newConnectionsCmd(app))
 	cmd.AddCommand(newProfilesCmd(app))
 	cmd.AddCommand(newTriggersCmd(app))
