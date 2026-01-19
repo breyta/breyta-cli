@@ -13,12 +13,16 @@ Core fields:
 | `:headers` | map | No | Header map |
 | `:json` | any | No | JSON body (sets content-type) |
 | `:body` | any | No | Raw body |
-| `:persist` | boolean | No | Store response as reference |
+| `:response-as` | keyword | No | `:auto`, `:json`, `:text`, `:bytes` (default `:auto`) |
+| `:persist` | map | No | Store response as reference (`{:type :blob ...}`) |
 | `:retry` | map | No | Retry policy (see flow limits) |
 
 Notes:
 - When both `:json` and `:body` are set, `:json` wins.
-- Use `:persist true` for large payloads; downstream steps can load refs.
+- `:response-as :auto` uses the response `Content-Type` to choose `:json`, `:text`, or `:bytes`.
+- Binary responses are base64-encoded inline only for small payloads; larger bodies are truncated.
+- If the response is truncated, the step fails unless `:persist {:type :blob ...}` is set.
+- Use `:persist {:type :blob}` for large payloads; downstream steps can load refs.
 - Templates only cover request shape; step-level keys like `:persist` stay on the step.
 
 Example:
@@ -41,5 +45,5 @@ Example:
 (flow/step :http :download-report
            {:connection :api
             :template :download-report
-            :persist true})
+            :persist {:type :blob}})
 ```

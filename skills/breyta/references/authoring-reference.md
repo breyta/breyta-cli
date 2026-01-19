@@ -89,11 +89,12 @@ Both `:type` and `:on-new-version` are required.
 Common types:
 - `:manual` with `:label` and optional `:config`
 - `:schedule` with `:config {:cron "..." :timezone "..."}`
-- `:event` with `:config {:source :webhook :path "/webhooks/..." ...}`
+- `:event` with `:config {:source :webhook ...}`
 
 Notes:
 - Keep at least one enabled `:manual` trigger so the flow is runnable from the UI.
-- Webhook triggers use `:event` with `:source :webhook` and a path; the payload arrives in `flow/input`.
+- Webhook triggers use `:event` with `:source :webhook`; the webhook path is generated at activation.
+- The payload arrives in `flow/input`.
 - Webhook secrets are declared as `:requires` slots of `:type :secret` and bound via profiles.
 
 Example webhook trigger + secret slot:
@@ -105,7 +106,6 @@ Example webhook trigger + secret slot:
  :triggers [{:type :event
              :label "Inbound webhook"
              :config {:source :webhook
-                      :path "/webhooks/orders"
                       :auth {:type :api-key
                              :secret-ref :webhook-secret}}}]}
 ```
@@ -126,6 +126,21 @@ Webhook endpoints:
 - Public (external senders): `POST /:workspace-id/events/<path>`
 - Draft testing (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
 
+Webhook auth schemes:
+
+| Type | Config | How to send |
+| --- | --- | --- |
+| `:none` | `{:type :none}` | No auth |
+| `:api-key` | `{:type :api-key :secret-ref :webhook-secret :header "X-API-Key"}` | `X-API-Key: <secret>` (default header is `X-API-Key`) |
+| `:bearer` | `{:type :bearer :secret-ref :webhook-secret}` | `Authorization: Bearer <secret>` |
+| `:basic` | `{:type :basic :username "user" :secret-ref :webhook-secret}` | `Authorization: Basic <base64(user:secret)>` |
+| `:hmac-sha256` | `{:type :hmac-sha256 :secret-ref :webhook-secret :header "X-Signature"}` | `X-Signature: <base64(hmac)>` computed over raw request bytes |
+| `:ip-allowlist` | `{:type :ip-allowlist :allow ["203.0.113.10"]}` | Must match `X-Forwarded-For`/`X-Real-IP` |
+
+Notes:
+- For HMAC, compute the signature over the exact raw request body (JSON bytes or multipart bytes).
+- For multipart webhooks, use HMAC over the full multipart payload bytes.
+
 Example curl (api-key header):
 
 ```bash
@@ -142,7 +157,7 @@ curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders" \
 
 ## Result handling
 - Small results are returned inline; large results become refs.
-- Use `:persist true` on `:http` steps when you expect large payloads.
+- Use `:persist {:type :blob}` on `:http` steps when you expect large payloads.
 - See `./persist.md` for how refs flow to downstream steps.
 
 ## Metadata labels for UI
@@ -201,4 +216,4 @@ Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for
 
 Tips:
 - Keep results small; return summaries and persist large payloads.
-- Use `:persist true` on `:http` when you need large response bodies.
+- Use `:persist {:type :blob}` on `:http` when you need large response bodies.

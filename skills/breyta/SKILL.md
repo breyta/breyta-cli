@@ -54,6 +54,7 @@ Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
 
 Next:
 - Authoring details: `./references/authoring-reference.md`
+- Webhook auth schemes: `./references/authoring-reference.md#webhook-auth-schemes`
 - CLI workflow: `./references/cli-workflow.md`
 - Bindings and activation: `./references/bindings-activation.md`
 

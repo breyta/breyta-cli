@@ -14,6 +14,7 @@ Notes:
 - Webhook waits are configured on triggers; waits pause execution.
 - `:notify` is optional and depends on your workspace notification setup.
 - For incoming webhooks, bind secret slots (`:type :secret`) via profile bindings to secure requests.
+- When `:notify` is present, the wait record includes approval URL templates you can render and share.
 
 `:notify` fields (example shape):
 - `:channel` (e.g. `:email`)
@@ -30,3 +31,19 @@ Example:
                      :to "ops@example.com"
                      :subject "Approve run"}})
 ```
+
+Approval URL template (from wait list output):
+
+```edn
+{:approval
+ {:template "{base-url}/{workspace-id}/waits/{wait-id}/{action}?token={token}"
+  :params {:workspace-id "ws_123"
+           :wait-id "wait_abc"
+           :token "token_..."}
+  :actions [:approve :reject]}}
+```
+
+If you only need a single link, use `approvalUrl` or `rejectionUrl` from the wait list output.
+These routes redirect to login when unauthenticated and then resume the action.
+
+For notifications, pass `approvalUrl` as template data and reference it as `{approvalUrl}` in your message template.
