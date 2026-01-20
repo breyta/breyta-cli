@@ -147,6 +147,14 @@ API key (custom header):
         :secret-ref :webhook-secret}}
 ```
 
+API key (query param):
+```clojure
+{:auth {:type :api-key
+        :location :query
+        :param "token"
+        :secret-ref :webhook-secret}}
+```
+
 Bearer token:
 ```clojure
 {:auth {:type :bearer
@@ -302,6 +310,14 @@ Example (api-key header):
 ```bash
 curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders" \
   -H "X-API-Key: <webhook-secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"orderId":"123"}'
+```
+
+Example (api-key query):
+
+```bash
+curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders?token=<webhook-secret>" \
   -H "Content-Type: application/json" \
   -d '{"orderId":"123"}'
 ```
