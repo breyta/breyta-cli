@@ -193,6 +193,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")
 	b.WriteString("- List apps: `breyta apps list`\n")
 	b.WriteString("- Subscribe (create instance): `breyta apps instances create <flow-slug> --name \"My instance\"`\n")
+	b.WriteString("- Set activation inputs: `breyta apps instances set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
 	b.WriteString("- Pause/resume: `breyta apps instances disable <profile-id>` / `breyta apps instances enable <profile-id>`\n")
 	b.WriteString("- Run as instance: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
 

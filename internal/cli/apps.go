@@ -101,6 +101,7 @@ func newAppsInstancesCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAppsInstancesListCmd(app))
 	cmd.AddCommand(newAppsInstancesCreateCmd(app))
 	cmd.AddCommand(newAppsInstancesRenameCmd(app))
+	cmd.AddCommand(newAppsInstancesSetInputsCmd(app))
 	cmd.AddCommand(newAppsInstancesSetEnabledCmd(app))
 	cmd.AddCommand(newAppsInstancesEnableCmd(app))
 	cmd.AddCommand(newAppsInstancesDisableCmd(app))
@@ -164,6 +165,34 @@ func newAppsInstancesRenameCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "New instance name")
 	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newAppsInstancesSetInputsCmd(app *App) *cobra.Command {
+	var inputJSON string
+	cmd := &cobra.Command{
+		Use:   "set-inputs <profile-id> --input '{...}'",
+		Short: "Set activation inputs for an instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("apps instances set-inputs requires API mode"))
+			}
+			if strings.TrimSpace(inputJSON) == "" {
+				return writeErr(cmd, errors.New("missing --input"))
+			}
+			m, err := parseJSONObjectFlag(inputJSON)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return doAPICommand(cmd, app, "apps.instances.set_inputs", map[string]any{
+				"profileId": args[0],
+				"inputs":    m,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object of activation inputs")
+	_ = cmd.MarkFlagRequired("input")
 	return cmd
 }
 

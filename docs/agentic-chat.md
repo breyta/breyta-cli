@@ -93,6 +93,7 @@ Use these commands to manage flows:
 End-user apps (flows tagged `:end-user`):
 - breyta apps list
 - breyta apps instances create <slug> --name "My instance"
+- breyta apps instances set-inputs <profile-id> --input '{"region":"EU"}'
 - breyta apps instances enable <profile-id>   # activate
 - breyta apps instances disable <profile-id>  # pause
 - breyta apps runs list <slug> --profile-id <profile-id>
