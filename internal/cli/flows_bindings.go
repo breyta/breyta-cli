@@ -21,6 +21,7 @@ func newFlowsBindingsCmd(app *App) *cobra.Command {
 func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 	var profileArg string
 	var setArgs []string
+	var fromDraft bool
 	cmd := &cobra.Command{
 		Use:   "apply <flow-slug> [@profile.edn]",
 		Short: "Apply prod bindings using a profile file",
@@ -28,6 +29,15 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows bindings apply requires API mode"))
+			}
+			if fromDraft {
+				if len(args) == 2 || strings.TrimSpace(profileArg) != "" || len(setArgs) > 0 {
+					return writeErr(cmd, errors.New("--from-draft cannot be used with a profile file or --set"))
+				}
+				body := map[string]any{
+					"flowSlug": args[0],
+				}
+				return doAPICommand(cmd, app, "profiles.bindings.apply_from_draft", body)
 			}
 			if len(args) == 2 {
 				if strings.TrimSpace(profileArg) != "" {
@@ -67,6 +77,7 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&profileArg, "profile", "", "Bindings profile (@profile.edn or inline EDN)")
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
+	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote the current user's draft bindings to prod")
 	return cmd
 }
 

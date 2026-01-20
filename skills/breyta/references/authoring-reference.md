@@ -33,7 +33,7 @@ Core fields:
 | `:label` | string | Yes | UI label |
 | `:optional` | boolean | No | Use `flow/slot-bound?` |
 | `:base-url` | string | If `:http-api` | Base URL |
-| `:auth` | map | If not `:secret` | `{:type :none|:api-key|:bearer|:basic}` |
+| `:auth` | map | If not `:secret` | `{:type :api-key|:bearer|:basic}` |
 | `:oauth` | map | Optional | OAuth config |
 
 Example:
@@ -96,6 +96,7 @@ Notes:
 - Webhook triggers use `:event` with `:source :webhook`; the webhook path is generated at activation.
 - The payload arrives in `flow/input`.
 - Webhook secrets are declared as `:requires` slots of `:type :secret` and bound via profiles.
+- Webhook auth is required; `:auth {:type :none}` is not allowed for webhook triggers.
 
 Example webhook trigger + secret slot:
 
@@ -130,7 +131,6 @@ Webhook auth schemes:
 
 | Type | Config | How to send |
 | --- | --- | --- |
-| `:none` | `{:type :none}` | No auth |
 | `:api-key` | `{:type :api-key :secret-ref :webhook-secret :header "X-API-Key"}` | `X-API-Key: <secret>` (default header is `X-API-Key`) |
 | `:bearer` | `{:type :bearer :secret-ref :webhook-secret}` | `Authorization: Bearer <secret>` |
 | `:basic` | `{:type :basic :username "user" :secret-ref :webhook-secret}` | `Authorization: Basic <base64(user:secret)>` |
@@ -154,6 +154,77 @@ curl -X POST "https://flows.breyta.ai/<workspace-id>/events/webhooks/orders" \
 - Keep flow body code deterministic; avoid `rand`, current time, UUIDs, or external calls.
 - Use `flow/step` for side effects; data transforms belong in `:function` steps.
 - Control flow is plain Clojure (`let`, `if`, `cond`), but avoid `map`/`reduce` in the flow body.
+
+Deterministic helpers:
+- `flow/now-ms` for current workflow time.
+- `flow/elapsed?` for elapsed time checks.
+- `flow/backoff` for deterministic backoff intervals (accepts `"10s"`, `"5m"`, or ms).
+
+## Polling with `flow/poll`
+Use `flow/poll` to wrap a step in a deterministic loop with a sleep between attempts.
+It expands to a loop + `:sleep`, so it satisfies loop safety requirements.
+
+Required config:
+- `:interval` (duration string or ms)
+- `:timeout` or `:max-attempts`
+- `:return-on` (function or predicate symbol)
+
+Optional config:
+- `:backoff` (`:type :exponential|:linear|:constant`, `:factor`, `:step`, `:max`)
+- `:abort-on` (`:error?` defaults true, `:status` set)
+- `:id` (custom step id for the sleep step)
+
+Example:
+
+```clojure
+(flow/poll
+  {:interval "10s"
+   :timeout "10m"
+   :backoff {:type :exponential :factor 2 :max "2m"}
+   :abort-on {:status #{400 401 403} :error? true}
+   :return-on (fn [result] (true? (get-in result [:data :ready])))}
+  (flow/step :http :check
+             {:connection :api
+              :path "/jobs/123"}))
+```
+
+Notes:
+- `:return-on` can be a function literal or a named predicate symbol.
+- Use `:backoff {:type :linear :step "5s"}` for linear backoff.
+- Hard limits: `:timeout` max is 1h; `:max-attempts` max is 100.
+
+## Step-by-step: poll with error handling
+Use this when an external job can fail and you want to abort early.
+
+1) Start the job:
+```clojure
+(let [create (flow/step :http :create-job
+                        {:connection :api
+                         :path "/jobs"
+                         :method :post
+                         :json {:queued-ms 200 :processing-ms 900}
+                         :response-as :json})
+      job-id (get-in create [:body :id])]
+  ...)
+```
+
+2) Poll until completed or error:
+```clojure
+(flow/poll
+  {:interval "200ms"
+   :timeout "5s"
+   :return-on (fn [resp]
+                (let [status (get-in resp [:body :status])]
+                  (cond
+                    (= status "completed") true
+                    (= status "error") (throw (ex-info "job failed" {:error (get-in resp [:body :error])}))
+                    :else false)))}
+  (flow/step :http :job-status
+             {:connection :api
+              :path (str "/jobs/" job-id)
+              :method :get
+              :response-as :json}))
+```
 
 ## Result handling
 - Small results are returned inline; large results become refs.

@@ -44,6 +44,52 @@ Note: `:persist true` is not supported; use the explicit map form.
            :tier :default}}
 ```
 
+Optional signed URL config for downloads:
+```clojure
+{:persist {:type :blob
+           :tier :ephemeral
+           :signed-url {:ttl-seconds 900}}}
+```
+
+## Step-by-step: download then upload with refs
+Use this when a step returns large data and you need to forward it.
+
+1) Persist the download:
+```clojure
+(let [download (flow/step :http :download
+                          {:connection :api
+                           :path "/reports/weekly"
+                           :persist {:type :blob :tier :ephemeral}})]
+  ...)
+```
+
+2) Reuse the ref in a later step:
+```clojure
+(let [download (flow/step :http :download
+                          {:connection :api
+                           :path "/reports/weekly"
+                           :persist {:type :blob :tier :ephemeral}})
+      blob-ref (:blob-ref download)
+      upload (flow/step :http :upload
+                        {:connection :api
+                         :path "/uploads"
+                         :method :post
+                         :body-from-ref blob-ref})]
+  {:upload upload})
+```
+
+3) For multipart uploads, use `:from-ref`:
+```clojure
+(flow/step :http :multipart-upload
+           {:connection :api
+            :path "/uploads"
+            :method :post
+            :multipart [{:name "file"
+                         :filename "report.pdf"
+                         :content-type "application/pdf"
+                         :from-ref blob-ref}]})
+```
+
 You can also attach schema metadata for streamed exports so downstream consumers can interpret columns without inspecting the payload. It is optional, but it will enable additional formats later (e.g., Parquet/Arrow/Avro). Prefer normalized type names so we can map to other formats later.
 
 ```clojure

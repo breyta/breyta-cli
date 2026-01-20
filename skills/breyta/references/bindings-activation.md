@@ -13,6 +13,7 @@ Inline bindings (no file):
 Bindings (required for `:requires`):
 - Generate a template: `breyta flows bindings template <slug> --out profile.edn`
 - Apply bindings: `breyta flows bindings apply <slug> @profile.edn`
+- Or promote draft bindings: `breyta flows bindings apply <slug> --from-draft`
 - Show bindings status: `breyta flows bindings show <slug>`
 - Enable prod profile: `breyta flows activate <slug> --version latest`
 
@@ -39,6 +40,29 @@ Notes:
 - Templates include comments that list OAuth and secret slots.
 - Template commands print the activation URL to stderr for OAuth flows.
 - `:profile :autoUpgrade` controls pinning: `false` pins to the activated version, `true` auto-upgrades to latest.
+
+## Step-by-step: promote draft bindings to prod
+Use this when a draft profile is already working and you want to reuse it in prod.
+
+1) Apply draft bindings:
+```bash
+breyta flows draft bindings apply <slug> @draft.edn
+```
+
+2) Promote the current user's draft bindings:
+```bash
+breyta flows bindings apply <slug> --from-draft
+```
+
+3) Verify prod bindings:
+```bash
+breyta flows bindings show <slug>
+```
+
+4) Activate prod:
+```bash
+breyta flows activate <slug> --version latest
+```
 
 ## Template commands and `--clean`
 Template commands reflect current bindings by default:

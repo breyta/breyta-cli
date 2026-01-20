@@ -54,7 +54,7 @@ Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
 
 Next:
 - Authoring details: `./references/authoring-reference.md`
-- Webhook auth schemes: `./references/authoring-reference.md#webhook-auth-schemes`
+- Webhooks and event routing: `./references/webhooks.md`
 - CLI workflow: `./references/cli-workflow.md`
 - Bindings and activation: `./references/bindings-activation.md`
 
@@ -148,6 +148,7 @@ Draft workflow (safe testing):
 Prod workflow:
 - Generate a template: `breyta flows bindings template <slug> --out profile.edn`
 - Apply bindings: `breyta flows bindings apply <slug> @profile.edn`
+- Or promote draft bindings: `breyta flows bindings apply <slug> --from-draft`
 - Show bindings status: `breyta flows bindings show <slug>`
 - Enable prod profile: `breyta flows activate <slug> --version latest`
 

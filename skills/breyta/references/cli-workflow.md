@@ -22,6 +22,7 @@ Core commands:
 Notes:
 - Draft runs use draft bindings and the draft flow definition.
 - `flows push` updates the draft; `flows deploy` publishes a version for prod.
+- For long-running external jobs, prefer `flow/poll` to avoid manual wait loops.
 
 ## Fast loop: iterate per step
 When authoring flows with an agent, prefer tight feedback loops:
@@ -56,6 +57,7 @@ Core commands:
 - `breyta flows deploy <slug>`
 - `breyta flows bindings template <slug> --out profile.edn`
 - `breyta flows bindings apply <slug> @profile.edn`
+- `breyta flows bindings apply <slug> --from-draft`
 - `breyta flows bindings show <slug>`
 - `breyta flows activate <slug> --version latest`
 - `breyta runs start --flow <slug> --input '{"n":41}' --wait`

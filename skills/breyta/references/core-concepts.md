@@ -6,3 +6,4 @@
 - Draft vs deployed: draft runs use draft bindings and draft version; deploy publishes an immutable version, activate enables prod.
 - Triggers: manual, schedule, or event/webhook start a run.
 - Versioning: deploy publishes a version; runs are pinned to the version that started them.
+- Polling: `flow/poll` is a deterministic helper that expands to a loop + sleep, bounded by `:timeout` or `:max-attempts`.
