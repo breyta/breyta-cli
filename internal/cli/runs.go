@@ -30,6 +30,7 @@ func newRunsCmd(app *App) *cobra.Command {
 
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
+	var profileID string
 	var status string
 	var limit int
 	var cursor string
@@ -46,6 +47,9 @@ func newRunsListCmd(app *App) *cobra.Command {
 				payload := map[string]any{}
 				if strings.TrimSpace(flow) != "" {
 					payload["flowSlug"] = strings.TrimSpace(flow)
+				}
+				if strings.TrimSpace(profileID) != "" {
+					payload["profileId"] = strings.TrimSpace(profileID)
 				}
 				if strings.TrimSpace(status) != "" {
 					payload["status"] = strings.TrimSpace(status)
@@ -117,6 +121,7 @@ func newRunsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Filter by profile id (API mode only)")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
@@ -172,6 +177,7 @@ To access run resources, use the resources command:
 
 func newRunsStartCmd(app *App) *cobra.Command {
 	var flow string
+	var profileID string
 	var version int
 	var source string
 	var inputJSON string
@@ -189,6 +195,9 @@ func newRunsStartCmd(app *App) *cobra.Command {
 				payload := map[string]any{"flowSlug": flow}
 				if version > 0 {
 					payload["version"] = version
+				}
+				if strings.TrimSpace(profileID) != "" {
+					payload["profileId"] = strings.TrimSpace(profileID)
 				}
 				if strings.TrimSpace(source) != "" && source != "active" {
 					payload["source"] = source
@@ -294,6 +303,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Flow slug")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Profile id (instance) to run under (API mode only)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
 	cmd.Flags().StringVar(&source, "source", "active", "Source (active|draft|latest)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
