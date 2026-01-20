@@ -60,6 +60,17 @@ Core commands:
 - `breyta flows activate <slug> --version latest`
 - `breyta runs start --flow <slug> --input '{"n":41}' --wait`
 
+## End-user flows (installations)
+End-user-facing flows are marked with the `:end-user` tag.
+
+An installation is a per-user instance of the flow, backed by a prod profile (you can have multiple installations per flow).
+
+Core commands:
+- `breyta flows installations create <flow-slug> --name "My installation"`
+- `breyta flows installations set-inputs <profile-id> --input '{"region":"EU"}'`
+- `breyta flows installations enable <profile-id>` / `breyta flows installations disable <profile-id>`
+- `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{"x":1}' --wait`
+
 Docs shortcuts:
 - `breyta docs`
 - `breyta docs flows`

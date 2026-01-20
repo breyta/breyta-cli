@@ -125,7 +125,7 @@ func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testin
 		"--name", "Instance A",
 	)
 	if err != nil {
-		t.Fatalf("apps instances create failed: %v\n%s", err, stdout)
+		t.Fatalf("flows installations create failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -167,6 +167,6 @@ func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *
 		"--input", `{"region":"EU"}`,
 	)
 	if err != nil {
-		t.Fatalf("apps instances set-inputs failed: %v\n%s", err, stdout)
+		t.Fatalf("flows installations set-inputs failed: %v\n%s", err, stdout)
 	}
 }
