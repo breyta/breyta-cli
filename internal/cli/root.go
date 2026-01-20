@@ -158,7 +158,6 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
 
 	cmd.AddCommand(newFlowsCmd(app))
-	cmd.AddCommand(newAppsCmd(app))
 	cmd.AddCommand(newRunsCmd(app))
 	cmd.AddCommand(newStepsCmd(app))
 	cmd.AddCommand(newConnectionsCmd(app))

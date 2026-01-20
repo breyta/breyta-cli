@@ -189,13 +189,12 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- `breyta <command...> --help` prints Cobra help for that command\n")
 	b.WriteString("- For structured docs: `breyta docs <command...> --format json`\n\n")
 
-	b.WriteString("### End-user apps (marketplace MVP)\n\n")
+	b.WriteString("### End-user installations (marketplace MVP)\n\n")
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")
-	b.WriteString("- List apps: `breyta apps list`\n")
-	b.WriteString("- Subscribe (create instance): `breyta apps instances create <flow-slug> --name \"My instance\"`\n")
-	b.WriteString("- Set activation inputs: `breyta apps instances set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
-	b.WriteString("- Pause/resume: `breyta apps instances disable <profile-id>` / `breyta apps instances enable <profile-id>`\n")
-	b.WriteString("- Run as instance: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
+	b.WriteString("- Create installation: `breyta flows installations create <flow-slug> --name \"My installation\"`\n")
+	b.WriteString("- Set activation inputs: `breyta flows installations set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
+	b.WriteString("- Pause/resume: `breyta flows installations disable <profile-id>` / `breyta flows installations enable <profile-id>`\n")
+	b.WriteString("- Run under installation: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
 
 	b.WriteString("### Credentials / API keys for flows\n\n")
 	b.WriteString("Flows execute inside the Breyta server. There are two ways credentials can be provided:\n\n")

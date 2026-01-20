@@ -88,7 +88,7 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
-func TestAppsInstances_Create_UsesAppsInstancesCreateCommand(t *testing.T) {
+func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -96,7 +96,7 @@ func TestAppsInstances_Create_UsesAppsInstancesCreateCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "apps.instances.create" {
+		if body["command"] != "flows.installations.create" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -121,7 +121,7 @@ func TestAppsInstances_Create_UsesAppsInstancesCreateCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"apps", "instances", "create", "my-app",
+		"flows", "installations", "create", "my-app",
 		"--name", "Instance A",
 	)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestAppsInstances_Create_UsesAppsInstancesCreateCommand(t *testing.T) {
 	}
 }
 
-func TestAppsInstances_SetInputs_UsesAppsInstancesSetInputsCommand(t *testing.T) {
+func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -137,7 +137,7 @@ func TestAppsInstances_SetInputs_UsesAppsInstancesSetInputsCommand(t *testing.T)
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "apps.instances.set_inputs" {
+		if body["command"] != "flows.installations.set_inputs" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -163,58 +163,10 @@ func TestAppsInstances_SetInputs_UsesAppsInstancesSetInputsCommand(t *testing.T)
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"apps", "instances", "set-inputs", "prof-abc",
+		"flows", "installations", "set-inputs", "prof-abc",
 		"--input", `{"region":"EU"}`,
 	)
 	if err != nil {
 		t.Fatalf("apps instances set-inputs failed: %v\n%s", err, stdout)
-	}
-}
-
-func TestAppsList_FiltersEndUserTag(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.list" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":          true,
-			"workspaceId": "ws-acme",
-			"data": map[string]any{
-				"items": []any{
-					map[string]any{"flowSlug": "a", "tags": []any{"end-user"}},
-					map[string]any{"flowSlug": "b", "tags": []any{"internal"}},
-					map[string]any{"flowSlug": "c", "tags": []any{":end-user"}},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"apps", "list",
-	)
-	if err != nil {
-		t.Fatalf("apps list failed: %v\n%s", err, stdout)
-	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
-		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
-	}
-	data, _ := out["data"].(map[string]any)
-	items, _ := data["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items, got %d\n---\n%s", len(items), stdout)
 	}
 }
