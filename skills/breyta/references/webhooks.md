@@ -9,8 +9,7 @@ webhook completion.
   flows via the API.
 - Payloads arrive in `flow/input`.
 - Multipart webhooks preserve file parts and certain raw MIME fields as blob refs.
-- Prefer binding webhook secrets via `:secret-ref` and profile bindings; inline secrets
-  are meant for local smoke/dev flows.
+- Webhook secrets must use explicit `:secret-ref` + profile bindings.
 
 ### Webhook trigger setup
 Minimal webhook trigger:
@@ -30,6 +29,7 @@ Declare the secret slot and bind it:
 ```clojure
 {:requires [{:slot :webhook-secret
              :type :secret
+             :secret-ref :webhook-secret
              :label "Webhook Secret"}]}
 ```
 
@@ -48,10 +48,11 @@ Webhook setup checklist:
 ### Step-by-step: add a third-party webhook secret
 Use this when a provider gives you a webhook secret and you must validate signatures.
 
-1) Declare a secret slot in `:requires`:
+1) Declare a secret slot in `:requires` (with explicit `:secret-ref`):
 ```clojure
 {:requires [{:slot :webhook-secret
              :type :secret
+             :secret-ref :webhook-secret
              :label "Webhook Secret"}]}
 ```
 
@@ -67,7 +68,8 @@ Use this when a provider gives you a webhook secret and you must validate signat
                              :secret-ref :webhook-secret}}}]}
 ```
 
-3) Generate and fill a bindings file with the provider secret:
+3) Generate and fill a bindings file with the provider secret (stored under the
+   explicit `:secret-ref` value):
 ```bash
 breyta flows bindings template <slug> --out profile.edn
 ```
@@ -104,7 +106,7 @@ Use this when requests hit your endpoint but the flow does not start or auth fai
 breyta flows bindings show <slug>
 ```
 
-4) Send a local test request that matches the provider:
+4) Send a request that matches the provider:
 ```bash
 curl -X POST "https://flows.breyta.ai/<workspace-id>/events/<path>" \
   -H "Content-Type: application/json" \
@@ -119,24 +121,31 @@ curl -X POST "https://flows.breyta.ai/<workspace-id>/events/<path>" \
 
 ### Webhook endpoints
 - Public (external senders): `POST /:workspace-id/events/<path>`
-- Draft testing (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
+- Draft webhook endpoint (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
 
 Draft endpoint notes:
 - Requires workspace auth (CLI token/session), not webhook auth.
-- Useful for quick testing before deploying/activating a prod profile.
+- Useful for validating before deploying/activating a prod profile.
+
+### Fetch webhook URLs (CLI)
+Use the CLI to fetch webhook URLs for a flow:
+
+```bash
+breyta triggers webhook-url --flow <flow-slug>
+```
+
+If the webhook uses query-param auth, append the token:
+`https://.../events/<path>?token=<secret>`
 
 ### Auth schemes
-Supported auth types (webhooks must be authenticated; `:none` is not allowed):
+Supported auth types:
 - `:api-key`
 - `:bearer`
 - `:basic`
 - `:hmac-sha256`
 - `:signature` (generic signed payloads: HMAC or ECDSA)
 - `:ip-allowlist`
-
-Notes:
-- Prefer `:secret-ref` + profile bindings for prod; inline `:secret`, `:token`, or
-  `:password` values are for local smoke/dev workflows.
+- `:none`
 
 Auth config examples:
 
@@ -159,13 +168,6 @@ Bearer token:
 ```clojure
 {:auth {:type :bearer
         :secret-ref :webhook-token}}
-```
-
-Basic auth:
-```clojure
-{:auth {:type :basic
-        :username "webhook-user"
-        :password "webhook-pass"}}
 ```
 
 HMAC (simple, Base64 signature):
