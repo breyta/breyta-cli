@@ -11,6 +11,7 @@ description: >-
 - [Core concepts](#core-concepts)
 - [CLI workflow](#cli-workflow)
 - [Bindings and activation](#bindings-and-activation)
+- [Secrets](#secrets)
 - [Authoring reference](#authoring-reference)
 - [Templates](#templates)
 - [Step reference](#step-reference)
@@ -57,6 +58,7 @@ Next:
 - Webhooks and event routing: `./references/webhooks.md`
 - CLI workflow: `./references/cli-workflow.md`
 - Bindings and activation: `./references/bindings-activation.md`
+- Secrets: `./references/secrets.md`
 
 Shorter variant (LLM + template + function + requires):
 
@@ -100,7 +102,7 @@ Details: `./references/core-concepts.md`
 ## CLI workflow
 The intended workflow is:
 1) List flows
-2) Pull a flow to a local `.clj` file
+2) Pull a flow to a `.clj` file
 3) Edit the file
 4) Push a new draft version
 5) Deploy (publish a version)
@@ -142,7 +144,7 @@ Core commands:
 Details: `./references/cli-workflow.md`
 
 ## Bindings and activation
-Draft workflow (safe testing):
+Draft workflow (safe preview):
 - Generate a draft template: `breyta flows draft bindings template <slug> --out draft.edn`
 - Set draft bindings: `breyta flows draft bindings apply <slug> @draft.edn`
 - Show draft bindings status: `breyta flows draft bindings show <slug>`
@@ -159,6 +161,11 @@ Templates prefill current bindings by default; add `--clean` for a requirements-
 Profile pinning: set `:profile :autoUpgrade true` to follow latest versions, `false` to pin.
 
 Details: `./references/bindings-activation.md`
+
+## Secrets
+How secret slots and secret refs work, how to bind values, and rotation patterns.
+
+Details: `./references/secrets.md`
 
 ## Authoring reference
 Flow file format and core fields:
@@ -209,6 +216,7 @@ Details: `./references/patterns.md`
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
+- For webhook secrets, require explicit `:secret-ref` on the slot.
 
 Details: `./references/agent-guidance.md`
 

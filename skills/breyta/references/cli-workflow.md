@@ -3,7 +3,7 @@ This workflow splits into authoring (draft) and live operations.
 
 ## Authoring a flow (draft)
 1) List flows
-2) Pull a flow to a local `.clj` file
+2) Pull a flow to a `.clj` file
 3) Edit the file
 4) Push a new draft version
 5) Run draft with draft bindings
@@ -40,7 +40,7 @@ When authoring flows with an agent, prefer tight feedback loops:
 5) Verify stored tests: `breyta steps tests verify <flow-slug> <step-id> --type <type>`
 6) Push + validate/compile, then run the draft flow end-to-end
 
-### Templates during development
+### Templates during authoring
 When iterating on draft bindings, templates reflect what is already bound:
 - `breyta flows draft bindings template <slug> --out draft.edn`
 - Add `--clean` to emit a requirements-only template without existing bindings.
@@ -90,7 +90,7 @@ Bindings and activation:
 ## Clojure delimiter repair
 If you hit delimiter errors while editing flow files:
 - `breyta flows push` attempts delimiter repair by default (`--repair-delimiters=true`).
-- It writes repaired content back to your local file; opt out with `--no-repair-writeback`.
+- It writes repaired content back to your file; opt out with `--no-repair-writeback`.
 
 Local check:
 

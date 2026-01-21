@@ -1,6 +1,6 @@
 # Reference index
 - Slot types: `:http-api`, `:llm-provider`, `:database`, `:blob-storage`, `:kv-store`, `:secret`
-- Auth types: `:api-key`, `:bearer`, `:basic`, `:hmac-sha256`, `:signature`, `:ip-allowlist` (webhooks require auth; `:none` not allowed)
+- Auth types: `:api-key`, `:bearer`, `:basic`, `:hmac-sha256`, `:signature`, `:ip-allowlist`, `:none`
 - Trigger types: `:manual`, `:schedule`, `:event`
 - Step types: `:http`, `:llm`, `:db`, `:wait`, `:function`
 - Flow helpers: `flow/poll`, `flow/now-ms`, `flow/elapsed?`, `flow/backoff`
