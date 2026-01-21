@@ -90,8 +90,15 @@ Use these commands to manage flows:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows deploy <slug>
 
+End-user installations (flows tagged `:end-user`):
+- breyta flows installations create <slug> --name "My installation"
+- breyta flows installations set-inputs <profile-id> --input '{"region":"EU"}'
+- breyta flows installations enable <profile-id>   # activate
+- breyta flows installations disable <profile-id>  # pause
+
 To run a flow and see output:
 - breyta runs start --flow run-hello --input '{"n":41}' --wait
+- (as an installation) breyta runs start --flow <slug> --profile-id <profile-id> --input '{"x":1}' --wait
 - read output at: data.run.resultPreview.data.result
 
 Notes for agents:

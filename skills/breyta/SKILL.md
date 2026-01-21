@@ -88,7 +88,9 @@ Shorter variant (LLM + template + function + requires):
 
 ## Core concepts
 - Flow definition: a versioned EDN map that describes triggers, steps, and orchestration.
-- Flow profile: the prod instance with bindings and trigger state, pinned to a version.
+- End-user flow: a flow intended for others to use, marked with the `:end-user` tag (MVP).
+- Installation: a per-user instance of an end-user flow, backed by a (user-scoped) prod profile.
+- Flow profile: runtime configuration (bindings + activation inputs + enabled state) used for runs; profiles can be user-scoped (installations) or workspace-scoped.
 - Bindings: apply `:requires` slots and activation inputs (form values) for draft or prod.
 - Activation: enables the prod profile after bindings are set; `--version` pins which version to run and does not accept inputs.
 - Draft vs deployed: draft runs use draft bindings and draft version; deploy publishes an immutable version, activate enables prod.

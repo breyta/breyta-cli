@@ -78,6 +78,7 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(newFlowsCreateCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
+	cmd.AddCommand(newFlowsInstallationsCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
