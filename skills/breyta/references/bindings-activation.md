@@ -1,5 +1,5 @@
 # Bindings and activation
-Draft workflow (safe testing):
+Draft workflow (safe preview):
 - Generate a draft template: `breyta flows draft bindings template <slug> --out draft.edn`
 - Set draft bindings: `breyta flows draft bindings apply <slug> @draft.edn`
 - Show draft bindings status: `breyta flows draft bindings show <slug>`

@@ -72,7 +72,7 @@ Form fields:
 | `:options` | vector | If `:select` | Options |
 
 ### `:type :secret`
-Use `:type :secret` for single-value secrets (webhook signing, tokens used in custom logic). Avoid for HTTP APIs.
+Use `:type :secret` for single-value secrets (webhook signing, tokens used in flow logic). Avoid for HTTP APIs.
 
 ## `:concurrency`
 Both `:type` and `:on-new-version` are required.
@@ -125,7 +125,7 @@ Webhook setup checklist:
 
 Webhook endpoints:
 - Public (external senders): `POST /:workspace-id/events/<path>`
-- Draft testing (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
+- Draft webhook endpoint (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
 
 Webhook auth schemes:
 
