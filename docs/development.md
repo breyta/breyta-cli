@@ -18,6 +18,15 @@ make build
 make test
 ```
 
+### GitHub PR checks
+
+CI runs on pull requests via `.github/workflows/ci.yml`.
+
+To make PRs mandatory for `main`, enable branch protection in GitHub:
+
+- Require a pull request before merging
+- Require status checks to pass: `CI / test`
+
 ### Mock mode (local CLI/TUI development)
 
 The CLI includes a mock mode used for local development and TUI iteration.
