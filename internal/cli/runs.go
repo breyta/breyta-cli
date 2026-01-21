@@ -444,6 +444,7 @@ func flowStepTitle(s *state.FlowStep) string {
 
 func newRunsCancelCmd(app *App) *cobra.Command {
 	var reason string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "cancel <workflow-id>",
 		Short: "Cancel a run",
@@ -453,6 +454,9 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 				payload := map[string]any{"workflowId": args[0]}
 				if strings.TrimSpace(reason) != "" {
 					payload["reason"] = strings.TrimSpace(reason)
+				}
+				if force {
+					payload["force"] = true
 				}
 				return doAPICommand(cmd, app, "runs.cancel", payload)
 			}
@@ -464,11 +468,15 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
+			if r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" || r.Status == "terminated" {
 				return writeData(cmd, app, map[string]any{"hint": "Run is already terminal"}, map[string]any{"run": r})
 			}
 			now := time.Now().UTC()
-			r.Status = "cancelled"
+			if force {
+				r.Status = "terminated"
+			} else {
+				r.Status = "cancelled"
+			}
 			r.Error = reason
 			r.CurrentStep = ""
 			r.CompletedAt = &now
@@ -480,6 +488,7 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&reason, "reason", "", "Cancellation reason")
+	cmd.Flags().BoolVar(&force, "force", false, "Terminate the run immediately")
 	return cmd
 }
 

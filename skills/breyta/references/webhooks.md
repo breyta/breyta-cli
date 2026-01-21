@@ -125,6 +125,16 @@ Draft endpoint notes:
 - Requires workspace auth (CLI token/session), not webhook auth.
 - Useful for quick testing before deploying/activating a prod profile.
 
+### Fetch webhook URLs (CLI)
+Use the CLI to fetch webhook URLs for a flow:
+
+```bash
+breyta triggers webhook-url --flow <flow-slug>
+```
+
+If the webhook uses query-param auth, append the token:
+`https://.../events/<path>?token=<secret>`
+
 ### Auth schemes
 Supported auth types (webhooks must be authenticated; `:none` is not allowed):
 - `:api-key`

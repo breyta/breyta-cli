@@ -137,6 +137,7 @@ Core commands:
 - `breyta flows validate <slug>`
 - `breyta flows compile <slug>`
 - `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
+- `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
 Details: `./references/cli-workflow.md`
 

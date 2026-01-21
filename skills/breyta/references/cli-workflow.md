@@ -61,6 +61,7 @@ Core commands:
 - `breyta flows bindings show <slug>`
 - `breyta flows activate <slug> --version latest`
 - `breyta runs start --flow <slug> --input '{"n":41}' --wait`
+- `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
 ## End-user flows (installations)
 End-user-facing flows are marked with the `:end-user` tag.
