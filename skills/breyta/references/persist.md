@@ -191,6 +191,7 @@ breyta resources read res://<resource-id>
 ```
 
 Notes:
+- `breyta resources ...` requires API mode (set `BREYTA_API_URL`, `BREYTA_WORKSPACE`, and authenticate via `breyta auth login` or set `BREYTA_TOKEN` in dev).
 - Use `:body-from-ref` for HTTP bodies; `:body` will inline `:data` instead of loading from storage.
 - For multipart, use `:from-ref` on each part.
 - If a ref was created in a non-default bucket, include `:bucket` inside `:from-ref`.

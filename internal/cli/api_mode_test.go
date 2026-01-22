@@ -58,6 +58,18 @@ func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
 	}
 }
 
+func TestDocs_Index_IncludesResourcesByDefault(t *testing.T) {
+	stdout, _, err := runCLIArgs(t,
+		"docs",
+	)
+	if err != nil {
+		t.Fatalf("docs failed: %v\n%s", err, stdout)
+	}
+	if !bytes.Contains([]byte(stdout), []byte("`resources`")) {
+		t.Fatalf("expected docs index to include resources\n---\n%s", stdout)
+	}
+}
+
 func TestDocs_CanDocumentHiddenCommandByName(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
 		"docs", "resources",
