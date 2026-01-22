@@ -44,7 +44,10 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 				outFormat = "md"
 			}
 
-			target, path, err := findCommandByPath(root, args)
+			// Docs are allowed to target hidden commands, even when the default CLI
+			// surface is minimized (non-dev mode). This keeps docs stable for agents
+			// and internal tooling without expanding the user-visible help surface.
+			target, path, err := findCommandByPath(root, args, true)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -145,11 +148,11 @@ func docFlags(fs *pflag.FlagSet, persistent bool, includeHidden bool) []docFlag 
 	return items
 }
 
-func findCommandByPath(root *cobra.Command, args []string) (*cobra.Command, string, error) {
+func findCommandByPath(root *cobra.Command, args []string, allowHidden bool) (*cobra.Command, string, error) {
 	cur := root
 	path := cur.Name()
 	for _, tok := range args {
-		nxt := findDirectSubcommand(cur, tok)
+		nxt := findDirectSubcommand(cur, tok, allowHidden)
 		if nxt == nil {
 			return nil, "", fmt.Errorf("unknown command: %s (try `breyta docs` for index)", strings.Join(args, " "))
 		}
@@ -159,13 +162,13 @@ func findCommandByPath(root *cobra.Command, args []string) (*cobra.Command, stri
 	return cur, path, nil
 }
 
-func findDirectSubcommand(parent *cobra.Command, tok string) *cobra.Command {
+func findDirectSubcommand(parent *cobra.Command, tok string, allowHidden bool) *cobra.Command {
 	tok = strings.TrimSpace(tok)
 	if tok == "" {
 		return nil
 	}
 	for _, c := range parent.Commands() {
-		if !c.IsAvailableCommand() {
+		if !allowHidden && !c.IsAvailableCommand() {
 			continue
 		}
 		if c.Name() == tok {
@@ -192,6 +195,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("### End-user installations (marketplace MVP)\n\n")
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")
 	b.WriteString("- Create installation: `breyta flows installations create <flow-slug> --name \"My installation\"`\n")
+	b.WriteString("- Show installation: `breyta flows installations get <profile-id>`\n")
 	b.WriteString("- Set activation inputs: `breyta flows installations set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
 	b.WriteString("- Pause/resume: `breyta flows installations disable <profile-id>` / `breyta flows installations enable <profile-id>`\n")
 	b.WriteString("- Run under installation: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
