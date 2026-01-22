@@ -26,6 +26,8 @@ In the backend, an installation is implemented as a prod flow profile scoped to 
 	cmd.AddCommand(newFlowsInstallationsSetEnabledCmd(app))
 	cmd.AddCommand(newFlowsInstallationsEnableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
+	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
+	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
 }
 
