@@ -95,6 +95,8 @@ End-user installations (flows tagged `:end-user`):
 - breyta flows installations set-inputs <profile-id> --input '{"region":"EU"}'
 - breyta flows installations enable <profile-id>   # activate
 - breyta flows installations disable <profile-id>  # pause
+- breyta flows installations triggers <profile-id> # list upload endpoints
+- breyta flows installations upload <profile-id> --file ./a.pdf --file ./b.pdf [--trigger upload]
 
 To run a flow and see output:
 - breyta runs start --flow run-hello --input '{"n":41}' --wait

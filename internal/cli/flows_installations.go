@@ -26,10 +26,13 @@ In the backend, an installation is implemented as a prod flow profile scoped to 
 	cmd.AddCommand(newFlowsInstallationsSetEnabledCmd(app))
 	cmd.AddCommand(newFlowsInstallationsEnableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
+	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
+	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
 }
 
 func newFlowsInstallationsListCmd(app *App) *cobra.Command {
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "list <flow-slug>",
 		Short: "List your installations for an end-user flow",
@@ -38,9 +41,14 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations list requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.installations.list", map[string]any{"flowSlug": args[0]})
+			payload := map[string]any{"flowSlug": args[0]}
+			if all {
+				payload["all"] = true
+			}
+			return doAPICommand(cmd, app, "flows.installations.list", payload)
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "List all installations for the flow (creator-only)")
 	return cmd
 }
 
