@@ -201,6 +201,19 @@ How `:persist` works, when to use it, and how refs flow to downstream steps.
 
 Details: `./references/persist.md`
 
+## Resources (CLI)
+Use `breyta resources ...` to inspect persisted **result** refs (resource URIs like `res://...`) and fetch their content.
+
+Ready today:
+- `breyta resources list` / `breyta resources workflow list <workflow-id>` / `breyta resources workflow step <workflow-id> <step-id>`
+- `breyta resources get <uri>`
+- `breyta resources read <uri>` (intended for `:result` resources like persisted refs)
+- `breyta resources url <uri>`
+
+Notes:
+- `resources` requires API mode (`BREYTA_API_URL` + auth); it does not work against the local mock/TUI surface.
+- Resource types like `:import`, `:file`, `:bundle`, `:external-dir` may list/get, but content reads are currently intended for persisted results.
+
 ## Patterns and do/dont
 - Bindings then activate; draft stays in draft.
 - Keep flow body deterministic.

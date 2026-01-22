@@ -26,6 +26,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"flow":  true, // alias
 		"runs":  true,
 		"run":   true, // alias
+		"resources": true,
 		"docs":  true,
 		"auth":  true,
 	}
