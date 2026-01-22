@@ -126,6 +126,11 @@ Webhook setup checklist:
 Webhook endpoints:
 - Public (external senders): `POST /:workspace-id/events/<path>`
 - Draft webhook endpoint (workspace-auth): `POST /:workspace-id/api/events/draft/<path>`
+- Validate endpoint (workspace-auth): `POST /:workspace-id/api/events/validate/<path>`
+
+CLI validation:
+- `breyta webhooks send --validate-only --path <path> --json '{...}'`
+- Add `--persist-resources` to store multipart file parts during validation.
 
 Webhook auth schemes:
 

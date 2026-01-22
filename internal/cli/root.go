@@ -163,7 +163,6 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newConnectionsCmd(app))
 	cmd.AddCommand(newProfilesCmd(app))
 	cmd.AddCommand(newTriggersCmd(app))
-	cmd.AddCommand(newEventsCmd(app))
 	cmd.AddCommand(newWebhooksCmd(app))
 	cmd.AddCommand(newResourcesCmd(app))
 	cmd.AddCommand(newDebugCmd(app))

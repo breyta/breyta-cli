@@ -265,7 +265,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	}
 
 	b.WriteString("### Flow body constraints (SCI / orchestration DSL)\n\n")
-	b.WriteString("Flow bodies are intentionally constrained to keep the \"flow language\" small for visualization and translation (Temporal-like orchestration), and to reduce the security surface area.\n\n")
+	b.WriteString("Flow bodies are intentionally constrained to keep the \"flow language\" small for visualization and translation (engine-agnostic orchestration), and to reduce the security surface area.\n\n")
 	b.WriteString("Practical consequences:\n")
 	b.WriteString("- Many everyday Clojure functions are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)\n")
 	b.WriteString("- Keep the flow body focused on orchestration (a sequence of `step` calls)\n")

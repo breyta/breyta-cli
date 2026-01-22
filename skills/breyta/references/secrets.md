@@ -4,7 +4,7 @@ This guide covers secret slots, secret refs, bindings, rotation, and how secrets
 are consumed by triggers and steps.
 
 ### Core concepts
-- A secret is stored in the secret store under a `:secret-ref` key.
+- A secret is stored under a `:secret-ref` key.
 - A secret slot is declared in `:requires` with `:type :secret`.
 - Bindings map a slot to its `:secret-ref`; the secret value is stored separately.
 - Flow definitions should never embed secret values.

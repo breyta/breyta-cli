@@ -85,7 +85,7 @@ breyta flows activate <slug> --version latest
 ```
 
 5) Copy the webhook URL and configure the provider:
-- Get URL from UI or via `breyta flows triggers show <slug>`
+- Get URL from UI or via `breyta triggers <flow-slug>` (includes `webhookUrl` for webhook triggers)
 - Set the provider to sign payloads and send `X-Signature`
 
 ### Step-by-step: webhook auth troubleshooting
@@ -131,11 +131,42 @@ Draft endpoint notes:
 Use the CLI to fetch webhook URLs for a flow:
 
 ```bash
-breyta triggers webhook-url --flow <flow-slug>
+breyta triggers <flow-slug>
 ```
 
 If the webhook uses query-param auth, append the token:
 `https://.../events/<path>?token=<secret>`
+
+### Validate webhook payloads (CLI)
+Use `webhooks send --validate-only` to preview how a payload becomes `flow/input`
+without triggering a run.
+
+JSON payload preview:
+```bash
+breyta webhooks send --path webhooks/orders/created \
+  --json '{"id":"evt_123","ok":true}' \
+  --validate-only
+```
+
+Multipart payload preview (no persistence):
+```bash
+breyta webhooks send --path webhooks/orders/inbound \
+  --multipart-file "file=./receipt.pdf" \
+  --form-field "from=sender@example.com" \
+  --validate-only
+```
+
+Persist multipart resources during validation (so input includes resource refs):
+```bash
+breyta webhooks send --path webhooks/orders/inbound \
+  --multipart-file "file=./receipt.pdf" \
+  --validate-only \
+  --persist-resources
+```
+
+Notes:
+- Validation uses the workspace-auth endpoint; you need a CLI token/session.
+- When `--persist-resources` is omitted, file parts are returned as previews.
 
 ### Auth schemes
 Supported auth types:
@@ -145,7 +176,6 @@ Supported auth types:
 - `:hmac-sha256`
 - `:signature` (generic signed payloads: HMAC or ECDSA)
 - `:ip-allowlist`
-- `:none`
 
 Auth config examples:
 
@@ -222,6 +252,8 @@ Raw MIME support:
 - Storage tier is configurable (ephemeral by default).
 - Raw MIME payloads share the same 50MB total payload limit as standard webhook
   payloads (limit applies across all attachments).
+- Multipart payloads with `:hmac-sha256` or `:signature` auth have a stricter
+  size cap; oversized requests return 413.
 
 Example flow input (simplified):
 ```clojure
