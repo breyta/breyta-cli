@@ -92,6 +92,7 @@ Use these commands to manage flows:
 
 End-user installations (flows tagged `:end-user`):
 - breyta flows installations create <slug> --name "My installation"
+- breyta flows installations get <profile-id>      # show required inputs
 - breyta flows installations set-inputs <profile-id> --input '{"region":"EU"}'
 - breyta flows installations enable <profile-id>   # activate
 - breyta flows installations disable <profile-id>  # pause
