@@ -58,6 +58,21 @@ func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
 	}
 }
 
+func TestDocs_CanDocumentHiddenCommandByName(t *testing.T) {
+	stdout, _, err := runCLIArgs(t,
+		"docs", "resources",
+	)
+	if err != nil {
+		t.Fatalf("docs resources failed: %v\n%s", err, stdout)
+	}
+	if !bytes.HasPrefix([]byte(stdout), []byte("## breyta resources")) {
+		t.Fatalf("expected markdown docs header for resources\n---\n%s", stdout)
+	}
+	if !bytes.Contains([]byte(stdout), []byte("Unified resource access")) {
+		t.Fatalf("expected resources docs content\n---\n%s", stdout)
+	}
+}
+
 func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
