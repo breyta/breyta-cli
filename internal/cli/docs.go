@@ -192,6 +192,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("### End-user installations (marketplace MVP)\n\n")
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")
 	b.WriteString("- Create installation: `breyta flows installations create <flow-slug> --name \"My installation\"`\n")
+	b.WriteString("- Show installation: `breyta flows installations get <profile-id>`\n")
 	b.WriteString("- Set activation inputs: `breyta flows installations set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
 	b.WriteString("- Pause/resume: `breyta flows installations disable <profile-id>` / `breyta flows installations enable <profile-id>`\n")
 	b.WriteString("- Run under installation: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
