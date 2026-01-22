@@ -734,7 +734,122 @@ func newProfilesDeleteCmd(app *App) *cobra.Command {
 // --- Triggers ----------------------------------------------------------------
 
 func newTriggersCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "triggers", Short: "Manage triggers"}
+	var limit int
+	var cursor string
+	var triggerType string
+	cmd := &cobra.Command{
+		Use:   "triggers <flow-slug>",
+		Short: "Manage triggers",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			flow := strings.TrimSpace(args[0])
+			if flow == "" {
+				return writeErr(cmd, errors.New("flow-slug is required"))
+			}
+
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				q := url.Values{}
+				q.Set("flow", flow)
+				if strings.TrimSpace(triggerType) != "" {
+					q.Set("type", strings.TrimSpace(triggerType))
+				}
+				if strings.TrimSpace(cursor) != "" {
+					q.Set("cursor", strings.TrimSpace(cursor))
+				}
+				if limit > 0 {
+					q.Set("limit", strconv.Itoa(limit))
+				}
+				outAny, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if status >= 400 {
+					return writeREST(cmd, app, status, outAny)
+				}
+
+				out, _ := outAny.(map[string]any)
+				rawTriggers, _ := out["triggers"].([]any)
+				items := make([]map[string]any, 0, len(rawTriggers))
+				for _, tAny := range rawTriggers {
+					t, _ := tAny.(map[string]any)
+					if t == nil {
+						continue
+					}
+					config, _ := t["config"].(map[string]any)
+					path, _ := config["path"].(string)
+					source, _ := config["source"].(string)
+					triggerType, _ := t["type"].(string)
+					isWebhook := strings.EqualFold(strings.TrimSpace(triggerType), "webhook")
+					if !isWebhook {
+						isWebhook = strings.EqualFold(strings.TrimSpace(triggerType), "event") && strings.EqualFold(strings.TrimSpace(source), "webhook")
+					}
+					if isWebhook && path != "" {
+						webhookURL := webhookEventURL(app, path)
+						if param, ok := webhookAuthQueryParam(config); ok {
+							webhookURL = appendWebhookQueryPlaceholder(webhookURL, param)
+						}
+						t["webhookUrl"] = webhookURL
+					}
+					items = append(items, t)
+				}
+				meta := map[string]any{"total": len(items)}
+				if next, _ := out["next-cursor"].(string); strings.TrimSpace(next) != "" {
+					meta["nextCursor"] = next
+				}
+				if hasMore, ok := out["has-more"].(bool); ok {
+					meta["hasMore"] = hasMore
+				}
+				return writeData(cmd, app, meta, map[string]any{"items": items})
+			}
+
+			st, _, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			items := make([]map[string]any, 0)
+			for _, t := range ws.Triggers {
+				if t == nil || t.FlowSlug != flow {
+					continue
+				}
+				cfg, _ := t.Config.(map[string]any)
+				path, _ := cfg["path"].(string)
+				entry := map[string]any{
+					"id":        t.ID,
+					"flowSlug":  t.FlowSlug,
+					"type":      t.Type,
+					"label":     t.Name,
+					"enabled":   t.Enabled,
+					"updatedAt": t.UpdatedAt,
+					"config":    t.Config,
+				}
+				source, _ := cfg["source"].(string)
+				isWebhook := strings.EqualFold(strings.TrimSpace(t.Type), "webhook")
+				if !isWebhook {
+					isWebhook = strings.EqualFold(strings.TrimSpace(t.Type), "event") && strings.EqualFold(strings.TrimSpace(source), "webhook")
+				}
+				if isWebhook && path != "" {
+					webhookURL := webhookEventURL(app, path)
+					if param, ok := webhookAuthQueryParam(cfg); ok {
+						webhookURL = appendWebhookQueryPlaceholder(webhookURL, param)
+					}
+					entry["webhookUrl"] = webhookURL
+				}
+				items = append(items, entry)
+			}
+			meta := map[string]any{"total": len(items)}
+			return writeData(cmd, app, meta, map[string]any{"items": items})
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
+	cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (API mode only)")
 	cmd.AddCommand(newTriggersListCmd(app))
 	cmd.AddCommand(newTriggersShowCmd(app))
 	cmd.AddCommand(newTriggersWebhookURLCmd(app))
@@ -795,6 +910,53 @@ func webhookEventURL(app *App, webhookPath string) string {
 	return fmt.Sprintf("%s/%s/events/%s", baseURL(app), app.WorkspaceID, p)
 }
 
+func webhookAuthQueryParam(config map[string]any) (string, bool) {
+	if len(config) == 0 {
+		return "", false
+	}
+	authAny := config["auth"]
+	auth, ok := authAny.(map[string]any)
+	if !ok || len(auth) == 0 {
+		return "", false
+	}
+	authType := strings.TrimSpace(fmt.Sprint(auth["type"]))
+	if !strings.EqualFold(authType, "api-key") {
+		return "", false
+	}
+	location := strings.TrimSpace(fmt.Sprint(auth["location"]))
+	if location == "" {
+		location = strings.TrimSpace(fmt.Sprint(auth["in"]))
+	}
+	if location == "" {
+		return "", false
+	}
+	isQuery := strings.EqualFold(location, "query") || strings.EqualFold(location, "query-param") || strings.EqualFold(location, "param")
+	if !isQuery {
+		return "", false
+	}
+	param := strings.TrimSpace(fmt.Sprint(auth["param"]))
+	if param == "" {
+		param = "token"
+	}
+	return param, true
+}
+
+func appendWebhookQueryPlaceholder(rawURL, param string) string {
+	if strings.TrimSpace(rawURL) == "" || strings.TrimSpace(param) == "" {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := parsed.Query()
+	if q.Get(param) == "" {
+		q.Set(param, "<api-key>")
+	}
+	parsed.RawQuery = q.Encode()
+	return parsed.String()
+}
+
 func newTriggersListCmd(app *App) *cobra.Command {
 	var flow string
 	var triggerType string
@@ -802,7 +964,8 @@ func newTriggersListCmd(app *App) *cobra.Command {
 	var cursor string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List triggers",
+		Short: "List triggers (legacy; use `triggers <flow-slug>`)",
+		Long:  "List triggers. Prefer `breyta triggers <flow-slug>` for a flow-scoped view with webhook URLs.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				if err := requireAPI(app); err != nil {
@@ -857,15 +1020,21 @@ func newTriggersWebhookURLCmd(app *App) *cobra.Command {
 	var limit int
 
 	cmd := &cobra.Command{
-		Use:   "webhook-url",
+		Use:   "webhook-url <flow-slug>",
 		Short: "Show webhook URL(s) for webhook triggers",
 		Long: strings.TrimSpace(`
 Webhook triggers are fired via the public events endpoint:
   POST /<workspace>/events/<path>
 
-This command lists webhook trigger URLs so you can copy/paste them into external systems.
+This command lists webhook trigger URLs for a flow so you can copy/paste them into external systems.
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+				return writeErr(cmd, errors.New("flow-slug is required"))
+			}
+			if flow == "" {
+				flow = strings.TrimSpace(args[0])
+			}
 			if isAPIMode(app) {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
@@ -876,9 +1045,7 @@ This command lists webhook trigger URLs so you can copy/paste them into external
 
 				q := url.Values{}
 				q.Set("type", "webhook")
-				if strings.TrimSpace(flow) != "" {
-					q.Set("flow", strings.TrimSpace(flow))
-				}
+				q.Set("flow", strings.TrimSpace(flow))
 				q.Set("limit", strconv.Itoa(limit))
 
 				outAny, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/triggers", q, nil)

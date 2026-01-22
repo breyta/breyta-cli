@@ -7,7 +7,7 @@ Core fields:
 | --- | --- | --- | --- |
 | `:key` | string | Yes | Correlation key |
 | `:notify` | map | No | Notification config (supported channels: `:http` connection-based) |
-| `:timeout` | string | No | Duration string (e.g. \"24h\") |
+| `:timeout` | string/number | No | Duration string (e.g. \"24h\") or seconds |
 
 Notes:
 - Use a stable `:key` so external events can resume the flow.

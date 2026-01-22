@@ -24,6 +24,8 @@ Notes:
 - If the response is truncated, the step fails unless `:persist {:type :blob ...}` is set.
 - Use `:persist {:type :blob}` for large payloads; downstream steps can load refs.
 - Templates only cover request shape; step-level keys like `:persist` stay on the step.
+- Auth must use secret references. Inline tokens or API keys are rejected.
+- Prefer connection auth (`:requires` with `:auth`), or set step-level auth with `:auth {:type :bearer|:api-key :secret-ref :my-secret}`.
 
 Example:
 

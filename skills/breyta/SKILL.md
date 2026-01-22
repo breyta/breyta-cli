@@ -32,7 +32,7 @@ Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
              :type :http-api
              :label "Users API"
              :base-url "https://jsonplaceholder.typicode.com"
-             :auth {:type :none}}]
+             :auth {:type :none}}] ;; note: webhook triggers require auth; :none is not allowed there
  :templates [{:id :get-users
               :type :http-request
               :request {:path "/users"

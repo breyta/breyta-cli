@@ -158,9 +158,6 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 			if persistResources && !validateOnly {
 				return writeFailure(cmd, app, "persist_requires_validate_only", errors.New("--persist-resources requires --validate-only"), "Re-run with --validate-only.", nil)
 			}
-			if persistResources && validateOnly {
-				return writeFailure(cmd, app, "persist_resources_unimplemented", errors.New("--persist-resources not implemented"), "Run without --persist-resources for now.", nil)
-			}
 
 			eventPath := escapePathSegments(eventPathRaw)
 			if eventPath == "" {
@@ -176,13 +173,31 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 			fullURL := fmt.Sprintf("%s%s", baseURL, endpoint)
 
-			if printInputMap {
+			if printInputMap && !validateOnly {
 				preview := map[string]any{"input": payload.InputMap}
 				_ = writeOut(cmd, app, preview)
 			}
 
 			if validateOnly {
-				return writeOut(cmd, app, buildValidateOnlyPreview(fullURL, headers, query, payload.Body))
+				if err := requireAPI(app); err != nil {
+					return writeFailure(cmd, app, "api_auth_required", err, "Provide --token or run `breyta auth login`.", nil)
+				}
+				validateQuery := query
+				if persistResources {
+					validateQuery.Set("persist-resources", "true")
+				}
+				if draft {
+					validateQuery.Set("draft", "true")
+				}
+				validateEndpoint := fmt.Sprintf("/%s/api/events/validate/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
+				validateURL := fmt.Sprintf("%s%s", baseURL, validateEndpoint)
+				client := apiClient(app)
+				client.BaseURL = baseURL
+				out, status, err := client.DoRootRESTBytes(context.Background(), http.MethodPost, validateEndpoint, validateQuery, payload.Body, headers)
+				if err != nil {
+					return writeFailure(cmd, app, "webhook_validate_failed", err, "Check API connectivity and webhook path.", map[string]any{"url": validateURL})
+				}
+				return writeREST(cmd, app, status, out)
 			}
 
 			client := apiClient(app)
@@ -255,8 +270,8 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Print only response JSON")
 	cmd.Flags().IntVar(&failOnHTTP, "fail-on-http", 0, "Exit non-zero if status >= code")
 	cmd.Flags().BoolVar(&printInputMap, "print-input-map", false, "Print inferred flow/input map before sending")
-	cmd.Flags().BoolVar(&validateOnly, "validate-only", false, "Build payload + headers only, do not send")
-	cmd.Flags().BoolVar(&persistResources, "persist-resources", false, "Persist multipart resources when validating (not implemented)")
+	cmd.Flags().BoolVar(&validateOnly, "validate-only", false, "Validate payload without triggering a run (API mode)")
+	cmd.Flags().BoolVar(&persistResources, "persist-resources", false, "Persist multipart resources during validation (requires --validate-only)")
 	cmd.Flags().StringVar(&saveResponsePath, "save-response", "", "Save response JSON to path")
 
 	return cmd
@@ -735,9 +750,7 @@ func parseTimestampMs(raw string) (int64, error) {
 	if raw == "" {
 		return 0, errors.New("empty timestamp")
 	}
-	if strings.HasPrefix(raw, "+") {
-		raw = strings.TrimPrefix(raw, "+")
-	}
+	raw = strings.TrimPrefix(raw, "+")
 	val, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("invalid timestamp: %w", err)
