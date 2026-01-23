@@ -12,6 +12,7 @@ description: >-
 - [CLI workflow](#cli-workflow)
 - [Bindings and activation](#bindings-and-activation)
 - [Secrets](#secrets)
+- [Installations](#installations)
 - [Authoring reference](#authoring-reference)
 - [Templates](#templates)
 - [Step reference](#step-reference)
@@ -142,6 +143,12 @@ Core commands:
 - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
 Details: `./references/cli-workflow.md`
+
+## Installations
+How end-user flows (`:tags [:end-user]`) are subscribed to, configured, and run
+via installation profiles (including multi-file uploads).
+
+Details: `./references/installations.md`
 
 ## Bindings and activation
 Draft workflow (safe preview):
