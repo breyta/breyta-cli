@@ -14,13 +14,72 @@ import (
 )
 
 type installationTrigger struct {
-	TriggerID  string
-	Type       string
-	EventName  string
-	EventPath  string
-	Endpoint   string
-	WebhookRaw map[string]any
-	Raw        map[string]any
+	TriggerID     string
+	Type          string
+	EventName     string
+	EventPath     string
+	Endpoint      string
+	WebhookRaw    map[string]any
+	WebhookFields []webhookField
+	Raw           map[string]any
+}
+
+type webhookField struct {
+	Name     string
+	Type     string
+	Required bool
+	Multiple bool
+	Raw      map[string]any
+}
+
+func parseWebhookFields(webhookRaw map[string]any) []webhookField {
+	if webhookRaw == nil {
+		return nil
+	}
+	itemsAny, _ := webhookRaw["fields"].([]any)
+	if len(itemsAny) == 0 {
+		return nil
+	}
+	var out []webhookField
+	for _, itemAny := range itemsAny {
+		item, ok := itemAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := item["name"].(string)
+		typ, _ := item["type"].(string)
+		required, _ := item["required"].(bool)
+		multiple, _ := item["multiple"].(bool)
+		name = strings.TrimSpace(name)
+		typ = strings.TrimSpace(typ)
+		if name == "" {
+			continue
+		}
+		out = append(out, webhookField{
+			Name:     name,
+			Type:     typ,
+			Required: required,
+			Multiple: multiple,
+			Raw:      item,
+		})
+	}
+	return out
+}
+
+func inferDefaultFileField(trigger installationTrigger) (string, bool) {
+	var candidates []string
+	for _, f := range trigger.WebhookFields {
+		switch strings.ToLower(strings.TrimSpace(f.Type)) {
+		case "file", "blob", "blob-ref":
+			if strings.TrimSpace(f.Name) != "" {
+				candidates = append(candidates, strings.TrimSpace(f.Name))
+			}
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true
+	}
+	return "", false
 }
 
 func fetchInstallationTriggers(ctx context.Context, app *App, profileID string) ([]installationTrigger, error) {
@@ -51,20 +110,23 @@ func fetchInstallationTriggers(ctx context.Context, app *App, profileID string) 
 		var eventPath string
 		var endpoint string
 		var webhookRaw map[string]any
+		var webhookFields []webhookField
 		if wAny, ok := item["webhook"].(map[string]any); ok {
 			webhookRaw = wAny
 			eventPath, _ = wAny["eventPath"].(string)
 			endpoint, _ = wAny["endpoint"].(string)
+			webhookFields = parseWebhookFields(webhookRaw)
 		}
 
 		triggers = append(triggers, installationTrigger{
-			TriggerID:  strings.TrimSpace(triggerID),
-			Type:       strings.TrimSpace(triggerType),
-			EventName:  strings.TrimSpace(eventName),
-			EventPath:  strings.TrimSpace(eventPath),
-			Endpoint:   strings.TrimSpace(endpoint),
-			WebhookRaw: webhookRaw,
-			Raw:        item,
+			TriggerID:     strings.TrimSpace(triggerID),
+			Type:          strings.TrimSpace(triggerType),
+			EventName:     strings.TrimSpace(eventName),
+			EventPath:     strings.TrimSpace(eventPath),
+			Endpoint:      strings.TrimSpace(endpoint),
+			WebhookRaw:    webhookRaw,
+			WebhookFields: webhookFields,
+			Raw:           item,
 		})
 	}
 	return triggers, nil
@@ -138,17 +200,11 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 			}
 
 			fileField = strings.TrimSpace(fileField)
-			if fileField == "" {
-				fileField = "file"
-			}
-
-			for _, p := range trimStringSlice(files) {
-				multipartFiles = append(multipartFiles, fmt.Sprintf("%s=%s", fileField, p))
-			}
-			multipartFiles = trimStringSlice(multipartFiles)
 			fields = trimStringSlice(fields)
+			files = trimStringSlice(files)
+			multipartFiles = trimStringSlice(multipartFiles)
 
-			if len(multipartFiles) == 0 {
+			if len(files) == 0 && len(multipartFiles) == 0 {
 				return writeErr(cmd, errors.New("missing --file (repeatable) or --multipart-file"))
 			}
 
@@ -159,6 +215,23 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 			chosen, err := pickInstallationUploadTrigger(triggers, triggerSelector)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+
+			if fileField == "" {
+				if inferred, ok := inferDefaultFileField(chosen); ok {
+					fileField = inferred
+				} else {
+					fileField = "file"
+				}
+			}
+
+			for _, p := range files {
+				multipartFiles = append(multipartFiles, fmt.Sprintf("%s=%s", fileField, p))
+			}
+			multipartFiles = trimStringSlice(multipartFiles)
+
+			if len(multipartFiles) == 0 {
+				return writeErr(cmd, errors.New("missing --file (repeatable) or --multipart-file"))
 			}
 
 			baseURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL"))
@@ -205,7 +278,7 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&triggerSelector, "trigger", "", "Trigger to use (eventName or triggerId). Required if multiple.")
 	cmd.Flags().StringArrayVar(&fields, "field", nil, "Multipart form field key=value (repeatable)")
 	cmd.Flags().StringArrayVar(&files, "file", nil, "File path to upload (repeatable; uses --file-field)")
-	cmd.Flags().StringVar(&fileField, "file-field", "file", "Field name to use for --file")
+	cmd.Flags().StringVar(&fileField, "file-field", "", "Field name to use for --file (defaults to inferred webhook file field, else 'file')")
 	cmd.Flags().StringArrayVar(&multipartFiles, "multipart-file", nil, "Multipart file field=path (repeatable)")
 
 	return cmd

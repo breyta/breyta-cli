@@ -38,3 +38,42 @@ func TestPickInstallationUploadTrigger(t *testing.T) {
 		}
 	})
 }
+
+func TestInferDefaultFileField(t *testing.T) {
+	t.Run("infers single file field", func(t *testing.T) {
+		got, ok := inferDefaultFileField(installationTrigger{
+			WebhookFields: []webhookField{
+				{Name: "files", Type: "file", Multiple: true},
+			},
+		})
+		if !ok {
+			t.Fatalf("expected ok")
+		}
+		if got != "files" {
+			t.Fatalf("expected files, got %q", got)
+		}
+	})
+
+	t.Run("does not infer when multiple file fields", func(t *testing.T) {
+		_, ok := inferDefaultFileField(installationTrigger{
+			WebhookFields: []webhookField{
+				{Name: "a", Type: "file"},
+				{Name: "b", Type: "blob-ref"},
+			},
+		})
+		if ok {
+			t.Fatalf("expected ok=false")
+		}
+	})
+
+	t.Run("does not infer when no file fields", func(t *testing.T) {
+		_, ok := inferDefaultFileField(installationTrigger{
+			WebhookFields: []webhookField{
+				{Name: "title", Type: "string"},
+			},
+		})
+		if ok {
+			t.Fatalf("expected ok=false")
+		}
+	})
+}
