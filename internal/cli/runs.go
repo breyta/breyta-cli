@@ -257,7 +257,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 					run, _ := runAny.(map[string]any)
 					statusStr, _ := run["status"].(string)
 
-					if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" {
+					if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" || statusStr == "canceled" || statusStr == "terminated" || statusStr == "timed-out" || statusStr == "timed_out" {
 						return writeAPIResult(cmd, app, execResp, execStatus)
 					}
 					if time.Now().After(deadline) {
