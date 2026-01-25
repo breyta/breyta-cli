@@ -66,6 +66,33 @@ Auth configs reference secrets via `:secret-ref`:
         :secret-ref :webhook-secret}}
 ```
 
+### Service account JSON secrets (Google APIs)
+Some integrations need a full JSON service account key (not a single token string). Store the **entire JSON payload** as a secret value and reference it via `:secret-ref`.
+
+Declare the slot:
+
+```clojure
+{:requires [{:slot :google-drive-service-account
+             :type :secret
+             :secret-ref :google-drive-service-account
+             :label "Google Drive service account JSON"}]}
+```
+
+Bind the value (prod):
+
+```edn
+{:bindings {:google-drive-service-account {:secret "<SERVICE_ACCOUNT_JSON>"}}}
+```
+
+Use it in an HTTP step auth block:
+
+```clojure
+{:auth {:type :google-service-account
+        :secret-ref :google-drive-service-account
+        :scopes ["https://www.googleapis.com/auth/drive.readonly"
+                 "https://www.googleapis.com/auth/drive.metadata.readonly"]}}
+```
+
 ```clojure
 {:auth {:type :hmac-sha256
         :header "X-Signature"

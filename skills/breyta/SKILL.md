@@ -12,6 +12,7 @@ description: >-
 - [CLI workflow](#cli-workflow)
 - [Bindings and activation](#bindings-and-activation)
 - [Secrets](#secrets)
+- [Google Drive sync](#google-drive-sync)
 - [Installations](#installations)
 - [Authoring reference](#authoring-reference)
 - [Templates](#templates)
@@ -173,6 +174,11 @@ Details: `./references/bindings-activation.md`
 How secret slots and secret refs work, how to bind values, and rotation patterns.
 
 Details: `./references/secrets.md`
+
+## Google Drive sync
+How to run the production Google Drive folder sync flow (service account auth), what it writes, and how to verify it.
+
+Details: `./references/google-drive-sync.md`
 
 ## Authoring reference
 Flow file format and core fields:

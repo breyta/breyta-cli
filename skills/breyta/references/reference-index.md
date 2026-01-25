@@ -6,3 +6,4 @@
 - Flow helpers: `flow/poll`, `flow/now-ms`, `flow/elapsed?`, `flow/backoff`
 - Form field types: `:string`, `:text`, `:number`, `:boolean`, `:select`, `:date`, `:email`, `:textarea`, `:password`, `:secret`
 - Installations: subscribe, activation inputs, and upload triggers (see `./installations.md`)
+- Google Drive folder sync (service account): `./google-drive-sync.md`
