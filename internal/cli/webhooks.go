@@ -166,7 +166,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 			endpoint := ""
 			if draft {
-				endpoint = fmt.Sprintf("/%s/api/events/draft/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
+				endpoint = fmt.Sprintf("/api/events/draft/%s", eventPath)
 			} else {
 				endpoint = fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
 			}
@@ -189,7 +189,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				if draft {
 					validateQuery.Set("draft", "true")
 				}
-				validateEndpoint := fmt.Sprintf("/%s/api/events/validate/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
+				validateEndpoint := fmt.Sprintf("/api/events/validate/%s", eventPath)
 				validateURL := fmt.Sprintf("%s%s", baseURL, validateEndpoint)
 				client := apiClient(app)
 				client.BaseURL = baseURL

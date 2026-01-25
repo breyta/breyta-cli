@@ -144,6 +144,9 @@ func (c Client) DoRootRESTBytes(ctx context.Context, method string, path string,
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
+	if strings.TrimSpace(c.WorkspaceID) != "" {
+		req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
+	}
 	for k, v := range headers {
 		if strings.TrimSpace(k) == "" {
 			continue
