@@ -27,6 +27,28 @@ Notes:
 - Auth must use secret references. Inline tokens or API keys are rejected.
 - Prefer connection auth (`:requires` with `:auth`), or set step-level auth with `:auth {:type :bearer|:api-key :secret-ref :my-secret}`.
 
+## Google service account auth (`:google-service-account`)
+Use this when you need unattended OAuth access to Google APIs on a schedule (e.g., Drive folder sync). The flow mints access tokens from a **service account JSON** secret.
+
+Example (Google Drive list):
+
+```clojure
+(flow/step :http :list-drive-files
+           {:type :http
+            :title "List Drive files"
+            :url "https://www.googleapis.com/drive/v3/files"
+            :method :get
+            :query {:q "'<folder-id>' in parents and trashed = false"
+                    :fields "nextPageToken,files(id,name,mimeType,modifiedTime,size,driveId)"
+                    :pageSize 1000
+                    :supportsAllDrives "true"
+                    :includeItemsFromAllDrives "true"}
+            :auth {:type :google-service-account
+                   :secret-ref :google-drive-service-account
+                   :scopes ["https://www.googleapis.com/auth/drive.readonly"
+                            "https://www.googleapis.com/auth/drive.metadata.readonly"]}})
+```
+
 Example:
 
 ```clojure
