@@ -10,7 +10,9 @@ func TestDecodeProfilePayload_EDN(t *testing.T) {
                                  :autoUpgrade true}
                        :bindings {:api {:name "Users API"
                                         :url "https://api.example.com"
-                                        :apikey :redacted}
+                                        :apikey :redacted
+                                        :query-param "api_key"
+                                        :location "query"}
                                   :ai {:provider "openai"
                                        :apiKey "sk_live_456"}}
                        :activation {:region "EU"
@@ -28,6 +30,8 @@ func TestDecodeProfilePayload_EDN(t *testing.T) {
 	want := map[string]any{
 		"name-api":        "Users API",
 		"url-api":         "https://api.example.com",
+		"query-param-api": "api_key",
+		"location-api":    "query",
 		"provider-ai":     "openai",
 		"apikey-ai":       "sk_live_456",
 		"form-region":     "EU",
@@ -64,6 +68,8 @@ func TestParseSetAssignments(t *testing.T) {
 	items := []string{
 		"api.apikey=sk_live_123",
 		"api.url=https://api.example.com",
+		"api.query-param=api_key",
+		"api.location=query",
 		"activation.region=EU",
 		"activation.batch-size=500",
 	}
@@ -76,6 +82,12 @@ func TestParseSetAssignments(t *testing.T) {
 	}
 	if out["url-api"] != "https://api.example.com" {
 		t.Fatalf("expected url-api to be set")
+	}
+	if out["query-param-api"] != "api_key" {
+		t.Fatalf("expected query-param-api to be set")
+	}
+	if out["location-api"] != "query" {
+		t.Fatalf("expected location-api to be set")
 	}
 	if out["form-region"] != "EU" {
 		t.Fatalf("expected form-region to be set")
