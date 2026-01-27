@@ -246,6 +246,8 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- `breyta flows bindings apply <slug> --set api.apikey=... --set activation.region=EU`\n")
 	b.WriteString("- `breyta flows bindings apply <slug> --from-draft`\n")
 	b.WriteString("- `breyta flows draft bindings apply <slug> --set api.apikey=...`\n\n")
+	b.WriteString("Notes:\n")
+	b.WriteString("- If you set both `slot.conn` and `slot.apikey`, the API key refreshes the existing connection secret while keeping the binding.\n\n")
 	b.WriteString("Profile file example:\n\n")
 	b.WriteString("```edn\n")
 	b.WriteString("{:profile {:type :prod\n           :autoUpgrade false}\n\n")
