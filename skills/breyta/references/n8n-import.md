@@ -17,6 +17,21 @@ This reference is written for coding agents that generate the EDN flow file.
 If something is missing or unclear, add a `TODO(n8n-import)` note instead of suggesting optimizations.
 Do not add “conversion notes” that propose changes (e.g., persistence, schedules, model tweaks) unless asked.
 
+## Import loop (step-by-step, strict)
+Use this when reliability matters more than speed
+1) Translate exactly one node into a Breyta step
+2) Run the step in isolation with a small input and inspect the output shape
+3) Fix shape and size issues before translating the next node
+4) Only then move on to the next node in the graph
+
+This avoids mismatched data shapes and large payload failures later in the flow
+
+## Persist-first defaults
+Assume many HTTP steps will exceed the inline 50 KB limit
+- Add `:persist {:type :blob}` to HTTP steps unless you can confirm the payload is small
+- `:persist` removes the inline `:body`. Downstream steps must read the blob or use `:body-from-ref` or `:from-ref`
+- If a downstream function expects inline JSON, add a read step that restores the same shape as the original HTTP response
+
 ## Naming rules
 - Step id: n8n node `name` -> kebab-case keyword (no `n8n-` prefix).
 - Normalize: lower-case, then replace non `[a-z0-9-]` with `-`, collapse repeats, trim `-`.
@@ -92,6 +107,14 @@ Example (side‑effects per item):
                             :json item}))]
   {:results (vec results)})
 ```
+
+## Common migration pitfalls (watch for these)
+- Query params: move URL query strings into `:query` so the runtime includes them
+- Auth placement: keep header vs query as in n8n, do not guess
+- Lazy seqs: wrap `for` output with `vec` before passing into `:function` steps
+- Java interop: avoid `java.time.*` in `:function` code, use `flow/now-ms` and explicit inputs
+- Regex: do not use `\\s`, use explicit character classes
+- Persisted HTTP: inline `:body` is omitted, add a read step or `:body-from-ref` if downstream expects JSON
 
 Split In Batches:
 - Use `(partition-all n items)` in a `:function` step, then `for` over batches.
