@@ -27,7 +27,7 @@ Use this when reliability matters more than speed
 This avoids mismatched data shapes and large payload failures later in the flow
 
 ## Persist-first defaults
-Assume many HTTP steps will exceed the inline 10 KB limit
+Assume many HTTP steps will exceed the inline 50 KB limit
 - Add `:persist {:type :blob}` to HTTP steps unless you can confirm the payload is small
 - `:persist` removes the inline `:body`. Downstream steps must read the blob or use `:body-from-ref` or `:from-ref`
 - If a downstream function expects inline JSON, add a read step that restores the same shape as the original HTTP response
