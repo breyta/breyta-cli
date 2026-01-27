@@ -356,10 +356,17 @@ func applyActivationSection(payload *profilePayload, value any) error {
 
 func canonicalBindingField(field string) (string, bool) {
 	switch field {
-	case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret":
+	case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret",
+		"header", "prefix", "location", "param-name", "query-param", "db-param":
 		return field, true
 	case "apiKey", "api-key":
 		return "apikey", true
+	case "param", "paramName":
+		return "param-name", true
+	case "queryParam":
+		return "query-param", true
+	case "dbParam":
+		return "db-param", true
 	case "baseUrl", "baseURL", "base-url", "baseurl":
 		return "url", true
 	case "password":
@@ -371,7 +378,11 @@ func canonicalBindingField(field string) (string, bool) {
 	default:
 		lower := strings.ToLower(field)
 		switch lower {
-		case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret":
+		case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret",
+			"header", "prefix", "location", "param", "param-name", "query-param", "db-param":
+			if lower == "param" {
+				return "param-name", true
+			}
 			return lower, true
 		case "baseurl", "base-url":
 			return "url", true
