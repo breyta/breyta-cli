@@ -1,4 +1,5 @@
 # Reference index
+- n8n import: `./n8n-import.md`
 - Slot types: `:http-api`, `:llm-provider`, `:database`, `:blob-storage`, `:kv-store`, `:secret`
 - Auth types: `:api-key`, `:bearer`, `:basic`, `:hmac-sha256`, `:signature`, `:ip-allowlist`, `:none` (note: webhook triggers require auth; `:none` is not allowed)
 - Trigger types: `:manual`, `:schedule`, `:event`

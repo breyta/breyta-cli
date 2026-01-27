@@ -10,6 +10,7 @@ webhook completion.
 - Payloads arrive in `flow/input`.
 - Multipart webhooks preserve file parts and certain raw MIME fields as blob refs.
 - Webhook secrets must use explicit `:secret-ref` + profile bindings.
+- Webhook triggers can return an HTTP response map from the flow (see below).
 
 ### Webhook trigger setup
 Minimal webhook trigger:
@@ -126,6 +127,22 @@ curl -X POST "https://flows.breyta.ai/<workspace-id>/events/<path>" \
 Draft endpoint notes:
 - Requires workspace auth (CLI token/session), not webhook auth.
 - Useful for validating before deploying/activating a prod profile.
+
+### Webhook response maps
+If a webhook-triggered flow returns a **response map** (a map with integer `:status`),
+the API will use it as the HTTP response.
+
+Shape:
+```clojure
+{:status 200
+ :headers {"Content-Type" "application/json"}
+ :body {:ok true}}
+```
+
+Notes:
+- `:body` can be a map/vector/string; non-strings are JSON-encoded automatically.
+- If you do not return a response map, the webhook endpoint returns an async
+  acknowledgement (e.g., accepted/started).
 
 ### Fetch webhook URLs (CLI)
 Use the CLI to fetch webhook URLs for a flow:

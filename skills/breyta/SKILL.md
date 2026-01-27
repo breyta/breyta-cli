@@ -16,6 +16,7 @@ description: >-
 - [Installations](#installations)
 - [Authoring reference](#authoring-reference)
 - [Templates](#templates)
+- [n8n import](#n8n-import)
 - [Step reference](#step-reference)
 - [Patterns and do/dont](#patterns-and-do-dont)
 - [Reference index](#reference-index)
@@ -199,6 +200,11 @@ Details: `./references/authoring-reference.md`
 - For large step outputs, use `:persist` to store results as refs.
 
 Details: `./references/templates.md`
+
+## n8n import
+Best-effort mapping rules and a CLI import template for translating n8n JSON into runnable Breyta flows.
+
+Details: `./references/n8n-import.md`
 
 ## Step reference
 - `:http` for HTTP requests.
