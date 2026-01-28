@@ -5,7 +5,7 @@ Core fields:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `:duration` | string | No | Duration string like "500ms", "10s", "5m", "2h", "1d" |
+| `:duration` | string | No | Duration string like "500ms", "10s", "5m", "2h", "1d" (max: 7 days) |
 | `:seconds` | integer | No | Seconds to sleep |
 | `:millis` | integer | No | Milliseconds to sleep |
 
