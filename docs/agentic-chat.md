@@ -125,3 +125,4 @@ Waits and approvals:
 
 - If `flows-api` port is busy, stop the server (Ctrl+C) and re-run.
 - If a flow has drafts but no deployed version yet, `breyta flows show <slug>` may return `no_active_version`; use `--source latest`.
+- If new runs never start after a deploy, check `:concurrency :on-new-version :drain`. Cancel the stuck run or switch to `:supersede` during development.
