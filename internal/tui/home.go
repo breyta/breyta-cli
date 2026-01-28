@@ -836,7 +836,7 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 		if st != nil && strings.TrimSpace(st.APIURL) != "" {
 			apiURL = st.APIURL
 		} else {
-			apiURL = configstore.DefaultLocalAPIURL
+			apiURL = configstore.DefaultProdAPIURL
 		}
 	}
 
@@ -926,7 +926,7 @@ func (m *homeModel) refreshTokenCmd() tea.Cmd {
 func (m *homeModel) apiBaseURL() string {
 	apiURL := strings.TrimSpace(m.apiURL)
 	if apiURL == "" {
-		apiURL = configstore.DefaultLocalAPIURL
+		apiURL = configstore.DefaultProdAPIURL
 	}
 	return apiURL
 }
@@ -1500,7 +1500,7 @@ func cycleAPIURL(current string) string {
 	case strings.TrimRight(configstore.DefaultProdAPIURL, "/"):
 		return configstore.DefaultLocalAPIURL
 	default:
-		return configstore.DefaultLocalAPIURL
+		return configstore.DefaultProdAPIURL
 	}
 }
 
