@@ -643,6 +643,7 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var stepID string
 	var flowSlug string
 	var paramsJSON string
+	var paramsFile string
 	var traceID string
 	var profileID string
 	var recordExample bool
@@ -663,6 +664,7 @@ dispatcher as normal flows.
 Examples:
   breyta steps run --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}'
   breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.2"}'
+  breyta steps run --type llm --id summarize --params-file ./params.json
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireStepsAPI(cmd, app)
@@ -681,10 +683,19 @@ Examples:
 				return writeErr(cmd, errors.New("missing --flow (required for --record-example/--record-test)"))
 			}
 
+			paramsRaw := strings.TrimSpace(paramsJSON)
+			if strings.TrimSpace(paramsFile) != "" {
+				b, err := os.ReadFile(strings.TrimSpace(paramsFile))
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
+				}
+				paramsRaw = strings.TrimSpace(string(b))
+			}
+
 			params := map[string]any{}
-			if strings.TrimSpace(paramsJSON) != "" {
+			if paramsRaw != "" {
 				var v any
-				if err := json.Unmarshal([]byte(paramsJSON), &v); err != nil {
+				if err := json.Unmarshal([]byte(paramsRaw), &v); err != nil {
 					return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
 				}
 				m, ok := v.(map[string]any)
@@ -725,6 +736,7 @@ Examples:
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type (e.g. http, llm, code)")
 	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
+	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Optional flow slug (for logging/templates)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
@@ -740,6 +752,7 @@ func newStepsRecordCmd(app *App) *cobra.Command {
 	var stepID string
 	var flowSlug string
 	var paramsJSON string
+	var paramsFile string
 	var traceID string
 	var profileID string
 	var note string
@@ -760,6 +773,7 @@ This is a convenience wrapper around steps run + steps examples add + steps test
 Examples:
   breyta steps record --flow my-flow --type code --id make-output --params '{"input":{"n":2},"code":"(fn [input] {:nPlusOne (inc (:n input))})"}'
   breyta steps record --flow my-flow --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}' --note 'happy path'
+  breyta steps record --flow my-flow --type llm --id summarize --params-file ./params.json
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireStepsAPI(cmd, app)
@@ -778,10 +792,19 @@ Examples:
 				return writeErr(cmd, errors.New("missing --id"))
 			}
 
+			paramsRaw := strings.TrimSpace(paramsJSON)
+			if strings.TrimSpace(paramsFile) != "" {
+				b, err := os.ReadFile(strings.TrimSpace(paramsFile))
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
+				}
+				paramsRaw = strings.TrimSpace(string(b))
+			}
+
 			params := map[string]any{}
-			if strings.TrimSpace(paramsJSON) != "" {
+			if paramsRaw != "" {
 				var v any
-				if err := json.Unmarshal([]byte(paramsJSON), &v); err != nil {
+				if err := json.Unmarshal([]byte(paramsRaw), &v); err != nil {
 					return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
 				}
 				m, ok := v.(map[string]any)
@@ -821,6 +844,7 @@ Examples:
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type (e.g. http, llm, code)")
 	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
+	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
 	cmd.Flags().StringVar(&note, "note", "", "Optional note for the recorded example/test")
