@@ -32,6 +32,14 @@ Assume many HTTP steps will exceed the inline 50 KB limit
 - `:persist` removes the inline `:body`. Downstream steps must read the blob or use `:body-from-ref` or `:from-ref`
 - If a downstream function expects inline JSON, add a read step that restores the same shape as the original HTTP response
 
+## Reliability notes from recent imports
+- Draft bindings are separate from prod bindings. A draft run can fail with missing slots even if prod is bound
+- Move URL query params into `:query` so they are not lost when you split base URL and path
+- Persisted HTTP responses do not include inline `:body`. Add a read step or use `:body-from-ref`
+- Align step output keys to downstream expectations. If a step outputs `:html`, but the next step expects `:content`, add an alias
+- Slow HTTP endpoints can time out even when they complete. Prefer `:timeout` on the HTTP step when a service is known to take longer
+- For long LLM calls, wrap them in `flow/poll` and set a `:return-on` clause that checks `:content`
+
 ## Naming rules
 - Step id: n8n node `name` -> kebab-case keyword (no `n8n-` prefix).
 - Normalize: lower-case, then replace non `[a-z0-9-]` with `-`, collapse repeats, trim `-`.
