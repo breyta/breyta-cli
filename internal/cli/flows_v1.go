@@ -87,6 +87,7 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(newFlowsParenCheckCmd(app))
 	cmd.AddCommand(newFlowsDeployCmd(app))
 	cmd.AddCommand(newFlowsUpdateCmd(app))
+	cmd.AddCommand(newFlowsArchiveCmd(app))
 	cmd.AddCommand(newFlowsDeleteCmd(app))
 	cmd.AddCommand(newFlowsSpineCmd(app))
 
@@ -320,6 +321,7 @@ func newFlowsSpineCmd(app *App) *cobra.Command {
 
 func newFlowsListCmd(app *App) *cobra.Command {
 	var limit int
+	var includeArchived bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List flows",
@@ -327,7 +329,11 @@ func newFlowsListCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				// Server-side pagination defaults apply for now.
 				// Keep --limit for mock mode; we can add it to the API later.
-				return doAPICommand(cmd, app, "flows.list", map[string]any{})
+				payload := map[string]any{}
+				if includeArchived {
+					payload["includeArchived"] = true
+				}
+				return doAPICommand(cmd, app, "flows.list", payload)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -336,6 +342,16 @@ func newFlowsListCmd(app *App) *cobra.Command {
 			flows, err := store.ListFlows(st)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if !includeArchived {
+				filtered := make([]*state.Flow, 0, len(flows))
+				for _, f := range flows {
+					if f.Archived {
+						continue
+					}
+					filtered = append(filtered, f)
+				}
+				flows = filtered
 			}
 			total := len(flows)
 			truncated := false
@@ -366,6 +382,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 					"name":           f.Name,
 					"description":    f.Description,
 					"tags":           f.Tags,
+					"archived":       f.Archived,
 					"activeVersion":  f.ActiveVersion,
 					"updatedAt":      f.UpdatedAt,
 					"activeCount":    activeCount[f.Slug],
@@ -383,6 +400,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
 	return cmd
 }
 
@@ -420,6 +438,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 				"name":          f.Name,
 				"description":   f.Description,
 				"tags":          f.Tags,
+				"archived":      f.Archived,
 				"activeVersion": f.ActiveVersion,
 				"updatedAt":     f.UpdatedAt,
 			}
@@ -709,12 +728,15 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newFlowsDeleteCmd(app *App) *cobra.Command {
+func newFlowsArchiveCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <flow-slug>",
-		Short: "Delete a flow",
+		Use:   "archive <flow-slug>",
+		Short: "Archive a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				return doAPICommand(cmd, app, "flows.archive", map[string]any{"flowSlug": args[0]})
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -723,17 +745,173 @@ func newFlowsDeleteCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if ws.Flows[args[0]] == nil {
+			f := ws.Flows[args[0]]
+			if f == nil {
 				return writeErr(cmd, errors.New("flow not found"))
 			}
-			delete(ws.Flows, args[0])
+			now := time.Now().UTC()
+			f.Archived = true
+			f.UpdatedAt = now
+			ws.UpdatedAt = now
+
+			triggersDisabled := 0
+			for _, t := range ws.Triggers {
+				if t.FlowSlug != f.Slug {
+					continue
+				}
+				if t.Enabled {
+					t.Enabled = false
+					t.UpdatedAt = now
+					triggersDisabled++
+				}
+			}
+
+			profilesDisabled := 0
+			for _, p := range ws.Profiles {
+				if p.FlowSlug != f.Slug {
+					continue
+				}
+				if p.Enabled {
+					p.Enabled = false
+					p.UpdatedAt = now
+					profilesDisabled++
+				}
+			}
+
+			if err := store.Save(st); err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeData(cmd, app, nil, map[string]any{
+				"flowSlug":         f.Slug,
+				"archived":         true,
+				"triggersDisabled": triggersDisabled,
+				"profilesDisabled": profilesDisabled,
+			})
+		},
+	}
+	return cmd
+}
+
+func newFlowsDeleteCmd(app *App) *cobra.Command {
+	var yes bool
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "delete <flow-slug>",
+		Short: "Delete a flow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return writeFailure(cmd, app, "confirmation_required", errors.New("missing --yes"), "Re-run with --yes to confirm deletion.", nil)
+			}
+			if isAPIMode(app) {
+				payload := map[string]any{
+					"flowSlug": args[0],
+					"confirm":  true,
+				}
+				if force {
+					payload["force"] = true
+				}
+				return doAPICommand(cmd, app, "flows.delete", payload)
+			}
+			st, store, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			f := ws.Flows[args[0]]
+			if f == nil {
+				return writeErr(cmd, errors.New("flow not found"))
+			}
+			activeRuns := make([]string, 0)
+			for id, run := range ws.Runs {
+				if run.FlowSlug != f.Slug {
+					continue
+				}
+				switch run.Status {
+				case "running", "pending", "queued", "waiting-for-repair":
+					activeRuns = append(activeRuns, id)
+				}
+			}
+			if len(activeRuns) > 0 && !force {
+				return writeFailure(cmd, app, "active_runs", errors.New("flow has active runs"), "Wait for runs to finish or re-run with --force to cancel active runs.", map[string]any{
+					"flowSlug":   f.Slug,
+					"activeRuns": len(activeRuns),
+				})
+			}
+
+			cancelledRuns := 0
+			if force && len(activeRuns) > 0 {
+				cancelledRuns = len(activeRuns)
+				for _, id := range activeRuns {
+					if run := ws.Runs[id]; run != nil {
+						now := time.Now().UTC()
+						run.Status = "cancelled"
+						run.Error = "Cancelled due to flow deletion"
+						run.CurrentStep = ""
+						run.CompletedAt = &now
+						run.UpdatedAt = now
+					}
+				}
+			}
+
+			deletedRuns := 0
+			for id, run := range ws.Runs {
+				if run.FlowSlug != f.Slug {
+					continue
+				}
+				delete(ws.Runs, id)
+				deletedRuns++
+			}
+			deletedWaits := 0
+			for id, wait := range ws.Waits {
+				if wait == nil {
+					continue
+				}
+				if _, ok := ws.Runs[wait.RunID]; ok {
+					continue
+				}
+				// Remove waits tied to deleted runs.
+				delete(ws.Waits, id)
+				deletedWaits++
+			}
+			deletedProfiles := 0
+			for id, p := range ws.Profiles {
+				if p.FlowSlug != f.Slug {
+					continue
+				}
+				delete(ws.Profiles, id)
+				deletedProfiles++
+			}
+			deletedTriggers := 0
+			for id, t := range ws.Triggers {
+				if t.FlowSlug != f.Slug {
+					continue
+				}
+				delete(ws.Triggers, id)
+				deletedTriggers++
+			}
+
+			delete(ws.Flows, f.Slug)
 			ws.UpdatedAt = time.Now().UTC()
 			if err := store.Save(st); err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, nil, map[string]any{"deleted": true, "flowSlug": args[0]})
+			return writeData(cmd, app, nil, map[string]any{
+				"deleted":         true,
+				"flowSlug":        f.Slug,
+				"cancelledRuns":   cancelledRuns,
+				"deletedRuns":     deletedRuns,
+				"deletedWaits":    deletedWaits,
+				"deletedProfiles": deletedProfiles,
+				"deletedTriggers": deletedTriggers,
+			})
 		},
 	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm deletion")
+	cmd.Flags().BoolVar(&force, "force", false, "Cancel active runs before deleting")
 	return cmd
 }
 

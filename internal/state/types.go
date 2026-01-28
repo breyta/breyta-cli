@@ -42,6 +42,7 @@ type Flow struct {
 	Name          string     `json:"name"`
 	Description   string     `json:"description"`
 	Tags          []string   `json:"tags"`
+	Archived      bool       `json:"archived"`
 	ActiveVersion int        `json:"activeVersion"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	Spine         []string   `json:"spine"`
