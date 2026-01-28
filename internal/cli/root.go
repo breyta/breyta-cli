@@ -165,7 +165,6 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newTriggersCmd(app))
 	cmd.AddCommand(newWebhooksCmd(app))
 	cmd.AddCommand(newResourcesCmd(app))
-	cmd.AddCommand(newDebugCmd(app))
 	cmd.AddCommand(newWaitsCmd(app))
 	cmd.AddCommand(newWatchCmd(app))
 	cmd.AddCommand(newRegistryCmd(app))
