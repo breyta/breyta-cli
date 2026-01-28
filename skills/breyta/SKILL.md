@@ -26,6 +26,8 @@ description: >-
 
 ## Command index
 Use this before running any CLI command. Do not guess.
+If a command is listed here, use it directly and do not run `breyta docs` or `--help`.
+Do not re-discover commands that already worked earlier in the same session.
 
 Flows:
 - `breyta flows list`
@@ -295,6 +297,7 @@ Details: `./references/patterns.md`
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Use the command index and `breyta docs` before running CLI commands.
+- Do not re-run `breyta docs` or `--help` for commands that already succeeded in this session.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
 - For webhook secrets, require explicit `:secret-ref` on the slot.
