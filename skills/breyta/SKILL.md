@@ -298,6 +298,9 @@ Details: `./references/patterns.md`
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Use the command index and `breyta docs` before running CLI commands.
 - Do not re-run `breyta docs` or `--help` for commands that already succeeded in this session.
+- Do not refactor or change output shape unless explicitly asked.
+- Do not introduce new helper symbols in `:code` unless you define them in the same function.
+- In `:code`, every symbol must be in scope.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
 - For webhook secrets, require explicit `:secret-ref` on the slot.
