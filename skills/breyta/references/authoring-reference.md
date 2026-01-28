@@ -20,6 +20,20 @@ Core fields:
 | `:triggers` | vector | Yes | Include a `:manual` trigger for discoverability |
 | `:flow` | form | Yes | The orchestration DSL |
 
+## `:flow`
+The flow body must be quoted so it is treated as data:
+
+```clojure
+:flow '(let [input (flow/input)] ...)
+```
+
+Do not leave it unquoted:
+
+```clojure
+;; Wrong: evaluated at read time
+:flow (let [input (flow/input)] ...)
+```
+
 ## `:requires`
 Use `:requires` to declare connection slots and activation form inputs. Flows with `:requires` must have bindings applied and be activated.
 
@@ -84,6 +98,10 @@ Both `:type` and `:on-new-version` are required.
 | `{:type :singleton :on-new-version :coexist}` | One instance at a time. Both versions can run |
 | `{:type :keyed :key-field :user-id :on-new-version :supersede}` | One instance per key |
 | `{:type :keyed :key-field :user-id :on-new-version :drain}` | One instance per key, drain on new version |
+
+Notes:
+- Use `:supersede` while iterating to avoid blocking on long-running or waiting runs.
+- `:drain` can block new runs if a run is stuck or waiting. Cancel the run or switch to `:supersede` during development.
 
 ## `:triggers`
 Common types:
