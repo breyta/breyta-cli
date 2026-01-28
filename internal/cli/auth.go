@@ -387,6 +387,7 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 
 	tokenCh := make(chan browserLoginResult, 1)
 	errCh := make(chan error, 1)
+	uiURL := apiBaseURL
 
 	mux := http.NewServeMux()
 	srv := &http.Server{Handler: mux}
@@ -409,7 +410,7 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 		if expiresIn == "" {
 			expiresIn = strings.TrimSpace(q.Get("expiresIn"))
 		}
-		_, _ = io.WriteString(w, "<html><body>Login complete. You can close this tab.</body></html>")
+		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
 		select {
 		case tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:
 		default:

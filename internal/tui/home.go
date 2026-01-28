@@ -426,6 +426,9 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.TrimSpace(msg.status) != "" {
 			m.lastInfo = strings.TrimSpace(msg.status)
 		}
+		if isProdAPIURL(m.apiURL) {
+			m.lastInfo = "Logged in to prod. If the Breyta skill is installed, you can start authoring with your agent."
+		}
 		m.refreshOptions()
 		return m, tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
 
