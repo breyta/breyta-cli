@@ -28,6 +28,16 @@ func newRunsCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func workflowIDFromRunData(data map[string]any) string {
+	if data == nil {
+		return ""
+	}
+	if wf, _ := data["workflowId"].(string); strings.TrimSpace(wf) != "" {
+		return wf
+	}
+	return ""
+}
+
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
 	var profileID string
@@ -228,7 +238,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 
 				dataAny := startResp["data"]
 				data, _ := dataAny.(map[string]any)
-				workflowID, _ := data["workflowId"].(string)
+				workflowID := workflowIDFromRunData(data)
 				if strings.TrimSpace(workflowID) == "" {
 					return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 				}
