@@ -225,6 +225,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 				} else {
 					meta["hint"] = "Token is stored locally for future commands."
 				}
+				meta["next"] = "If the Breyta skill is installed, you can start building workflows by chatting with your coding agent."
 				if app.DevMode {
 					if line := shellExportTokenLine(token); line != "" {
 						meta["export"] = line
@@ -410,7 +411,7 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 		if expiresIn == "" {
 			expiresIn = strings.TrimSpace(q.Get("expiresIn"))
 		}
-		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
+		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p>If the Breyta skill is installed, you can start building workflows by chatting with your coding agent.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
 		select {
 		case tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:
 		default:

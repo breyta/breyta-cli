@@ -115,7 +115,7 @@ func startBrowserLogin(apiBaseURL string) (*browserLoginSession, error, error) {
 		if expiresIn == "" {
 			expiresIn = strings.TrimSpace(q.Get("expiresIn"))
 		}
-		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
+		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p>If the Breyta skill is installed, you can start building workflows by chatting with your coding agent.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
 		select {
 		case sess.tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:
 		default:
