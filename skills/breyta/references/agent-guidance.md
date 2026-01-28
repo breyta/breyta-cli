@@ -9,6 +9,8 @@ When you are authoring flows for a user:
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
 - Do not use Java interop in flow bodies or `:function` steps. Use `breyta.sandbox` helpers instead.
 - Waits require a full run. Use `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`) to view approval URLs.
+- The `:flow` body must be quoted (`:flow '(...)` or `:flow (quote ...)`).
+- If `:on-new-version` is `:drain` and a run is waiting, new runs will not start. Use `:supersede` during development or cancel the stuck run.
 
 Checklist:
 1) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).

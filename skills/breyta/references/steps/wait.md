@@ -15,6 +15,7 @@ Notes:
 - `:notify` is optional and depends on your workspace notification setup.
 - For incoming webhooks, bind secret slots (`:type :secret`) via profile bindings to secure requests.
 - When `:notify` is present, the wait record includes approval URL templates you can render and share.
+- Waits are not timers. For delays, use `flow/poll` or a schedule trigger.
 
 `:notify` fields (example shape):
 - `:channels` for per-channel configs (e.g. `{:http {:connection :notify-api :path "/notify" :method :post}}`)
@@ -78,3 +79,14 @@ If you only need a single link, use `approvalUrl` or `rejectionUrl` from the wai
 These routes redirect to login when unauthenticated and then resume the action.
 
 For notifications, pass `approvalUrl` as template data and reference it as `{approvalUrl}` in your message template.
+
+## Complete waits via CLI
+Use this when you need to resume a wait without an approval URL.
+
+```bash
+breyta waits complete <wait-id> --payload '{"approved": true}'
+```
+
+Shortcuts:
+- `breyta waits approve <wait-id>`
+- `breyta waits reject <wait-id>`
