@@ -102,6 +102,10 @@ Both `:type` and `:on-new-version` are required.
 Notes:
 - Use `:supersede` while iterating to avoid blocking on long-running or waiting runs.
 - `:drain` can block new runs if a run is stuck or waiting. Cancel the run or switch to `:supersede` during development.
+- Concurrency config is static. Do not use expressions in `:concurrency`.
+- `:key-field` must be a keyword or nested path vector that exists in `flow/input` (for example `:email` or `[:event :id]`).
+- Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
+- Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
 
 ## `:triggers`
 Common types:

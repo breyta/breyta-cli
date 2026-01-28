@@ -74,6 +74,13 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
     - `url-encode` `(string) -> string`
     - `url-decode` `(string) -> string`
 
+### Concurrency notes
+
+- Concurrency config is static. Do not use expressions in `:concurrency`.
+- `:key-field` must be a keyword or nested path vector that exists in `flow/input` (for example `:email` or `[:event :id]`).
+- Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
+- Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
+
 ### Input keys from `--input` (string vs keyword keys)
 
 The CLI sends `--input` as JSON, so keys arrive as strings.
