@@ -81,6 +81,12 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
 - Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
 
+### Common pitfalls
+
+- Waits are event-based. They pause for external signals (webhooks, CLI commands), not timers. For delays, use schedule triggers.
+- Singleton workflows can get stuck if a run errors or waits. Use `:on-new-version :supersede` for fresh starts.
+- Keep flow bodies simple. Put logic in `:function` steps and keep orchestration minimal.
+
 ### Input keys from `--input` (string vs keyword keys)
 
 The CLI sends `--input` as JSON, so keys arrive as strings.
