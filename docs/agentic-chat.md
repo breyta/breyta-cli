@@ -86,10 +86,13 @@ This project has a local flow-authoring CLI.
 
 Use these commands to manage flows:
 - breyta flows list
+- breyta flows list --include-archived
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - edit file
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows deploy <slug>
+- breyta flows archive <slug>
+- breyta flows delete <slug> --yes [--force]
 
 End-user installations (flows tagged `:end-user`):
 - breyta flows installations create <slug> --name "My installation"
@@ -118,7 +121,7 @@ Waits and approvals:
 - Do not try to test `:wait` via `breyta steps run`. Waits require a full run.
 - List waits with `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`).
 - Use `approvalUrl` or the template fields from the wait list output to approve or reject.
-- Waits are not timers. For delays, use `flow/poll` or a schedule trigger.
+- Waits are not timers. For delays, use `:sleep` (for example, `(flow/step :sleep :delay {:duration "5m"})`), `flow/poll`, or a schedule trigger.
 ```
 
 ### Troubleshooting

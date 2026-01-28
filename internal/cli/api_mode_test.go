@@ -142,6 +142,122 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	}
 }
 
+func TestFlowsArchive_UsesAPIInAPIMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.archive" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-1" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing flowSlug",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowSlug": "flow-1",
+				"archived": true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "archive", "flow-1",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows archive failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDelete_UsesAPIInAPIMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.delete" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-2" || args["confirm"] != true || args["force"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected args",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowSlug": "flow-2",
+				"deleted":  true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "delete", "flow-2",
+		"--yes",
+		"--force",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows delete failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// Ensure that just running docs in API mode doesn't require mock state setup.
 	// (Some older tests set --state; API mode should not depend on it.)
@@ -356,11 +472,11 @@ func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 	if !statusCalled {
 		t.Fatalf("expected profiles.status to be called")
 	}
-		// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
-		if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
-			t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
-		}
+	// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
+	if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
+		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
 	}
+}
 
 func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 	t.Helper()

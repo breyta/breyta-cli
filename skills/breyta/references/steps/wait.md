@@ -15,7 +15,12 @@ Notes:
 - `:notify` is optional and depends on your workspace notification setup.
 - For incoming webhooks, bind secret slots (`:type :secret`) via profile bindings to secure requests.
 - When `:notify` is present, the wait record includes approval URL templates you can render and share.
-- Waits are not timers. For delays, use `flow/poll` or a schedule trigger.
+- Waits are not timers. For delays, use `:sleep`, `flow/poll`, or a schedule trigger.
+
+Delay example:
+```clojure
+(flow/step :sleep :delay {:duration "10m"})
+```
 
 `:notify` fields (example shape):
 - `:channels` for per-channel configs (e.g. `{:http {:connection :notify-api :path "/notify" :method :post}}`)
