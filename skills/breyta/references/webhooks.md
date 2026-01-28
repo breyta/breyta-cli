@@ -286,6 +286,13 @@ Example flow input (simplified):
                :filename "receipt.pdf"}}
 ```
 
+### Inbound email tips
+- Use :singleton unless you are sure the key is always present
+- If you need idempotency, derive an id from Message-Id or hash headers or subject
+- Preserve raw headers so you can parse Message-Id when the provider does not include a dedicated id field
+- Normalize from, to, and subject because providers use different field names
+- Test with a minimal multipart request before pointing the provider at the webhook
+
 ### Keyed webhook routing (idempotency)
 Use keyed concurrency so duplicate webhook deliveries collapse to the same workflow
 based on a stable event identifier in the payload.
