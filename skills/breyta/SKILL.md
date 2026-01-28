@@ -111,9 +111,9 @@ The intended workflow is:
 5) Deploy (publish a version)
 6) Apply bindings + activate the prod profile
 
-Fast loop (agent-friendly): do one step at a time
+Fast loop (agent-friendly): fix or add one step at a time, in isolation first
 1) Add or change exactly one `flow/step`
-2) Run the step in isolation (no flow deploy needed):
+2) When fixing a flow, run the failed step in isolation before any full flow run:
    - `breyta steps run --type <type> --id <id> --params '<json-object>'`
    - Optionally record the observed output as sidecars (requires `--flow`):
      - `breyta steps record --flow <flow-slug> --type <type> --id <id> --params '<json-object>' --note '...' --test-name '...'`
@@ -127,7 +127,7 @@ Fast loop (agent-friendly): do one step at a time
    - Tip: when run interactively, `steps show` also prints a short "Next actions" helper to stderr (stdout remains structured JSON/EDN).
 5) Verify stored tests against the live step runner:
    - `breyta steps tests verify <flow-slug> <step-id> --type <type>`
-6) Push/validate/compile, then run the draft flow end-to-end
+6) Push/validate/compile, then run the draft flow end-to-end (only after the step passes in isolation)
 
 Notes:
 - `breyta steps run` is best-effort isolation; waits/sleeps/fanout aren’t supported.
@@ -241,6 +241,7 @@ Notes:
 Details: `./references/patterns.md`
 
 ## Agent guidance
+- When fixing a flow, always start with step isolation; do not run the full flow until the failing step is green.
 - Prefer the fast loop: implement one step, run it in isolation, then move to the next step.
 - Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent (or use `breyta steps run --record-example/--record-test` to capture quickly).
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
