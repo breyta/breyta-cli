@@ -108,7 +108,14 @@ Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
+- Do not use Java interop in flow bodies or `:function` steps. Use `breyta.sandbox` helpers instead.
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
+
+Waits and approvals:
+- Use a `:wait` step with a stable `:key`, optional `:timeout`, and optional `:notify` config.
+- Do not try to test `:wait` via `breyta steps run`. Waits require a full run.
+- List waits with `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`).
+- Use `approvalUrl` or the template fields from the wait list output to approve or reject.
 ```
 
 ### Troubleshooting

@@ -7,6 +7,8 @@ When you are authoring flows for a user:
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps record`, or `breyta steps run --record-example/--record-test`, to capture quickly).
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
+- Do not use Java interop in flow bodies or `:function` steps. Use `breyta.sandbox` helpers instead.
+- Waits require a full run. Use `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`) to view approval URLs.
 
 Checklist:
 1) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
