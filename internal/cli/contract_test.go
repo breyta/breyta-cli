@@ -85,14 +85,14 @@ func TestContract_FlowsCreateEditValidateCompile(t *testing.T) {
 		t.Fatalf("create expected ok=true")
 	}
 
-	// Add a step
-	stdout, _, err = runCLI(t, statePath, "flows", "steps", "set", "contract-flow", "step-a", "--type", "function", "--title", "Step A", "--definition", "(step :function :step-a ...)", "--pretty")
+	// Edit flow metadata (steps editing is managed via push/pull in API mode)
+	stdout, _, err = runCLI(t, statePath, "flows", "update", "contract-flow", "--name", "Contract Flow Updated", "--pretty")
 	if err != nil {
-		t.Fatalf("steps set failed: %v\n%s", err, stdout)
+		t.Fatalf("flows update failed: %v\n%s", err, stdout)
 	}
 	e = decodeEnvelope(t, stdout)
 	if !e.OK {
-		t.Fatalf("steps set expected ok=true")
+		t.Fatalf("flows update expected ok=true")
 	}
 
 	// Validate

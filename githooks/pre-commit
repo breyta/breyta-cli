@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$repo_root"
+
+echo "[pre-commit] running gofmt ./..."
+gofmt -w .
+
+echo "[pre-commit] running go test ./..."
+GOWORK=off GOMOD="$repo_root/go.mod" GO111MODULE=on go test ./...
