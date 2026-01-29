@@ -312,7 +312,7 @@ Inputs provided via `--input '{...}'` arrive as strings, but the runtime normali
 Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for full list):
 
 ### Flow definition and templates
-- Flow definition size: 100 KB max.
+- Flow definition size: 150 KB max.
 - Templates are packed to blob storage on deploy; large prompts/SQL should live in templates.
 
 ### Runtime execution
@@ -322,9 +322,9 @@ Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for
 - Workflow duration: 7 days
 
 ### Per-step payloads
-- Inline result threshold: 10 KB (larger results become refs)
+- Inline result threshold: 50 KB (larger results become refs)
 - Max step result: 1 MB
-- HTTP response size: 1 MB
+- HTTP response size: 10 MB
 - DB max rows: 10,000
 
 Tips:
