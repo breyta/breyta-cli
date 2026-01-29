@@ -357,19 +357,14 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = setConfig(m.apiURL, "")
 			}
 		}
-		// If there's only one workspace after login, pick it as default (all modes).
-		if msg.err == nil && strings.TrimSpace(m.token) != "" && m.connected {
-			if strings.TrimSpace(m.defaultWS) == "" && len(msg.workspaces) == 1 {
-				if id := strings.TrimSpace(msg.workspaces[0].ID); id != "" && id != "ws-acme" {
+		// If there's only one workspace, always show it as default and auto-enter it.
+		if msg.err == nil && len(msg.workspaces) == 1 {
+			if id := strings.TrimSpace(msg.workspaces[0].ID); id != "" {
+				if strings.TrimSpace(m.defaultWS) == "" {
 					m.defaultWS = id
 					_ = setConfig(m.apiURL, id)
 				}
-			}
-		}
-		// If there's only one workspace, auto-enter it to reduce noise.
-		if msg.err == nil && strings.TrimSpace(m.token) != "" && m.connected {
-			if len(msg.workspaces) == 1 && strings.TrimSpace(m.selectedWorkspaceID) == "" {
-				if id := strings.TrimSpace(msg.workspaces[0].ID); id != "" && id != "ws-acme" {
+				if strings.TrimSpace(m.selectedWorkspaceID) == "" {
 					m.selectedWorkspaceID = id
 					m.mode = homeModeWorkspace
 					m.applyWorkspaceFocus()
@@ -664,6 +659,13 @@ func (m homeModel) renderHeader() string {
 	if strings.TrimSpace(m.selectedWorkspaceID) != "" {
 		activeWS = strings.TrimSpace(m.selectedWorkspaceID)
 	}
+	workspaceCount := len(m.workspaces)
+	singleWorkspaceActive := workspaceCount == 1 && strings.TrimSpace(m.selectedWorkspaceID) != ""
+	workspaceLabel := "WS:      "
+	if singleWorkspaceActive {
+		workspaceLabel = "Workspace: "
+		activeWS = cmpOrDash(m.workspaceNameOrID(m.selectedWorkspaceID))
+	}
 
 	keys := m.headerKeyHints()
 
@@ -694,8 +696,12 @@ func (m homeModel) renderHeader() string {
 		renderKV("Context: ", apiURL),
 		renderKV("Env:     ", envLabel+" ("+connLabel+")"),
 		renderKV("Auth:    ", authLabel),
-		renderKV("Default: ", defWS),
-		renderKV("WS:      ", activeWS),
+	}
+	if !singleWorkspaceActive {
+		left = append(left, renderKV("Default: ", defWS))
+	}
+	if m.mode != homeModeWorkspace {
+		left = append(left, renderKV(workspaceLabel, activeWS))
 	}
 	if info := strings.TrimSpace(m.lastInfo); info != "" {
 		left = append(left, renderKV("Info:    ", info))
@@ -748,11 +754,14 @@ func (m homeModel) headerKeyHints() []string {
 	}
 	switch m.mode {
 	case homeModeWorkspace:
-		return append(common,
+		keys := []string{
 			kv("tab", "Switch focus"),
-			kv("esc", "Back"),
 			kv("q", "Quit"),
-		)
+		}
+		if !(len(m.workspaces) == 1 && strings.TrimSpace(m.selectedWorkspaceID) != "") {
+			keys = append(keys, kv("esc", "Back"))
+		}
+		return append(common, keys...)
 	default:
 		return append(common,
 			kv("enter", "Open WS"),
