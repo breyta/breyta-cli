@@ -2,7 +2,7 @@ BINARY_NAME=breyta
 
 .PHONY: build run install tidy fmt test integration-test release-check
 
-VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
+VERSION ?= $(shell (git describe --tags --dirty --always --match 'v[0-9][0-9][0-9][0-9].*' 2>/dev/null || git describe --tags --dirty --always 2>/dev/null) || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
