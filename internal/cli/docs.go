@@ -198,6 +198,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- Show installation: `breyta flows installations get <profile-id>`\n")
 	b.WriteString("- Set activation inputs: `breyta flows installations set-inputs <profile-id> --input '{\"region\":\"EU\"}'`\n")
 	b.WriteString("- Pause/resume: `breyta flows installations disable <profile-id>` / `breyta flows installations enable <profile-id>`\n")
+	b.WriteString("- Delete installation: `breyta flows installations delete <profile-id>`\n")
 	b.WriteString("- Run under installation: `breyta runs start --flow <flow-slug> --profile-id <profile-id> --input '{\"x\":1}' --wait`\n\n")
 
 	b.WriteString("### Credentials / API keys for flows\n\n")
@@ -231,6 +232,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- Apply draft bindings: `breyta flows draft bindings apply <slug> @draft.edn`\n")
 	b.WriteString("- Show draft bindings status: `breyta flows draft bindings show <slug>`\n")
 	b.WriteString("- Run draft: `breyta flows draft run <slug> --input '{\"n\":41}' --wait`\n\n")
+	b.WriteString("- Reset draft (clear draft + draft profiles): `breyta flows draft reset <slug>`\n\n")
 	b.WriteString("Activation defaults to `latest`; use `--version <n>` to pin a specific flow version.\n\n")
 	b.WriteString("Bindings apply validates required slots and activation inputs; missing entries are reported in error details.\n\n")
 	b.WriteString("Template discovery:\n")

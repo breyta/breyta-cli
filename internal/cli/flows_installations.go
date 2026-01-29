@@ -27,6 +27,7 @@ In the backend, an installation is implemented as a prod flow profile scoped to 
 	cmd.AddCommand(newFlowsInstallationsSetEnabledCmd(app))
 	cmd.AddCommand(newFlowsInstallationsEnableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
+	cmd.AddCommand(newFlowsInstallationsDeleteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
 	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
@@ -179,6 +180,23 @@ func newFlowsInstallationsDisableCmd(app *App) *cobra.Command {
 			return doAPICommand(cmd, app, "flows.installations.set_enabled", map[string]any{
 				"profileId": args[0],
 				"enabled":   false,
+			})
+		},
+	}
+	return cmd
+}
+
+func newFlowsInstallationsDeleteCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <profile-id>",
+		Short: "Delete an installation (uninstall)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows installations delete requires API mode"))
+			}
+			return doAPICommand(cmd, app, "flows.installations.delete", map[string]any{
+				"profileId": args[0],
 			})
 		},
 	}

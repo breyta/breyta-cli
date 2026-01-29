@@ -41,7 +41,7 @@ Note: `:persist true` is not supported; use the explicit map form.
 ;; Customize blob persistence
 {:persist {:type :blob
            :filename "report.json"
-           :tier :default}}
+           :tier :retained}}
 ```
 
 Optional signed URL config for downloads:
@@ -204,7 +204,7 @@ Default tier:
 ```clojure
 {:type :blob
  :filename "report.json"
- :tier :default} ; 1MB write cap, default lifecycle
+ :tier :retained} ; 1MB write cap, 90-day lifecycle
 ```
 
 Ephemeral tier (streaming):
