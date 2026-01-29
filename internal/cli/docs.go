@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/breyta/breyta-cli/internal/format"
@@ -44,19 +45,40 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 				outFormat = "md"
 			}
 
+			topics := docsTopicList(root, app.DevMode)
+
 			// Docs are allowed to target hidden commands, even when the default CLI
 			// surface is minimized (non-dev mode). This keeps docs stable for agents
 			// and internal tooling without expanding the user-visible help surface.
-			target, path, err := findCommandByPath(root, args, true)
+			target, path, err := findCommandByPath(root, args, true, topics)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 
 			// No args => index page.
 			if target == root && len(args) == 0 {
-				md := renderDocsIndexMD(root, app.DevMode)
-				_, _ = io.WriteString(cmd.OutOrStdout(), md)
-				return nil
+				switch outFormat {
+				case "md", "markdown":
+					md := renderDocsIndexMD(root, app.DevMode)
+					_, _ = io.WriteString(cmd.OutOrStdout(), md)
+					return nil
+				case "json":
+					d := docCommandFrom(target, full, app.DevMode)
+					return format.Write(cmd.OutOrStdout(), map[string]any{
+						"ok":          true,
+						"workspaceId": app.WorkspaceID,
+						"meta": map[string]any{
+							"path": path,
+							"hint": "Pass `breyta docs <command> --format md` for human-readable docs; use `--full` to include recursive subcommands.",
+						},
+						"data": map[string]any{
+							"command": d,
+							"topics":  topics,
+						},
+					}, outFormat, true)
+				default:
+					return writeErr(cmd, fmt.Errorf("unknown docs format: %s", outFormat))
+				}
 			}
 
 			switch outFormat {
@@ -75,6 +97,7 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 					},
 					"data": map[string]any{
 						"command": d,
+						"topics":  topics,
 					},
 				}, outFormat, true)
 			default:
@@ -148,13 +171,22 @@ func docFlags(fs *pflag.FlagSet, persistent bool, includeHidden bool) []docFlag 
 	return items
 }
 
-func findCommandByPath(root *cobra.Command, args []string, allowHidden bool) (*cobra.Command, string, error) {
+func findCommandByPath(root *cobra.Command, args []string, allowHidden bool, topics []string) (*cobra.Command, string, error) {
 	cur := root
 	path := cur.Name()
 	for _, tok := range args {
 		nxt := findDirectSubcommand(cur, tok, allowHidden)
 		if nxt == nil {
-			return nil, "", fmt.Errorf("unknown command: %s (try `breyta docs` for index)", strings.Join(args, " "))
+			joined := strings.TrimSpace(strings.Join(args, " "))
+			if joined == "" {
+				joined = tok
+			}
+			msg := "unknown docs topic: " + joined
+			if len(topics) > 0 {
+				msg = msg + ". Valid topics: " + strings.Join(topics, ", ")
+			}
+			msg = msg + ". Run `breyta docs` for the index."
+			return nil, "", fmt.Errorf("%s", msg)
 		}
 		cur = nxt
 		path = path + " " + cur.Name()
@@ -183,6 +215,36 @@ func findDirectSubcommand(parent *cobra.Command, tok string, allowHidden bool) *
 	return nil
 }
 
+func docsTopicList(root *cobra.Command, devMode bool) []string {
+	if root == nil {
+		return nil
+	}
+	allowHidden := map[string]bool{
+		"auth":       true,
+		"docs":       true,
+		"flows":      true,
+		"resources":  true,
+		"runs":       true,
+		"steps":      true,
+		"triggers":   true,
+		"waits":      true,
+		"workspaces": true,
+		"skills":     true,
+	}
+	topics := make([]string, 0)
+	for _, c := range root.Commands() {
+		name := strings.TrimSpace(c.Name())
+		if name == "" || name == "help" || name == "completion" {
+			continue
+		}
+		if devMode || c.IsAvailableCommand() || allowHidden[name] {
+			topics = append(topics, name)
+		}
+	}
+	sort.Strings(topics)
+	return topics
+}
+
 func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	var b strings.Builder
 	b.WriteString("## Breyta CLI docs\n\n")
@@ -191,6 +253,17 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- `breyta docs <command...>` prints Markdown docs for that command\n")
 	b.WriteString("- `breyta <command...> --help` prints Cobra help for that command\n")
 	b.WriteString("- For structured docs: `breyta docs <command...> --format json`\n\n")
+
+	topics := docsTopicList(root, devMode)
+	if len(topics) > 0 {
+		b.WriteString("### Docs topics\n\n")
+		b.WriteString("Use `breyta docs <topic>` with one of:\n\n")
+		for _, t := range topics {
+			b.WriteString("- `" + t + "`\n")
+		}
+		b.WriteString("\n")
+		b.WriteString("Use `breyta docs <topic> --format json` to list subcommands.\n\n")
+	}
 
 	b.WriteString("### End-user installations (marketplace MVP)\n\n")
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")

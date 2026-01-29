@@ -22,13 +22,20 @@ func configureVisibility(root *cobra.Command, app *App) {
 	}
 
 	allowRoot := map[string]bool{
-		"flows": true,
-		"flow":  true, // alias
-		"runs":  true,
-		"run":   true, // alias
-		"resources": true,
-		"docs":  true,
-		"auth":  true,
+		"flows":       true,
+		"flow":        true, // alias
+		"runs":        true,
+		"run":         true, // alias
+		"resources":   true,
+		"docs":        true,
+		"auth":        true,
+		"triggers":    true,
+		"steps":       true,
+		"waits":       true,
+		"workspaces":  true,
+		"connections": true,
+		"profiles":    true,
+		"webhooks":    true,
 	}
 
 	for _, c := range root.Commands() {

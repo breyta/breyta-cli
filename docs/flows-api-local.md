@@ -57,7 +57,7 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
 - Keep orchestration in the flow body (sequence of `step` calls)
 - Do data transformation in `:function` steps (`:code` alias).
-  - Safe helpers are exposed under `breyta.sandbox` (no Java interop):
+  - Safe helpers are exposed under `breyta.sandbox` (no Java interop). Do not call `java.time.*` in `:function` code.
     - `base64-encode` `(string|bytes) -> string`
     - `base64-decode` `(string|bytes) -> string`
     - `base64-decode-bytes` `(string|bytes) -> bytes`
@@ -68,11 +68,24 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
     - `hmac-sha256-hex` `(key string|bytes, value string|bytes) -> string`
     - `uuid-from` `(string) -> uuid`
     - `uuid-from-bytes` `(string|bytes) -> uuid`
-    - `parse-instant` `(string) -> java.time.Instant`
-    - `format-instant` `(Instant) -> string`
-    - `format-instant-pattern` `(Instant, pattern) -> string`
+    - `parse-instant` `(string) -> instant`
+    - `format-instant` `(instant) -> string`
+    - `format-instant-pattern` `(instant, pattern) -> string`
     - `url-encode` `(string) -> string`
     - `url-decode` `(string) -> string`
+
+### Concurrency notes
+
+- Concurrency config is static. Do not use expressions in `:concurrency`.
+- `:key-field` must be a keyword or nested path vector that exists in `flow/input` (for example `:email` or `[:event :id]`).
+- Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
+- Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
+
+### Common pitfalls
+
+- Waits are event-based. They pause for external signals (webhooks, CLI commands), not timers. For delays, use schedule triggers.
+- Singleton workflows can get stuck if a run errors or waits. Use `:on-new-version :supersede` for fresh starts.
+- Keep flow bodies simple. Put logic in `:function` steps and keep orchestration minimal.
 
 ### Input keys from `--input` (string vs keyword keys)
 

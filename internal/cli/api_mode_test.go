@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -82,6 +83,58 @@ func TestDocs_CanDocumentHiddenCommandByName(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(stdout), []byte("Unified resource access")) {
 		t.Fatalf("expected resources docs content\n---\n%s", stdout)
+	}
+}
+
+func TestDocs_CanDocumentTriggers(t *testing.T) {
+	stdout, _, err := runCLIArgs(t,
+		"docs", "triggers",
+	)
+	if err != nil {
+		t.Fatalf("docs triggers failed: %v\n%s", err, stdout)
+	}
+	if !bytes.HasPrefix([]byte(stdout), []byte("## breyta triggers")) {
+		t.Fatalf("expected markdown docs header for triggers\n---\n%s", stdout)
+	}
+}
+
+func TestDocs_Index_JSONIncludesTopics(t *testing.T) {
+	stdout, _, err := runCLIArgs(t,
+		"docs", "--format", "json",
+	)
+	if err != nil {
+		t.Fatalf("docs json failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	rawTopics, _ := data["topics"].([]any)
+	if len(rawTopics) == 0 {
+		t.Fatalf("expected topics list in docs json\n---\n%s", stdout)
+	}
+	found := false
+	for _, tAny := range rawTopics {
+		if s, ok := tAny.(string); ok && s == "triggers" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected topics to include triggers\n---\n%s", stdout)
+	}
+}
+
+func TestDocs_UnknownTopic_ShowsValidTopics(t *testing.T) {
+	_, stderr, err := runCLIArgs(t,
+		"docs", "nope",
+	)
+	if err == nil {
+		t.Fatalf("expected docs to fail for unknown topic")
+	}
+	if !strings.Contains(stderr, "Valid topics") {
+		t.Fatalf("expected valid topics hint\n---\n%s", stderr)
 	}
 }
 
@@ -356,11 +409,11 @@ func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 	if !statusCalled {
 		t.Fatalf("expected profiles.status to be called")
 	}
-		// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
-		if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
-			t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
-		}
+	// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
+	if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
+		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
 	}
+}
 
 func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 	t.Helper()

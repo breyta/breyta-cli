@@ -102,6 +102,15 @@ Both `:type` and `:on-new-version` are required.
 Notes:
 - Use `:supersede` while iterating to avoid blocking on long-running or waiting runs.
 - `:drain` can block new runs if a run is stuck or waiting. Cancel the run or switch to `:supersede` during development.
+- Concurrency config is static. Do not use expressions in `:concurrency`.
+- `:key-field` must be a keyword or nested path vector that exists in `flow/input` (for example `:email` or `[:event :id]`).
+- Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
+- Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
+
+## Common pitfalls
+- Waits are event-based. They pause for external signals (webhooks, CLI commands), not timers. For delays, use schedule triggers.
+- Singleton workflows can get stuck if a run errors or waits. Use `:on-new-version :supersede` for fresh starts.
+- Keep flow bodies simple. Put logic in `:function` steps and keep orchestration minimal.
 
 ## `:triggers`
 Common types:
@@ -111,6 +120,7 @@ Common types:
 
 Notes:
 - Keep at least one enabled `:manual` trigger so the flow is runnable from the UI.
+- Schedule cron and timezone are static strings in the flow definition. Do not compute them at runtime.
 - Webhook triggers use `:event` with `:source :webhook`; the webhook path is generated at activation.
 - The payload arrives in `flow/input`.
 - Webhook secrets are declared as `:requires` slots of `:type :secret` and bound via profiles.
@@ -266,14 +276,15 @@ Add labels to branches and loops to make the visual editor clearer.
 ## Functions (`:functions`)
 Use `:function` steps for sandboxed transforms. For reuse, define flow-local functions.
 
-Sandbox helpers (safe, no Java interop) are available under `breyta.sandbox`:
+Sandbox helpers (safe, no Java interop) are available under `breyta.sandbox`.
+Do not call `java.time.*` in `:function` code. If you need time data, pass it in as input or derive it in the flow with `flow/now-ms`.
 `base64-encode` `(string|bytes) -> string`, `base64-decode` `(string|bytes) -> string`,
 `base64-decode-bytes` `(string|bytes) -> bytes`, `hex-encode` `(string|bytes) -> string`,
 `hex-decode` `(string) -> string`, `hex-decode-bytes` `(string) -> bytes`,
 `sha256-hex` `(string|bytes) -> string`, `hmac-sha256-hex` `(key,value) -> string`,
 `uuid-from` `(string) -> uuid`, `uuid-from-bytes` `(string|bytes) -> uuid`,
-`parse-instant` `(string) -> java.time.Instant`, `format-instant` `(Instant) -> string`,
-`format-instant-pattern` `(Instant, pattern) -> string`, `url-encode` `(string) -> string`,
+`parse-instant` `(string) -> instant`, `format-instant` `(instant) -> string`,
+`format-instant-pattern` `(instant, pattern) -> string`, `url-encode` `(string) -> string`,
 `url-decode` `(string) -> string`.
 
 ```clojure

@@ -739,8 +739,18 @@ func newTriggersCmd(app *App) *cobra.Command {
 	var triggerType string
 	cmd := &cobra.Command{
 		Use:   "triggers <flow-slug>",
-		Short: "Manage triggers",
-		Args:  cobra.MinimumNArgs(1),
+		Short: "List and manage triggers",
+		Long: strings.TrimSpace(`
+List triggers for a flow and manage webhook URLs or manual trigger firing.
+Use "breyta triggers <flow-slug>" for the flow scoped view.
+`),
+		Example: strings.TrimSpace(`
+breyta triggers my-flow
+breyta triggers webhook-url my-flow
+breyta triggers show tr_123
+breyta triggers fire tr_123 --input '{"n":41}'
+`),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flow := strings.TrimSpace(args[0])
 			if flow == "" {
