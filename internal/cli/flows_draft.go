@@ -19,6 +19,7 @@ func newFlowsDraftCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newFlowsDraftShowCmd(app))
 	cmd.AddCommand(newFlowsDraftRunCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsCmd(app))
+	cmd.AddCommand(newFlowsDraftResetCmd(app))
 	return cmd
 }
 
@@ -139,6 +140,23 @@ func newFlowsDraftBindingsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newFlowsDraftBindingsTemplateCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsApplyCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsShowCmd(app))
+	return cmd
+}
+
+func newFlowsDraftResetCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reset <flow-slug>",
+		Short: "Delete the current draft and draft profiles for a flow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows draft reset requires API mode"))
+			}
+			return doAPICommand(cmd, app, "flows.draft.reset", map[string]any{
+				"flowSlug": args[0],
+			})
+		},
+	}
 	return cmd
 }
 

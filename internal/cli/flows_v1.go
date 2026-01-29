@@ -87,6 +87,7 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(newFlowsParenCheckCmd(app))
 	cmd.AddCommand(newFlowsDeployCmd(app))
 	cmd.AddCommand(newFlowsUpdateCmd(app))
+	cmd.AddCommand(newFlowsArchiveCmd(app))
 	cmd.AddCommand(newFlowsDeleteCmd(app))
 	cmd.AddCommand(newFlowsSpineCmd(app))
 
@@ -713,11 +714,23 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 }
 
 func newFlowsDeleteCmd(app *App) *cobra.Command {
+	var yes bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "delete <flow-slug>",
 		Short: "Delete a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0]}
+				if yes {
+					payload["yes"] = true
+				}
+				if force {
+					payload["force"] = true
+				}
+				return doAPICommand(cmd, app, "flows.delete", payload)
+			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -735,6 +748,42 @@ func newFlowsDeleteCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			return writeData(cmd, app, nil, map[string]any{"deleted": true, "flowSlug": args[0]})
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm delete")
+	cmd.Flags().BoolVar(&force, "force", false, "Force delete (cancel runs, delete installations)")
+	return cmd
+}
+
+func newFlowsArchiveCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "archive <flow-slug>",
+		Short: "Archive a flow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0]}
+				return doAPICommand(cmd, app, "flows.archive", payload)
+			}
+			st, store, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			f := ws.Flows[args[0]]
+			if f == nil {
+				return writeErr(cmd, errors.New("flow not found"))
+			}
+			f.Tags = append(f.Tags, "archived")
+			f.UpdatedAt = time.Now().UTC()
+			ws.UpdatedAt = f.UpdatedAt
+			if err := store.Save(st); err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeData(cmd, app, nil, map[string]any{"archived": true, "flowSlug": args[0]})
 		},
 	}
 	return cmd
