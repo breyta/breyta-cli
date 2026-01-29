@@ -118,7 +118,7 @@ Waits and approvals:
 - Do not try to test `:wait` via `breyta steps run`. Waits require a full run.
 - List waits with `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`).
 - Use `approvalUrl` or the template fields from the wait list output to approve or reject.
-- Waits are not timers. For delays, use `flow/poll` or a schedule trigger.
+- Waits are not timers. For delays, use `:sleep` (for example, `(flow/step :sleep :delay {:duration "5m"})`), `flow/poll`, or a schedule trigger.
 ```
 
 ### Troubleshooting
