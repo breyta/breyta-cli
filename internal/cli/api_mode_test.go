@@ -44,6 +44,9 @@ func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
 }
 
 func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
 	stdout, _, err := runCLIArgs(t,
 		"docs",
 	)
@@ -356,11 +359,11 @@ func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 	if !statusCalled {
 		t.Fatalf("expected profiles.status to be called")
 	}
-		// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
-		if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
-			t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
-		}
+	// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
+	if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
+		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
 	}
+}
 
 func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 	t.Helper()
@@ -430,7 +433,10 @@ func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 func TestResources_DefaultsToAPIMode(t *testing.T) {
 	// Ensure API-only commands don't fail with "requires API mode" just because the API URL
 	// hasn't been defaulted yet; they should proceed to normal auth errors instead.
-	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(t.TempDir(), "auth.json"))
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
 	_, stderr, err := runCLIArgs(t, "resources", "list")
 	if err == nil {

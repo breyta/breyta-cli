@@ -212,6 +212,11 @@ func newRunsStartCmd(app *App) *cobra.Command {
 				if strings.TrimSpace(source) != "" && source != "active" {
 					payload["source"] = source
 				}
+				if strings.TrimSpace(profileID) == "" && strings.TrimSpace(source) == "" && app.DevMode {
+					if runConfigID := loadRunConfigID(app); strings.TrimSpace(runConfigID) != "" {
+						payload["profileId"] = strings.TrimSpace(runConfigID)
+					}
+				}
 				if strings.TrimSpace(inputJSON) != "" {
 					var v any
 					if err := json.Unmarshal([]byte(inputJSON), &v); err != nil {

@@ -178,9 +178,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 			}
 
 			if strings.TrimSpace(storePath) == "" {
-				if p, err := authstore.DefaultPath(); err == nil {
-					storePath = p
-				}
+				storePath = resolveAuthStorePath(app)
 			}
 			if strings.TrimSpace(storePath) != "" {
 				st, _ := authstore.Load(storePath)
@@ -260,9 +258,7 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 		Short: "Logout (remove stored token)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(storePath) == "" {
-				if p, err := authstore.DefaultPath(); err == nil {
-					storePath = p
-				}
+				storePath = resolveAuthStorePath(app)
 			}
 
 			if strings.TrimSpace(storePath) == "" {

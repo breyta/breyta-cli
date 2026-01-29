@@ -10,7 +10,6 @@ By default, `breyta` targets the production API and does not expose `--api` / `-
 ### Common environment (recommended)
 
 ```bash
-export BREYTA_DEV=1
 export BREYTA_API_URL="http://localhost:8090"
 export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
@@ -19,7 +18,7 @@ export BREYTA_TOKEN="dev-user-123"
 Sanity check:
 
 ```bash
-breyta workspaces current --pretty
+breyta --dev workspaces current --pretty
 ```
 
 ### Local API keys / secrets (for flows-api + OAuth)
@@ -79,7 +78,7 @@ This project has a local flow-authoring CLI.
 
 - Start the server (from breyta/): ./scripts/start-flows-api.sh --emulator --auth-mock
 - breyta CLI calls flows-api over HTTP (dev mode only):
-  - BREYTA_DEV=1
+  - `--dev` (or `breyta internal dev enable`)
   - BREYTA_API_URL=http://localhost:8090
   - BREYTA_WORKSPACE=ws-acme
   - BREYTA_TOKEN=dev-user-123

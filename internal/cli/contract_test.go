@@ -3,7 +3,6 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -124,8 +123,6 @@ func TestContract_RunsStartAdvanceStepAndEvents(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 
 	// Seed to ensure known flows exist.
-	_ = os.Setenv("BREYTA_DEV", "1")
-	defer os.Unsetenv("BREYTA_DEV")
 	stdout, _, err := runCLI(t, statePath, "dev", "seed", "--pretty")
 	if err != nil {
 		t.Fatalf("seed failed: %v\n%s", err, stdout)

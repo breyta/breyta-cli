@@ -366,6 +366,19 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// If there's only one workspace, auto-enter it to reduce noise.
+		if msg.err == nil && strings.TrimSpace(m.token) != "" && m.connected {
+			if len(msg.workspaces) == 1 && strings.TrimSpace(m.selectedWorkspaceID) == "" {
+				if id := strings.TrimSpace(msg.workspaces[0].ID); id != "" && id != "ws-acme" {
+					m.selectedWorkspaceID = id
+					m.mode = homeModeWorkspace
+					m.applyWorkspaceFocus()
+					m.refreshOptions()
+					m.layout()
+					return m, m.loadWorkspaceCmd(id)
+				}
+			}
+		}
 		// In prod, always auto-pick a real default workspace once authenticated.
 		if msg.err == nil && strings.TrimSpace(m.token) != "" && m.connected && isProdAPIURL(m.apiURL) {
 			if strings.TrimSpace(m.defaultWS) == "" && len(msg.workspaces) > 0 {
@@ -536,6 +549,10 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m homeModel) updateWorkspaceMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "backspace", "ctrl+g":
+		// Hide workspace picker when there's only one workspace.
+		if len(m.workspaces) <= 1 && msg.String() != "ctrl+g" {
+			return m, nil
+		}
 		m.mode = homeModeOptions
 		m.selectedWorkspaceID = ""
 		m.workspaceMeta = nil
