@@ -322,7 +322,7 @@ Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for
 - Workflow duration: 7 days
 
 ### Per-step payloads
-- Inline result threshold: 50 KB (larger results become refs)
+- Inline result threshold: 50 KB (larger results require `:persist` or will error)
 - Max step result: 1 MB
 - HTTP response size: 10 MB
 - DB max rows: 10,000
