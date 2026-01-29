@@ -16,10 +16,10 @@ func TestBuildInfoInline(t *testing.T) {
 		buildinfo.Date = origDate
 	}()
 
-	buildinfo.Version = "1.2.3"
+	buildinfo.Version = "2026.1.2"
 	buildinfo.Commit = "abcdef1234567890"
 	buildinfo.Date = "2026-01-14T11:36:49Z"
-	if got := buildInfoInline(); got != "v1.2.3 · abcdef1 · 2026-01-14" {
+	if got := buildInfoInline(); got != "v2026.1.2 · abcdef1 · 2026-01-14" {
 		t.Fatalf("unexpected build info: %q", got)
 	}
 

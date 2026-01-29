@@ -60,10 +60,10 @@ If you want `breyta version` to include the current git commit and install/build
 make install
 ```
 
-You can also install a tagged release directly (requires SemVer-shaped tags):
+You can also install a tagged release directly (requires Go module version tags, which are `v`-prefixed; CalVer works fine):
 
 ```bash
-go install github.com/breyta/breyta-cli/cmd/breyta@v1.2.3
+go install github.com/breyta/breyta-cli/cmd/breyta@v2026.1.2
 ```
 
 #### 3) Make sure Go’s bin directory is on your PATH
