@@ -7,7 +7,7 @@ Important:
 - When `:persist` is used on HTTP-style results, the inline `:body` is omitted and replaced with `{:type :omitted :reason :persisted}`.
 
 When to use:
-- HTTP responses larger than the inline limit (10 KB).
+- HTTP responses larger than the inline limit (50 KB).
 - Files or payloads you want to reuse across steps or runs.
 
 How it works:

@@ -187,7 +187,7 @@ Flow file format and core fields:
 - `:concurrency` for execution behavior.
 - `:triggers` for run initiation.
 - `:flow` for orchestration and determinism rules.
-- Limits: definition size 100 KB; inline results up to 10 KB; max step result 1 MB.
+- Limits: definition size 100 KB; inline results up to 50 KB; max step result 1 MB.
 
 Details: `./references/authoring-reference.md`
 
