@@ -57,7 +57,9 @@ Assume many HTTP steps will exceed the inline 50 KB limit
 - Prefer a **per-node “prep” function** that computes all expression-derived fields, then pass its output into the step/template.
 - Code nodes: attempt a real translation to a Breyta `:function` (Clojure) so the flow runs as intended.
   - Only fall back to `(fn [input] input)` when translation is unclear; keep the original code verbatim in comments.
-- Avoid Java interop in `:function` steps (e.g., `java.time.*`). If time/date is needed, add an activation input (e.g., `:weekday`) or require it in `flow/input`, and add a TODO if missing.
+- Java interop in `:function` steps is restricted (small allowlist). Prefer `breyta.sandbox` helpers.
+  For time/date, you can use allowlisted `java.time.*` for parsing/formatting, but avoid deriving "now" in code;
+  pass timestamps/flags via inputs (e.g. `:weekday`) or use runtime-provided time utilities, and add a TODO if missing.
 
 Example comment block:
 ```clojure
@@ -120,7 +122,7 @@ Example (side‑effects per item):
 - Query params: move URL query strings into `:query` so the runtime includes them
 - Auth placement: keep header vs query as in n8n, do not guess
 - Lazy seqs: wrap `for` output with `vec` before passing into `:function` steps
-- Java interop: avoid `java.time.*` in `:function` code, use `flow/now-ms` and explicit inputs
+- Java interop: restricted allowlist; prefer `breyta.sandbox` helpers; for time, use `flow/now-ms` + explicit inputs
 - Regex: do not use `\\s`, use explicit character classes
 - Persisted HTTP: inline `:body` is omitted, add a read step or `:body-from-ref` if downstream expects JSON
 

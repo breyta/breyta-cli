@@ -248,15 +248,24 @@ Add labels to branches and loops to make the visual editor clearer.
 ## Functions (`:functions`)
 Use `:function` steps for sandboxed transforms. For reuse, define flow-local functions.
 
-Sandbox helpers (safe, no Java interop) are available under `breyta.sandbox`:
+Sandbox helpers (safe; pure/deterministic) are available under `breyta.sandbox`:
 `base64-encode` `(string|bytes) -> string`, `base64-decode` `(string|bytes) -> string`,
 `base64-decode-bytes` `(string|bytes) -> bytes`, `hex-encode` `(string|bytes) -> string`,
 `hex-decode` `(string) -> string`, `hex-decode-bytes` `(string) -> bytes`,
 `sha256-hex` `(string|bytes) -> string`, `hmac-sha256-hex` `(key,value) -> string`,
 `uuid-from` `(string) -> uuid`, `uuid-from-bytes` `(string|bytes) -> uuid`,
 `parse-instant` `(string) -> java.time.Instant`, `format-instant` `(Instant) -> string`,
-`format-instant-pattern` `(Instant, pattern) -> string`, `url-encode` `(string) -> string`,
-`url-decode` `(string) -> string`.
+`format-instant-pattern` `(Instant, pattern) -> string`,
+`instant->epoch-ms` `(Instant) -> long`, `epoch-ms->instant` `(long) -> Instant`,
+`duration-between` `(Instant, Instant) -> Duration`,
+`truncate-instant` `(Instant, unit) -> Instant` (unit: `:seconds|:minutes|:hours|:days`),
+`instant-plus` `(Instant, amount, unit) -> Instant` (unit: `:millis|:seconds|:minutes|:hours|:days`),
+`instant-minus` `(Instant, amount, unit) -> Instant`,
+`url-encode` `(string) -> string`, `url-decode` `(string) -> string`.
+
+Limited Java interop is also allowed in `:function` code (small allowlist): `java.time.*`,
+`java.time.format.DateTimeFormatter`, `java.time.temporal.{ChronoUnit,TemporalAdjusters}`,
+`java.util.{UUID,Base64}`, `java.math.{BigInteger,BigDecimal}`. Prefer `breyta.sandbox`.
 
 ```clojure
 :functions [{:id :summarize-user

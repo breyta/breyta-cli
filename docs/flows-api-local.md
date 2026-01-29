@@ -57,7 +57,7 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
 - Keep orchestration in the flow body (sequence of `step` calls)
 - Do data transformation in `:function` steps (`:code` alias).
-  - Safe helpers are exposed under `breyta.sandbox` (no Java interop):
+  - Safe helpers are exposed under `breyta.sandbox` (preferred; pure/deterministic):
     - `base64-encode` `(string|bytes) -> string`
     - `base64-decode` `(string|bytes) -> string`
     - `base64-decode-bytes` `(string|bytes) -> bytes`
@@ -71,8 +71,19 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
     - `parse-instant` `(string) -> java.time.Instant`
     - `format-instant` `(Instant) -> string`
     - `format-instant-pattern` `(Instant, pattern) -> string`
+    - `instant->epoch-ms` `(Instant) -> long`
+    - `epoch-ms->instant` `(long) -> Instant`
+    - `duration-between` `(Instant, Instant) -> Duration`
+    - `truncate-instant` `(Instant, unit) -> Instant` (unit: `:seconds|:minutes|:hours|:days`)
+    - `instant-plus` `(Instant, amount, unit) -> Instant` (unit: `:millis|:seconds|:minutes|:hours|:days`)
+    - `instant-minus` `(Instant, amount, unit) -> Instant`
     - `url-encode` `(string) -> string`
     - `url-decode` `(string) -> string`
+  - Limited Java interop is also allowed in `:function` code (small allowlist):
+    - `java.time.*`, `java.time.format.DateTimeFormatter`, `java.time.temporal.{ChronoUnit,TemporalAdjusters}`
+    - `java.util.{UUID,Base64}` (and Base64 encoder/decoder)
+    - `java.math.{BigInteger,BigDecimal}`
+    - Prefer `breyta.sandbox` helpers when possible.
 
 ### Input keys from `--input` (string vs keyword keys)
 
