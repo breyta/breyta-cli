@@ -20,6 +20,20 @@ Core fields:
 | `:triggers` | vector | Yes | Include a `:manual` trigger for discoverability |
 | `:flow` | form | Yes | The orchestration DSL |
 
+## `:flow`
+The flow body must be quoted so it is treated as data:
+
+```clojure
+:flow '(let [input (flow/input)] ...)
+```
+
+Do not leave it unquoted:
+
+```clojure
+;; Wrong: evaluated at read time
+:flow (let [input (flow/input)] ...)
+```
+
 ## `:requires`
 Use `:requires` to declare connection slots and activation form inputs. Flows with `:requires` must have bindings applied and be activated.
 
@@ -85,6 +99,19 @@ Both `:type` and `:on-new-version` are required.
 | `{:type :keyed :key-field :user-id :on-new-version :supersede}` | One instance per key |
 | `{:type :keyed :key-field :user-id :on-new-version :drain}` | One instance per key, drain on new version |
 
+Notes:
+- Use `:supersede` while iterating to avoid blocking on long-running or waiting runs.
+- `:drain` can block new runs if a run is stuck or waiting. Cancel the run or switch to `:supersede` during development.
+- Concurrency config is static. Do not use expressions in `:concurrency`.
+- `:key-field` must be a keyword or nested path vector that exists in `flow/input` (for example `:email` or `[:event :id]`).
+- Use `:supersede` when a newer run should cancel the older one (webhooks, retries, refresh jobs).
+- Use `:drain` when in-flight work must finish and it is safe to queue new runs (billing, uploads, sequential processing).
+
+## Common pitfalls
+- Waits are event-based. They pause for external signals (webhooks, CLI commands), not timers. For delays, use schedule triggers.
+- Singleton workflows can get stuck if a run errors or waits. Use `:on-new-version :supersede` for fresh starts.
+- Keep flow bodies simple. Put logic in `:function` steps and keep orchestration minimal.
+
 ## `:triggers`
 Common types:
 - `:manual` with `:label` and optional `:config`
@@ -93,6 +120,7 @@ Common types:
 
 Notes:
 - Keep at least one enabled `:manual` trigger so the flow is runnable from the UI.
+- Schedule cron and timezone are static strings in the flow definition. Do not compute them at runtime.
 - Webhook triggers use `:event` with `:source :webhook`; the webhook path is generated at activation.
 - The payload arrives in `flow/input`.
 - Webhook secrets are declared as `:requires` slots of `:type :secret` and bound via profiles.
