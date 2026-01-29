@@ -35,6 +35,7 @@ Dev-only commands and flags are hidden unless you enable dev mode. You can eithe
 
 - enable dev mode for a single command with `--dev`
 - or enable it persistently with `breyta internal dev enable`
+- and disable it persistently with `breyta internal dev disable`
 
 You can also force a specific dev profile for a single command (docs place it at the end for readability):
 

@@ -863,11 +863,14 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 			defaultWS = st.DevWorkspaceID
 		}
 	}
+	if st == nil || !st.DevMode {
+		apiURL = configstore.DefaultProdAPIURL
+	}
 	if strings.TrimSpace(apiURL) == "" {
 		if st != nil && strings.TrimSpace(st.APIURL) != "" {
 			apiURL = st.APIURL
 		} else {
-			apiURL = configstore.DefaultLocalAPIURL
+			apiURL = configstore.DefaultProdAPIURL
 		}
 	}
 
@@ -955,11 +958,10 @@ func (m *homeModel) refreshTokenCmd() tea.Cmd {
 }
 
 func (m *homeModel) apiBaseURL() string {
-	apiURL := strings.TrimSpace(m.apiURL)
-	if apiURL == "" {
-		apiURL = configstore.DefaultLocalAPIURL
+	if strings.TrimSpace(m.apiURL) == "" {
+		return configstore.DefaultProdAPIURL
 	}
-	return apiURL
+	return strings.TrimSpace(m.apiURL)
 }
 
 func (m *homeModel) checkConnectionCmd() tea.Cmd {
