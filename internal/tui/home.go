@@ -856,6 +856,16 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 		st, _ = configstore.Load(p)
 	}
 	if st != nil && st.DevMode {
+		if strings.TrimSpace(apiURL) == "" {
+			if prof, ok := resolveDevProfile(st); ok && strings.TrimSpace(prof.APIURL) != "" {
+				apiURL = prof.APIURL
+			}
+		}
+		if strings.TrimSpace(defaultWS) == "" {
+			if prof, ok := resolveDevProfile(st); ok && strings.TrimSpace(prof.WorkspaceID) != "" {
+				defaultWS = prof.WorkspaceID
+			}
+		}
 		if strings.TrimSpace(apiURL) == "" && strings.TrimSpace(st.DevAPIURL) != "" {
 			apiURL = st.DevAPIURL
 		}
@@ -888,6 +898,35 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 		defaultWS = ""
 	}
 	return strings.TrimSpace(apiURL), strings.TrimSpace(defaultWS)
+}
+
+func resolveDevProfile(st *configstore.Store) (configstore.DevProfile, bool) {
+	if st == nil {
+		return configstore.DevProfile{}, false
+	}
+	if len(st.DevProfiles) == 0 {
+		return configstore.DevProfile{}, false
+	}
+	name := strings.TrimSpace(st.DevActive)
+	if name == "" {
+		if _, ok := st.DevProfiles["local"]; ok {
+			name = "local"
+		}
+	}
+	if name == "" {
+		for candidate := range st.DevProfiles {
+			name = candidate
+			break
+		}
+	}
+	if name == "" {
+		return configstore.DevProfile{}, false
+	}
+	prof, ok := st.DevProfiles[name]
+	if !ok {
+		return configstore.DevProfile{}, false
+	}
+	return prof, true
 }
 
 func isProdAPIURL(apiURL string) bool {
