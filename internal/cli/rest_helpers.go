@@ -15,6 +15,7 @@ func writeREST(cmd *cobra.Command, app *App, status int, data any) error {
 					"ok":          false,
 					"workspaceId": app.WorkspaceID,
 					"error":       errAny,
+					"meta":        map[string]any{"status": status},
 					"data":        m,
 				})
 				return errors.New("api error")
