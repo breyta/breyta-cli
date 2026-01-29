@@ -23,4 +23,3 @@ func newFlowsInstallationsGetCmd(app *App) *cobra.Command {
 	}
 	return cmd
 }
-
