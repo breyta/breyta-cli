@@ -50,11 +50,22 @@ If you want to start flows-api yourself and reuse it across runs:
 IT_START_SERVER=false ../breyta/bases/flows-api/scripts/integration_tests.sh
 ```
 
-Releases are cut by pushing a SemVer tag:
+Releases are cut by pushing a CalVer tag (Calendar Versioning):
+
+- Tag format: `vYYYY.M.PATCH` (example: `v2026.1.2`)
+- `YYYY`: year
+- `M`: month number (`1`-`12`, no leading zero)
+- `PATCH`: counter for additional releases in the same month
+
+Examples:
+
+- `v2026.1.1`: first release in January 2026
+- `v2026.1.2`: second release in January 2026
+- `v2026.2.1`: first release in February 2026
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v2026.1.1
+git push origin v2026.1.1
 ```
 
 This triggers GitHub Actions (`.github/workflows/release.yml`) which runs GoReleaser (`.goreleaser.yaml`) to:

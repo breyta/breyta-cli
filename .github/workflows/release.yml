@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9][0-9][0-9][0-9].[0-9]*.[0-9]*"
 
 permissions:
   contents: write
@@ -32,4 +32,3 @@ jobs:
         env:
           # Needs access to publish the GitHub Release *and* to push to `breyta/homebrew-tap`.
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
-
