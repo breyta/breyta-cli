@@ -88,7 +88,6 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
-
 func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

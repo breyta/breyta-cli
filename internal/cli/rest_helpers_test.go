@@ -37,4 +37,3 @@ func TestWriteREST_ErrorEnvelopeIncludesStatusMeta(t *testing.T) {
 		t.Fatalf("expected meta.status=401, got %v (full=%v)", meta["status"], got)
 	}
 }
-

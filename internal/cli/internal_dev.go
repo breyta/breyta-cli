@@ -53,10 +53,25 @@ func newInternalDevEnableCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			st.DevMode = true
+			if st.DevProfiles == nil {
+				st.DevProfiles = map[string]configstore.DevProfile{}
+			}
+			if _, ok := st.DevProfiles["local"]; !ok {
+				st.DevProfiles["local"] = configstore.DevProfile{
+					APIURL: configstore.DefaultLocalAPIURL,
+				}
+			}
+			if strings.TrimSpace(st.DevActive) == "" {
+				st.DevActive = "local"
+			}
 			if err := configstore.SaveAtomic(path, st); err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, map[string]any{"path": path}, map[string]any{"devMode": true})
+			return writeData(cmd, app, map[string]any{"path": path}, map[string]any{
+				"devMode":    true,
+				"devActive":  st.DevActive,
+				"devProfile": "local",
+			})
 		},
 	}
 	return cmd
