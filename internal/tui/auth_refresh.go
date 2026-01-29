@@ -14,13 +14,48 @@ import (
 
 	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/configstore"
 )
 
 func authStorePath() (string, error) {
+	if p := strings.TrimSpace(devAuthStorePath()); p != "" {
+		return p, nil
+	}
 	if p := strings.TrimSpace(os.Getenv("BREYTA_AUTH_STORE")); p != "" {
 		return p, nil
 	}
 	return authstore.DefaultPath()
+}
+
+func devAuthStorePath() string {
+	p, err := configstore.DefaultPath()
+	if err != nil || strings.TrimSpace(p) == "" {
+		return ""
+	}
+	st, err := configstore.Load(p)
+	if err != nil || st == nil || !st.DevMode || len(st.DevProfiles) == 0 {
+		return ""
+	}
+	active := strings.TrimSpace(st.DevActive)
+	if active == "" {
+		if _, ok := st.DevProfiles["local"]; ok {
+			active = "local"
+		}
+	}
+	if active == "" {
+		for name := range st.DevProfiles {
+			active = name
+			break
+		}
+	}
+	if active == "" {
+		return ""
+	}
+	prof, ok := st.DevProfiles[active]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(prof.AuthStorePath)
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {

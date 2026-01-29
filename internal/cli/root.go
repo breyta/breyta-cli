@@ -23,6 +23,8 @@ type App struct {
 	TokenExplicit        bool
 	Profile              string
 	DevMode              bool
+	DevFlag              string
+	DevProfileOverride   string
 	visibilityConfigured bool
 }
 
@@ -47,7 +49,10 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. https://flows.breyta.ai)")
 	cmd.PersistentFlags().StringVar(&app.Token, "token", "", "API token")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
-	cmd.PersistentFlags().BoolVar(&app.DevMode, "dev", envOr("BREYTA_DEV", "") == "1", "Enable dev-only commands")
+	cmd.PersistentFlags().StringVar(&app.DevFlag, "dev", "", "Enable dev-only commands (optional profile name)")
+	if f := cmd.PersistentFlags().Lookup("dev"); f != nil {
+		f.NoOptDefVal = "true"
+	}
 
 	// Ensure dev-only flags and commands remain hidden in help output unless explicitly enabled.
 	defaultHelp := cmd.HelpFunc()
@@ -57,7 +62,33 @@ func NewRootCmd() *cobra.Command {
 		defaultHelp(c, args)
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		// Parse-time: app.DevMode is set from flags/env. Hide dev-only controls unless explicitly enabled.
+		// Parse-time: app.DevMode is set from flags/config. Hide dev-only controls unless explicitly enabled.
+		devFlagExplicit := false
+		if cmd != nil {
+			devFlagExplicit = cmd.Flags().Changed("dev") || cmd.InheritedFlags().Changed("dev")
+			if root := cmd.Root(); root != nil {
+				devFlagExplicit = devFlagExplicit || root.PersistentFlags().Changed("dev")
+			}
+		}
+		if devFlagExplicit {
+			val := strings.TrimSpace(app.DevFlag)
+			switch strings.ToLower(val) {
+			case "", "true", "1", "yes", "y", "on":
+				app.DevMode = true
+				app.DevProfileOverride = ""
+			case "false", "0", "no", "n", "off":
+				app.DevMode = false
+				app.DevProfileOverride = ""
+			default:
+				app.DevMode = true
+				app.DevProfileOverride = val
+			}
+		}
+		if !app.DevMode {
+			if st, ok := loadDevConfig(app); ok && st.DevMode {
+				app.DevMode = true
+			}
+		}
 		configureFlagVisibility(cmd.Root(), app)
 
 		// Default workspace id:
@@ -99,8 +130,19 @@ func NewRootCmd() *cobra.Command {
 				return writeErr(cmd, errors.New("--api override is disabled"))
 			}
 			if app.DevMode && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
-				if envURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); envURL != "" {
-					app.APIURL = envURL
+				if st, ok := loadDevConfig(app); ok {
+					_, prof, err := resolveDevProfile(app, st)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if strings.TrimSpace(prof.APIURL) != "" {
+						app.APIURL = strings.TrimSpace(prof.APIURL)
+					}
+				}
+				if strings.TrimSpace(app.APIURL) == "" {
+					if envURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); envURL != "" {
+						app.APIURL = envURL
+					}
 				}
 			}
 			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
@@ -116,6 +158,17 @@ func NewRootCmd() *cobra.Command {
 		}
 
 		if !workspaceFlagExplicit && !workspaceEnvExplicit && strings.TrimSpace(app.WorkspaceID) == "" {
+			if app.DevMode {
+				if st, ok := loadDevConfig(app); ok {
+					_, prof, err := resolveDevProfile(app, st)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if strings.TrimSpace(prof.WorkspaceID) != "" {
+						app.WorkspaceID = strings.TrimSpace(prof.WorkspaceID)
+					}
+				}
+			}
 			// Only apply default workspace when config apiUrl matches current api url.
 			if p, err := configstore.DefaultPath(); err == nil && p != "" {
 				if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.WorkspaceID) != "" {
@@ -139,6 +192,17 @@ func NewRootCmd() *cobra.Command {
 		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
 		if !app.DevMode && tokenFlagExplicit {
 			return writeErr(cmd, errors.New("--token override is disabled; use `breyta auth login` instead"))
+		}
+		if app.DevMode && !tokenFlagExplicit && strings.TrimSpace(app.Token) == "" {
+			if st, ok := loadDevConfig(app); ok {
+				_, prof, err := resolveDevProfile(app, st)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if strings.TrimSpace(prof.Token) != "" {
+					app.Token = strings.TrimSpace(prof.Token)
+				}
+			}
 		}
 		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
 			app.Token = strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
@@ -184,6 +248,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newDemandCmd(app))
 	cmd.AddCommand(newDocsCmd(cmd, app))
 	cmd.AddCommand(newVersionCmd(app))
+	cmd.AddCommand(newInternalCmd(app))
 
 	return cmd
 }

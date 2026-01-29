@@ -3,13 +3,12 @@ package cli
 import (
 	"github.com/breyta/breyta-cli/internal/mock"
 	"github.com/breyta/breyta-cli/internal/state"
-	"os"
 
 	"github.com/spf13/cobra"
 )
 
 func newDevCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "dev", Short: "Dev helpers", Hidden: os.Getenv("BREYTA_DEV") != "1" && !app.DevMode}
+	cmd := &cobra.Command{Use: "dev", Short: "Dev helpers", Hidden: !app.DevMode && !devModeEnabled()}
 	cmd.AddCommand(newMockSeedCmd(app))
 	cmd.AddCommand(newMockAdvanceCmd(app))
 	return cmd

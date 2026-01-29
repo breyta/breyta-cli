@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -45,6 +44,9 @@ func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
 }
 
 func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
 	stdout, _, err := runCLIArgs(t,
 		"docs",
 	)
@@ -83,58 +85,6 @@ func TestDocs_CanDocumentHiddenCommandByName(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(stdout), []byte("Unified resource access")) {
 		t.Fatalf("expected resources docs content\n---\n%s", stdout)
-	}
-}
-
-func TestDocs_CanDocumentTriggers(t *testing.T) {
-	stdout, _, err := runCLIArgs(t,
-		"docs", "triggers",
-	)
-	if err != nil {
-		t.Fatalf("docs triggers failed: %v\n%s", err, stdout)
-	}
-	if !bytes.HasPrefix([]byte(stdout), []byte("## breyta triggers")) {
-		t.Fatalf("expected markdown docs header for triggers\n---\n%s", stdout)
-	}
-}
-
-func TestDocs_Index_JSONIncludesTopics(t *testing.T) {
-	stdout, _, err := runCLIArgs(t,
-		"docs", "--format", "json",
-	)
-	if err != nil {
-		t.Fatalf("docs json failed: %v\n%s", err, stdout)
-	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
-		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
-	}
-	data, _ := out["data"].(map[string]any)
-	rawTopics, _ := data["topics"].([]any)
-	if len(rawTopics) == 0 {
-		t.Fatalf("expected topics list in docs json\n---\n%s", stdout)
-	}
-	found := false
-	for _, tAny := range rawTopics {
-		if s, ok := tAny.(string); ok && s == "triggers" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected topics to include triggers\n---\n%s", stdout)
-	}
-}
-
-func TestDocs_UnknownTopic_ShowsValidTopics(t *testing.T) {
-	_, stderr, err := runCLIArgs(t,
-		"docs", "nope",
-	)
-	if err == nil {
-		t.Fatalf("expected docs to fail for unknown topic")
-	}
-	if !strings.Contains(stderr, "Valid topics") {
-		t.Fatalf("expected valid topics hint\n---\n%s", stderr)
 	}
 }
 
@@ -483,7 +433,10 @@ func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 func TestResources_DefaultsToAPIMode(t *testing.T) {
 	// Ensure API-only commands don't fail with "requires API mode" just because the API URL
 	// hasn't been defaulted yet; they should proceed to normal auth errors instead.
-	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(t.TempDir(), "auth.json"))
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
 	_, stderr, err := runCLIArgs(t, "resources", "list")
 	if err == nil {

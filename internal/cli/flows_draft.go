@@ -82,7 +82,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 
 			dataAny := startResp["data"]
 			data, _ := dataAny.(map[string]any)
-			workflowID, _ := data["workflowId"].(string)
+			workflowID := workflowIDFromRunData(data)
 			if strings.TrimSpace(workflowID) == "" {
 				return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 			}

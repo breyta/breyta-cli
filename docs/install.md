@@ -11,14 +11,6 @@ brew install breyta
 
 If you don’t have access to the tap yet, use Option B (download a prebuilt binary).
 
-After install, open a new terminal window and run:
-
-```bash
-breyta
-```
-
-This opens the TUI. It defaults to prod unless you set `BREYTA_DEV=1` and a local API URL.
-
 ### Option B: download a prebuilt binary (no Go required)
 
 Download the latest release artifact for your OS/arch from:

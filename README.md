@@ -40,6 +40,7 @@ Breyta is a workflow platform. The CLI/TUI helps you:
 - Browse workflows (“flows”) and their versions
 - Start runs and inspect results
   - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
+  - `workflow-id` is the primary identifier
 - Fetch artifacts via a unified “resources” interface
 
 ## Install

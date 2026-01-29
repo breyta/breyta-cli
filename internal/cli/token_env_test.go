@@ -4,13 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
+
+	"github.com/breyta/breyta-cli/internal/configstore"
 )
 
 func TestDevModeUsesTokenEnv(t *testing.T) {
-	t.Setenv("BREYTA_DEV", "1")
 	t.Setenv("BREYTA_TOKEN", "token-123")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := configstore.DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if err := configstore.SaveAtomic(path, &configstore.Store{DevMode: true}); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -30,7 +38,7 @@ func TestDevModeUsesTokenEnv(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := runCLIArgs(t,
+	_, _, err = runCLIArgs(t,
 		"--api", srv.URL,
 		"--workspace", "ws-acme",
 		"flows", "list",
@@ -41,7 +49,6 @@ func TestDevModeUsesTokenEnv(t *testing.T) {
 }
 
 func TestTokenFlagRejectedOutsideDevMode(t *testing.T) {
-	_ = os.Unsetenv("BREYTA_DEV")
 	stdout, stderr, err := runCLIArgs(t,
 		"--token", "should-fail",
 		"flows", "list",

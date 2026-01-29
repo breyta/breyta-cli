@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/configstore"
 	"github.com/breyta/breyta-cli/internal/state"
 
 	"github.com/spf13/cobra"
@@ -739,18 +740,8 @@ func newTriggersCmd(app *App) *cobra.Command {
 	var triggerType string
 	cmd := &cobra.Command{
 		Use:   "triggers <flow-slug>",
-		Short: "List and manage triggers",
-		Long: strings.TrimSpace(`
-List triggers for a flow and manage webhook URLs or manual trigger firing.
-Use "breyta triggers <flow-slug>" for the flow scoped view.
-`),
-		Example: strings.TrimSpace(`
-breyta triggers my-flow
-breyta triggers webhook-url my-flow
-breyta triggers show tr_123
-breyta triggers fire tr_123 --input '{"n":41}'
-`),
-		Args: cobra.MinimumNArgs(1),
+		Short: "Manage triggers",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flow := strings.TrimSpace(args[0])
 			if flow == "" {
@@ -2075,8 +2066,60 @@ func newWorkspacesCmd(app *App) *cobra.Command {
 		}
 		return writeData(cmd, app, meta, map[string]any{"workspace": data})
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace (mock)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return writeNotImplemented(cmd, app, "Planned: write local config/profile")
+	cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		workspaceID := strings.TrimSpace(args[0])
+		if workspaceID == "" {
+			return writeErr(cmd, errors.New("workspace-id required"))
+		}
+
+		// In API mode, validate membership before saving.
+		if isAPIMode(app) {
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+			defer cancel()
+			out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			m, ok := out.(map[string]any)
+			if !ok {
+				return writeFailure(cmd, app, "workspaces_use_unexpected_response", fmt.Errorf("unexpected response (status=%d)", status), "Expected JSON object from /api/me", out)
+			}
+			raw, _ := m["workspaces"].([]any)
+			found := false
+			for _, v := range raw {
+				wm, ok := v.(map[string]any)
+				if !ok || wm == nil {
+					continue
+				}
+				if id, _ := wm["id"].(string); strings.TrimSpace(id) == workspaceID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return writeErr(cmd, errors.New("workspace not found"))
+			}
+		}
+
+		p, err := configstore.DefaultPath()
+		if err != nil {
+			return writeErr(cmd, err)
+		}
+		st, _ := configstore.Load(p)
+		if st == nil {
+			st = &configstore.Store{}
+		}
+		st.APIURL = strings.TrimSpace(app.APIURL)
+		st.WorkspaceID = workspaceID
+		if err := configstore.SaveAtomic(p, st); err != nil {
+			return writeErr(cmd, err)
+		}
+		app.WorkspaceID = workspaceID
+		meta := map[string]any{"workspaceIdSource": "config", "hint": "Override per-run via --workspace or BREYTA_WORKSPACE."}
+		return writeData(cmd, app, meta, map[string]any{"workspace": map[string]any{"id": workspaceID, "current": true}})
 	}})
 
 	var bootstrapName string

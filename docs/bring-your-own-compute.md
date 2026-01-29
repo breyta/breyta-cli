@@ -59,6 +59,8 @@ Signed URLs expire. If you need to regenerate a URL, use the Resources API via C
 - `breyta resources workflow list <workflow-id>`
 - `breyta resources workflow step <workflow-id> <step-id>`
 
+Note: `workflow-id` is the primary identifier.
+
 2) Get a fresh signed URL:
 - `breyta resources url <resource-uri> --ttl 3600`
 

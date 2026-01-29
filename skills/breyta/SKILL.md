@@ -9,10 +9,8 @@ description: >-
 
 ## At a glance
 - [Quick start](#quick-start)
-- [Command index](#command-index)
 - [Core concepts](#core-concepts)
 - [CLI workflow](#cli-workflow)
-- [Common failures](#common-failures)
 - [Bindings and activation](#bindings-and-activation)
 - [Secrets](#secrets)
 - [Google Drive sync](#google-drive-sync)
@@ -24,48 +22,6 @@ description: >-
 - [Patterns and do/dont](#patterns-and-do-dont)
 - [Reference index](#reference-index)
 - [Glossary](#glossary)
-
-## Command index
-Use this before running any CLI command. Do not guess.
-If a command is listed here, use it directly and do not run `breyta docs` or `--help`.
-Do not re-discover commands that already worked earlier in the same session.
-
-Flows:
-- `breyta flows list`
-- `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
-- `breyta flows push --file ./tmp/flows/<slug>.clj`
-- `breyta flows deploy <slug>`
-
-Runs:
-- `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
-- `breyta runs show <workflow-id>`
-- `breyta runs list`
-
-Triggers:
-- `breyta triggers <flow-slug>`
-- `breyta triggers webhook-url <flow-slug>`
-- `breyta triggers show <trigger-id>`
-- `breyta triggers fire <trigger-id> --input '{"n":41}'`
-
-Steps (isolation):
-- `breyta steps run --type <type> --id <id> --params '<json-object>'`
-- `breyta steps show <flow-slug> <step-id>`
-
-Waits:
-- `breyta waits list --flow <slug>`
-
-Auth and workspace:
-- `breyta auth login`
-- `breyta auth whoami`
-- `breyta workspaces list`
-- `breyta workspaces current`
-- Use `--workspace <id>` for a one-off
-- `breyta workspaces use` is not implemented
-
-Docs:
-- `breyta docs`
-- `breyta docs <topic>`
-- `breyta docs <topic> --format json`
 
 ## Quick start
 Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
@@ -146,11 +102,6 @@ Shorter variant (LLM + template + function + requires):
 - Draft vs deployed: draft runs use draft bindings and draft version; deploy publishes an immutable version, activate enables prod.
 
 Details: `./references/core-concepts.md`
-
-## Common failures
-Short fixes for auth, workspace, and API issues.
-
-Details: `./references/common-failures.md`
 
 ## CLI workflow
 The intended workflow is:
@@ -297,11 +248,6 @@ Details: `./references/patterns.md`
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
-- Use the command index and `breyta docs` before running CLI commands.
-- Do not re-run `breyta docs` or `--help` for commands that already succeeded in this session.
-- Do not refactor or change output shape unless explicitly asked.
-- Do not introduce new helper symbols in `:code` unless you define them in the same function.
-- In `:code`, every symbol must be in scope.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
 - For webhook secrets, require explicit `:secret-ref` on the slot.

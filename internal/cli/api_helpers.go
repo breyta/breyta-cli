@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -77,11 +76,7 @@ func loadTokenFromAuthStore(app *App) {
 	if strings.TrimSpace(app.APIURL) == "" {
 		return
 	}
-	storePath := strings.TrimSpace(os.Getenv("BREYTA_AUTH_STORE"))
-	if storePath == "" {
-		p, _ := authstore.DefaultPath()
-		storePath = strings.TrimSpace(p)
-	}
+	storePath := resolveAuthStorePath(app)
 	if strings.TrimSpace(storePath) == "" {
 		return
 	}

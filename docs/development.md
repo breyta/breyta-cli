@@ -31,16 +31,31 @@ To make PRs mandatory for `main`, enable branch protection in GitHub:
 
 The CLI includes a mock mode used for local development and TUI iteration.
 
-Dev-only commands and flags are hidden unless you enable dev mode:
+Dev-only commands and flags are hidden unless you enable dev mode. You can either:
+
+- enable dev mode for a single command with `--dev`
+- or enable it persistently with `breyta internal dev enable`
+
+You can also force a specific dev profile for a single command (docs place it at the end for readability):
 
 ```bash
-export BREYTA_DEV=1
+breyta flows list --dev=local
 ```
+
+If you need separate auth tokens for the same API URL, set an auth store path per profile:
+
+```bash
+breyta internal dev set local --auth-store ~/.config/breyta/auth.local.json
+breyta internal dev set staging --auth-store ~/.config/breyta/auth.staging.json
+```
+
+Note: mock auth doesn’t require separate auth stores, but you can still run `breyta auth login`
+to exercise the endpoint if you want.
 
 Reset/seed mock state (recommended before demos):
 
 ```bash
-BREYTA_DEV=1 breyta dev seed
+breyta --dev dev seed
 ```
 
 #### Mock state file
@@ -70,9 +85,9 @@ breyta
 Terminal B (drive changes):
 
 ```bash
-BREYTA_DEV=1 breyta dev seed
-BREYTA_DEV=1 breyta dev advance --ticks 1
-BREYTA_DEV=1 breyta dev advance --ticks 1
+breyta --dev dev seed
+breyta --dev dev advance --ticks 1
+breyta --dev dev advance --ticks 1
 ```
 
 The TUI refreshes when the mock state file changes.
@@ -121,7 +136,7 @@ breyta flows steps set hello-market fetch --type http --title "Fetch sample payl
 breyta flows steps set hello-market summarize --type function --title "Summarize payload" --definition "(step :function :summarize {:code '(fn [x] ...)})"
 breyta flows validate hello-market
 breyta runs start --flow hello-market
-BREYTA_DEV=1 breyta dev advance --ticks 3
+breyta --dev dev advance --ticks 3
 ```
 
 If Terminal A is open, you should see the dashboard update when you seed/start/advance/replay runs.

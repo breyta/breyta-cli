@@ -10,7 +10,6 @@ By default, `breyta` targets the production API and does not expose `--api` / `-
 ### Common environment (recommended)
 
 ```bash
-export BREYTA_DEV=1
 export BREYTA_API_URL="http://localhost:8090"
 export BREYTA_WORKSPACE="ws-acme"
 export BREYTA_TOKEN="dev-user-123"
@@ -19,7 +18,7 @@ export BREYTA_TOKEN="dev-user-123"
 Sanity check:
 
 ```bash
-breyta workspaces current --pretty
+breyta --dev workspaces current --pretty
 ```
 
 ### Local API keys / secrets (for flows-api + OAuth)
@@ -79,7 +78,7 @@ This project has a local flow-authoring CLI.
 
 - Start the server (from breyta/): ./scripts/start-flows-api.sh --emulator --auth-mock
 - breyta CLI calls flows-api over HTTP (dev mode only):
-  - BREYTA_DEV=1
+  - `--dev` (or `breyta internal dev enable`)
   - BREYTA_API_URL=http://localhost:8090
   - BREYTA_WORKSPACE=ws-acme
   - BREYTA_TOKEN=dev-user-123
@@ -107,22 +106,11 @@ To run a flow and see output:
 Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
-- The `:flow` body must be quoted (`:flow '(...)` or `:flow (quote ...)`).
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
-- Do not use Java interop in flow bodies or `:function` steps. Use `breyta.sandbox` helpers instead.
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
-- If `:on-new-version` is `:drain` and a run is blocked on a wait, new runs will not start. Use `:supersede` during development or cancel the stuck run.
-
-Waits and approvals:
-- Use a `:wait` step with a stable `:key`, optional `:timeout`, and optional `:notify` config.
-- Do not try to test `:wait` via `breyta steps run`. Waits require a full run.
-- List waits with `breyta waits list --flow <slug>` (or `--workflow <workflow-id>`).
-- Use `approvalUrl` or the template fields from the wait list output to approve or reject.
-- Waits are not timers. For delays, use `:sleep` (for example, `(flow/step :sleep :delay {:duration "5m"})`), `flow/poll`, or a schedule trigger.
 ```
 
 ### Troubleshooting
 
 - If `flows-api` port is busy, stop the server (Ctrl+C) and re-run.
 - If a flow has drafts but no deployed version yet, `breyta flows show <slug>` may return `no_active_version`; use `--source latest`.
-- If new runs never start after a deploy, check `:concurrency :on-new-version :drain`. Cancel the stuck run or switch to `:supersede` during development.

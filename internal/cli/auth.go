@@ -178,9 +178,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 			}
 
 			if strings.TrimSpace(storePath) == "" {
-				if p, err := authstore.DefaultPath(); err == nil {
-					storePath = p
-				}
+				storePath = resolveAuthStorePath(app)
 			}
 			if strings.TrimSpace(storePath) != "" {
 				st, _ := authstore.Load(storePath)
@@ -225,7 +223,6 @@ via flows-api (/api/auth/token). Prefer browser login.
 				} else {
 					meta["hint"] = "Token is stored locally for future commands."
 				}
-				meta["next"] = "If the Breyta skill is installed, you can start building workflows by chatting with your coding agent."
 				if app.DevMode {
 					if line := shellExportTokenLine(token); line != "" {
 						meta["export"] = line
@@ -261,9 +258,7 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 		Short: "Logout (remove stored token)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(storePath) == "" {
-				if p, err := authstore.DefaultPath(); err == nil {
-					storePath = p
-				}
+				storePath = resolveAuthStorePath(app)
 			}
 
 			if strings.TrimSpace(storePath) == "" {
@@ -388,7 +383,6 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 
 	tokenCh := make(chan browserLoginResult, 1)
 	errCh := make(chan error, 1)
-	uiURL := apiBaseURL
 
 	mux := http.NewServeMux()
 	srv := &http.Server{Handler: mux}
@@ -411,7 +405,7 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 		if expiresIn == "" {
 			expiresIn = strings.TrimSpace(q.Get("expiresIn"))
 		}
-		_, _ = io.WriteString(w, fmt.Sprintf(`<html><body><p>Login complete. You can close this tab and return to your terminal.</p><p>If the Breyta skill is installed, you can start building workflows by chatting with your coding agent.</p><p><a href="%s" target="_blank" rel="noreferrer">Open Breyta UI</a></p></body></html>`, uiURL))
+		_, _ = io.WriteString(w, "<html><body>Login complete. You can close this tab.</body></html>")
 		select {
 		case tokenCh <- browserLoginResult{Token: tok, RefreshToken: refresh, ExpiresIn: expiresIn}:
 		default:

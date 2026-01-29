@@ -46,9 +46,7 @@ const (
 type optionID string
 
 const (
-	optEnv         optionID = "env"
 	optAuth        optionID = "auth"
-	optWSDefault   optionID = "ws-default"
 	optDiagnostics optionID = "diagnostics"
 )
 
@@ -83,10 +81,8 @@ func (i workspaceItem) FilterValue() string { return i.name + " " + i.desc }
 type modalKind int
 
 const (
-	modalEnv modalKind = iota
-	modalAuth
+	modalAuth modalKind = iota
 	modalDiagnostics
-	modalWorkspaceDefault
 	modalAgentSkills
 )
 
@@ -361,6 +357,23 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = setConfig(m.apiURL, "")
 			}
 		}
+		// If there's only one workspace, always show it as default and auto-enter it.
+		if msg.err == nil && len(msg.workspaces) == 1 {
+			if id := strings.TrimSpace(msg.workspaces[0].ID); id != "" {
+				if strings.TrimSpace(m.defaultWS) == "" {
+					m.defaultWS = id
+					_ = setConfig(m.apiURL, id)
+				}
+				if strings.TrimSpace(m.selectedWorkspaceID) == "" {
+					m.selectedWorkspaceID = id
+					m.mode = homeModeWorkspace
+					m.applyWorkspaceFocus()
+					m.refreshOptions()
+					m.layout()
+					return m, m.loadWorkspaceCmd(id)
+				}
+			}
+		}
 		// In prod, always auto-pick a real default workspace once authenticated.
 		if msg.err == nil && strings.TrimSpace(m.token) != "" && m.connected && isProdAPIURL(m.apiURL) {
 			if strings.TrimSpace(m.defaultWS) == "" && len(msg.workspaces) > 0 {
@@ -425,9 +438,6 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apiError = ""
 		if strings.TrimSpace(msg.status) != "" {
 			m.lastInfo = strings.TrimSpace(msg.status)
-		}
-		if isProdAPIURL(m.apiURL) {
-			m.lastInfo = "Logged in to prod. If the Breyta skill is installed, you can start authoring with your agent."
 		}
 		m.refreshOptions()
 		return m, tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
@@ -499,14 +509,8 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.options, cmd = m.options.Update(translateNavKeys(msg))
 
 	switch msg.String() {
-	case "e":
-		m.modal = m.newEnvModal()
-		return m, cmd
 	case "a":
 		m.modal = m.newAuthModal()
-		return m, cmd
-	case "w":
-		m.modal = m.newWorkspaceDefaultModal()
 		return m, cmd
 	case "x":
 		m.modal = m.newDiagnosticsModal()
@@ -519,6 +523,12 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if it, ok := m.options.SelectedItem().(workspaceItem); ok && strings.TrimSpace(it.id) != "" {
 			m.selectedWorkspaceID = it.id
+			if strings.TrimSpace(m.defaultWS) == "" {
+				if id := strings.TrimSpace(it.id); id != "" && id != "ws-acme" {
+					m.defaultWS = id
+					_ = setConfig(m.apiURL, id)
+				}
+			}
 			m.mode = homeModeWorkspace
 			m.applyWorkspaceFocus()
 			m.refreshOptions()
@@ -534,20 +544,18 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m homeModel) updateWorkspaceMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "backspace", "ctrl+g":
+		// Hide workspace picker when there's only one workspace.
+		if len(m.workspaces) <= 1 && msg.String() != "ctrl+g" {
+			return m, nil
+		}
 		m.mode = homeModeOptions
 		m.selectedWorkspaceID = ""
 		m.workspaceMeta = nil
 		m.refreshOptions()
 		m.layout()
 		return m, nil
-	case "e":
-		m.modal = m.newEnvModal()
-		return m, nil
 	case "a":
 		m.modal = m.newAuthModal()
-		return m, nil
-	case "w":
-		m.modal = m.newWorkspaceDefaultModal()
 		return m, nil
 	case "x":
 		m.modal = m.newDiagnosticsModal()
@@ -651,6 +659,13 @@ func (m homeModel) renderHeader() string {
 	if strings.TrimSpace(m.selectedWorkspaceID) != "" {
 		activeWS = strings.TrimSpace(m.selectedWorkspaceID)
 	}
+	workspaceCount := len(m.workspaces)
+	singleWorkspaceActive := workspaceCount == 1 && strings.TrimSpace(m.selectedWorkspaceID) != ""
+	workspaceLabel := "WS:      "
+	if singleWorkspaceActive {
+		workspaceLabel = "Workspace: "
+		activeWS = cmpOrDash(m.workspaceNameOrID(m.selectedWorkspaceID))
+	}
 
 	keys := m.headerKeyHints()
 
@@ -681,8 +696,12 @@ func (m homeModel) renderHeader() string {
 		renderKV("Context: ", apiURL),
 		renderKV("Env:     ", envLabel+" ("+connLabel+")"),
 		renderKV("Auth:    ", authLabel),
-		renderKV("Default: ", defWS),
-		renderKV("WS:      ", activeWS),
+	}
+	if !singleWorkspaceActive {
+		left = append(left, renderKV("Default: ", defWS))
+	}
+	if m.mode != homeModeWorkspace {
+		left = append(left, renderKV(workspaceLabel, activeWS))
 	}
 	if info := strings.TrimSpace(m.lastInfo); info != "" {
 		left = append(left, renderKV("Info:    ", info))
@@ -728,20 +747,21 @@ func (m homeModel) headerKeyHints() []string {
 	kv := func(k, v string) string { return fmt.Sprintf("<%s> %s", k, v) }
 
 	common := []string{
-		kv("e", "Environment"),
 		kv("a", "Auth"),
-		kv("w", "Default WS"),
 		kv("x", "Diagnostics"),
 		kv("s", "Agent skills"),
 		kv("r", "Refresh"),
 	}
 	switch m.mode {
 	case homeModeWorkspace:
-		return append(common,
+		keys := []string{
 			kv("tab", "Switch focus"),
-			kv("esc", "Back"),
 			kv("q", "Quit"),
-		)
+		}
+		if !(len(m.workspaces) == 1 && strings.TrimSpace(m.selectedWorkspaceID) != "") {
+			keys = append(keys, kv("esc", "Back"))
+		}
+		return append(common, keys...)
 	default:
 		return append(common,
 			kv("enter", "Open WS"),
@@ -835,11 +855,19 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 	if p, err := configstore.DefaultPath(); err == nil && strings.TrimSpace(p) != "" {
 		st, _ = configstore.Load(p)
 	}
+	if st != nil && st.DevMode {
+		if strings.TrimSpace(apiURL) == "" && strings.TrimSpace(st.DevAPIURL) != "" {
+			apiURL = st.DevAPIURL
+		}
+		if strings.TrimSpace(defaultWS) == "" && strings.TrimSpace(st.DevWorkspaceID) != "" {
+			defaultWS = st.DevWorkspaceID
+		}
+	}
 	if strings.TrimSpace(apiURL) == "" {
 		if st != nil && strings.TrimSpace(st.APIURL) != "" {
 			apiURL = st.APIURL
 		} else {
-			apiURL = configstore.DefaultProdAPIURL
+			apiURL = configstore.DefaultLocalAPIURL
 		}
 	}
 
@@ -929,7 +957,7 @@ func (m *homeModel) refreshTokenCmd() tea.Cmd {
 func (m *homeModel) apiBaseURL() string {
 	apiURL := strings.TrimSpace(m.apiURL)
 	if apiURL == "" {
-		apiURL = configstore.DefaultProdAPIURL
+		apiURL = configstore.DefaultLocalAPIURL
 	}
 	return apiURL
 }
@@ -1089,30 +1117,6 @@ func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
 	}
 }
 
-func (m *homeModel) newEnvModal() *modalModel {
-	cur := "local"
-	if strings.TrimRight(m.apiURL, "/") == strings.TrimRight(configstore.DefaultProdAPIURL, "/") {
-		cur = "prod"
-	}
-	md := &modalModel{
-		kind:  modalEnv,
-		title: "Environment",
-		list:  newModalList("Pick environment", false),
-	}
-	_ = md.list.SetItems([]list.Item{
-		modalItem{id: "local", name: "Local", desc: configstore.DefaultLocalAPIURL},
-		modalItem{id: "prod", name: "Prod", desc: configstore.DefaultProdAPIURL},
-	})
-	// select current
-	for i, it := range md.list.Items() {
-		if v, ok := it.(modalItem); ok && v.id == cur {
-			md.list.Select(i)
-			break
-		}
-	}
-	return md
-}
-
 func (m *homeModel) newAuthModal() *modalModel {
 	md := &modalModel{
 		kind:  modalAuth,
@@ -1136,43 +1140,6 @@ func (m *homeModel) newDiagnosticsModal() *modalModel {
 		modalItem{id: "me", name: "Check workspaces", desc: "Call /api/me"},
 		modalItem{id: "check", name: "Verify token", desc: "Call /api/auth/verify"},
 	})
-	return md
-}
-
-func (m *homeModel) newWorkspaceDefaultModal() *modalModel {
-	md := &modalModel{
-		kind:  modalWorkspaceDefault,
-		title: "Default workspace",
-		list:  newModalList("Pick default workspace", true),
-	}
-	items := make([]list.Item, 0, len(m.workspaces))
-	for _, ws := range m.workspaces {
-		id := strings.TrimSpace(ws.ID)
-		if id == "" {
-			continue
-		}
-		label := strings.TrimSpace(ws.Name)
-		if label == "" {
-			label = id
-		}
-		desc := id
-		if id == strings.TrimSpace(m.defaultWS) {
-			label = label + " (default)"
-		}
-		items = append(items, modalItem{id: id, name: label, desc: desc})
-	}
-	if len(items) == 0 {
-		items = []list.Item{
-			modalItem{id: "", name: "(no workspaces loaded)", desc: "Run Auth: login and/or API diagnostics"},
-		}
-	}
-	_ = md.list.SetItems(items)
-	for i, it := range md.list.Items() {
-		if v, ok := it.(modalItem); ok && strings.TrimSpace(v.id) == strings.TrimSpace(m.defaultWS) && v.id != "" {
-			md.list.Select(i)
-			break
-		}
-	}
 	return md
 }
 
@@ -1215,29 +1182,6 @@ func (m *homeModel) applyModal() tea.Cmd {
 		return nil
 	}
 	switch m.modal.kind {
-	case modalEnv:
-		it, _ := m.modal.list.SelectedItem().(modalItem)
-		var target string
-		switch it.id {
-		case "prod":
-			target = configstore.DefaultProdAPIURL
-		default:
-			target = configstore.DefaultLocalAPIURL
-		}
-		// Clear default workspace on env switch to avoid leaking local ids (e.g. ws-acme) into prod.
-		if err := setConfig(target, ""); err != nil {
-			m.apiError = err.Error()
-			m.refreshOptions()
-			return nil
-		}
-		m.apiURL = target
-		m.cfg.APIURL = target
-		m.defaultWS = ""
-		m.cfg.WorkspaceID = ""
-		m.token = m.resolveToken()
-		m.refreshOptions()
-		return tea.Batch(m.checkConnectionCmd(), m.fetchWorkspacesCmd())
-
 	case modalAuth:
 		it, _ := m.modal.list.SelectedItem().(modalItem)
 		apiURL := m.apiBaseURL()
@@ -1307,24 +1251,6 @@ func (m *homeModel) applyModal() tea.Cmd {
 			return m.checkConnectionInfoCmd("check")
 		}
 
-	case modalWorkspaceDefault:
-		ws, _ := m.modal.list.SelectedItem().(modalItem)
-		if strings.TrimSpace(ws.id) == "" {
-			m.apiError = "no workspace selected"
-			m.refreshOptions()
-			return nil
-		}
-		// Persist default workspace together with the current API URL, so it can be reliably loaded on restart.
-		if err := setConfig(m.apiURL, ws.id); err != nil {
-			m.apiError = err.Error()
-			m.refreshOptions()
-			return nil
-		}
-		m.defaultWS = ws.id
-		m.cfg.WorkspaceID = ws.id
-		m.refreshOptions()
-		return nil
-
 	case modalAgentSkills:
 		it, _ := m.modal.list.SelectedItem().(modalItem)
 		id := strings.TrimSpace(it.id)
@@ -1334,28 +1260,28 @@ func (m *homeModel) applyModal() tea.Cmd {
 			return nil
 		}
 
-			install := func(p skills.Provider) {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					m.apiError = err.Error()
-					return
-				}
-
-				target, err := skills.Target(home, p)
-				if err != nil {
-					m.apiError = err.Error()
-					return
-				}
-
-				paths, err := skills.InstallBreytaSkill(home, p)
-				if err != nil {
-					m.apiError = err.Error()
-					return
-				}
-				m.apiError = ""
-				_ = paths
-				m.lastInfo = "installed skill in " + target.Dir
+		install := func(p skills.Provider) {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.apiError = err.Error()
+				return
 			}
+
+			target, err := skills.Target(home, p)
+			if err != nil {
+				m.apiError = err.Error()
+				return
+			}
+
+			paths, err := skills.InstallBreytaSkill(home, p)
+			if err != nil {
+				m.apiError = err.Error()
+				return
+			}
+			m.apiError = ""
+			_ = paths
+			m.lastInfo = "installed skill in " + target.Dir
+		}
 
 		switch id {
 		case "install:codex":
@@ -1503,7 +1429,7 @@ func cycleAPIURL(current string) string {
 	case strings.TrimRight(configstore.DefaultProdAPIURL, "/"):
 		return configstore.DefaultLocalAPIURL
 	default:
-		return configstore.DefaultProdAPIURL
+		return configstore.DefaultLocalAPIURL
 	}
 }
 
@@ -1703,10 +1629,13 @@ func setConfig(apiURL, workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	return configstore.SaveAtomic(p, &configstore.Store{
-		APIURL:      strings.TrimSpace(apiURL),
-		WorkspaceID: strings.TrimSpace(workspaceID),
-	})
+	st, _ := configstore.Load(p)
+	if st == nil {
+		st = &configstore.Store{}
+	}
+	st.APIURL = strings.TrimSpace(apiURL)
+	st.WorkspaceID = strings.TrimSpace(workspaceID)
+	return configstore.SaveAtomic(p, st)
 }
 
 func storeToken(apiURL, token string) error {
@@ -1785,9 +1714,6 @@ func (m *homeModel) refreshOptions() {
 				label = id
 			}
 			desc := id
-			if strings.TrimSpace(m.defaultWS) != "" && id == strings.TrimSpace(m.defaultWS) {
-				desc = desc + " • default"
-			}
 			items = append(items, workspaceItem{id: id, name: label, desc: desc})
 		}
 	}

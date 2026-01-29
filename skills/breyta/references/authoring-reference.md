@@ -276,16 +276,24 @@ Add labels to branches and loops to make the visual editor clearer.
 ## Functions (`:functions`)
 Use `:function` steps for sandboxed transforms. For reuse, define flow-local functions.
 
-Sandbox helpers (safe, no Java interop) are available under `breyta.sandbox`.
-Do not call `java.time.*` in `:function` code. If you need time data, pass it in as input or derive it in the flow with `flow/now-ms`.
+Sandbox helpers (safe; pure/deterministic) are available under `breyta.sandbox`:
 `base64-encode` `(string|bytes) -> string`, `base64-decode` `(string|bytes) -> string`,
 `base64-decode-bytes` `(string|bytes) -> bytes`, `hex-encode` `(string|bytes) -> string`,
 `hex-decode` `(string) -> string`, `hex-decode-bytes` `(string) -> bytes`,
 `sha256-hex` `(string|bytes) -> string`, `hmac-sha256-hex` `(key,value) -> string`,
 `uuid-from` `(string) -> uuid`, `uuid-from-bytes` `(string|bytes) -> uuid`,
-`parse-instant` `(string) -> instant`, `format-instant` `(instant) -> string`,
-`format-instant-pattern` `(instant, pattern) -> string`, `url-encode` `(string) -> string`,
-`url-decode` `(string) -> string`.
+`parse-instant` `(string) -> java.time.Instant`, `format-instant` `(Instant) -> string`,
+`format-instant-pattern` `(Instant, pattern) -> string`,
+`instant->epoch-ms` `(Instant) -> long`, `epoch-ms->instant` `(long) -> Instant`,
+`duration-between` `(Instant, Instant) -> Duration`,
+`truncate-instant` `(Instant, unit) -> Instant` (unit: `:seconds|:minutes|:hours|:days`),
+`instant-plus` `(Instant, amount, unit) -> Instant` (unit: `:millis|:seconds|:minutes|:hours|:days`),
+`instant-minus` `(Instant, amount, unit) -> Instant`,
+`url-encode` `(string) -> string`, `url-decode` `(string) -> string`.
+
+Limited Java interop is also allowed in `:function` code (small allowlist): `java.time.*`,
+`java.time.format.DateTimeFormatter`, `java.time.temporal.{ChronoUnit,TemporalAdjusters}`,
+`java.util.{UUID,Base64}`, `java.math.{BigInteger,BigDecimal}`. Prefer `breyta.sandbox`.
 
 ```clojure
 :functions [{:id :summarize-user
@@ -304,7 +312,7 @@ Inputs provided via `--input '{...}'` arrive as strings, but the runtime normali
 Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for full list):
 
 ### Flow definition and templates
-- Flow definition size: 100 KB max.
+- Flow definition size: 150 KB max.
 - Templates are packed to blob storage on deploy; large prompts/SQL should live in templates.
 
 ### Runtime execution
@@ -314,9 +322,9 @@ Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for
 - Workflow duration: 7 days
 
 ### Per-step payloads
-- Inline result threshold: 10 KB (larger results become refs)
+- Inline result threshold: 50 KB (larger results require `:persist` or will error)
 - Max step result: 1 MB
-- HTTP response size: 1 MB
+- HTTP response size: 10 MB
 - DB max rows: 10,000
 
 Tips:
