@@ -4,6 +4,7 @@ description: >-
   Use Breyta to build and operate workflows ("flows"): multi-step backend
   processes with triggers, steps, waits, versioning, deploys, and runnable
   executions. Use the `breyta` CLI to create, edit, deploy, and run flows.
+  IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any workflow task.
 ---
 
 ## At a glance
