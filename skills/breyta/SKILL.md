@@ -134,6 +134,13 @@ Notes:
 - `breyta steps run` is best-effort isolation; waits/sleeps/fanout aren’t supported.
 - Keep step ids stable and short; don’t rename ids unless you intend to invalidate history/examples.
 - Step ids and flow slugs accept either keywords or strings on the server; the CLI takes plain strings (e.g. `make-output`, not `:make-output`).
+- When running a function step that uses `:ref`, include `--flow <slug>` so the function can be resolved.
+- Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
+- Avoid `some->` in flow bodies. Use explicit `if` with `->`.
+- Loops with `flow/step` require a `:wait` step. Avoid pagination loops in the flow body.
+- Keep step runner payloads shallow. Deeply nested JSON can hit max depth validation.
+- Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
+- Only the allowlisted Java interop is available in `:function`. `java.math.RoundingMode` is not available; use `java.math.BigDecimal/ROUND_HALF_UP`.
 
 Core commands:
 - `breyta flows list`
