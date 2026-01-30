@@ -108,6 +108,12 @@ Notes for agents:
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
+- For `breyta steps run` on a function `:ref`, include `--flow <slug>` so the function can be resolved.
+- Prefer `--params-file` over inline `--params` to avoid shell quoting issues.
+- Avoid `some->` in flow bodies. Use explicit `if` with `->`.
+- Loops with `flow/step` require a `:wait` step. Avoid pagination loops in the flow body.
+- Keep step runner payloads shallow. Deeply nested JSON can hit max depth validation.
+- Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
 ```
 
 ### Troubleshooting

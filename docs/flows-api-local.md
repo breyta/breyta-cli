@@ -57,6 +57,9 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Many functional ops are denied in the flow body (e.g. `mapv`, `filterv`, `reduce`, etc.)
 - Keep orchestration in the flow body (sequence of `step` calls)
 - Do data transformation in `:function` steps (`:code` alias).
+  - Nil-short-circuiting macros like `some->` are blocked in flow bodies. Use explicit `if` with `->` instead.
+  - Loops that include `flow/step` must include a `:wait` step. Avoid pagination loops in the flow body. Prefer higher `limit` values or split pagination across runs.
+  - For `breyta steps run`, keep JSON payloads shallow to avoid max depth validation errors. Use `--params-file` for complex inputs.
   - Safe helpers are exposed under `breyta.sandbox` (preferred; pure/deterministic):
     - `base64-encode` `(string|bytes) -> string`
     - `base64-decode` `(string|bytes) -> string`
@@ -84,6 +87,7 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
     - `java.util.{UUID,Base64}` (and Base64 encoder/decoder)
     - `java.math.{BigInteger,BigDecimal}`
     - Prefer `breyta.sandbox` helpers when possible.
+    - `java.math.RoundingMode` is not available in the sandbox. Use `java.math.BigDecimal/ROUND_HALF_UP` if you need rounding.
 
 ### Concurrency notes
 
@@ -97,6 +101,8 @@ Flow definitions run in a constrained runtime intended for **orchestration**, no
 - Waits are event-based. They pause for external signals (webhooks, CLI commands), not timers. For delays, use schedule triggers.
 - Singleton workflows can get stuck if a run errors or waits. Use `:on-new-version :supersede` for fresh starts.
 - Keep flow bodies simple. Put logic in `:function` steps and keep orchestration minimal.
+- `breyta steps run` resolves function `:ref` only when `--flow <slug>` is provided.
+- Avoid `?` in JSON keys when using `breyta steps run`. Use `truncated` or `is-truncated` instead of `truncated?`.
 
 ### Input keys from `--input` (string vs keyword keys)
 
