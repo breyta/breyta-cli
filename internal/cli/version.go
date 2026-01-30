@@ -11,9 +11,10 @@ func newVersionCmd(app *App) *cobra.Command {
 		Short: "Print build information",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return writeData(cmd, app, nil, map[string]any{
-				"version": buildinfo.Version,
-				"commit":  buildinfo.Commit,
-				"date":    buildinfo.Date,
+				"version":    buildinfo.DisplayVersion(),
+				"rawVersion": buildinfo.Version,
+				"commit":     buildinfo.Commit,
+				"date":       buildinfo.Date,
 			})
 		},
 	}

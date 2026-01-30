@@ -8,7 +8,7 @@ import (
 )
 
 func buildInfoInline() string {
-	parts := []string{versionDisplay()}
+	parts := []string{buildinfo.DisplayVersion()}
 	if c := shortCommit(buildinfo.Commit); c != "" {
 		parts = append(parts, c)
 	}
@@ -16,20 +16,6 @@ func buildInfoInline() string {
 		parts = append(parts, d)
 	}
 	return strings.Join(parts, " · ")
-}
-
-func versionDisplay() string {
-	v := strings.TrimSpace(buildinfo.Version)
-	if v == "" {
-		return "dev"
-	}
-	if v == "dev" {
-		return v
-	}
-	if len(v) > 0 && v[0] >= '0' && v[0] <= '9' {
-		return "v" + v
-	}
-	return v
 }
 
 func shortCommit(commit string) string {
