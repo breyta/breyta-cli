@@ -81,3 +81,13 @@ Default behavior (no `--clean`):
 Notes:
 - Placeholders like `:redacted` and `:generate` are ignored when sent back in.
 - If a slot is already bound to a connection, you can keep `:conn` as-is to avoid rebinding.
+
+## Reusing existing workspace connections (default)
+Connections are workspace-scoped and can be reused across multiple flows.
+
+When binding a new slot, prefer reusing an existing connection instead of creating a duplicate:
+- List existing connections (filter by type): `breyta connections list --type llm-provider`
+- Bind a slot to an existing connection id: `breyta flows bindings apply <slug> --set ai.conn=conn-...`
+
+When rotating credentials for an existing connection binding:
+- Keep the existing `slot.conn` and also set `slot.apikey` (the API key refreshes the existing connection secret while keeping the binding).

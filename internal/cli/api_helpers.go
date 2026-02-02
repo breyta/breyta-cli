@@ -321,7 +321,7 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 		return
 	}
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Apply bindings, then enable the profile: breyta flows bindings apply " + flowSlug + " @profile.edn; breyta flows activate " + flowSlug + " --version latest"
+		meta["hint"] = "Flow uses :requires slots. Apply bindings, then enable the profile: breyta flows bindings apply " + flowSlug + " @profile.edn; breyta flows activate " + flowSlug + " --version latest. Tip: prefer reusing existing workspace connections (list: breyta connections list; bind: <slot>.conn=conn-...)."
 	}
 }
 

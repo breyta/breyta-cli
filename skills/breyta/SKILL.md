@@ -247,6 +247,7 @@ Details: `./references/patterns.md`
 - Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent (or use `breyta steps run --record-example/--record-test` to capture quickly).
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
+- Default to reusing existing workspace connections. Before asking for a new API key/OAuth app, check whether the workspace already has a suitable connection and bind the slot via `<slot>.conn=...` (see `breyta connections list`).
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
 - Keep the API-provided `:redacted`/`:generate` placeholders for secrets in templates.
