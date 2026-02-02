@@ -47,6 +47,9 @@ When iterating on draft bindings, templates reflect what is already bound:
 
 Use the non-clean template when you want to tweak current bindings; use `--clean` for a fresh, shareable template.
 
+Connection reuse:
+- Prefer reusing existing workspace connections by binding `slot.conn` to an existing connection id (list: `breyta connections list`, or filter by type: `breyta connections list --type llm-provider`).
+
 ## After deploy (live)
 1) Deploy the draft (publish a version)
 2) Apply prod bindings + activation inputs

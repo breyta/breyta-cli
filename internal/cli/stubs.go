@@ -32,6 +32,9 @@ func newConnectionsCmd(app *App) *cobra.Command {
 }
 
 func newConnectionsListCmd(app *App) *cobra.Command {
+	var typ string
+	var limit int
+	var cursor string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List connections",
@@ -40,7 +43,17 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
 				}
-				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections", nil, nil)
+				q := url.Values{}
+				if strings.TrimSpace(typ) != "" {
+					q.Set("type", strings.TrimSpace(typ))
+				}
+				if limit > 0 {
+					q.Set("limit", strconv.Itoa(limit))
+				}
+				if strings.TrimSpace(cursor) != "" {
+					q.Set("cursor", strings.TrimSpace(cursor))
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections", q, nil)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -56,12 +69,18 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 			}
 			items := make([]*state.Connection, 0)
 			for _, c := range ws.Connections {
+				if strings.TrimSpace(typ) != "" && strings.TrimSpace(c.Type) != strings.TrimSpace(typ) {
+					continue
+				}
 				items = append(items, c)
 			}
 			meta := map[string]any{"total": len(items)}
 			return writeData(cmd, app, meta, map[string]any{"items": items})
 		},
 	}
+	cmd.Flags().StringVar(&typ, "type", "", "Filter by connection type (API mode: server-side)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	return cmd
 }
 

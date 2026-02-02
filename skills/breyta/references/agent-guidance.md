@@ -3,6 +3,7 @@ When you are authoring flows for a user:
 
 - Stop and ask for bindings or activation inputs when required.
 - Do not fabricate API keys, OAuth credentials, or webhook secrets.
+- Default to reusing existing workspace connections. If a suitable connection already exists (e.g., an OpenAI `:llm-provider`), bind the slot via `<slot>.conn=...` instead of creating a new connection unless the user explicitly wants separate credentials.
 - Offer the exact CLI commands or template file paths the user should fill.
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps record`, or `breyta steps run --record-example/--record-test`, to capture quickly).
@@ -15,6 +16,7 @@ Checklist:
 4) Only activate once bindings are applied.
 
 Example prompts to the user:
+- "First, let’s see if this workspace already has a suitable connection we can reuse. Run `breyta connections list --type llm-provider`. If you see an existing OpenAI connection, I’ll bind `:ai :conn` to it in the profile template; otherwise we’ll bind a new API key."
 - "I need your API key for slot :api. Run `breyta flows bindings template <slug> --out profile.edn`, fill `:api :apikey`, then `breyta flows bindings apply <slug> @profile.edn`."
 - "OAuth is required for :google. Run the template command and follow the activation URL printed to stderr."
 - "You can keep existing `:conn` values if you don’t want to rebind. Use `--clean` for a fresh template."
