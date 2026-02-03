@@ -4,7 +4,7 @@ Condensed step families and common fields:
 - `:http`: `:connection` or `:url`, `:path`, `:method`, `:query`, `:headers`, `:json`, `:body`, `:response-as`, `:client-opts`, `:persist`, `:retry` (large bodies require `:persist`)
 - `:llm`: `:connection`, `:model`, `:messages` or `:prompt`, `:template`, `:data`
 - `:db`: `:connection`, `:query`, `:params`, `:template`, `:data`
-- `:wait`: `:key`, `:notify`, `:timeout`
+- `:wait`: `:key`, `:notify` (HTTP channels, including email APIs like SendGrid), `:timeout`
 - `:function`: `:code` or `:ref`, `:input`
 
 Detailed docs:

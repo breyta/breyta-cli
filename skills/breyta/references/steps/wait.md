@@ -6,7 +6,7 @@ Core fields:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `:key` | string | Yes | Correlation key |
-| `:notify` | map | No | Notification config (supported channels: `:http` connection-based) |
+| `:notify` | map | No | Notification config (channels: `:http`; use email APIs like SendGrid via `:http` connections) |
 | `:timeout` | string/number | No | Duration string (e.g. \"24h\") or seconds |
 
 Notes:
@@ -15,6 +15,7 @@ Notes:
 - `:notify` is optional and depends on your workspace notification setup.
 - For incoming webhooks, bind secret slots (`:type :secret`) via profile bindings to secure requests.
 - When `:notify` is present, the wait record includes approval URL templates you can render and share.
+- Email notifications use the same `:http` channel and an email API connection (for example SendGrid).
 
 `:notify` fields (example shape):
 - `:channels` for per-channel configs (e.g. `{:http {:connection :notify-api :path "/notify" :method :post}}`)
@@ -29,6 +30,23 @@ Example:
             :notify {:channels {:http {:connection :notify-api
                                        :path "/notify"
                                        :method :post}}}})
+```
+
+Email notification (SendGrid example):
+
+```clojure
+(flow/step :wait :approval
+           {:key "approval-123"
+            :timeout "24h"
+            :notify {:channels
+                     {:http {:connection :sendgrid
+                             :path "/mail/send"
+                             :method :post
+                             :json {:personalizations [{:to [{:email "you@company.com"}]}]
+                                    :from {:email "noreply@company.com" :name "Breyta"}
+                                    :subject "Approval needed"
+                                    :content [{:type "text/plain"
+                                               :value "Approve: {approvalUrl}\nReject: {rejectionUrl}"}]}}}}})
 ```
 
 ## Step-by-step: approval URL templates
@@ -77,4 +95,4 @@ Example wait list payload (approval URL template):
 If you only need a single link, use `approvalUrl` or `rejectionUrl` from the wait list output.
 These routes redirect to login when unauthenticated and then resume the action.
 
-For notifications, pass `approvalUrl` as template data and reference it as `{approvalUrl}` in your message template.
+For notifications, `approvalUrl` and `rejectionUrl` are available as template data and can be referenced as `{approvalUrl}` and `{rejectionUrl}` in your message template.

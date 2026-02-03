@@ -36,6 +36,7 @@ If your flow uses `:requires` slots (including `:type :llm-provider` for LLM key
 `(:kind :form ...)` entries in `:requires` add activation-only inputs and are exposed under `:activation` in the run input map.
 
 **UI field names:** manual trigger `:fields` and wait notify `:fields` use non-namespaced keyword names (e.g., `{:name :user-id ...}`).
+**Wait notifications:** `:notify` supports HTTP channels, so email is sent via an email API connection (for example SendGrid). Approval links are available as `{approvalUrl}` and `{rejectionUrl}` template aliases.
 
 - Sign in: `http://localhost:8090/login` → “Sign in with Google” → “Dev User”
 - Activation URL: `http://localhost:8090/<workspace>/flows/<slug>/activate`
