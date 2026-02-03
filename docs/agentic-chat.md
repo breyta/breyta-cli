@@ -27,6 +27,7 @@ Flows execute **inside `flows-api`**, so any API keys you want flows to use must
 
 - **Option A (recommended for per-user / production-like behavior)**: declare `:requires` slots and bind credentials via the UI or CLI bindings (creates a profile). Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`). You can also include activation-only inputs with `{:kind :form ...}` (available under `:activation` at run time).
 - **Manual trigger fields / wait notify fields**: `:fields` items use non-namespaced keyword names (e.g., `{:name :user-id ...}`).
+- **Wait notifications**: `:notify` supports HTTP channels, so email is sent by binding an email API connection (for example SendGrid). Approval links are available as `{approvalUrl}` and `{rejectionUrl}` template aliases.
 - Generate a template: `breyta flows bindings template <slug> --out profile.edn` (prefills current `:conn` bindings; use `--clean` for a blank template)
 - Apply bindings with a profile file: `breyta flows bindings apply <slug> @profile.edn`
 - Enable prod profile: `breyta flows activate <slug> --version latest`
