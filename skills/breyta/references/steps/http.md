@@ -14,6 +14,7 @@ Core fields:
 | `:json` | any | No | JSON body (sets content-type) |
 | `:body` | any | No | Raw body |
 | `:response-as` | keyword | No | `:auto`, `:json`, `:text`, `:bytes` (default `:auto`) |
+| `:client-opts` | map | No | Client overrides, e.g. `{:max-response-bytes 104857600}` |
 | `:persist` | map | No | Store response as reference (`{:type :blob ...}`) |
 | `:retry` | map | No | Retry policy (see flow limits) |
 
@@ -24,6 +25,7 @@ Notes:
 - Binary responses are not inlined; use `:persist {:type :blob ...}` for any binary body.
 - If the response is truncated, the step fails unless `:persist {:type :blob ...}` is set.
 - Use `:persist {:type :blob}` for large payloads; downstream steps can load refs.
+- To download large files, set `:response-as :bytes`, add `:persist {:type :blob :tier :ephemeral}`, and raise `:client-opts {:max-response-bytes ...}` above the file size.
 - Templates only cover request shape; step-level keys like `:persist` stay on the step.
 - Auth must use secret references. Inline tokens or API keys are rejected.
 - Prefer connection auth (`:requires` with `:auth`), or set step-level auth with `:auth {:type :bearer|:api-key :secret-ref :my-secret}`.

@@ -1,7 +1,7 @@
 # Step reference
 Condensed step families and common fields:
 
-- `:http`: `:connection` or `:url`, `:path`, `:method`, `:query`, `:headers`, `:json`, `:body`, `:persist`, `:retry` (large bodies require `:persist`)
+- `:http`: `:connection` or `:url`, `:path`, `:method`, `:query`, `:headers`, `:json`, `:body`, `:response-as`, `:client-opts`, `:persist`, `:retry` (large bodies require `:persist`)
 - `:llm`: `:connection`, `:model`, `:messages` or `:prompt`, `:template`, `:data`
 - `:db`: `:connection`, `:query`, `:params`, `:template`, `:data`
 - `:wait`: `:key`, `:notify`, `:timeout`
