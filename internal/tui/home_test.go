@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/configstore"
+	"github.com/charmbracelet/bubbles/list"
 )
 
 func TestWorkspaceNameOrID_FallsBackToID(t *testing.T) {
@@ -43,5 +44,38 @@ func TestLoadConfig_UsesDevProfileWhenDevModeEnabled(t *testing.T) {
 	}
 	if ws != "ws-dev" {
 		t.Fatalf("expected dev workspace %q, got %q", "ws-dev", ws)
+	}
+}
+
+func TestHeaderKeyHints_IncludesAuth(t *testing.T) {
+	m := homeModel{}
+	hints := m.headerKeyHints()
+	found := false
+	for _, h := range hints {
+		if h == "<a> Auth" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected headerKeyHints to include %q, got %v", "<a> Auth", hints)
+	}
+}
+
+func TestRefreshOptions_WhenLoggedOut_ShowsLoginHintWithAngleBrackets(t *testing.T) {
+	options := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	m := homeModel{options: options, token: ""}
+	m.refreshOptions()
+
+	items := m.options.Items()
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	wi, ok := items[0].(workspaceItem)
+	if !ok {
+		t.Fatalf("expected workspaceItem, got %T", items[0])
+	}
+	if wi.desc != "Press <a> to login" {
+		t.Fatalf("expected logged-out hint %q, got %q", "Press <a> to login", wi.desc)
 	}
 }

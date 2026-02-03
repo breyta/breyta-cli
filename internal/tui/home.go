@@ -1739,7 +1739,7 @@ func (m *homeModel) refreshOptions() {
 	items := []list.Item{}
 
 	if strings.TrimSpace(m.token) == "" {
-		items = append(items, workspaceItem{id: "", name: "(login to view workspaces)", desc: "Press 'a' to login"})
+		items = append(items, workspaceItem{id: "", name: "(login to view workspaces)", desc: "Press <a> to login"})
 	} else if m.workspacesErr != nil {
 		items = append(items, workspaceItem{id: "", name: "(failed to load workspaces)", desc: m.workspacesErr.Error()})
 	} else if len(m.workspaces) == 0 {
