@@ -60,7 +60,7 @@ func decodeProfilePayload(data []byte, format string) (*profilePayload, error) {
 	case "edn":
 		var v any
 		if err := edn.Unmarshal(data, &v); err != nil {
-			return nil, fmt.Errorf("invalid edn: %w", err)
+			return nil, fmt.Errorf("invalid EDN format: %w", err)
 		}
 		m, err := normalizeEDNMap(v)
 		if err != nil {
@@ -69,7 +69,7 @@ func decodeProfilePayload(data []byte, format string) (*profilePayload, error) {
 		raw = m
 	default:
 		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil, fmt.Errorf("invalid json: %w", err)
+			return nil, fmt.Errorf("invalid JSON format: %w", err)
 		}
 	}
 	if raw == nil {
