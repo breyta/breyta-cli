@@ -318,17 +318,22 @@ func newFlowsSpineCmd(app *App) *cobra.Command {
 
 func newFlowsListCmd(app *App) *cobra.Command {
 	var limit int
+	var cursor string
 	var includeArchived bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List flows",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				// Server-side pagination defaults apply for now.
-				// Keep --limit for mock mode; we can add it to the API later.
 				payload := map[string]any{}
 				if includeArchived {
 					payload["includeArchived"] = true
+				}
+				if strings.TrimSpace(cursor) != "" {
+					payload["cursor"] = strings.TrimSpace(cursor)
+				}
+				if limit > 0 {
+					payload["limit"] = limit
 				}
 				return doAPICommand(cmd, app, "flows.list", payload)
 			}
@@ -386,6 +391,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
 	return cmd
 }

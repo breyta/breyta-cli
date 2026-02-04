@@ -36,6 +36,9 @@ type DevProfile struct {
 }
 
 func DefaultPath() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); dir != "" {
+		return filepath.Join(dir, "breyta", "config.json"), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

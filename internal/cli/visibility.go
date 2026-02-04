@@ -29,6 +29,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"resources": true,
 		"docs":      true,
 		"auth":      true,
+		"agents":    true,
 	}
 
 	for _, c := range root.Commands() {

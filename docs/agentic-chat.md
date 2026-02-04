@@ -105,6 +105,10 @@ To run a flow and see output:
 - (as an installation) breyta runs start --flow <slug> --profile-id <profile-id> --input '{"x":1}' --wait
 - read output at: data.run.resultPreview.data.result
 
+Agent tasks:
+- breyta agents tasks list
+- breyta agents tasks complete <task-id> --payload '{"status":"completed"}'
+
 Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
