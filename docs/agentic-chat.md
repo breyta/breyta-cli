@@ -104,6 +104,7 @@ To run a flow and see output:
 - breyta runs start --flow run-hello --input '{"n":41}' --wait
 - (as an installation) breyta runs start --flow <slug> --profile-id <profile-id> --input '{"x":1}' --wait
 - read output at: data.run.resultPreview.data.result
+  - runs start performs a bindings preflight in API mode. Use --skip-preflight to bypass.
 
 Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).

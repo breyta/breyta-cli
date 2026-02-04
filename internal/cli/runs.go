@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/breyta/breyta-cli/internal/state"
 
 	"github.com/spf13/cobra"
@@ -194,6 +195,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	var wait bool
 	var timeout time.Duration
 	var poll time.Duration
+	var skipPreflight bool
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a new run",
@@ -230,6 +232,11 @@ func newRunsStartCmd(app *App) *cobra.Command {
 				}
 
 				client := apiClient(app)
+				if !skipPreflight {
+					if err := preflightRunBindings(cmd, app, client, flow, source, profileID); err != nil {
+						return err
+					}
+				}
 				startResp, status, err := client.DoCommand(context.Background(), "runs.start", payload)
 				if err != nil {
 					return writeErr(cmd, err)
@@ -325,8 +332,114 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
+	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "Skip bindings preflight check (API mode only)")
 	must(cmd.MarkFlagRequired("flow"))
 	return cmd
+}
+
+func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowSlug string, source string, profileID string) error {
+	if strings.TrimSpace(flowSlug) == "" {
+		return nil
+	}
+	if strings.TrimSpace(profileID) != "" {
+		return nil
+	}
+	profileType := "prod"
+	if strings.EqualFold(strings.TrimSpace(source), "draft") {
+		profileType = "draft"
+	}
+	reqResp, reqStatus, err := client.DoCommand(context.Background(), "profiles.template", map[string]any{
+		"flowSlug":    flowSlug,
+		"profileType": profileType,
+	})
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if reqStatus >= 400 || !isOK(reqResp) {
+		return writeAPIResult(cmd, app, reqResp, reqStatus)
+	}
+	reqData, _ := reqResp["data"].(map[string]any)
+	reqsAny, _ := reqData["requirements"].([]any)
+	if len(reqsAny) == 0 {
+		return nil
+	}
+
+	statusResp, statusCode, err := client.DoCommand(context.Background(), "profiles.status", map[string]any{
+		"flowSlug":    flowSlug,
+		"profileType": profileType,
+	})
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if statusCode >= 400 || !isOK(statusResp) {
+		return writeAPIResult(cmd, app, statusResp, statusCode)
+	}
+	statusData, _ := statusResp["data"].(map[string]any)
+	var bindingValues map[string]any
+	if statusData != nil {
+		if values, ok := statusData["bindingValues"].(map[string]any); ok {
+			bindingValues = normalizeBindingValues(values)
+		}
+	}
+	missing := missingRequiredSlots(reqsAny, bindingValues)
+	if len(missing) == 0 {
+		return nil
+	}
+	if profileType == "draft" {
+		return writeErr(cmd, fmt.Errorf("missing draft bindings for slots: %s. Apply draft bindings: breyta flows draft bindings apply %s @draft.edn", strings.Join(missing, ", "), flowSlug))
+	}
+	return writeErr(cmd, fmt.Errorf("missing prod bindings for slots: %s. Apply prod bindings: breyta flows bindings apply %s @profile.edn; breyta flows activate %s --version latest", strings.Join(missing, ", "), flowSlug, flowSlug))
+}
+
+func missingRequiredSlots(requirements []any, bindingValues map[string]any) []string {
+	if len(requirements) == 0 {
+		return nil
+	}
+	missing := []string{}
+	seen := map[string]struct{}{}
+	for _, raw := range requirements {
+		req, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind := strings.ToLower(toString(req["kind"]))
+		if kind == "form" {
+			continue
+		}
+		slot := strings.TrimSpace(strings.TrimPrefix(toString(req["slot"]), ":"))
+		if slot == "" {
+			continue
+		}
+		if _, exists := seen[slot]; exists {
+			continue
+		}
+		seen[slot] = struct{}{}
+		if bindingMissing(bindingValues[slot]) {
+			missing = append(missing, slot)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func bindingMissing(value any) bool {
+	if value == nil {
+		return true
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case map[string]any:
+		if len(typed) == 0 {
+			return true
+		}
+		if conn, ok := typed["conn"]; ok {
+			return bindingMissing(conn)
+		}
+		return false
+	default:
+		return strings.TrimSpace(toString(typed)) == ""
+	}
 }
 
 func newRunsReplayCmd(app *App) *cobra.Command {

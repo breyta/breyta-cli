@@ -235,6 +235,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- Reset draft (clear draft + draft profiles): `breyta flows draft reset <slug>`\n\n")
 	b.WriteString("Activation defaults to `latest`; use `--version <n>` to pin a specific flow version.\n\n")
 	b.WriteString("Bindings apply validates required slots and activation inputs; missing entries are reported in error details.\n\n")
+	b.WriteString("`breyta runs start` performs a bindings preflight in API mode and fails early when required slots are missing. Use `--skip-preflight` to bypass.\n\n")
 	b.WriteString("Template discovery:\n")
 	b.WriteString("- `breyta flows bindings template --help` shows template flags\n")
 	b.WriteString("- Templates prefill current bindings by default; add `--clean` for a requirements-only template\n")
