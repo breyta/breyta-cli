@@ -154,7 +154,7 @@ func findCommandByPath(root *cobra.Command, args []string, allowHidden bool) (*c
 	for _, tok := range args {
 		nxt := findDirectSubcommand(cur, tok, allowHidden)
 		if nxt == nil {
-			return nil, "", fmt.Errorf("unknown command: %s (try `breyta docs` for index)", strings.Join(args, " "))
+			return nil, "", fmt.Errorf("unknown command: %s (try `breyta docs` for index; note `breyta secrets` is not yet available)", strings.Join(args, " "))
 		}
 		cur = nxt
 		path = path + " " + cur.Name()
