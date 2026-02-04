@@ -214,9 +214,11 @@ func newRunsStartCmd(app *App) *cobra.Command {
 				if strings.TrimSpace(source) != "" && source != "active" {
 					payload["source"] = source
 				}
-				if strings.TrimSpace(profileID) == "" && strings.TrimSpace(source) == "" && app.DevMode {
+				effectiveProfileID := strings.TrimSpace(profileID)
+				if effectiveProfileID == "" && strings.TrimSpace(source) == "" && app.DevMode {
 					if runConfigID := loadRunConfigID(app); strings.TrimSpace(runConfigID) != "" {
-						payload["profileId"] = strings.TrimSpace(runConfigID)
+						effectiveProfileID = strings.TrimSpace(runConfigID)
+						payload["profileId"] = effectiveProfileID
 					}
 				}
 				if strings.TrimSpace(inputJSON) != "" {
@@ -233,7 +235,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 
 				client := apiClient(app)
 				if !skipPreflight {
-					if err := preflightRunBindings(cmd, app, client, flow, source, profileID); err != nil {
+					if err := preflightRunBindings(cmd, app, client, flow, source, effectiveProfileID); err != nil {
 						return err
 					}
 				}
