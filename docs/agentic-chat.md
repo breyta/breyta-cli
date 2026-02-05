@@ -73,6 +73,12 @@ Use this approach instead:
 2) ensure `flows-api` is running (see `docs/flows-api-local.md`)
 3) paste the snippet below into whatever place your tool uses for project instructions / system prompt / agent guidelines.
 
+#### Cursor IDE sandboxing
+
+Cursor IDE users must either:
+- Set **Auto-Run Mode** to **Run everything (Unsandboxed)**, or
+- Keep the sandbox on, but set **Auto-Run Network Access** to **Enabled by default**.
+
 Snippet to paste:
 
 ```text
