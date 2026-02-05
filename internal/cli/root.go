@@ -46,9 +46,6 @@ func NewRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// No subcommand => interactive TUI.
 			if cmd.HasSubCommands() && len(args) == 0 {
-				if err := maybeUpgradeBeforeTUI(cmd); err != nil {
-					return err
-				}
 				return runTUI(app)
 			}
 			return cmd.Help()
