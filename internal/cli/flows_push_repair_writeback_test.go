@@ -11,7 +11,11 @@ import (
 
 func TestFlowsPush_RepairWriteback_WritesFileAndUploadsRepairedLiteral(t *testing.T) {
 	origDo := doAPICommandFn
-	t.Cleanup(func() { doAPICommandFn = origDo })
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
 
 	var gotLiteral string
 	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
@@ -21,6 +25,7 @@ func TestFlowsPush_RepairWriteback_WritesFileAndUploadsRepairedLiteral(t *testin
 		gotLiteral, _ = payload["flowLiteral"].(string)
 		return nil
 	}
+	useDoAPICommandFn = true
 
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "flow.clj")
@@ -58,7 +63,11 @@ func TestFlowsPush_RepairWriteback_WritesFileAndUploadsRepairedLiteral(t *testin
 
 func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 	origDo := doAPICommandFn
-	t.Cleanup(func() { doAPICommandFn = origDo })
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
 
 	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
 		_ = cmd
@@ -67,6 +76,7 @@ func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 		_ = payload
 		return nil
 	}
+	useDoAPICommandFn = true
 
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "flow.clj")

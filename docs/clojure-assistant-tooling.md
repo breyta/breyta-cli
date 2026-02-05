@@ -19,19 +19,19 @@ breyta flows paren-repair path/to/flow.clj
 Automatic on upload (default):
 
 ```bash
-breyta flows push --file path/to/flow.clj
+breyta flows push --file path/to/flow.clj  # validates draft by default
 ```
 
 By default, if repairs change the content, `push` writes the repaired content back to your local `--file`. Opt out:
 
 ```bash
-breyta flows push --file path/to/flow.clj --no-repair-writeback
+breyta flows push --file path/to/flow.clj --no-repair-writeback  # validates draft by default
 ```
 
 You can disable it:
 
 ```bash
-breyta flows push --file path/to/flow.clj --repair-delimiters=false
+breyta flows push --file path/to/flow.clj --repair-delimiters=false  # validates draft by default
 ```
 
 ### “SOTA” engine: Parinfer

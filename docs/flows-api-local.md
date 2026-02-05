@@ -117,7 +117,7 @@ The runtime normalizes input so both string keys and keyword keys work (safe key
 breyta flows list
 breyta flows pull simple-http --out ./tmp/flows/simple-http.clj
 # edit ./tmp/flows/simple-http.clj
-breyta flows push --file ./tmp/flows/simple-http.clj
+breyta flows push --file ./tmp/flows/simple-http.clj  # validates draft by default
 breyta flows deploy simple-http
 breyta flows show simple-http
 ```
@@ -152,7 +152,7 @@ cat > ./tmp/flows/run-hello.clj <<'EOF'
     out)}
 EOF
 
-breyta flows push --file ./tmp/flows/run-hello.clj
+breyta flows push --file ./tmp/flows/run-hello.clj  # validates draft by default
 breyta flows deploy run-hello
 
 # Start a run and wait. Output is in:
