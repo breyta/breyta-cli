@@ -188,9 +188,10 @@ func newFlowsInstallationsDisableCmd(app *App) *cobra.Command {
 
 func newFlowsInstallationsDeleteCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <profile-id>",
-		Short: "Delete an installation (uninstall)",
-		Args:  cobra.ExactArgs(1),
+		Use:     "delete <profile-id>",
+		Aliases: []string{"uninstall"},
+		Short:   "Delete an installation (uninstall)",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations delete requires API mode"))
