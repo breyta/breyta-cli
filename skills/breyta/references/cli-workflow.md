@@ -23,6 +23,7 @@ Notes:
 - Draft runs use draft bindings and the draft flow definition.
 - `flows push` updates the draft; `flows deploy` publishes a version for prod.
 - For long-running external jobs, prefer `flow/poll` to avoid manual wait loops.
+- `flows validate` and `flows compile` accept `--source` in API mode. In local mode, `draft` uses the current flow, while `active` and `latest` use published versions when present.
 
 ## Fast loop: iterate per step
 When authoring flows with an agent, prefer tight feedback loops:
