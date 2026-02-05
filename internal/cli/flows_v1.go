@@ -75,6 +75,7 @@ Bindings (credentials for :requires):
 	}
 
 	cmd.AddCommand(newFlowsListCmd(app))
+	cmd.AddCommand(newFlowsSearchCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
@@ -107,6 +108,57 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(newFlowsValidateCmd(app))
 	cmd.AddCommand(newFlowsCompileCmd(app))
 
+	return cmd
+}
+
+func newFlowsSearchCmd(app *App) *cobra.Command {
+	var scope string
+	var provider string
+	var limit int
+	var from int
+	var full bool
+
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search reusable flows (marketplace + workspace)",
+		Long: strings.TrimSpace(`
+Search across approved public flows plus flows in your current workspace.
+
+This is intended for agents/humans to find good patterns quickly.
+Keyword search only for now; embeddings can follow.
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Search requires API mode (flows-api + Elasticsearch).")
+			}
+			payload := map[string]any{
+				"q": args[0],
+			}
+			if strings.TrimSpace(scope) != "" {
+				payload["scope"] = strings.TrimSpace(scope)
+			}
+			if strings.TrimSpace(provider) != "" {
+				payload["provider"] = strings.TrimSpace(provider)
+			}
+			if limit > 0 {
+				payload["limit"] = limit
+			}
+			if from > 0 {
+				payload["from"] = from
+			}
+			if full {
+				payload["includeDefinition"] = true
+			}
+			return doAPICommand(cmd, app, "flows.search", payload)
+		},
+	}
+
+	cmd.Flags().StringVar(&scope, "scope", "all", "Search scope: all|workspace|public")
+	cmd.Flags().StringVar(&provider, "provider", "", "Filter by provider hint (e.g. stripe, slack)")
+	cmd.Flags().IntVar(&limit, "limit", 20, "Max results (server caps at 50)")
+	cmd.Flags().IntVar(&from, "from", 0, "Results offset (pagination)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include flow definition EDN in results")
 	return cmd
 }
 

@@ -145,6 +145,71 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	}
 }
 
+func TestFlowsSearch_UsesAPIInAPIMode(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.search" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args == nil || args["q"] != "stripe invoice" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected args",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"totalHits": 1,
+				"from":      0,
+				"size":      20,
+				"hits": []any{
+					map[string]any{"flowSlug": "example", "name": "Example", "score": 1.0},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "search",
+		"stripe invoice",
+	)
+	if err != nil {
+		t.Fatalf("flows search failed: %v\n%s", err, stdout)
+	}
+	if !bytes.Contains([]byte(stdout), []byte(`"totalHits"`)) {
+		t.Fatalf("expected flows search output to include totalHits\n---\n%s", stdout)
+	}
+}
+
 func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// Ensure that just running docs in API mode doesn't require mock state setup.
 	// (Some older tests set --state; API mode should not depend on it.)
