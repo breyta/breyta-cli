@@ -145,6 +145,82 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	}
 }
 
+func TestFlowsSearch_UsesAPIInAPIMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.search" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["q"] != "stripe" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing query",
+				},
+			})
+			return
+		}
+		if args["scope"] != "all" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected scope",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"query": "stripe",
+				"hits":  []any{},
+				"total": 0,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "search", "stripe",
+	)
+	if err != nil {
+		t.Fatalf("flows search failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
 func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// Ensure that just running docs in API mode doesn't require mock state setup.
 	// (Some older tests set --state; API mode should not depend on it.)

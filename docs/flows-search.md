@@ -1,13 +1,13 @@
 # Flows search (approved reuse + workspace)
 
-This doc describes the planned `breyta flows search` command that lets agents/humans find reusable flows (and eventually steps) via Elasticsearch-backed search in flows-api.
+This doc describes the `breyta flows search` command that lets agents/humans find reusable flows (and eventually steps) via Elasticsearch-backed search in flows-api.
 
 ## Why
 
 - Agents building flows should be able to quickly find “good patterns” (approved reusable flows) plus relevant flows in their current workspace.
 - Keyword search first; embeddings can follow.
 
-## Command (planned)
+## Command
 
 ```bash
 breyta flows search <query> \
@@ -23,7 +23,7 @@ Defaults:
 - `--limit 20`
 - `--full=false` (no flow definition in response)
 
-## Output (planned)
+## Output
 
 - Always returns: `flowSlug`, `name`, `description`, `tags`, `score`, `providers`, `stepTypes`, `stepCount`, `source` (`active|draft`), and a `hint` on how to reuse.
 - With `--full`: includes `definitionEdn` so you can save it to a file and reuse it immediately.
