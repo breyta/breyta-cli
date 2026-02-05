@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/breyta/breyta-cli/internal/updatecheck"
 )
@@ -18,6 +17,9 @@ const (
 )
 
 func runUpgradeAndReexec(n *updatecheck.Notice) error {
+	if !updateChecksEnabled() {
+		return nil
+	}
 	if n == nil || !n.Available {
 		return nil
 	}
@@ -56,5 +58,5 @@ func runUpgradeAndReexec(n *updatecheck.Notice) error {
 
 	env := append([]string{}, os.Environ()...)
 	env = append(env, skipTUIUpdatePromptEnv+"=1")
-	return syscall.Exec(exe, os.Args, env)
+	return reexec(exe, os.Args, env)
 }

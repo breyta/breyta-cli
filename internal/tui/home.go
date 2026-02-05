@@ -331,7 +331,7 @@ func newHomeModel(cfg HomeConfig) homeModel {
 	m.apiURL, m.defaultWS = m.loadConfig()
 	m.token = m.resolveToken()
 	m.refreshOptions()
-	if strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) == "" {
+	if updateChecksEnabled() && strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) == "" {
 		if n := updatecheck.CachedNotice(buildinfo.DisplayVersion()); n != nil && n.Available {
 			m.updateNotice = n
 			m.modal = m.newUpdateModal(n)
@@ -341,7 +341,7 @@ func newHomeModel(cfg HomeConfig) homeModel {
 }
 
 func (m homeModel) Init() tea.Cmd {
-	if strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) != "" {
+	if !updateChecksEnabled() || strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) != "" {
 		return m.refreshTokenCmd()
 	}
 	return tea.Batch(m.refreshTokenCmd(), m.checkUpdateCmd())
