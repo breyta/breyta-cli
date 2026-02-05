@@ -11,6 +11,9 @@ import (
 
 const githubLatestReleaseURL = "https://api.github.com/repos/breyta/breyta-cli/releases/latest"
 
+// ReleasePageURL is the human-friendly "latest release" page.
+const ReleasePageURL = "https://github.com/breyta/breyta-cli/releases/latest"
+
 type latestReleaseResponse struct {
 	TagName string `json:"tag_name"`
 }

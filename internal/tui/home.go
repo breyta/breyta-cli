@@ -13,6 +13,7 @@ import (
 	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/breyta/breyta-cli/internal/authinfo"
 	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/browseropen"
 	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/configstore"
 	"github.com/breyta/breyta-cli/internal/updatecheck"
@@ -1288,6 +1289,10 @@ func (m *homeModel) newUpdateModal(n *updatecheck.Notice) *modalModel {
 		items = append([]list.Item{
 			modalItem{id: "upgrade", name: "Upgrade now (Homebrew)", desc: "Runs: brew upgrade breyta, then restarts"},
 		}, items...)
+	} else {
+		items = append([]list.Item{
+			modalItem{id: "open", name: "Open release page", desc: "Open GitHub Releases in your browser"},
+		}, items...)
 	}
 	_ = md.list.SetItems(items)
 	return md
@@ -1416,6 +1421,19 @@ func (m *homeModel) applyModal() tea.Cmd {
 	case modalUpdate:
 		it, _ := m.modal.list.SelectedItem().(modalItem)
 		switch strings.TrimSpace(it.id) {
+		case "open":
+			if err := browseropen.Open(updatecheck.ReleasePageURL); err != nil {
+				m.apiError = "could not open browser automatically"
+				if strings.TrimSpace(err.Error()) != "" {
+					m.apiError = m.apiError + ": " + strings.TrimSpace(err.Error())
+				}
+				m.refreshOptions()
+				return nil
+			}
+			m.apiError = ""
+			m.lastInfo = "opened release page"
+			m.refreshOptions()
+			return nil
 		case "upgrade":
 			if m.updateNotice == nil {
 				m.apiError = "missing update info"
