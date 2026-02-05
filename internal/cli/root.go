@@ -1,15 +1,20 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/configstore"
 	"github.com/breyta/breyta-cli/internal/format"
 	"github.com/breyta/breyta-cli/internal/mock"
+	"github.com/breyta/breyta-cli/internal/skillsync"
 	"github.com/breyta/breyta-cli/internal/state"
 	"github.com/breyta/breyta-cli/internal/tui"
+	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -26,6 +31,9 @@ type App struct {
 	DevFlag              string
 	DevProfileOverride   string
 	visibilityConfigured bool
+
+	updateNotice *updatecheck.Notice
+	updateCh     <-chan *updatecheck.Notice
 }
 
 func NewRootCmd() *cobra.Command {
@@ -38,6 +46,9 @@ func NewRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// No subcommand => interactive TUI.
 			if cmd.HasSubCommands() && len(args) == 0 {
+				if err := maybeUpgradeBeforeTUI(cmd); err != nil {
+					return err
+				}
 				return runTUI(app)
 			}
 			return cmd.Help()
@@ -215,6 +226,14 @@ func NewRootCmd() *cobra.Command {
 			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
+
+		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
+		_ = skillsync.MaybeSyncInstalled(buildinfo.DisplayVersion())
+
+		// Best-effort update check for JSON commands. Never blocks command execution.
+		if isSubcommand {
+			app.startUpdateCheckNonBlocking(context.Background(), 24*time.Hour)
+		}
 		return nil
 	}
 

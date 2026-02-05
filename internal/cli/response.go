@@ -7,6 +7,15 @@ import (
 )
 
 func writeData(cmd *cobra.Command, app *App, meta map[string]any, data any) error {
+	if app != nil {
+		app.consumeUpdateNoticeNonBlocking()
+		if app.updateNotice != nil && app.updateNotice.Available {
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta["update"] = app.updateNotice
+		}
+	}
 	out := map[string]any{
 		"ok":          true,
 		"workspaceId": app.WorkspaceID,
