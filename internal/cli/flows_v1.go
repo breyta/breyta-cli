@@ -1249,9 +1249,6 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 				}
 				return doAPICommand(cmd, app, "flows.validate", payload)
 			}
-			if source != "active" {
-				return writeErr(cmd, fmt.Errorf("--source %q is not supported in local mode (use active)", source))
-			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -1260,9 +1257,13 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			record, resolvedSource, version, err := flowRecordForSource(f, source)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			warnings := []map[string]any{}
 			seen := map[string]bool{}
-			for _, s := range f.Steps {
+			for _, s := range record.Steps {
 				if s.ID == "" {
 					warnings = append(warnings, map[string]any{"code": "missing_step_id", "message": "step has empty id"})
 					continue
@@ -1275,7 +1276,14 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 					warnings = append(warnings, map[string]any{"code": "missing_step_type", "message": "step has empty type", "stepId": s.ID})
 				}
 			}
-			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "valid": len(warnings) == 0, "warnings": warnings})
+			out := map[string]any{"flowSlug": f.Slug, "valid": len(warnings) == 0, "warnings": warnings}
+			if resolvedSource != "" {
+				out["source"] = resolvedSource
+			}
+			if version > 0 {
+				out["version"] = version
+			}
+			return writeData(cmd, app, nil, out)
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
@@ -1303,9 +1311,6 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 				}
 				return doAPICommand(cmd, app, "flows.compile", payload)
 			}
-			if source != "active" {
-				return writeErr(cmd, fmt.Errorf("--source %q is not supported in local mode (use active)", source))
-			}
 			st, store, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -1314,11 +1319,22 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			plan := make([]map[string]any, 0, len(f.Steps))
-			for idx, s := range f.Steps {
+			record, resolvedSource, version, err := flowRecordForSource(f, source)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			plan := make([]map[string]any, 0, len(record.Steps))
+			for idx, s := range record.Steps {
 				plan = append(plan, map[string]any{"index": idx, "id": s.ID, "type": s.Type, "title": s.Title, "definition": s.Definition})
 			}
-			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "plan": plan})
+			out := map[string]any{"flowSlug": f.Slug, "plan": plan}
+			if resolvedSource != "" {
+				out["source"] = resolvedSource
+			}
+			if version > 0 {
+				out["version"] = version
+			}
+			return writeData(cmd, app, nil, out)
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
@@ -1434,6 +1450,46 @@ func maxVersion(f *state.Flow) int {
 		m = f.ActiveVersion
 	}
 	return m
+}
+
+func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string, int, error) {
+	switch source {
+	case "draft":
+		return flowRecordFromFlow(f), "draft", 0, nil
+	case "active":
+		if f.ActiveVersion > 0 {
+			if v, ok := findVersion(f, f.ActiveVersion); ok {
+				return v.Flow, "active", v.Version, nil
+			}
+		}
+		if len(f.Versions) == 0 {
+			return flowRecordFromFlow(f), "draft", 0, nil
+		}
+		return state.FlowRecord{}, "", 0, errors.New("active version not found; deploy and activate a version first")
+	case "latest":
+		if len(f.Versions) == 0 {
+			return flowRecordFromFlow(f), "draft", 0, nil
+		}
+		latest := f.Versions[0]
+		for _, v := range f.Versions[1:] {
+			if v.Version > latest.Version {
+				latest = v
+			}
+		}
+		return latest.Flow, "latest", latest.Version, nil
+	default:
+		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q", source)
+	}
+}
+
+func flowRecordFromFlow(f *state.Flow) state.FlowRecord {
+	return state.FlowRecord{
+		Name:        f.Name,
+		Description: f.Description,
+		Tags:        f.Tags,
+		Spine:       f.Spine,
+		Steps:       f.Steps,
+	}
 }
 
 func findVersion(f *state.Flow, version int) (state.FlowVersion, bool) {

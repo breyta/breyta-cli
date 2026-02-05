@@ -134,7 +134,7 @@ Notes:
 - `breyta steps run` is best-effort isolation; waits/sleeps/fanout aren’t supported.
 - Keep step ids stable and short; don’t rename ids unless you intend to invalidate history/examples.
 - Step ids and flow slugs accept either keywords or strings on the server; the CLI takes plain strings (e.g. `make-output`, not `:make-output`).
-- `breyta flows validate` and `breyta flows compile` accept `--source` in API mode. In local mode, only `active` is supported.
+- `breyta flows validate` and `breyta flows compile` accept `--source` in API mode. In local mode, `draft` uses the current flow, while `active` and `latest` use published versions when present.
 - When running a function step that uses `:ref`, include `--flow <slug>` so the function can be resolved.
 - Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
 - Avoid `some->` in flow bodies. Use explicit `if` with `->`.
