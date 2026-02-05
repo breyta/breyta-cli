@@ -118,6 +118,29 @@ Notes for agents:
 - Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
 ```
 
+### Agent task runner (MVP)
+
+Use the CLI to poll and execute agent tasks with your own executor.
+
+Example:
+
+```bash
+breyta agent-tasks run --exec codex --exec-arg "--model" --exec-arg "gpt-5-codex"
+```
+
+What it does:
+- Polls `/api/agent/tasks`
+- Runs your command once per task
+- Sends the command output back via `/api/agent/tasks/:task-id/complete`
+
+Task input:
+- The task JSON is passed on stdin
+- The task JSON file path is available as `BREYTA_AGENT_TASK_FILE`
+
+Task output:
+- Write a JSON object to stdout
+- That object becomes the task completion payload
+
 ### Troubleshooting
 
 - If `flows-api` port is busy, stop the server (Ctrl+C) and re-run.

@@ -192,6 +192,10 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- `breyta <command...> --help` prints Cobra help for that command\n")
 	b.WriteString("- For structured docs: `breyta docs <command...> --format json`\n\n")
 
+	b.WriteString("### Agent tasks (MVP)\n\n")
+	b.WriteString("- List tasks: `breyta agent-tasks list`\n")
+	b.WriteString("- Run tasks: `breyta agent-tasks run --exec <command>`\n\n")
+
 	b.WriteString("### End-user installations (marketplace MVP)\n\n")
 	b.WriteString("End-user-facing flows are marked with the `:end-user` tag.\n\n")
 	b.WriteString("- Create installation: `breyta flows installations create <flow-slug> --name \"My installation\"`\n")

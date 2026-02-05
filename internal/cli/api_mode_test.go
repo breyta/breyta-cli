@@ -24,6 +24,16 @@ func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
 	return out.String(), errOut.String(), err
 }
 
+func isolateConfigEnv(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	return tmp
+}
+
 func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
 		"--dev",
@@ -44,9 +54,7 @@ func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
 }
 
 func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_CONFIG_HOME", tmp)
+	isolateConfigEnv(t)
 	stdout, _, err := runCLIArgs(t,
 		"docs",
 	)
@@ -62,6 +70,7 @@ func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
 }
 
 func TestDocs_Index_IncludesResourcesByDefault(t *testing.T) {
+	isolateConfigEnv(t)
 	stdout, _, err := runCLIArgs(t,
 		"docs",
 	)
@@ -433,9 +442,7 @@ func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 func TestResources_DefaultsToAPIMode(t *testing.T) {
 	// Ensure API-only commands don't fail with "requires API mode" just because the API URL
 	// hasn't been defaulted yet; they should proceed to normal auth errors instead.
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_CONFIG_HOME", tmp)
+	tmp := isolateConfigEnv(t)
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
 	_, stderr, err := runCLIArgs(t, "resources", "list")
