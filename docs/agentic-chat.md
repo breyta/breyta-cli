@@ -89,7 +89,7 @@ Use these commands to manage flows:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - edit file
-- breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows push --file ./tmp/flows/<slug>.clj  # validates draft by default
 - breyta flows deploy <slug>
 
 End-user installations (flows tagged `:end-user`):

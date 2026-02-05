@@ -26,6 +26,7 @@ func isAPIValidFlowSlug(s string) bool {
 
 // doAPICommandFn is a test hook to stub API calls in command unit tests.
 var doAPICommandFn = doAPICommand
+var useDoAPICommandFn bool
 
 func newFlowsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -590,6 +591,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var file string
 	var repairDelimiters bool
 	var noRepairWriteback bool
+	var validate bool
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push a local .clj flow file as a new draft version",
@@ -627,12 +629,62 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				}
 			}
 
-			return doAPICommandFn(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+			if useDoAPICommandFn {
+				return doAPICommandFn(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			client := apiClient(app)
+			out, status, err := client.DoCommand(context.Background(), "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if status >= 400 {
+				return writeAPIResult(cmd, app, out, status)
+			}
+			if !validate {
+				return writeAPIResult(cmd, app, out, status)
+			}
+
+			flowSlug := ""
+			if dataAny, ok := out["data"]; ok {
+				if data, ok := dataAny.(map[string]any); ok {
+					if slug, _ := data["flowSlug"].(string); strings.TrimSpace(slug) != "" {
+						flowSlug = strings.TrimSpace(slug)
+					}
+				}
+			}
+			if flowSlug == "" {
+				meta := ensureMeta(out)
+				if meta != nil {
+					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug> --source draft"
+				}
+				return writeAPIResult(cmd, app, out, status)
+			}
+
+			validateOut, validateStatus, err := client.DoCommand(context.Background(), "flows.validate", map[string]any{
+				"flowSlug": flowSlug,
+				"source":   "draft",
+			})
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if validateStatus >= 400 || !isOK(validateOut) {
+				return writeAPIResult(cmd, app, validateOut, validateStatus)
+			}
+			meta := ensureMeta(out)
+			if meta != nil {
+				meta["validated"] = true
+				meta["validateSource"] = "draft"
+			}
+			return writeAPIResult(cmd, app, out, status)
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
+	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the draft after pushing")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
 }
