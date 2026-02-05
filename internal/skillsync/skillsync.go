@@ -111,9 +111,13 @@ func MaybeSyncInstalled(currentVersion string) error {
 		if err != nil {
 			continue
 		}
-		backupIfModified(t.File, embeddedMD)
+		backup, backedUp := backupCopyIfModified(t.File, embeddedMD)
 		if _, err := skills.InstallBreytaSkill(home, p); err == nil {
 			anySynced = true
+		} else if backedUp {
+			// Best-effort rollback: restore the original file contents if the install failed.
+			// This avoids leaving users with a missing or corrupted skill file.
+			_ = os.WriteFile(t.File, backup, 0o644)
 		}
 	}
 
@@ -123,19 +127,21 @@ func MaybeSyncInstalled(currentVersion string) error {
 	return nil
 }
 
-func backupIfModified(path string, desired []byte) {
+func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return
+		return nil, false
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return nil, false
 	}
 	if string(b) == string(desired) {
-		return
+		return nil, false
 	}
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	backup := path + ".bak-" + ts
-	_ = os.Rename(path, backup)
+	// Best-effort: keep a copy for manual rollback.
+	_ = os.WriteFile(backup, b, 0o644)
+	return b, true
 }
