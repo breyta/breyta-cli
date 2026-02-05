@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -473,7 +474,23 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 				if force {
 					payload["force"] = true
 				}
-				return doAPICommand(cmd, app, "runs.cancel", payload)
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				client := apiClient(app)
+				out, status, err := client.DoCommand(context.Background(), "runs.cancel", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if status == http.StatusConflict && isAlreadyCompletedRun(out) {
+					meta := ensureMeta(out)
+					if meta != nil {
+						meta["hint"] = "Run is already completed"
+					}
+					out["ok"] = true
+					status = http.StatusOK
+				}
+				return writeAPIResult(cmd, app, out, status)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -505,6 +522,22 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&reason, "reason", "", "Cancellation reason")
 	cmd.Flags().BoolVar(&force, "force", false, "Terminate the run immediately")
 	return cmd
+}
+
+func isAlreadyCompletedRun(out map[string]any) bool {
+	if out == nil {
+		return false
+	}
+	errAny, ok := out["error"]
+	if !ok {
+		return false
+	}
+	errMap, ok := errAny.(map[string]any)
+	if !ok {
+		return false
+	}
+	code, _ := errMap["code"].(string)
+	return strings.TrimSpace(code) == "already_completed"
 }
 
 func newRunsRetryCmd(app *App) *cobra.Command {
