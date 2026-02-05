@@ -75,6 +75,7 @@ breyta flows list
 - Docs index: `docs/index.md`
 - Install: `docs/install.md`
 - Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
+- Cursor IDE sandbox/network troubleshooting: `docs/agentic-chat.md#cursor-ide-sandboxing`
 - Distribution / releases: `docs/distribution.md`
 
 ## Development
