@@ -136,6 +136,7 @@ Notes:
 - Step ids and flow slugs accept either keywords or strings on the server; the CLI takes plain strings (e.g. `make-output`, not `:make-output`).
 - `breyta flows validate` and `breyta flows compile` accept `--source` in API mode. In local mode, `draft` uses the current flow, while `active` and `latest` use published versions when present.
 - Avoid editing long single-line flow files with inline `:code` strings. Prefer multiline flow files and referenced function blobs to avoid EDN parse errors.
+- Flow files must contain real newlines, not escaped `\n` tokens outside strings. Escaped newlines can break EDN and cause "Map literal must contain an even number of forms". Prefer writing files with here-strings or real newline editing, not global `\\n` replacements.
 - `breyta flows push` validates draft by default in API mode. Use `--validate=false` only if you need to bypass validation temporarily.
 - When running a function step that uses `:ref`, include `--flow <slug>` so the function can be resolved.
 - Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
