@@ -347,8 +347,15 @@ func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowS
 		return nil
 	}
 	profileType := "prod"
-	if strings.EqualFold(strings.TrimSpace(source), "draft") {
+	trimmedSource := strings.TrimSpace(source)
+	if strings.EqualFold(trimmedSource, "draft") {
 		profileType = "draft"
+	} else if strings.EqualFold(trimmedSource, "latest") {
+		latestType, err := resolveLatestRunProfileType(cmd, app, client, flowSlug)
+		if err != nil {
+			return err
+		}
+		profileType = latestType
 	}
 	reqResp, reqStatus, err := client.DoCommand(context.Background(), "profiles.template", map[string]any{
 		"flowSlug":    flowSlug,
@@ -391,6 +398,28 @@ func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowS
 		return writeErr(cmd, fmt.Errorf("missing draft bindings for slots: %s. Apply draft bindings: breyta flows draft bindings apply %s @draft.edn", strings.Join(missing, ", "), flowSlug))
 	}
 	return writeErr(cmd, fmt.Errorf("missing prod bindings for slots: %s. Apply prod bindings: breyta flows bindings apply %s @profile.edn; breyta flows activate %s --version latest", strings.Join(missing, ", "), flowSlug, flowSlug))
+}
+
+func resolveLatestRunProfileType(cmd *cobra.Command, app *App, client api.Client, flowSlug string) (string, error) {
+	resp, status, err := client.DoCommand(context.Background(), "flows.get", map[string]any{
+		"flowSlug": flowSlug,
+		"source":   "active",
+	})
+	if err != nil {
+		return "", writeErr(cmd, err)
+	}
+	if status < 400 && isOK(resp) {
+		return "prod", nil
+	}
+	msg := strings.ToLower(strings.TrimSpace(getErrorMessage(resp)))
+	if status == 404 ||
+		strings.Contains(msg, "no active") ||
+		strings.Contains(msg, "active version") ||
+		strings.Contains(msg, "active flow") ||
+		strings.Contains(msg, "missing active") {
+		return "draft", nil
+	}
+	return "", writeAPIResult(cmd, app, resp, status)
 }
 
 func missingRequiredSlots(requirements []any, bindingValues map[string]any) []string {
