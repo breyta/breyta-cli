@@ -1229,13 +1229,28 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 // --- Validate/compile --------------------------------------------------------
 
 func newFlowsValidateCmd(app *App) *cobra.Command {
+	var source string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug>",
 		Short: "Validate a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			source = strings.TrimSpace(source)
+			if source == "" {
+				source = "active"
+			}
+			if source != "active" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
+			}
 			if isAPIMode(app) {
-				return doAPICommand(cmd, app, "flows.validate", map[string]any{"flowSlug": args[0]})
+				payload := map[string]any{"flowSlug": args[0]}
+				if source != "active" {
+					payload["source"] = source
+				}
+				return doAPICommand(cmd, app, "flows.validate", payload)
+			}
+			if source != "active" {
+				return writeErr(cmd, fmt.Errorf("--source %q is not supported in local mode (use active)", source))
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1263,17 +1278,33 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "valid": len(warnings) == 0, "warnings": warnings})
 		},
 	}
+	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
 	return cmd
 }
 
 func newFlowsCompileCmd(app *App) *cobra.Command {
+	var source string
 	cmd := &cobra.Command{
 		Use:   "compile <flow-slug>",
 		Short: "Compile a flow (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			source = strings.TrimSpace(source)
+			if source == "" {
+				source = "active"
+			}
+			if source != "active" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
+			}
 			if isAPIMode(app) {
-				return doAPICommand(cmd, app, "flows.compile", map[string]any{"flowSlug": args[0]})
+				payload := map[string]any{"flowSlug": args[0]}
+				if source != "active" {
+					payload["source"] = source
+				}
+				return doAPICommand(cmd, app, "flows.compile", payload)
+			}
+			if source != "active" {
+				return writeErr(cmd, fmt.Errorf("--source %q is not supported in local mode (use active)", source))
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1290,6 +1321,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "plan": plan})
 		},
 	}
+	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
 	return cmd
 }
 
