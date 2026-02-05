@@ -235,7 +235,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 
 				client := apiClient(app)
 				if !skipPreflight {
-					if err := preflightRunBindings(cmd, app, client, flow, source, effectiveProfileID); err != nil {
+					if err := preflightRunBindings(cmd, app, client, flow, source, version, effectiveProfileID); err != nil {
 						return err
 					}
 				}
@@ -339,7 +339,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowSlug string, source string, profileID string) error {
+func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowSlug string, source string, version int, profileID string) error {
 	if strings.TrimSpace(flowSlug) == "" {
 		return nil
 	}
@@ -357,10 +357,14 @@ func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowS
 		}
 		profileType = latestType
 	}
-	reqResp, reqStatus, err := client.DoCommand(context.Background(), "profiles.template", map[string]any{
+	reqArgs := map[string]any{
 		"flowSlug":    flowSlug,
 		"profileType": profileType,
-	})
+	}
+	if version > 0 {
+		reqArgs["version"] = version
+	}
+	reqResp, reqStatus, err := client.DoCommand(context.Background(), "profiles.template", reqArgs)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
@@ -373,10 +377,14 @@ func preflightRunBindings(cmd *cobra.Command, app *App, client api.Client, flowS
 		return nil
 	}
 
-	statusResp, statusCode, err := client.DoCommand(context.Background(), "profiles.status", map[string]any{
+	statusArgs := map[string]any{
 		"flowSlug":    flowSlug,
 		"profileType": profileType,
-	})
+	}
+	if version > 0 {
+		statusArgs["version"] = version
+	}
+	statusResp, statusCode, err := client.DoCommand(context.Background(), "profiles.status", statusArgs)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
