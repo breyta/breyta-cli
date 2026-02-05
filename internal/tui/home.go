@@ -13,7 +13,10 @@ import (
 	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/breyta/breyta-cli/internal/authinfo"
 	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/browseropen"
+	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"github.com/breyta/breyta-cli/skills"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -84,6 +87,7 @@ const (
 	modalAuth modalKind = iota
 	modalDiagnostics
 	modalAgentSkills
+	modalUpdate
 )
 
 type modalResult int
@@ -213,6 +217,11 @@ type homeWorkspacesMsg struct {
 	wsCount    int
 }
 
+type homeUpdateMsg struct {
+	notice *updatecheck.Notice
+	err    error
+}
+
 type homeLoginStartMsg struct {
 	apiURL  string
 	authURL string
@@ -255,6 +264,9 @@ type homeModel struct {
 
 	// modal
 	modal *modalModel
+	// update prompt
+	updateNotice *updatecheck.Notice
+	doUpgrade    bool
 
 	// workspace view
 	selectedWorkspaceID string
@@ -267,8 +279,18 @@ type homeModel struct {
 func RunHome(cfg HomeConfig) error {
 	m := newHomeModel(cfg)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
-	_, err := p.Run()
-	return err
+	final, err := p.Run()
+	if err != nil {
+		return err
+	}
+	hm, ok := final.(homeModel)
+	if !ok {
+		return nil
+	}
+	if hm.doUpgrade && hm.updateNotice != nil {
+		return runUpgradeAndReexec(hm.updateNotice)
+	}
+	return nil
 }
 
 func newHomeModel(cfg HomeConfig) homeModel {
@@ -309,11 +331,20 @@ func newHomeModel(cfg HomeConfig) homeModel {
 	m.apiURL, m.defaultWS = m.loadConfig()
 	m.token = m.resolveToken()
 	m.refreshOptions()
+	if updateChecksEnabled() && strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) == "" {
+		if n := updatecheck.CachedNotice(buildinfo.DisplayVersion()); n != nil && n.Available {
+			m.updateNotice = n
+			m.modal = m.newUpdateModal(n)
+		}
+	}
 	return m
 }
 
 func (m homeModel) Init() tea.Cmd {
-	return m.refreshTokenCmd()
+	if !updateChecksEnabled() || strings.TrimSpace(os.Getenv(skipTUIUpdatePromptEnv)) != "" {
+		return m.refreshTokenCmd()
+	}
+	return tea.Batch(m.refreshTokenCmd(), m.checkUpdateCmd())
 }
 
 func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -384,6 +415,15 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.refreshOptions()
+		return m, nil
+
+	case homeUpdateMsg:
+		if msg.err == nil && msg.notice != nil && msg.notice.Available {
+			m.updateNotice = msg.notice
+			if m.modal == nil {
+				m.modal = m.newUpdateModal(msg.notice)
+			}
+		}
 		return m, nil
 
 	case homeLoginStartMsg:
@@ -1158,6 +1198,15 @@ func (m *homeModel) fetchWorkspacesCmd() tea.Cmd {
 	}
 }
 
+func (m homeModel) checkUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		n, err := updatecheck.CheckNow(ctx, buildinfo.DisplayVersion(), 24*time.Hour)
+		return homeUpdateMsg{notice: n, err: err}
+	}
+}
+
 func (m *homeModel) newAuthModal() *modalModel {
 	md := &modalModel{
 		kind:  modalAuth,
@@ -1215,6 +1264,37 @@ It writes a local file only (no network). Choose your agent:
 			desc: "Writes: ~/.claude/skills/breyta/SKILL.md",
 		},
 	})
+	return md
+}
+
+func (m *homeModel) newUpdateModal(n *updatecheck.Notice) *modalModel {
+	cur := buildinfo.DisplayVersion()
+	latest := ""
+	if n != nil {
+		latest = strings.TrimSpace(n.LatestVersion)
+	}
+	status := fmt.Sprintf("A new Breyta CLI version is available:\n- current: %s\n- latest:  %s\n", cur, cmpOrDash(latest))
+
+	md := &modalModel{
+		kind:   modalUpdate,
+		title:  "Update available",
+		list:   newModalList("Pick action", false),
+		status: strings.TrimSpace(status),
+	}
+
+	items := []list.Item{
+		modalItem{id: "skip", name: "Skip for now", desc: "Continue into the TUI"},
+	}
+	if n != nil && n.InstallMethod == updatecheck.InstallMethodBrew && updatecheck.BrewAvailable() {
+		items = append([]list.Item{
+			modalItem{id: "upgrade", name: "Upgrade now (Homebrew)", desc: "Runs: brew upgrade breyta, then restarts"},
+		}, items...)
+	} else {
+		items = append([]list.Item{
+			modalItem{id: "open", name: "Open release page", desc: "Open GitHub Releases in your browser"},
+		}, items...)
+	}
+	_ = md.list.SetItems(items)
 	return md
 }
 
@@ -1337,6 +1417,36 @@ func (m *homeModel) applyModal() tea.Cmd {
 
 		m.refreshOptions()
 		return nil
+
+	case modalUpdate:
+		it, _ := m.modal.list.SelectedItem().(modalItem)
+		switch strings.TrimSpace(it.id) {
+		case "open":
+			if err := browseropen.Open(updatecheck.ReleasePageURL); err != nil {
+				m.apiError = "could not open browser automatically"
+				if strings.TrimSpace(err.Error()) != "" {
+					m.apiError = m.apiError + ": " + strings.TrimSpace(err.Error())
+				}
+				m.refreshOptions()
+				return nil
+			}
+			m.apiError = ""
+			m.lastInfo = "opened release page"
+			m.refreshOptions()
+			return nil
+		case "upgrade":
+			if m.updateNotice == nil {
+				m.apiError = "missing update info"
+				m.refreshOptions()
+				return nil
+			}
+			m.doUpgrade = true
+			return tea.Quit
+		default: // skip
+			m.lastInfo = "skipped update"
+			m.refreshOptions()
+			return nil
+		}
 	}
 	return nil
 }

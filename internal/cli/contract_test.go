@@ -21,6 +21,9 @@ type envelope struct {
 func runCLI(t *testing.T, statePath string, args ...string) (string, string, error) {
 	t.Helper()
 
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
 	cmd := cli.NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
