@@ -11,6 +11,8 @@ func TestDecodeProfilePayload_EDN(t *testing.T) {
                        :bindings {:api {:name "Users API"
                                         :url "https://api.example.com"
                                         :apikey :redacted
+                                        :headers {:apikey "anon"
+                                                  :x-api-key "svc"}
                                         :query-param "api_key"
                                         :location "query"}
                                   :ai {:provider "openai"
@@ -43,6 +45,16 @@ func TestDecodeProfilePayload_EDN(t *testing.T) {
 			t.Fatalf("expected inputs[%s]=%v, got %v", k, v, got)
 		}
 	}
+	headers, ok := payload.Inputs["headers-api"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected headers-api to be a map, got %#v", payload.Inputs["headers-api"])
+	}
+	if headers["apikey"] != "anon" {
+		t.Fatalf("expected headers-api.apikey to be anon, got %#v", headers["apikey"])
+	}
+	if headers["x-api-key"] != "svc" {
+		t.Fatalf("expected headers-api.x-api-key to be svc, got %#v", headers["x-api-key"])
+	}
 }
 
 func TestDecodeProfilePayload_RejectsUnknownTopLevelKey(t *testing.T) {
@@ -68,6 +80,8 @@ func TestParseSetAssignments(t *testing.T) {
 	items := []string{
 		"api.apikey=sk_live_123",
 		"api.url=https://api.example.com",
+		"api.headers.apikey=anon",
+		"api.headers.x-api-key=svc",
 		"api.query-param=api_key",
 		"api.location=query",
 		"activation.region=EU",
@@ -82,6 +96,16 @@ func TestParseSetAssignments(t *testing.T) {
 	}
 	if out["url-api"] != "https://api.example.com" {
 		t.Fatalf("expected url-api to be set")
+	}
+	headers, ok := out["headers-api"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected headers-api to be a map")
+	}
+	if headers["apikey"] != "anon" {
+		t.Fatalf("expected headers-api.apikey to be set")
+	}
+	if headers["x-api-key"] != "svc" {
+		t.Fatalf("expected headers-api.x-api-key to be set")
 	}
 	if out["query-param-api"] != "api_key" {
 		t.Fatalf("expected query-param-api to be set")

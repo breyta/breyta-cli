@@ -32,6 +32,7 @@ Flows execute **inside `flows-api`**, so any API keys you want flows to use must
 - Apply bindings with a profile file: `breyta flows bindings apply <slug> @profile.edn`
 - Enable prod profile: `breyta flows activate <slug> --version latest`
   - If you set both `slot.conn` and `slot.apikey`, the API key refreshes the existing connection secret while keeping the binding
+  - Extra headers: `slot.headers.<name>=...` (inline) or `:headers {\"x-api-key\" \"...\"}` in the profile file. Values may be strings or `{:secret-ref \"...\"}`
   - Default to reusing existing workspace connections: list them with `breyta connections list` (or `--type llm-provider`) and bind `slot.conn` instead of creating duplicates
 
 - **Option B (local dev / server-global)**: create a local `secrets.edn` file (gitignored)

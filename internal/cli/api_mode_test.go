@@ -47,6 +47,8 @@ func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 	stdout, _, err := runCLIArgs(t,
 		"docs",
 	)
@@ -436,6 +438,8 @@ func TestResources_DefaultsToAPIMode(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
 	_, stderr, err := runCLIArgs(t, "resources", "list")
