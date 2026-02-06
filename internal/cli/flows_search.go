@@ -15,8 +15,8 @@ func newFlowsSearchCmd(app *App) *cobra.Command {
 	var full bool
 
 	cmd := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Search approved flows for reuse patterns",
+		Use:   "search [query]",
+		Short: "Search/browse approved flows for reuse patterns",
 		Long: strings.TrimSpace(`
 Search across approved flows to find reusable examples.
 
@@ -24,16 +24,19 @@ By default the search is global (across all workspaces). Use --scope=workspace t
 restrict results to the current workspace.
 
 NOTE: Only flows explicitly approved for reuse are indexed/searchable.
+
+Omit the query to browse recent approved flows (optionally filtered by --provider
+and/or --scope).
 `),
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows search requires API mode"))
 			}
 
-			query := strings.TrimSpace(args[0])
-			if query == "" {
-				return writeErr(cmd, errors.New("query is required"))
+			query := ""
+			if len(args) > 0 {
+				query = strings.TrimSpace(args[0])
 			}
 
 			scope = strings.TrimSpace(strings.ToLower(scope))
@@ -45,11 +48,13 @@ NOTE: Only flows explicitly approved for reuse are indexed/searchable.
 			}
 
 			payload := map[string]any{
-				"query":             query,
 				"scope":             scope,
 				"limit":             limit,
 				"from":              from,
 				"includeDefinition": full,
+			}
+			if query != "" {
+				payload["query"] = query
 			}
 			if strings.TrimSpace(provider) != "" {
 				payload["provider"] = strings.TrimSpace(provider)
