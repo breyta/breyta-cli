@@ -157,6 +157,7 @@ Notes:
 
 Core commands:
 - `breyta flows list`
+- `breyta flows search [query]` (browse/search approved reusable flows; add `--full` to include `definition_edn`)
 - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
 - `breyta flows push --file ./tmp/flows/<slug>.clj`
 - `breyta flows deploy <slug>`
@@ -164,6 +165,18 @@ Core commands:
 - `breyta flows compile <slug>`
 - `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
 - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
+
+Reusable patterns (recommended):
+1) Search/browse approved examples first:
+   - Browse: `breyta flows search --provider stripe` (no query)
+   - Search: `breyta flows search stripe`
+   - Restrict to workspace: add `--scope workspace`
+2) Inspect a result: rerun with `--full` and copy `definition_edn` into a new `.clj` flow file.
+3) Iterate via the usual workflow: `push` → `deploy`.
+
+Notes:
+- Only flows explicitly approved for reuse are indexed/searchable (approved via Flows UI → "Approve for reuse").
+- `--limit` is capped server-side (currently 100); the response includes both the requested and effective limits in `meta`.
 
 Run cancel safety:
 - `runs cancel` prefers full `workflowId`
