@@ -126,6 +126,8 @@ breyta flows show simple-http
 
 Create a tiny code-only flow file and run it:
 
+Note: runs also have a dedicated **Output** page in the UI (separate from the debug panel). To shape final output rendering (markdown/media/group), see `flow-output-artifacts.md`.
+
 ```bash
 mkdir -p ./tmp/flows
 cat > ./tmp/flows/run-hello.clj <<'EOF'
