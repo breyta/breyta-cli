@@ -156,6 +156,12 @@ Core commands:
 - `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
 - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
+Run cancel safety:
+- `runs cancel` prefers full `workflowId`
+- Short ids like `r34` are auto-resolved in API mode
+- Pass `--flow <slug>` when using short ids to avoid ambiguity across flows
+- If short-id resolution is ambiguous, list runs and retry with a full `workflowId`
+
 Details: `./references/cli-workflow.md`
 
 ## Installations
