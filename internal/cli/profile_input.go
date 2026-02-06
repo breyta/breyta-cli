@@ -296,6 +296,24 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 		if slot == "" || field == "" {
 			return nil, fmt.Errorf("invalid --set %q (empty slot or field)", raw)
 		}
+		if strings.HasPrefix(field, "headers.") {
+			headerName := strings.TrimSpace(strings.TrimPrefix(field, "headers."))
+			if headerName == "" {
+				return nil, fmt.Errorf("invalid --set %q (missing header name)", raw)
+			}
+			val := parseSetValue(valRaw)
+			if isPlaceholder(val) {
+				continue
+			}
+			key := "headers-" + slot
+			existing, _ := out[key].(map[string]any)
+			if existing == nil {
+				existing = map[string]any{}
+			}
+			existing[headerName] = val
+			out[key] = existing
+			continue
+		}
 		canon, ok := canonicalBindingField(field)
 		if !ok {
 			return nil, fmt.Errorf("invalid --set %q (unknown field %q)", raw, field)
@@ -357,6 +375,7 @@ func applyActivationSection(payload *profilePayload, value any) error {
 func canonicalBindingField(field string) (string, bool) {
 	switch field {
 	case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret",
+		"headers",
 		"header", "prefix", "location", "param-name", "query-param", "db-param":
 		return field, true
 	case "apiKey", "api-key":
@@ -379,6 +398,7 @@ func canonicalBindingField(field string) (string, bool) {
 		lower := strings.ToLower(field)
 		switch lower {
 		case "name", "url", "apikey", "provider", "backend", "connstr", "dsn", "host", "port", "database", "user", "pass", "project", "conn", "secret",
+			"headers",
 			"header", "prefix", "location", "param", "param-name", "query-param", "db-param":
 			if lower == "param" {
 				return "param-name", true
