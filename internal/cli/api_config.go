@@ -16,8 +16,8 @@ func newAPICmd(app *App) *cobra.Command {
 		Use:   "api",
 		Short: "Configure API base URL",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if !app.DevMode {
-				return errors.New("api configuration is disabled")
+			if err := ensureDevModeForAPICmd(cmd, app); err != nil {
+				return err
 			}
 			return nil
 		},
@@ -25,6 +25,43 @@ func newAPICmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAPIShowCmd(app))
 	cmd.AddCommand(newAPIUseCmd(app))
 	return cmd
+}
+
+func ensureDevModeForAPICmd(cmd *cobra.Command, app *App) error {
+	if app == nil {
+		return errors.New("missing app")
+	}
+
+	// NOTE: Some commands define their own PersistentPreRunE; don't rely on the root
+	// command's pre-run to have computed DevMode already.
+	devFlagExplicit := false
+	if cmd != nil {
+		devFlagExplicit = cmd.Flags().Changed("dev") || cmd.InheritedFlags().Changed("dev")
+		if root := cmd.Root(); root != nil {
+			devFlagExplicit = devFlagExplicit || root.PersistentFlags().Changed("dev")
+		}
+	}
+	if devFlagExplicit {
+		val := strings.TrimSpace(app.DevFlag)
+		switch strings.ToLower(val) {
+		case "", "true", "1", "yes", "y", "on":
+			app.DevMode = true
+			app.DevProfileOverride = ""
+		case "false", "0", "no", "n", "off":
+			app.DevMode = false
+			app.DevProfileOverride = ""
+		default:
+			app.DevMode = true
+			app.DevProfileOverride = val
+		}
+	}
+	if !app.DevMode && devModeEnabled() {
+		app.DevMode = true
+	}
+	if !app.DevMode {
+		return errors.New("api configuration is disabled (enable via `breyta internal dev enable` or `--dev`)")
+	}
+	return nil
 }
 
 func newAPIShowCmd(app *App) *cobra.Command {
