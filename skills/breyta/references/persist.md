@@ -90,49 +90,26 @@ Use this when a step returns large data and you need to forward it.
                          :from-ref blob-ref}]})
 ```
 
-You can also attach schema metadata for streamed exports so downstream consumers can interpret columns without inspecting the payload. It is optional, but it will enable additional formats later (e.g., Parquet/Arrow/Avro). Prefer normalized type names so we can map to other formats later.
+## Streaming HTTP downloads (no in-memory buffering)
+When you persist an HTTP download as a blob, Breyta can stream the response body directly into object storage (rather than reading the entire response into memory).
+
+Recommended pattern for large binaries:
 
 ```clojure
-{:persist {:type :blob
-           :stream true
-           :format :csv
-           :schema {:columns [{:name "id" :type :int64}
-                              {:name "email" :type :string}
-                              {:name "created_at" :type :timestamp}]
-                    :validate false}}} ; disable validation (default validates first 10 rows)
+(flow/step :http :download-video
+           {:url "https://example.com/video.mp4"
+            :method :get
+            :response-as :bytes
+            :client-opts {:max-response-bytes (* 50 1024 1024)} ; must be >= expected size
+            :persist {:type :blob
+                      :tier :ephemeral
+                      :filename "video.mp4"
+                      :signed-url true}})
 ```
 
-Recommended normalized types:
-- :string
-- :int64
-- :float64
-- :bool
-- :timestamp
-- :date
-- :json
-- :decimal (use :precision/:scale)
-- :bytes
-- :uuid
-- :time
-- :array (use :items {:type ...})
-- :struct (use :fields [{:name ... :type ...}])
-
-Examples:
-```clojure
-{:schema {:columns [{:name "amount"
-                     :type :decimal
-                     :precision 12
-                     :scale 2}
-                    {:name "tags"
-                     :type :array
-                     :items {:type :string}}
-                    {:name "address"
-                     :type :struct
-                     :fields [{:name "street" :type :string}
-                              {:name "zip" :type :string}]}
-                    {:name "payload"
-                     :type :bytes}]}}
-```
+Notes:
+- Only raise `:max-response-bytes` like this when you also use `:persist {:type :blob ...}` + `:response-as :bytes`. For non-streaming responses (e.g. JSON parsing), the body is buffered in memory up to `:max-response-bytes`.
+- The effective maximum size is bounded by platform limits (persist tier `:max-write-bytes`, and response limits).
 
 ## Persisting database results
 Persist can also be used on data-producing steps like `:db` to avoid large inline payloads.
@@ -204,21 +181,21 @@ Default tier:
 ```clojure
 {:type :blob
  :filename "report.json"
- :tier :retained} ; 1MB write cap, 90-day lifecycle
+ :tier :retained} ; ~25MB write cap, 90-day lifecycle (defaults may vary by deployment)
 ```
 
 Ephemeral tier (streaming):
 ```clojure
 {:type :blob
  :filename "large.pdf"
- :tier :ephemeral} ; 20MB write cap, ~12h TTL
+ :tier :ephemeral} ; ~50MB write cap, ~12h TTL and 1-day lifecycle (defaults may vary by deployment)
 ```
 
 Notes:
 - `:ephemeral` is intended for short-lived streaming of external payloads (e.g., HTTP downloads) that you plan to upload/forward in the same flow.
 - `:tier :ephemeral` is allowed only on streaming-friendly steps (e.g., `:http`).
 - Database steps and other computed steps still materialize results in memory before persisting, so they cannot use `:ephemeral`.
-- Ref load limits are tier-aware (e.g., larger `:http` body limits for `:ephemeral`).
+- Ref load limits are tier-aware (e.g., larger `:http` body limits for `:ephemeral`), and ref loading still happens in memory (e.g., `:body-from-ref` / multipart `:from-ref`).
 - Inline results are capped; use `:persist` to avoid large inline payloads.
 - Persisted refs are validated against the resource registry when loaded; expired or deleted refs fail fast.
 - Persisted refs include size metadata for auditing.
