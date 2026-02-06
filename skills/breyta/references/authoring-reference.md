@@ -330,3 +330,9 @@ Common limits to plan around (see `breyta/libraries/flows/config/limits.clj` for
 Tips:
 - Keep results small; return summaries and persist large payloads.
 - Use `:persist {:type :blob}` on `:http` when you need large response bodies.
+
+## Final output artifacts (UI)
+
+Flows return a final output value (the value of the `:flow` form). The UI can render this as a user-facing artifact (outside the debug panel) when you wrap it in a small viewer envelope.
+
+Details: `./output-artifacts.md`

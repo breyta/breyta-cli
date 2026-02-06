@@ -16,6 +16,7 @@ description: >-
 - [Google Drive sync](#google-drive-sync)
 - [Installations](#installations)
 - [Authoring reference](#authoring-reference)
+- [Output artifacts](#output-artifacts)
 - [Templates](#templates)
 - [n8n import](#n8n-import)
 - [Step reference](#step-reference)
@@ -231,6 +232,11 @@ Details: `./references/step-reference.md`
 How `:persist` works, when to use it, and how refs flow to downstream steps.
 
 Details: `./references/persist.md`
+
+## Output artifacts
+How to shape a flow’s **final output** so it renders as a user-facing artifact in the UI (markdown/media/group), separate from the debug panel.
+
+Details: `./references/output-artifacts.md`
 
 ## Resources (CLI)
 Use `breyta resources ...` to inspect persisted **result** refs (resource URIs like `res://...`) and fetch their content.
