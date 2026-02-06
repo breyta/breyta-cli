@@ -87,6 +87,7 @@ const (
 	modalAuth modalKind = iota
 	modalDiagnostics
 	modalAgentSkills
+	modalWorkspaceDefault
 	modalUpdate
 )
 
@@ -558,13 +559,16 @@ func (m homeModel) updateOptionsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		m.modal = m.newAgentSkillsModal()
 		return m, cmd
+	case "w":
+		m.modal = m.newWorkspaceDefaultModal()
+		return m, cmd
 	case "r":
 		return m, tea.Batch(cmd, m.checkConnectionCmd(), m.fetchWorkspacesCmd())
 	case "enter":
 		if it, ok := m.options.SelectedItem().(workspaceItem); ok && strings.TrimSpace(it.id) != "" {
 			m.selectedWorkspaceID = it.id
 			if strings.TrimSpace(m.defaultWS) == "" {
-				if id := strings.TrimSpace(it.id); id != "" && id != "ws-acme" {
+				if id := strings.TrimSpace(it.id); id != "" {
 					m.defaultWS = id
 					_ = setConfig(m.apiURL, id)
 				}
@@ -602,6 +606,9 @@ func (m homeModel) updateWorkspaceMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s":
 		m.modal = m.newAgentSkillsModal()
+		return m, nil
+	case "w":
+		m.modal = m.newWorkspaceDefaultModal()
 		return m, nil
 	case "tab":
 		if m.workspaceFocus == homeFocusFlows {
@@ -790,6 +797,7 @@ func (m homeModel) headerKeyHints() []string {
 		kv("a", "Auth"),
 		kv("x", "Diagnostics"),
 		kv("s", "Agent skills"),
+		kv("w", "Default WS"),
 		kv("r", "Refresh"),
 	}
 	switch m.mode {
@@ -934,7 +942,8 @@ func (m *homeModel) loadConfig() (apiURL string, defaultWS string) {
 		}
 	}
 	// Never show or use the mock placeholder workspace as a default.
-	if strings.TrimSpace(defaultWS) == "ws-acme" {
+	// Keep this guard for prod only. For local/dev, ws-acme can be a legitimate workspace.
+	if isProdAPIURL(apiURL) && strings.TrimSpace(defaultWS) == "ws-acme" {
 		defaultWS = ""
 	}
 	return strings.TrimSpace(apiURL), strings.TrimSpace(defaultWS)
@@ -1267,6 +1276,48 @@ It writes a local file only (no network). Choose your agent:
 	return md
 }
 
+func (m *homeModel) newWorkspaceDefaultModal() *modalModel {
+	md := &modalModel{
+		kind:  modalWorkspaceDefault,
+		title: "Default workspace",
+		list:  newModalList("Pick default workspace", true),
+	}
+
+	items := make([]list.Item, 0, len(m.workspaces))
+	def := strings.TrimSpace(m.defaultWS)
+	for _, ws := range m.workspaces {
+		id := strings.TrimSpace(ws.ID)
+		if id == "" {
+			continue
+		}
+		label := strings.TrimSpace(ws.Name)
+		if label == "" {
+			label = id
+		}
+		desc := id
+		if id == def && def != "" {
+			label = label + " (default)"
+		}
+		items = append(items, modalItem{id: id, name: label, desc: desc})
+	}
+	if len(items) == 0 {
+		items = []list.Item{
+			modalItem{id: "", name: "(no workspaces loaded)", desc: "Press <r> to refresh (or <a> to login)"},
+		}
+	}
+	_ = md.list.SetItems(items)
+
+	if def != "" {
+		for i, it := range md.list.Items() {
+			if v, ok := it.(modalItem); ok && strings.TrimSpace(v.id) == def {
+				md.list.Select(i)
+				break
+			}
+		}
+	}
+	return md
+}
+
 func (m *homeModel) newUpdateModal(n *updatecheck.Notice) *modalModel {
 	cur := buildinfo.DisplayVersion()
 	latest := ""
@@ -1415,6 +1466,29 @@ func (m *homeModel) applyModal() tea.Cmd {
 			m.apiError = "unknown action: " + id
 		}
 
+		m.refreshOptions()
+		return nil
+
+	case modalWorkspaceDefault:
+		ws, _ := m.modal.list.SelectedItem().(modalItem)
+		if strings.TrimSpace(ws.id) == "" {
+			m.apiError = "no workspace selected"
+			m.refreshOptions()
+			return nil
+		}
+		apiURL := m.apiBaseURL()
+		if err := setConfig(apiURL, ws.id); err != nil {
+			m.apiError = err.Error()
+			m.refreshOptions()
+			return nil
+		}
+		m.apiError = ""
+		m.defaultWS = strings.TrimSpace(ws.id)
+		if name := strings.TrimSpace(m.workspaceName(ws.id)); name != "" {
+			m.lastInfo = "default workspace: " + name
+		} else {
+			m.lastInfo = "default workspace: " + strings.TrimSpace(ws.id)
+		}
 		m.refreshOptions()
 		return nil
 
@@ -1847,6 +1921,7 @@ func (m *homeModel) refreshOptions() {
 	}
 
 	items := []list.Item{}
+	def := strings.TrimSpace(m.defaultWS)
 
 	if strings.TrimSpace(m.token) == "" {
 		items = append(items, workspaceItem{id: "", name: "(login to view workspaces)", desc: "Press <a> to login"})
@@ -1863,6 +1938,9 @@ func (m *homeModel) refreshOptions() {
 			label := strings.TrimSpace(ws.Name)
 			if label == "" {
 				label = id
+			}
+			if def != "" && id == def {
+				label = label + " (default)"
 			}
 			desc := id
 			items = append(items, workspaceItem{id: id, name: label, desc: desc})
