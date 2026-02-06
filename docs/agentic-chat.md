@@ -97,6 +97,8 @@ Use these commands to manage flows:
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - edit file
 - breyta flows push --file ./tmp/flows/<slug>.clj  # validates draft by default
+- breyta flows validate <slug>
+- breyta flows show <slug> --source draft
 - breyta flows deploy <slug>
 
 End-user installations (flows tagged `:end-user`):
@@ -115,6 +117,8 @@ To run a flow and see output:
 Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
+- Do not run `flows bindings template` or `flows draft bindings template` after a failed `flows push`.
+- If `breyta flows show <slug> --source draft` returns `Flow not found`, create/push the flow first, then retry.
 - Flow bodies are intentionally constrained (SCI sandbox / orchestration DSL). Put transformations into `:function` steps (`:code` alias).
 - `--input` JSON keys arrive as strings, but runtime normalizes input so keyword lookups/destructuring work too.
 - For `breyta steps run` on a function `:ref`, include `--flow <slug>` so the function can be resolved.
