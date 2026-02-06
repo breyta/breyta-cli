@@ -110,8 +110,13 @@ The intended workflow is:
    - Reuse an existing local pulled file for the same flow/source when available. Pull again only if the file is missing, stale, or you are switching source (`draft` vs `active`).
 3) Edit the file
 4) Push a new draft version
-5) Deploy (publish a version)
-6) Apply bindings + activate the prod profile
+   - If push fails, stop and fix the flow file first. Do not continue to bindings commands.
+5) Validate (and optionally compile) the draft
+   - Run `breyta flows validate <slug>` (and `breyta flows compile <slug>` when needed)
+6) Confirm the flow exists in API mode (`breyta flows show <slug> --source draft`)
+   - If this returns "Flow not found", create/push the flow before running any bindings template command.
+7) Deploy (publish a version)
+8) Apply bindings + activate the prod profile
 
 Fast loop (agent-friendly): fix or add one step at a time, in isolation first
 1) Add or change exactly one `flow/step`
@@ -139,6 +144,8 @@ Notes:
 - Avoid editing long single-line flow files with inline `:code` strings. Prefer multiline flow files and referenced function blobs to avoid EDN parse errors.
 - Flow files must contain real newlines, not escaped `\n` tokens outside strings. Escaped newlines can break EDN and cause "Map literal must contain an even number of forms". Prefer writing files with here-strings or real newline editing, not global `\\n` replacements.
 - `breyta flows push` validates draft by default in API mode. Use `--validate=false` only if you need to bypass validation temporarily.
+- Never run `flows bindings template` or `flows draft bindings template` after a failed `flows push`.
+- Guardrail: run `breyta flows show <slug> --source draft` before bindings template commands. Continue only when it succeeds.
 - When running a function step that uses `:ref`, include `--flow <slug>` so the function can be resolved.
 - Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
 - Avoid `some->` in flow bodies. Use explicit `if` with `->`.

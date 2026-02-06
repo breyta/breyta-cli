@@ -6,12 +6,15 @@ This workflow splits into authoring (draft) and live operations.
 2) Pull a flow to a `.clj` file
 3) Edit the file
 4) Push a new draft version
-5) Run draft with draft bindings
+5) Validate (and optionally compile) the draft
+6) Confirm the draft exists in API mode
+7) Run draft with draft bindings
 
 Core commands:
 - `breyta flows list`
 - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`
 - `breyta flows push --file ./tmp/flows/<slug>.clj`
+- `breyta flows show <slug> --source draft`
 - `breyta flows validate <slug>`
 - `breyta flows compile <slug>`
 - `breyta flows draft bindings template <slug> --out draft.edn`
@@ -22,6 +25,9 @@ Core commands:
 Notes:
 - Draft runs use draft bindings and the draft flow definition.
 - `flows push` updates the draft; `flows deploy` publishes a version for prod.
+- If `flows push` fails, stop and fix the file. Do not run bindings template commands yet.
+- Run `breyta flows validate <slug>` after push and fix any validation errors before bindings.
+- Run `breyta flows show <slug> --source draft` before `flows draft bindings template`. If it returns `Flow not found`, create or push the flow first.
 - For long-running external jobs, prefer `flow/poll` to avoid manual wait loops.
 - `flows validate` and `flows compile` accept `--source` in API mode. In local mode, `draft` uses the current flow, while `active` and `latest` use published versions when present.
 
