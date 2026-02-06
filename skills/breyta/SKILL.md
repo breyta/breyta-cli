@@ -23,6 +23,15 @@ description: >-
 - [Reference index](#reference-index)
 - [Glossary](#glossary)
 
+## Do this first (preflight)
+- `breyta flows validate <slug>` after pushing the draft
+- `breyta flows draft bindings show <slug>` shows all required slots bound
+- Run changed steps in isolation with `breyta steps run`
+- Keep step ids unique (especially for retries)
+- Add `:persist` for steps that can return large or binary outputs
+- Do not deploy/activate until a draft run finishes without errors
+- `breyta runs start` performs bindings preflight in API mode; use `--skip-preflight` only with a reason
+
 ## Quick start
 Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
 
@@ -142,14 +151,6 @@ Notes:
 - Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
 - Only the allowlisted Java interop is available in `:function`. `java.math.RoundingMode` is not available; use `java.math.BigDecimal/ROUND_HALF_UP`.
 
-Preflight checklist (before deploy/activate or prod runs):
-- Run `breyta flows validate <slug>` after pushing the draft.
-- Ensure draft bindings are applied and show as bound: `breyta flows draft bindings show <slug>`.
-- Run changed steps in isolation with `breyta steps run` before a full draft run.
-- Keep step ids unique (especially for retries).
-- Add `:persist` for steps that can return large or binary outputs.
-- Do not deploy/activate until a draft run finishes without errors.
-- `breyta runs start` performs bindings preflight in API mode; use `--skip-preflight` only with a reason.
 
 Core commands:
 - `breyta flows list`
