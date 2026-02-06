@@ -1,13 +1,39 @@
 # Flows search (approved reuse + workspace)
 
-`breyta flows search` lets agents/humans find reusable *approved* flow examples via flows-api search.
+`breyta flows search` lets agents/humans browse and search reusable *approved* flow examples via flows-api.
 
 ## Why
 
 - Agents building flows should be able to quickly find “good patterns” (approved reusable flows) plus relevant flows in their current workspace.
 - Keyword search first; embeddings can follow.
 
-## Command
+## TL;DR
+
+Browse approved flows (no query, most recently approved first):
+
+```bash
+breyta flows search
+```
+
+Browse with a provider facet:
+
+```bash
+breyta flows search --provider stripe
+```
+
+Keyword search:
+
+```bash
+breyta flows search stripe
+```
+
+Inspect (include `definition_edn`):
+
+```bash
+breyta flows search stripe --full
+```
+
+## Command reference
 
 ```bash
 breyta flows search [query] \
@@ -16,16 +42,6 @@ breyta flows search [query] \
   --limit 10 \
   --from 0 \
   --full
-```
-
-Browse mode (no query, sorted by most recently approved):
-
-```bash
-breyta flows search \
-  --scope all|workspace \
-  --provider stripe \
-  --limit 10 \
-  --from 0
 ```
 
 Defaults:
@@ -46,9 +62,9 @@ Defaults:
 Minimal path (no new install command required):
 
 1) In Flows UI, approve a flow: Flow kebab menu → "Approve for reuse"
-2) Browse: `breyta flows search --provider stripe` (or keyword search: `breyta flows search stripe`)
+2) Browse first (no query): `breyta flows search --provider stripe` (or search: `breyta flows search stripe`)
 3) Inspect a candidate: rerun with `--full` to include `definition_edn`
-4) Save the returned `definition_edn` to a local `./tmp/flows/<slug>.clj`
+4) Save `definition_edn` to `./tmp/flows/<slug>.clj`
 5) Edit as needed, then:
    - `breyta flows push --file ./tmp/flows/<slug>.clj`
    - `breyta flows deploy <slug>`
