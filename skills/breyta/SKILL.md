@@ -107,6 +107,7 @@ Details: `./references/core-concepts.md`
 The intended workflow is:
 1) List flows
 2) Pull a flow to a `.clj` file
+   - Reuse an existing local pulled file for the same flow/source when available. Pull again only if the file is missing, stale, or you are switching source (`draft` vs `active`).
 3) Edit the file
 4) Push a new draft version
 5) Deploy (publish a version)
