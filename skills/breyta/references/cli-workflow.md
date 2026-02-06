@@ -67,6 +67,19 @@ Core commands:
 - `breyta runs start --flow <slug> --input '{"n":41}' --wait`
 - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
+### Cancel with short ids
+Short ids like `r34` are accepted in API mode.
+
+Recommended sequence:
+1) If known, pass `--flow <slug>` while canceling
+2) Run `breyta runs cancel r34 --flow <slug> --reason "..."`
+3) If CLI reports ambiguity, list runs and retry with full `workflowId`
+4) Verify final state with `breyta runs show <workflow-id> --pretty`
+
+Notes:
+- Suffixes like `-r34` can exist in multiple flows
+- Status can be briefly stale after cancel; re-check once if needed
+
 ## End-user flows (installations)
 End-user-facing flows are marked with the `:end-user` tag.
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+var shortRunIDPattern = regexp.MustCompile(`^r[0-9]+$`)
+
+type apiCommandRunner interface {
+	DoCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error)
+}
 
 func newRunsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "runs", Aliases: []string{"run"}, Short: "Inspect and control runs"}
@@ -461,13 +468,26 @@ func flowStepTitle(s *state.FlowStep) string {
 func newRunsCancelCmd(app *App) *cobra.Command {
 	var reason string
 	var force bool
+	var flow string
 	cmd := &cobra.Command{
 		Use:   "cancel <workflow-id>",
 		Short: "Cancel a run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				payload := map[string]any{"workflowId": args[0]}
+				workflowID := strings.TrimSpace(args[0])
+				if looksLikeShortRunID(workflowID) {
+					if err := requireAPI(app); err != nil {
+						return writeErr(cmd, err)
+					}
+					client := apiClient(app)
+					resolved, err := resolveRunIDForCancel(context.Background(), client, workflowID, flow)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					workflowID = resolved
+				}
+				payload := map[string]any{"workflowId": workflowID}
 				if strings.TrimSpace(reason) != "" {
 					payload["reason"] = strings.TrimSpace(reason)
 				}
@@ -481,6 +501,13 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 				out, status, err := client.DoCommand(context.Background(), "runs.cancel", payload)
 				if err != nil {
 					return writeErr(cmd, err)
+				}
+				if workflowID != strings.TrimSpace(args[0]) {
+					meta := ensureMeta(out)
+					if meta != nil {
+						meta["resolvedFrom"] = strings.TrimSpace(args[0])
+						meta["workflowId"] = workflowID
+					}
 				}
 				if status == http.StatusConflict && isAlreadyCompletedRun(out) {
 					meta := ensureMeta(out)
@@ -521,7 +548,77 @@ func newRunsCancelCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&reason, "reason", "", "Cancellation reason")
 	cmd.Flags().BoolVar(&force, "force", false, "Terminate the run immediately")
+	cmd.Flags().StringVar(&flow, "flow", "", "Flow slug to narrow short run-id resolution (API mode only)")
 	return cmd
+}
+
+func looksLikeShortRunID(v string) bool {
+	s := strings.TrimSpace(v)
+	s = strings.TrimPrefix(s, "-")
+	return shortRunIDPattern.MatchString(s)
+}
+
+func resolveRunIDForCancel(ctx context.Context, client apiCommandRunner, shortID string, flow string) (string, error) {
+	shortID = strings.TrimSpace(shortID)
+	normalized := strings.TrimPrefix(shortID, "-")
+	suffix := "-" + normalized
+	seen := map[string]struct{}{}
+	matches := []string{}
+	cursor := ""
+
+	for {
+		payload := map[string]any{"limit": 100}
+		if strings.TrimSpace(flow) != "" {
+			payload["flowSlug"] = strings.TrimSpace(flow)
+		}
+		if strings.TrimSpace(cursor) != "" {
+			payload["cursor"] = strings.TrimSpace(cursor)
+		}
+		out, status, err := client.DoCommand(ctx, "runs.list", payload)
+		if err != nil {
+			return "", err
+		}
+		if status >= http.StatusBadRequest {
+			return "", fmt.Errorf("api error (status=%d): %s", status, formatAPIError(out))
+		}
+
+		data, _ := out["data"].(map[string]any)
+		items, _ := data["items"].([]any)
+		for _, item := range items {
+			row, _ := item.(map[string]any)
+			workflowID, _ := row["workflowId"].(string)
+			if strings.TrimSpace(workflowID) == "" {
+				continue
+			}
+			if workflowID == shortID || strings.HasSuffix(workflowID, suffix) {
+				if _, ok := seen[workflowID]; ok {
+					continue
+				}
+				seen[workflowID] = struct{}{}
+				matches = append(matches, workflowID)
+			}
+		}
+
+		meta, _ := out["meta"].(map[string]any)
+		hasMore, _ := meta["hasMore"].(bool)
+		nextCursor, _ := meta["nextCursor"].(string)
+		if !hasMore || strings.TrimSpace(nextCursor) == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("run %q not found; pass full workflow-id or list runs with --flow and --cursor to locate it", shortID)
+	}
+	if len(matches) > 1 {
+		preview := strings.Join(matches, ", ")
+		if len(preview) > 240 {
+			preview = preview[:240] + "..."
+		}
+		return "", fmt.Errorf("run id %q is ambiguous (%d matches); pass full workflow-id or add --flow <slug>. matches: %s", shortID, len(matches), preview)
+	}
+	return matches[0], nil
 }
 
 func isAlreadyCompletedRun(out map[string]any) bool {

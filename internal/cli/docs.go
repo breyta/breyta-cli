@@ -284,6 +284,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("### Input keys from `--input` (string vs keyword keys)\n\n")
 	b.WriteString("`breyta runs start --input '{...}'` sends JSON, so keys arrive as strings.\n\n")
 	b.WriteString("Cancel a run with `breyta runs cancel <workflow-id> --reason \"...\"`.\n")
+	b.WriteString("In API mode, short ids like `r34` are auto-resolved; pass `--flow <slug>` to avoid ambiguity.\n")
 	b.WriteString("Use `--force` to terminate a run immediately.\n\n")
 	b.WriteString("The runtime normalizes input so both string keys and keyword keys work (safe keyword aliases are added).\n\n")
 
