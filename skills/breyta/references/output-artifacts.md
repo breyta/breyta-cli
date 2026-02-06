@@ -22,7 +22,7 @@ Example: Markdown report
  :breyta.viewer/value "# Report\n\nHello."}
 ```
 
-Example: image
+Example: image (URL, data URI, or signed URL)
 
 ```clojure
 {:breyta.viewer/kind :image
@@ -30,7 +30,7 @@ Example: image
  :breyta.viewer/value "https://example.com/image.png"}
 ```
 
-Example: audio/video
+Example: audio/video (URL, data URI, or signed URL)
 
 ```clojure
 {:breyta.viewer/kind :audio
@@ -43,6 +43,28 @@ Example: audio/video
  :breyta.viewer/options {:title "Video"}
  :breyta.viewer/value "https://example.com/video.mp4"}
 ```
+
+## Private media (no public URL required)
+
+`<img>`, `<audio>`, and `<video>` ultimately need a `src` URL that the browser can fetch, but it does **not** need to be public.
+
+Recommended pattern: persist the media as a blob and request a signed URL:
+
+```clojure
+(let [download (flow/step :http :download-video
+                          {:connection :api
+                           :path "/video.mp4"
+                           :method :get
+                           :persist {:type :blob
+                                     :content-type "video/mp4"
+                                     :signed-url true}})
+      video-url (:url download)]
+  {:breyta.viewer/kind :video
+   :breyta.viewer/options {:title "Video"}
+   :breyta.viewer/value video-url})
+```
+
+Tip: if you return the persisted result map directly (it includes `:url` + `:content-type`), the UI can often infer the correct media viewer without an explicit envelope.
 
 ### Multi-part output (group)
 
@@ -102,4 +124,3 @@ If the final output is JSON (string keys), the UI also recognizes:
 - Prefer explicit envelopes for end-user-facing flows.
 - Keep outputs reasonably sized; the UI truncates large raw outputs by default.
 - For media, prefer URLs (or resource URLs produced by persistence/storage) over huge inline strings. Data URIs can work for small demos.
-

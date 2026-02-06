@@ -27,7 +27,7 @@ Markdown:
  :breyta.viewer/value "# Report\n\nHello."}
 ```
 
-Image:
+Image (URL, data URI, or signed URL):
 
 ```clojure
 {:breyta.viewer/kind :image
@@ -35,7 +35,7 @@ Image:
  :breyta.viewer/value "https://example.com/image.png"}
 ```
 
-Audio/video:
+Audio/video (URL, data URI, or signed URL):
 
 ```clojure
 {:breyta.viewer/kind :audio
@@ -48,6 +48,28 @@ Audio/video:
  :breyta.viewer/options {:title "Video"}
  :breyta.viewer/value "https://example.com/video.mp4"}
 ```
+
+### Private media (no public URL required)
+
+`<img>`, `<audio>`, and `<video>` ultimately need a `src` URL that the browser can fetch, but it does **not** need to be public.
+
+Recommended pattern: persist the media as a blob and request a signed URL:
+
+```clojure
+(let [download (flow/step :http :download-video
+                          {:connection :api
+                           :path "/video.mp4"
+                           :method :get
+                           :persist {:type :blob
+                                     :content-type "video/mp4"
+                                     :signed-url true}})
+      video-url (:url download)]
+  {:breyta.viewer/kind :video
+   :breyta.viewer/options {:title "Video"}
+   :breyta.viewer/value video-url})
+```
+
+Tip: if you return the persisted result map directly (it includes `:url` + `:content-type`), the UI can often infer the correct media viewer without an explicit envelope.
 
 ### 3) Multi-part output (group)
 
@@ -98,4 +120,3 @@ If inference doesn’t match what you want, wrap the value in an explicit envelo
 - Viewer kinds are allowlisted; unknown kinds fall back to `:raw`.
 - Large output is truncated by default, with an option to expand.
 - For JSON outputs, the UI also accepts string keys (e.g. `"breyta.viewer/kind"`).
-
