@@ -25,7 +25,8 @@ Notes:
 - Binary responses are not inlined; use `:persist {:type :blob ...}` for any binary body.
 - If the response is truncated, the step fails unless `:persist {:type :blob ...}` is set.
 - Use `:persist {:type :blob}` for large payloads; downstream steps can load refs.
-- To download large files, set `:response-as :bytes`, add `:persist {:type :blob :tier :ephemeral}`, and raise `:client-opts {:max-response-bytes ...}` above the file size.
+- To download binaries safely, set `:response-as :bytes` and `:persist {:type :blob :tier :ephemeral}`. In this mode Breyta can stream the HTTP response directly to blob storage (avoids buffering the full payload in memory).
+- If you raise `:client-opts {:max-response-bytes ...}`, only do it together with `:persist {:type :blob ...}` + `:response-as :bytes`. Non-streaming responses (e.g. JSON parsing) are buffered in memory up to `:max-response-bytes`.
 - Templates only cover request shape; step-level keys like `:persist` stay on the step.
 - Auth must use secret references. Inline tokens or API keys are rejected.
 - Prefer connection auth (`:requires` with `:auth`), or set step-level auth with `:auth {:type :bearer|:api-key :secret-ref :my-secret}`.
