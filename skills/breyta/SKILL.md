@@ -166,15 +166,6 @@ Core commands:
 - `breyta runs start --flow <slug> --source draft --input '{"n":41}' --wait`
 - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
 
-Local dev tip: when iterating on the CLI itself, install into a repo-local `GOBIN`
-so you don’t accidentally run an older global `breyta`:
-
-```bash
-cd breyta-cli
-env GOBIN=$PWD/.gopath/bin go install ./cmd/breyta
-$PWD/.gopath/bin/breyta flows search
-```
-
 Reusable patterns (recommended):
 1) Search/browse approved examples first:
    - Browse: `breyta flows search --provider stripe` (no query)
