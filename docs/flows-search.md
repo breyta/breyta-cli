@@ -33,6 +33,20 @@ Inspect (include `definition_edn`):
 breyta flows search stripe --full
 ```
 
+## Local dev quickstart
+
+When iterating locally, prefer installing the CLI into a repo-local `GOBIN` so you
+don’t accidentally run an older `breyta` binary from your global PATH:
+
+```bash
+cd breyta-cli
+env GOBIN=$PWD/.gopath/bin go install ./cmd/breyta
+export BREYTA_API_URL=http://localhost:8090
+export BREYTA_TOKEN=dev-user-123
+export BREYTA_WORKSPACE=ws-acme
+$PWD/.gopath/bin/breyta flows search --provider stripe
+```
+
 ## Command reference
 
 ```bash
