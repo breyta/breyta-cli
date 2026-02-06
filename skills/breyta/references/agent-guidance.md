@@ -10,10 +10,16 @@ When you are authoring flows for a user:
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
 
 Checklist:
-1) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
-2) Ask the user to fill secrets/inputs and re-run `flows bindings apply` (or `draft bindings apply`).
-3) If OAuth is required, direct the user to the activation URL printed by the template command.
-4) Only activate once bindings are applied.
+1) Ensure the flow exists before bindings work:
+   - Run `breyta flows show <slug> --source draft`
+   - If it returns `Flow not found`, run `breyta flows create ...` (new flow) or `breyta flows push --file ...` (from local file), then retry `flows show`
+2) Validate the draft before bindings:
+   - Run `breyta flows validate <slug>` (and `breyta flows compile <slug>` when needed)
+   - If validation fails, fix the flow and repeat push/validate before continuing
+3) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
+4) Ask the user to fill secrets/inputs and re-run `flows bindings apply` (or `draft bindings apply`).
+5) If OAuth is required, direct the user to the activation URL printed by the template command.
+6) Only activate once bindings are applied.
 
 Example prompts to the user:
 - "First, let’s see if this workspace already has a suitable connection we can reuse. Run `breyta connections list --type llm-provider`. If you see an existing OpenAI connection, I’ll bind `:ai :conn` to it in the profile template; otherwise we’ll bind a new API key."
