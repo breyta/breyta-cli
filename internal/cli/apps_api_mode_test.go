@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,100 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 		"runs", "start",
 		"--flow", "my-flow",
 		"--profile-id", "prof-2",
+	)
+	if err != nil {
+		t.Fatalf("runs start failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestRunsStart_PreflightMissingBindings(t *testing.T) {
+	t.Helper()
+	calledStart := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		cmd, _ := body["command"].(string)
+		switch cmd {
+		case "profiles.template":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"requirements": []any{
+						map[string]any{
+							"slot": "supabase",
+							"type": "http-api",
+						},
+					},
+				},
+			})
+		case "profiles.status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"bindingValues": map[string]any{},
+				},
+			})
+		case "runs.start":
+			calledStart = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"workflowId": "wf-1"}})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	_, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+	)
+	if err == nil {
+		t.Fatalf("expected runs start to fail preflight")
+	}
+	if calledStart {
+		t.Fatalf("expected preflight to block runs.start")
+	}
+	if !strings.Contains(stderr, "missing prod bindings") {
+		t.Fatalf("expected missing bindings error, got:\n%s", stderr)
+	}
+}
+
+func TestRunsStart_SkipPreflight(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.start" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"workflowId": "wf-1"}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--skip-preflight",
 	)
 	if err != nil {
 		t.Fatalf("runs start failed: %v\n%s", err, stdout)

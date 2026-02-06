@@ -278,7 +278,27 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
+		body := strings.TrimSpace(string(b))
+		if looksLikeHTML(body) {
+			return nil, resp.StatusCode, fmt.Errorf("api returned non-JSON response (status=%d). This usually indicates a proxy/gateway error or wrong API URL.\n%s", resp.StatusCode, trimLongBody(body))
+		}
+		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, body)
 	}
 	return out, resp.StatusCode, nil
+}
+
+func looksLikeHTML(body string) bool {
+	if body == "" {
+		return false
+	}
+	lower := strings.ToLower(body)
+	return strings.HasPrefix(lower, "<!doctype") || strings.HasPrefix(lower, "<html") || strings.Contains(lower, "<body")
+}
+
+func trimLongBody(body string) string {
+	const max = 1200
+	if len(body) <= max {
+		return body
+	}
+	return body[:max] + "\n... (truncated)"
 }

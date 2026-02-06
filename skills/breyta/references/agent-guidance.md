@@ -8,12 +8,18 @@ When you are authoring flows for a user:
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps record`, or `breyta steps run --record-example/--record-test`, to capture quickly).
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
+- Keep step ids unique. If you add retries, use distinct ids for each attempt.
+- Do not remove validation or guard steps unless the user explicitly asks.
 
 Checklist:
 1) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
 2) Ask the user to fill secrets/inputs and re-run `flows bindings apply` (or `draft bindings apply`).
 3) If OAuth is required, direct the user to the activation URL printed by the template command.
 4) Only activate once bindings are applied.
+5) Run `breyta flows validate <slug>` after pushing the draft.
+6) Run changed steps in isolation before a full draft run.
+7) Do not deploy/activate until a draft run finishes without errors.
+8) For large or binary step outputs, add `:persist` or filter the inputs.
 
 Example prompts to the user:
 - "First, let’s see if this workspace already has a suitable connection we can reuse. Run `breyta connections list --type llm-provider`. If you see an existing OpenAI connection, I’ll bind `:ai :conn` to it in the profile template; otherwise we’ll bind a new API key."
