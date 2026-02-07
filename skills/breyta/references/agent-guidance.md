@@ -8,6 +8,7 @@ When you are authoring flows for a user:
 - Use templates to collect inputs; keep API-provided `:redacted`/`:generate` placeholders and call out `--clean` when needed.
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps record`, or `breyta steps run --record-example/--record-test`, to capture quickly).
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
+- Apply a size-aware output strategy: when adding data-producing steps (`:http`, `:db`, `:llm`, fanout child items), estimate likely output size first. If size is unknown/unbounded or likely to exceed inline limits, default to `:persist` and pass refs downstream.
 
 Checklist:
 1) Ensure the flow exists before bindings work:
