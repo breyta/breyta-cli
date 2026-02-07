@@ -227,7 +227,7 @@ Flow file format and core fields:
 - `:concurrency` for execution behavior.
 - `:triggers` for run initiation.
 - `:flow` for orchestration and determinism rules.
-- Limits: definition size 100 KB; inline results up to 10 KB; max step result 1 MB.
+- Limits: definition size 150 KB; inline results up to 256 KB; max step result 1 MB.
 
 Details: `./references/authoring-reference.md`
 
@@ -235,7 +235,7 @@ Details: `./references/authoring-reference.md`
 - Use `:templates` for large prompts, request bodies, or SQL.
 - Reference with `:template` and `:data` in steps.
 - Templates are packed to blob storage on deploy; versions store small refs.
-- Flow definition size limit is 100 KB; templates help keep definitions small.
+- Flow definition size limit is 150 KB; templates help keep definitions small.
 - Template strings use Handlebars syntax (`{{...}}`); see `references/templating.md` for a short reference.
 - For large step outputs, use `:persist` to store results as refs.
 
@@ -291,6 +291,7 @@ Details: `./references/patterns.md`
 - Once a step is stable, store docs + examples + tests using `breyta steps docs|examples|tests` so future edits don’t require rediscovering intent (or use `breyta steps run --record-example/--record-test` to capture quickly).
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
+- Before adding data-producing steps (`:http`, `:db`, `:llm`, fanout child items), estimate output size. If output size is unknown/unbounded or may exceed the inline threshold, default to `:persist` and pass refs downstream.
 - Default to reusing existing workspace connections. Before asking for a new API key/OAuth app, check whether the workspace already has a suitable connection and bind the slot via `<slot>.conn=...` (see `breyta connections list`).
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).

@@ -9,6 +9,12 @@
 - Put large payloads in `:templates`.
 - Reference with `:template` and `:data` to keep steps readable.
 
+## Output sizing
+- Estimate output size before adding data-producing steps.
+- Keep inline outputs small and predictable.
+- If size is unknown/unbounded (exports, pagination, files), default to `:persist`.
+- Pass refs downstream (`:body-from-ref`, `:from-ref`) instead of reconstructing large inline payloads.
+
 ## Polling
 - Use `flow/poll` when waiting for an external system to finish.
 - Always set `:timeout` or `:max-attempts`.
@@ -29,3 +35,4 @@
 - Hardcode secrets in steps.
 - Use `map`/`filter`/`reduce` in flow body.
 - Call nondeterministic functions in flow body.
+- Do not keep large or unpredictable payloads inline; use `:persist`.

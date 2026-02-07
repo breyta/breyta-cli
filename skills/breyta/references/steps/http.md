@@ -21,7 +21,8 @@ Core fields:
 Notes:
 - When both `:json` and `:body` are set, `:json` wins.
 - `:response-as :auto` uses the response `Content-Type` to choose `:json`, `:text`, or `:bytes`.
-- Results are inlined up to the 50 KB limit; larger payloads require `:persist`.
+- Results are inlined up to the 256 KB limit; larger payloads require `:persist`.
+- If payload size is unknown/unbounded (exports, pagination, generated files), prefer `:persist` from the start.
 - Binary responses are not inlined; use `:persist {:type :blob ...}` for any binary body.
 - If the response is truncated, the step fails unless `:persist {:type :blob ...}` is set.
 - Use `:persist {:type :blob}` for large payloads; downstream steps can load refs.
