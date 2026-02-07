@@ -126,3 +126,32 @@ Local repair:
 ```bash
 breyta flows paren-repair ./tmp/flows/<slug>.clj
 ```
+
+## Server parse recovery (`Map literal must contain an even number of forms`)
+Use this when `breyta flows push` returns a 500 parse error even after local edits.
+
+1) Pull the current draft as canonical base:
+```bash
+breyta flows pull <slug> --source draft --out ./tmp/flows/<slug>.clj
+```
+
+2) Re-apply only the intended minimal change; avoid whole-file rewrites.
+
+3) Run local delimiter check:
+```bash
+breyta flows paren-check ./tmp/flows/<slug>.clj
+```
+
+4) Push again:
+```bash
+breyta flows push --file ./tmp/flows/<slug>.clj
+```
+
+5) Confirm draft exists before any bindings/template step:
+```bash
+breyta flows show <slug> --source draft
+```
+
+Notes:
+- Stop the workflow loop after a failed `flows push`; do not continue to bindings/template commands.
+- In large `:flow` `let` forms, edit one branch at a time and keep symbol/value binding pairs exact.
