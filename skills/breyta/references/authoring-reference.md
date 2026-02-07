@@ -274,6 +274,9 @@ Profile caveat:
 - Slot-bound child flows (`:requires`) can fail if child profile context is not available at call time.
 - Symptom: `requires a flow profile, but no profile-id in context`.
 - Safe default for billing/metering pipelines: split producer/consumer flows and exchange deterministic KV keys.
+- KV keys allow only `a-z`, `A-Z`, `0-9`, `_`, `-`, and `:`. Avoid `/` in key construction.
+- `:kv` `:get` returns a wrapper map (`{:success ... :value ...}`); consume `:value`.
+- For Firestore HTTP queries, bearer auth must be a valid OAuth2 access token; `ACCESS_TOKEN_TYPE_UNSUPPORTED` indicates the wrong token type.
 
 ## Metadata labels for UI
 Add labels to branches and loops to make the visual editor clearer.

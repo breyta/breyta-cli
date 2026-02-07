@@ -152,6 +152,7 @@ Notes:
 - Avoid `some->` in flow bodies. Use explicit `if` with `->`.
 - Loops with `flow/step` require a `:wait` step. Avoid pagination loops in the flow body.
 - For cross-flow handoff of structured data, prefer `:persist {:type :kv ...}` (writer flow) plus `:kv` reads (reader flow).
+- KV handoff details: keys must use only `a-z A-Z 0-9 _ - :` (no `/`), and `:kv` `:get` consumers should read `:value`.
 - Use `flow/call-flow` carefully with slot-bound child flows (`:requires`). If profile context is missing, child slot resolution fails with `requires a flow profile, but no profile-id in context`.
 - Keep step runner payloads shallow. Deeply nested JSON can hit max depth validation.
 - Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
