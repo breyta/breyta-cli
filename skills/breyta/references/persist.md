@@ -50,7 +50,7 @@ Writer flow:
 
 ```clojure
 (let [{:keys [workspace-id period page]} (flow/input)
-      key (str "metering/" workspace-id "/" period "/page/" page)
+      key (str "metering:usage_pages:" workspace-id ":" period ":" page)
       _ (flow/step :http :fetch-page
                    {:connection :api
                     :path (str "/usage?page=" page)
@@ -64,15 +64,42 @@ Reader flow:
 
 ```clojure
 (let [{:keys [workspace-id period page]} (flow/input)
-      key (str "metering/" workspace-id "/" period "/page/" page)]
-  (flow/step :kv :load-page
-             {:operation :get
-              :key key}))
+      key (str "metering:usage_pages:" workspace-id ":" period ":" page)
+      kv-result (flow/step :kv :load-page
+                           {:operation :get
+                            :key key})
+      page (:value kv-result)]
+  (if page
+    page
+    (throw (ex-info "KV page not found" {:key key}))))
 ```
 
 Notes:
 - KV keys are workspace-scoped by the runtime; use deterministic keys per period/workspace.
+- KV keys only allow `a-z`, `A-Z`, `0-9`, `_`, `-`, and `:`. Avoid `/` and other separators.
+- `:kv` `:get` returns a wrapper map; read `:value` for payload data.
+- If `:persist {:type :kv ...}` fails with runtime `validation-error`, use explicit `:kv` write/read steps with the same deterministic key.
+- `:kv` `:append` can return a collection envelope in `:value`; normalize in readers (for example, consume the latest entry).
+- For immediate producer→consumer handoff, use short bounded retry/backoff before failing on missing KV data.
 - Prefer KV for rollup state and pagination checkpoints; prefer blob refs for binary/large documents.
+- For Firestore over `:http-api`, bearer auth must be a valid OAuth2 access token. `ACCESS_TOKEN_TYPE_UNSUPPORTED` means the token type is wrong.
+
+Fallback writer example (explicit KV step):
+
+```clojure
+(let [{:keys [workspace-id period page]} (flow/input)
+      key (str "metering:usage_pages:" workspace-id ":" period ":" page)
+      fetched (flow/step :http :fetch-page
+                         {:connection :api
+                          :path (str "/usage?page=" page)})
+      _ (flow/step :kv :store-page
+                   {:operation :append
+                    :key key
+                    :value fetched
+                    :ttl 1209600
+                    :max-length 1})]
+  {:key key})
+```
 
 ## Persist configuration
 `:persist` is a map:
