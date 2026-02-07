@@ -147,6 +147,13 @@ Notes:
 - `breyta flows push` validates draft by default in API mode. Use `--validate=false` only if you need to bypass validation temporarily.
 - Never run `flows bindings template` or `flows draft bindings template` after a failed `flows push`.
 - Guardrail: run `breyta flows show <slug> --source draft` before bindings template commands. Continue only when it succeeds.
+- If `flows push` fails with `Map literal must contain an even number of forms`, run this recovery loop:
+  1) `breyta flows pull <slug> --source draft --out ./tmp/flows/<slug>.clj`
+  2) Reapply only the intended minimal edit (avoid whole-file rewrites/reformatting).
+  3) `breyta flows paren-check ./tmp/flows/<slug>.clj`
+  4) `breyta flows push --file ./tmp/flows/<slug>.clj`
+  5) `breyta flows show <slug> --source draft` and only then continue to bindings/templates.
+- For large `:flow` `let` forms, change one branch at a time and keep bindings in exact symbol/value pairs to avoid odd-form map/binding errors.
 - When running a function step that uses `:ref`, include `--flow <slug>` so the function can be resolved.
 - Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
 - Avoid `some->` in flow bodies. Use explicit `if` with `->`.

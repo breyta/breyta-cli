@@ -24,6 +24,7 @@ Checklist:
 2) Validate the draft before bindings:
    - Run `breyta flows validate <slug>` (and `breyta flows compile <slug>` when needed)
    - If validation fails, fix the flow and repeat push/validate before continuing
+   - If `flows push` fails with `Map literal must contain an even number of forms`, recover by pulling draft as canonical base (`flows pull --source draft`), reapplying only minimal edits, then rerunning `flows push` + `flows show --source draft`
 3) If the flow has `:requires`, generate a template (`flows bindings template` or `flows draft bindings template`).
 4) Ask the user to fill secrets/inputs and re-run `flows bindings apply` (or `draft bindings apply`).
 5) If OAuth is required, direct the user to the activation URL printed by the template command.
