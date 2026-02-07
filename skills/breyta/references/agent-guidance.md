@@ -9,6 +9,8 @@ When you are authoring flows for a user:
 - Prefer tight loops: implement one step, run it in isolation (`breyta steps run`), then record docs/examples/tests for that step (or use `breyta steps record`, or `breyta steps run --record-example/--record-test`, to capture quickly).
 - Treat step test cases as documentation: they preserve intent and expected behavior, and can be executed on demand via `breyta steps tests verify`.
 - Apply a size-aware output strategy: when adding data-producing steps (`:http`, `:db`, `:llm`, fanout child items), estimate likely output size first. If size is unknown/unbounded or likely to exceed inline limits, default to `:persist` and pass refs downstream.
+- For cross-flow data handoff, default to `:persist {:type :kv ...}` in the producer and `:kv` reads in the consumer.
+- Treat `flow/call-flow` + slot-bound child flows as advanced: if child profile context is missing, slot resolution fails (`requires a flow profile, but no profile-id in context`).
 
 Checklist:
 1) Ensure the flow exists before bindings work:
@@ -21,6 +23,10 @@ Checklist:
 4) Ask the user to fill secrets/inputs and re-run `flows bindings apply` (or `draft bindings apply`).
 5) If OAuth is required, direct the user to the activation URL printed by the template command.
 6) Only activate once bindings are applied.
+
+Cross-flow handoff decision:
+- Child flow requires different bindings/profile context: run it as a top-level flow and hand off data through KV keys.
+- Child flow does not need separate bindings and immediate return value is desired: `flow/call-flow` is fine.
 
 Example prompts to the user:
 - "First, let’s see if this workspace already has a suitable connection we can reuse. Run `breyta connections list --type llm-provider`. If you see an existing OpenAI connection, I’ll bind `:ai :conn` to it in the profile template; otherwise we’ll bind a new API key."

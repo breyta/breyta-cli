@@ -262,7 +262,18 @@ Use this when an external job can fail and you want to abort early.
 ## Result handling
 - Small results are returned inline; large results become refs.
 - Use `:persist {:type :blob}` on `:http` steps when you expect large payloads.
+- Use `:persist {:type :kv :key "..." :ttl ...}` for structured state that should be read across runs/flows.
 - See `./persist.md` for how refs flow to downstream steps.
+
+## Cross-flow composition
+Choose composition based on binding/profile needs:
+- `flow/call-flow`: use when you need synchronous child return values and child binding context is already valid.
+- KV handoff (`:persist {:type :kv ...}` + `:kv {:operation :get ...}`): use when producer/consumer are separate flows or run contexts.
+
+Profile caveat:
+- Slot-bound child flows (`:requires`) can fail if child profile context is not available at call time.
+- Symptom: `requires a flow profile, but no profile-id in context`.
+- Safe default for billing/metering pipelines: split producer/consumer flows and exchange deterministic KV keys.
 
 ## Metadata labels for UI
 Add labels to branches and loops to make the visual editor clearer.
@@ -331,6 +342,7 @@ Tips:
 - Keep results small; return summaries and persist large payloads.
 - If output size is unknown/unbounded (exports, paginated APIs, file downloads), default to `:persist` early rather than relying on inline.
 - Use `:persist {:type :blob}` on `:http` when you need large response bodies.
+- For cross-run/cross-flow structured state, prefer `:persist {:type :kv ...}` with deterministic keys.
 
 ## Final output artifacts (UI)
 

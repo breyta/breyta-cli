@@ -151,6 +151,8 @@ Notes:
 - Prefer `--params-file` for `breyta steps run` to avoid shell quoting issues.
 - Avoid `some->` in flow bodies. Use explicit `if` with `->`.
 - Loops with `flow/step` require a `:wait` step. Avoid pagination loops in the flow body.
+- For cross-flow handoff of structured data, prefer `:persist {:type :kv ...}` (writer flow) plus `:kv` reads (reader flow).
+- Use `flow/call-flow` carefully with slot-bound child flows (`:requires`). If profile context is missing, child slot resolution fails with `requires a flow profile, but no profile-id in context`.
 - Keep step runner payloads shallow. Deeply nested JSON can hit max depth validation.
 - Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.
 - Only the allowlisted Java interop is available in `:function`. `java.math.RoundingMode` is not available; use `java.math.BigDecimal/ROUND_HALF_UP`.
@@ -292,6 +294,7 @@ Details: `./references/patterns.md`
 - Use `breyta steps show` to load docs/examples/tests before editing a step.
 - Use `breyta steps tests verify` when you want the stored test cases to run against the step runner.
 - Before adding data-producing steps (`:http`, `:db`, `:llm`, fanout child items), estimate output size. If output size is unknown/unbounded or may exceed the inline threshold, default to `:persist` and pass refs downstream.
+- For parent/child flow composition, default to top-level flow-to-flow orchestration plus KV handoff when child flows need their own bindings.
 - Default to reusing existing workspace connections. Before asking for a new API key/OAuth app, check whether the workspace already has a suitable connection and bind the slot via `<slot>.conn=...` (see `breyta connections list`).
 - Stop and ask for missing bindings or activation inputs instead of inventing values.
 - Provide a template path or CLI command the user can fill (`flows bindings template` or `flows draft bindings template`).
