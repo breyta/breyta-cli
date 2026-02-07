@@ -15,6 +15,12 @@
 - If size is unknown/unbounded (exports, pagination, files), default to `:persist`.
 - Pass refs downstream (`:body-from-ref`, `:from-ref`) instead of reconstructing large inline payloads.
 
+## Cross-flow handoff
+- For structured state across flows/runs, persist to KV (`:persist {:type :kv :key ...}`) and read with `:kv {:operation :get ...}`.
+- Use deterministic keys (workspace + period + shard/page) so retries are idempotent.
+- Use `flow/call-flow` only when child binding context is guaranteed.
+- If child flow has `:requires`, missing profile context can fail with `requires a flow profile, but no profile-id in context`.
+
 ## Polling
 - Use `flow/poll` when waiting for an external system to finish.
 - Always set `:timeout` or `:max-attempts`.

@@ -1,15 +1,24 @@
 # Persisted results (`:persist`)
-Use `:persist {:type :blob ...}` on steps that may return large payloads (e.g., HTTP downloads). Persisted results include a resource reference plus inline metadata (and, for non-HTTP outputs, the original data).
+Use `:persist` when step output should be stored explicitly instead of remaining inline. Two persistence types are available:
+- `:persist {:type :kv ...}` for structured data you want to read across runs/flows.
+- `:persist {:type :blob ...}` for file/blob payloads and ref-based transfer.
 
 Important:
 - Large HTTP bodies are truncated; if truncation happens the step fails unless `:persist` is set.
 - Persisted blob results include `:blob-ref` for downstream `:body-from-ref` / `:from-ref` usage.
 - When `:persist` is used on HTTP-style results, the inline `:body` is omitted and replaced with `{:type :omitted :reason :persisted}`.
+- KV persistence requires an explicit `:key` and can include optional `:ttl` (seconds).
 
 When to use:
 - HTTP responses larger than the inline limit (256 KB).
 - Outputs with unknown or unbounded size (exports, paginated APIs, generated files), even when average responses are small.
 - Files or payloads you want to reuse across steps or runs.
+- Cross-flow or cross-run handoff of structured state (counts, cursors, rollups, checkpoints).
+
+## Pick the right persistence type
+- Use `:type :kv` for structured state you will query by key from another flow/run.
+- Use `:type :blob` for large payloads/files where downstream steps consume refs.
+- Keep `flow/call-flow` for direct child execution. If the child flow requires slot bindings (`:requires`), missing child profile context can fail with `requires a flow profile, but no profile-id in context`.
 
 How it works:
 - The step result includes a ref (metadata + storage path) and inline metadata.
@@ -33,6 +42,37 @@ Example:
             :method :post
             :body-from-ref (:blob-ref report)})
 ```
+
+## Cross-flow handoff with KV
+Use this when one flow produces structured data and another flow consumes it later.
+
+Writer flow:
+
+```clojure
+(let [{:keys [workspace-id period page]} (flow/input)
+      key (str "metering/" workspace-id "/" period "/page/" page)
+      _ (flow/step :http :fetch-page
+                   {:connection :api
+                    :path (str "/usage?page=" page)
+                    :persist {:type :kv
+                              :key key
+                              :ttl 1209600}})]
+  {:key key})
+```
+
+Reader flow:
+
+```clojure
+(let [{:keys [workspace-id period page]} (flow/input)
+      key (str "metering/" workspace-id "/" period "/page/" page)]
+  (flow/step :kv :load-page
+             {:operation :get
+              :key key}))
+```
+
+Notes:
+- KV keys are workspace-scoped by the runtime; use deterministic keys per period/workspace.
+- Prefer KV for rollup state and pagination checkpoints; prefer blob refs for binary/large documents.
 
 ## Persist configuration
 `:persist` is a map:
