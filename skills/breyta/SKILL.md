@@ -153,6 +153,9 @@ Notes:
 - Loops with `flow/step` require a `:wait` step. Avoid pagination loops in the flow body.
 - For cross-flow handoff of structured data, prefer `:persist {:type :kv ...}` (writer flow) plus `:kv` reads (reader flow).
 - KV handoff details: keys must use only `a-z A-Z 0-9 _ - :` (no `/`), and `:kv` `:get` consumers should read `:value`.
+- If `:persist {:type :kv ...}` returns a generic validation error at runtime, write explicitly via a `:kv` step (`:append`/`:set`) as a fallback.
+- For `:kv` `:append`, `:get` may return an appended collection in `:value`; normalize before compute (e.g. use latest page entry).
+- For immediate producer→consumer handoff, add short retry/backoff on the reader before treating missing KV values as hard failure.
 - Use `flow/call-flow` carefully with slot-bound child flows (`:requires`). If profile context is missing, child slot resolution fails with `requires a flow profile, but no profile-id in context`.
 - Keep step runner payloads shallow. Deeply nested JSON can hit max depth validation.
 - Avoid `?` in JSON keys for step input. Use `truncated` or `is-truncated`.

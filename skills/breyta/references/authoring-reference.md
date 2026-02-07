@@ -276,6 +276,9 @@ Profile caveat:
 - Safe default for billing/metering pipelines: split producer/consumer flows and exchange deterministic KV keys.
 - KV keys allow only `a-z`, `A-Z`, `0-9`, `_`, `-`, and `:`. Avoid `/` in key construction.
 - `:kv` `:get` returns a wrapper map (`{:success ... :value ...}`); consume `:value`.
+- If `:persist {:type :kv ...}` fails with runtime `validation-error`, use explicit `:kv` write/read steps with the same key instead.
+- If using `:kv` `:append`, normalize `:value` shape in the consumer before aggregation (append can return a collection envelope).
+- For producer→consumer reads in the same minute, add short bounded retry/backoff in the consumer.
 - For Firestore HTTP queries, bearer auth must be a valid OAuth2 access token; `ACCESS_TOKEN_TYPE_UNSUPPORTED` indicates the wrong token type.
 
 ## Metadata labels for UI

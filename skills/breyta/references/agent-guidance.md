@@ -11,6 +11,9 @@ When you are authoring flows for a user:
 - Apply a size-aware output strategy: when adding data-producing steps (`:http`, `:db`, `:llm`, fanout child items), estimate likely output size first. If size is unknown/unbounded or likely to exceed inline limits, default to `:persist` and pass refs downstream.
 - For cross-flow data handoff, default to `:persist {:type :kv ...}` in the producer and `:kv` reads in the consumer.
 - For KV handoff, build keys with `a-z A-Z 0-9 _ - :` only and read payload from `(:value kv-get-result)`.
+- If KV persist errors at runtime (`validation-error`), fall back to explicit `:kv` write steps and keep the same deterministic key contract.
+- For reader timing, add a short bounded retry/backoff before failing on a missing KV key.
+- If producer uses `:kv :append`, normalize `(:value kv-get-result)` in the reader (it may be a collection wrapper).
 - Treat `flow/call-flow` + slot-bound child flows as advanced: if child profile context is missing, slot resolution fails (`requires a flow profile, but no profile-id in context`).
 - For Firestore via `:http-api`, bearer auth must be a valid OAuth2 access token; `ACCESS_TOKEN_TYPE_UNSUPPORTED` means token type mismatch.
 
