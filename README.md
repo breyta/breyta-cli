@@ -9,14 +9,14 @@ The CLI is **agent-first**: it’s designed to be called by tools like **Codex**
 
 ## What is Breyta?
 
-Breyta is a workflow platform for building and operating reliable backend automations ("flows") with your coding agent.
+Breyta is a workflow platform with a deterministic runtime for building and operating reliable backend automations ("flows") with your coding agent.
 
 With Breyta, you can:
 
 - Build multi-step flows with triggers, waits, external API calls, and human approvals
 - Version, deploy, and safely roll forward workflow changes
 - Run flows from apps, webhooks, and schedules with clear run history and outputs
-- Give AI agents a deterministic way to create and operate workflows through the CLI
+- Give AI agents a deterministic, scriptable way to create and operate workflows through the CLI
 
 This CLI/TUI is the main interface for flow authoring and operations:
 
@@ -24,6 +24,15 @@ This CLI/TUI is the main interface for flow authoring and operations:
 - Start runs and inspect results
 - Cancel active runs when needed with `breyta runs cancel <workflow-id> --reason "..."`
 - Fetch run artifacts via a unified "resources" interface
+
+Typical flow example: Stripe webhook -> normalize payload -> approval step -> external action -> artifact/audit output.
+
+When Breyta fits: multi-step backend workflows with APIs, state, approvals, and operational visibility.
+Less ideal: one-step automations where you do not need versioning and runtime controls.
+
+Determinism and orchestration constraints are documented in:
+- `docs/flows-api-local.md`
+- `skills/breyta/references/authoring-reference.md`
 
 ## Agent-first design
 
@@ -60,7 +69,19 @@ Choose one:
 - **Prebuilt binaries (no Go required):** https://github.com/breyta/breyta-cli/releases
 - **From source (Go required):** `go install ./cmd/breyta` (from this repo)
 
+Verify install:
+
+```bash
+breyta --version
+```
+
 After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
+
+```bash
+breyta skills install --provider <codex|cursor|claude>
+```
+
+Examples:
 
 ```bash
 # Codex
@@ -77,20 +98,33 @@ You can also do this from the TUI: `breyta` then press `s` (Agent skills).
 
 More details (including troubleshooting): `docs/install.md`.
 
-## Quick start
+## First 2 Minutes
 
-```bash
-breyta --help
-breyta docs
-breyta
-```
-
-If you’re using the hosted Breyta API, authenticate with:
+Hosted Breyta:
 
 ```bash
 breyta auth login
 breyta flows list
 ```
+
+Local development (`flows-api` running locally):
+
+```bash
+export BREYTA_API_URL="http://localhost:8090"
+export BREYTA_WORKSPACE="ws-acme"
+export BREYTA_TOKEN="dev-user-123"
+breyta --dev workspaces current --pretty
+breyta --dev flows list
+```
+
+Run an existing flow and wait for output:
+
+```bash
+breyta flows show <slug> --source latest
+breyta runs start --flow <slug> --source latest --input '{"n":41}' --wait
+```
+
+Environment/setup details: `docs/agentic-chat.md`.
 
 ## Docs
 
