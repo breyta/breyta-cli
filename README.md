@@ -54,6 +54,21 @@ Choose one:
 - **Prebuilt binaries (no Go required):** https://github.com/breyta/breyta-cli/releases
 - **From source (Go required):** `go install ./cmd/breyta` (from this repo)
 
+After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
+
+```bash
+# Codex
+breyta skills install --provider codex
+
+# Cursor
+breyta skills install --provider cursor
+
+# Claude Code
+breyta skills install --provider claude
+```
+
+You can also do this from the TUI: `breyta` then press `s` (Agent skills).
+
 More details (including troubleshooting): `docs/install.md`.
 
 ## Quick start
