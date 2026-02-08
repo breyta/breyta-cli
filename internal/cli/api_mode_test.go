@@ -147,6 +147,167 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	}
 }
 
+func TestFlowsList_AutoPaginatesInAPIMode(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+
+		calls++
+		args, _ := body["args"].(map[string]any)
+		cursor, _ := args["cursor"].(string)
+		switch calls {
+		case 1:
+			if cursor != "" {
+				t.Fatalf("expected first call cursor to be empty, got %q", cursor)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"meta": map[string]any{
+					"hasMore":    true,
+					"nextCursor": "flow-1",
+				},
+				"data": map[string]any{
+					"items": []any{
+						map[string]any{"flowSlug": "flow-1", "name": "Flow 1"},
+					},
+				},
+			})
+		case 2:
+			if cursor != "flow-1" {
+				t.Fatalf("expected second call cursor=flow-1, got %q", cursor)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"meta": map[string]any{
+					"hasMore":    false,
+					"nextCursor": "",
+				},
+				"data": map[string]any{
+					"items": []any{
+						map[string]any{"flowSlug": "flow-2", "name": "Flow 2"},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected extra call #%d", calls)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "list",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows list failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := e["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 api calls, got %d", calls)
+	}
+}
+
+func TestFlowsList_LimitStopsPaginationInAPIMode(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+
+		calls++
+		args, _ := body["args"].(map[string]any)
+		limit, _ := args["limit"].(float64)
+		if limit != 1 {
+			t.Fatalf("expected limit=1, got %#v", args["limit"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"meta": map[string]any{
+				"hasMore":    true,
+				"nextCursor": "flow-1",
+			},
+			"data": map[string]any{
+				"items": []any{
+					map[string]any{"flowSlug": "flow-1", "name": "Flow 1"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "list",
+		"--limit", "1",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows list failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := e["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 api call, got %d", calls)
+	}
+}
+
 func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// Ensure that just running docs in API mode doesn't require mock state setup.
 	// (Some older tests set --state; API mode should not depend on it.)
