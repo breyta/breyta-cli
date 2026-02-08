@@ -7,6 +7,24 @@ The CLI is **agent-first**: it’s designed to be called by tools like **Codex**
 - `breyta` opens the interactive TUI.
 - `breyta <command>` runs a scriptable CLI command (JSON).
 
+## What is Breyta?
+
+Breyta is a workflow platform for building and operating reliable backend automations ("flows") with your coding agent.
+
+With Breyta, you can:
+
+- Build multi-step flows with triggers, waits, external API calls, and human approvals
+- Version, deploy, and safely roll forward workflow changes
+- Run flows from apps, webhooks, and schedules with clear run history and outputs
+- Give AI agents a deterministic way to create and operate workflows through the CLI
+
+This CLI/TUI is the main interface for flow authoring and operations:
+
+- Browse workflows ("flows"), versions, and runs
+- Start runs and inspect results
+- Cancel active runs when needed with `breyta runs cancel <workflow-id> --reason "..."`
+- Fetch run artifacts via a unified "resources" interface
+
 ## Agent-first design
 
 - **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
@@ -27,22 +45,10 @@ Start the TUI:
 breyta
 ```
 
-Then:
 Then use:
 
 - **Auth** (press `a`) to log in
 - **Skills** (press `s`) to install the skill bundle
-
-## What is Breyta?
-
-Breyta is a workflow platform. The CLI/TUI helps you:
-
-- Browse workflows (“flows”) and their versions
-- Start runs and inspect results
-  - `breyta runs cancel <workflow-id> --reason "..."` (use `--force` to terminate)
-  - `workflow-id` is the primary identifier
-  - Short ids like `r34` are supported in API mode and auto-resolved; use `--flow <slug>` to avoid ambiguity
-- Fetch artifacts via a unified “resources” interface
 
 ## Install
 
