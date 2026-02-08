@@ -326,13 +326,123 @@ func newFlowsListCmd(app *App) *cobra.Command {
 		Short: "List flows",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				// Server-side pagination defaults apply for now.
-				// Keep --limit for mock mode; we can add it to the API later.
-				payload := map[string]any{}
-				if includeArchived {
-					payload["includeArchived"] = true
+				// API mode defaults to listing all flows by paging through cursors.
+				effectiveLimit := limit
+				if effectiveLimit < 0 {
+					return writeErr(cmd, fmt.Errorf("--limit must be >= 0"))
 				}
-				return doAPICommand(cmd, app, "flows.list", payload)
+				const pageSize = 100
+				const maxPages = 500
+
+				client := apiClient(app)
+				items := make([]any, 0)
+				cursor := ""
+				nextCursor := ""
+				hasMore := false
+				remaining := effectiveLimit
+				pagesFetched := 0
+				pageCapReached := false
+				cursorLoopDetected := false
+				seenCursors := map[string]struct{}{}
+
+				for pagesFetched < maxPages {
+					payload := map[string]any{}
+					if includeArchived {
+						payload["includeArchived"] = true
+					}
+					if strings.TrimSpace(cursor) != "" {
+						payload["cursor"] = cursor
+					}
+
+					pageLimit := pageSize
+					if remaining > 0 && remaining < pageLimit {
+						pageLimit = remaining
+					}
+					payload["limit"] = pageLimit
+
+					out, status, err := client.DoCommand(context.Background(), "flows.list", payload)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if status >= 400 {
+						return writeAPIResult(cmd, app, out, status)
+					}
+					if okAny, ok := out["ok"]; ok {
+						if okb, ok := okAny.(bool); ok && !okb {
+							return writeAPIResult(cmd, app, out, status)
+						}
+					}
+
+					pagesFetched++
+
+					data, _ := out["data"].(map[string]any)
+					pageItems, _ := data["items"].([]any)
+					items = append(items, pageItems...)
+
+					if remaining > 0 {
+						remaining -= len(pageItems)
+						if remaining <= 0 {
+							meta, _ := out["meta"].(map[string]any)
+							hasMore, _ = meta["hasMore"].(bool)
+							nextCursor, _ = meta["nextCursor"].(string)
+							break
+						}
+					}
+
+					meta, _ := out["meta"].(map[string]any)
+					hasMore, _ = meta["hasMore"].(bool)
+					nextCursor, _ = meta["nextCursor"].(string)
+					nextCursor = strings.TrimSpace(nextCursor)
+					if !hasMore || nextCursor == "" {
+						break
+					}
+					if _, exists := seenCursors[nextCursor]; exists {
+						cursorLoopDetected = true
+						break
+					}
+					seenCursors[nextCursor] = struct{}{}
+					cursor = nextCursor
+				}
+
+				if pagesFetched >= maxPages && hasMore {
+					pageCapReached = true
+				}
+
+				truncated := false
+				if effectiveLimit > 0 && hasMore {
+					truncated = true
+				}
+				if pageCapReached || cursorLoopDetected {
+					truncated = true
+				}
+
+				meta := map[string]any{
+					"total":     len(items),
+					"shown":     len(items),
+					"truncated": truncated,
+				}
+				if effectiveLimit > 0 {
+					meta["limit"] = effectiveLimit
+				}
+				if strings.TrimSpace(nextCursor) != "" {
+					meta["nextCursor"] = strings.TrimSpace(nextCursor)
+				}
+				if truncated {
+					hints := []string{}
+					if effectiveLimit > 0 {
+						hints = append(hints, "Use --limit 0 to show all flows")
+					}
+					if pageCapReached {
+						hints = append(hints, "Pagination page cap reached")
+					}
+					if cursorLoopDetected {
+						hints = append(hints, "Pagination cursor loop detected")
+					}
+					if len(hints) > 0 {
+						meta["hint"] = strings.Join(hints, "; ")
+					}
+				}
+				return writeData(cmd, app, meta, map[string]any{"items": items})
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -342,10 +452,14 @@ func newFlowsListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			effectiveLimit := limit
+			if !cmd.Flags().Changed("limit") {
+				effectiveLimit = 25
+			}
 			total := len(flows)
 			truncated := false
-			if limit > 0 && limit < len(flows) {
-				flows = flows[:limit]
+			if effectiveLimit > 0 && effectiveLimit < len(flows) {
+				flows = flows[:effectiveLimit]
 				truncated = true
 			}
 
@@ -387,7 +501,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, meta, map[string]any{"items": items})
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit results (0 = all)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
 	return cmd
 }
