@@ -9,7 +9,7 @@ The CLI is **agent-first**: it’s designed to be called by tools like **Codex**
 
 ## What is Breyta?
 
-Breyta is a workflow platform for building and operating reliable backend automations ("flows").
+Breyta is a workflow platform for building and operating reliable backend automations ("flows") with your coding agent.
 
 With Breyta, you can:
 
