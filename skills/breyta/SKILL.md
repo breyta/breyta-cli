@@ -278,6 +278,19 @@ Notes:
 - `resources` requires API mode (`BREYTA_API_URL` + auth); it does not work against the local mock/TUI surface.
 - Resource types like `:import`, `:file`, `:bundle`, `:external-dir` may list/get, but content reads are currently intended for persisted results.
 
+## Workspace files (bounded retention)
+Workspace files are modeled as normal resources with `:type :file` and are intended for **reuse across flows** within a workspace.
+
+Key characteristics:
+- Default retention: **90 days** (max **90 days**). Longer retention must use external storage/database.
+- Large file safety: prefer **signed uploads** (API returns a signed `PUT` URL; upload goes directly to object storage).
+- Convenience ingest: small/medium files can be imported by URL (server-side streaming, bounded by platform limits).
+- Promoting outputs: blob-backed `:result` resources can be promoted into a `:file` resource for reuse.
+
+Once a file exists, you can typically use existing commands to inspect it:
+- `breyta resources get <file-uri>`
+- `breyta resources url <file-uri>` (returns a short-lived download URL)
+
 ## Patterns and do/dont
 - Bindings then activate; draft stays in draft.
 - Keep flow body deterministic.
