@@ -320,19 +320,116 @@ func newFlowsSpineCmd(app *App) *cobra.Command {
 
 func newFlowsListCmd(app *App) *cobra.Command {
 	var limit int
+	var pageSize int
 	var includeArchived bool
+	var cursor string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List flows",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				// Server-side pagination defaults apply for now.
-				// Keep --limit for mock mode; we can add it to the API later.
-				payload := map[string]any{}
-				if includeArchived {
-					payload["includeArchived"] = true
+				if limit < 0 {
+					return writeErr(cmd, fmt.Errorf("invalid --limit: must be >= 0"))
 				}
-				return doAPICommand(cmd, app, "flows.list", payload)
+				if pageSize <= 0 {
+					pageSize = 100
+				}
+				if pageSize > 100 {
+					pageSize = 100
+				}
+
+				client := apiClient(app)
+				cur := strings.TrimSpace(cursor)
+				wantAll := limit == 0
+				remaining := limit
+
+				allItems := make([]any, 0, 128)
+				var nextCursor string
+				hasMore := false
+				seenCursors := map[string]bool{}
+
+				for {
+					reqLimit := pageSize
+					if !wantAll && remaining > 0 && remaining < reqLimit {
+						reqLimit = remaining
+					}
+					payload := map[string]any{
+						"limit": reqLimit,
+					}
+					if includeArchived {
+						payload["includeArchived"] = true
+					}
+					if cur != "" {
+						payload["cursor"] = cur
+					}
+
+					out, status, err := client.DoCommand(context.Background(), "flows.list", payload)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if status >= 400 {
+						return writeAPIResult(cmd, app, out, status)
+					}
+					if okAny, ok := out["ok"]; ok {
+						if okb, ok := okAny.(bool); ok && !okb {
+							return writeAPIResult(cmd, app, out, status)
+						}
+					}
+
+					data, _ := out["data"].(map[string]any)
+					pageItems, _ := data["items"].([]any)
+					allItems = append(allItems, pageItems...)
+
+					meta, _ := out["meta"].(map[string]any)
+					if hm, ok := meta["hasMore"].(bool); ok {
+						hasMore = hm
+					} else {
+						hasMore = false
+					}
+					if nc, ok := meta["nextCursor"].(string); ok {
+						nextCursor = strings.TrimSpace(nc)
+					} else {
+						nextCursor = ""
+					}
+
+					if !wantAll {
+						remaining -= len(pageItems)
+						if remaining <= 0 {
+							break
+						}
+					}
+
+					if !hasMore || nextCursor == "" {
+						break
+					}
+					if seenCursors[nextCursor] {
+						return writeErr(cmd, fmt.Errorf("pagination cursor did not advance (nextCursor=%q)", nextCursor))
+					}
+					seenCursors[nextCursor] = true
+					cur = nextCursor
+				}
+
+				metaOut := map[string]any{
+					"shown":     len(allItems),
+					"hasMore":   hasMore,
+					"nextCursor": nextCursor,
+				}
+				if hasMore && nextCursor != "" {
+					metaOut["hint"] = "More available. Continue with: breyta flows list --cursor " + nextCursor + " --limit " + fmt.Sprintf("%d", limit)
+					if wantAll {
+						metaOut["hint"] = "More available. Continue with: breyta flows list --cursor " + nextCursor + " --limit 0"
+					}
+				}
+
+				out := map[string]any{
+					"ok":          true,
+					"workspaceId": app.WorkspaceID,
+					"meta":        metaOut,
+					"data": map[string]any{
+						"items": allItems,
+					},
+				}
+				return writeAPIResult(cmd, app, out, 200)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -388,7 +485,9 @@ func newFlowsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Page size for API pagination (1-100)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (start after this flow slug)")
 	return cmd
 }
 

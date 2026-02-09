@@ -74,6 +74,9 @@ type Model struct {
 
 	flowsTable table.Model
 	runsTable  table.Model
+	flowsAll      []*state.Flow
+	flowsPage     int
+	flowsPageSize int
 
 	marketTable table.Model
 	mTab        marketTab
@@ -160,6 +163,7 @@ func NewModel(workspaceID, statePath string, store mock.Store, st *state.State) 
 		detail:         vp,
 		help:           help.New(),
 		keys:           defaultKeyMap(),
+		flowsPageSize:  50,
 		flowReturnMode: modeDashboard,
 		runReturnMode:  modeDashboard,
 	}
@@ -256,6 +260,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focus = focusPrimary
 				}
 				m.layout()
+				return m, nil
+			}
+
+		case "pgdown", "]":
+			if m.mode == modeFlows {
+				m.setFlowsPage(m.flowsPage + 1)
+				return m, nil
+			}
+
+		case "pgup", "[":
+			if m.mode == modeFlows {
+				m.setFlowsPage(m.flowsPage - 1)
 				return m, nil
 			}
 
@@ -963,9 +979,48 @@ func (m *Model) refreshFlows() {
 		m.err = err
 		return
 	}
-	rows := make([]table.Row, 0, len(flows))
+	m.flowsAll = flows
+	// Clamp the current page (state files can change under us).
+	if m.flowsPage < 0 {
+		m.flowsPage = 0
+	}
+	if m.flowsPage >= m.flowsTotalPages() {
+		m.flowsPage = m.flowsTotalPages() - 1
+	}
+	m.refreshFlowsTableRows()
+}
+
+func (m *Model) flowsTotalPages() int {
+	if m.flowsPageSize <= 0 {
+		return 1
+	}
+	if len(m.flowsAll) == 0 {
+		return 1
+	}
+	return (len(m.flowsAll) + m.flowsPageSize - 1) / m.flowsPageSize
+}
+
+func (m *Model) refreshFlowsTableRows() {
+	if m.flowsPageSize <= 0 {
+		m.flowsPageSize = 50
+	}
+	total := len(m.flowsAll)
+	start := m.flowsPage * m.flowsPageSize
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	end := start + m.flowsPageSize
+	if end > total {
+		end = total
+	}
+	pageFlows := m.flowsAll[start:end]
+
+	rows := make([]table.Row, 0, len(pageFlows))
 	cols := m.flowsTable.Columns()
-	for _, f := range flows {
+	for _, f := range pageFlows {
 		tags := "-"
 		if len(f.Tags) > 0 {
 			tags = strings.Join(f.Tags, ",")
@@ -985,6 +1040,19 @@ func (m *Model) refreshFlows() {
 		}))
 	}
 	m.flowsTable.SetRows(rows)
+}
+
+func (m *Model) setFlowsPage(page int) {
+	totalPages := m.flowsTotalPages()
+	if page < 0 {
+		page = 0
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+	m.flowsPage = page
+	m.refreshFlowsTableRows()
+	m.flowsTable.SetCursor(0)
 }
 
 func (m *Model) refreshRecentRuns() {
@@ -1150,8 +1218,20 @@ func (m Model) renderDashboard(bodyH int) string {
 }
 
 func (m Model) renderFlowsTableView(bodyH int) string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render("Flows")
-	hint := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("enter open · esc back · g dashboard")
+	pages := m.flowsTotalPages()
+	page := m.flowsPage + 1
+	if page < 1 {
+		page = 1
+	}
+	if pages < 1 {
+		pages = 1
+	}
+	titleText := "Flows"
+	if pages > 1 {
+		titleText = fmt.Sprintf("Flows (%d/%d)", page, pages)
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(breytaTextColor).Render(titleText)
+	hint := faintIfDark(lipgloss.NewStyle().Foreground(breytaMuted)).Render("enter open · esc back · g dashboard · pgup/pgdn page")
 	return lipgloss.JoinVertical(lipgloss.Left, title, rule(m.width), hint, m.flowsTable.View())
 }
 
@@ -1792,6 +1872,8 @@ func (m Model) keysForMode() keyMap {
 	k.DemandTab.SetEnabled(m.mode == modeMarketplace)
 	k.RegistryTab.SetEnabled(m.mode == modeMarketplace)
 	k.PayoutsTab.SetEnabled(m.mode == modeMarketplace)
+	k.PrevPage.SetEnabled(m.mode == modeFlows && m.flowsTotalPages() > 1)
+	k.NextPage.SetEnabled(m.mode == modeFlows && m.flowsTotalPages() > 1)
 
 	switch m.mode {
 	case modeDashboard:
@@ -2095,6 +2177,8 @@ func vRule(height int) string {
 type keyMap struct {
 	Up          key.Binding
 	Down        key.Binding
+	PrevPage    key.Binding
+	NextPage    key.Binding
 	Enter       key.Binding
 	Back        key.Binding
 	Help        key.Binding
@@ -2120,6 +2204,14 @@ func defaultKeyMap() keyMap {
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓/j", "down"),
+		),
+		PrevPage: key.NewBinding(
+			key.WithKeys("pgup", "["),
+			key.WithHelp("pgup/[", "prev page"),
+		),
+		NextPage: key.NewBinding(
+			key.WithKeys("pgdown", "]"),
+			key.WithHelp("pgdn/]", "next page"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -2181,14 +2273,15 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Focus, k.Dashboard, k.Flows, k.Runs, k.Settings, k.Marketplace, k.RevenueTab, k.DemandTab, k.RegistryTab, k.PayoutsTab, k.Help, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.PrevPage, k.NextPage, k.Enter, k.Back, k.Focus, k.Dashboard, k.Flows, k.Runs, k.Settings, k.Marketplace, k.RevenueTab, k.DemandTab, k.RegistryTab, k.PayoutsTab, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Enter, k.Back},
-		{k.Focus, k.Dashboard, k.Flows, k.Runs},
-		{k.Settings, k.Marketplace, k.RevenueTab, k.DemandTab, k.RegistryTab, k.PayoutsTab},
+		{k.Up, k.Down, k.PrevPage, k.NextPage},
+		{k.Enter, k.Back, k.Focus},
+		{k.Dashboard, k.Flows, k.Runs, k.Settings, k.Marketplace},
+		{k.RevenueTab, k.DemandTab, k.RegistryTab, k.PayoutsTab},
 		{k.Help, k.Quit},
 	}
 }
