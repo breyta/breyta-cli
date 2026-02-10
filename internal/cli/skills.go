@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/skills"
 
 	"github.com/spf13/cobra"
@@ -40,7 +42,11 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 				return err
 			}
 
-			paths, err := skills.InstallBreytaSkill(home, p)
+			_, files, err := skilldocs.FetchBundle(context.Background(), nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
+			if err != nil {
+				return err
+			}
+			paths, err := skills.InstallBreytaSkillFiles(home, p, files)
 			if err != nil {
 				return err
 			}
