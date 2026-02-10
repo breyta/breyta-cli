@@ -225,7 +225,7 @@ func NewRootCmd() *cobra.Command {
 		configureVisibility(cmd.Root(), app)
 
 		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
-		_ = skillsync.MaybeSyncInstalled(buildinfo.DisplayVersion())
+		_ = skillsync.MaybeSyncInstalled(buildinfo.DisplayVersion(), app.APIURL, app.Token)
 
 		// Best-effort update check for JSON commands. Never blocks command execution.
 		if isSubcommand {
