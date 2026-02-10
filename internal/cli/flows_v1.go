@@ -410,8 +410,8 @@ func newFlowsListCmd(app *App) *cobra.Command {
 				}
 
 				metaOut := map[string]any{
-					"shown":     len(allItems),
-					"hasMore":   hasMore,
+					"shown":      len(allItems),
+					"hasMore":    hasMore,
 					"nextCursor": nextCursor,
 				}
 				if hasMore && nextCursor != "" {

@@ -41,4 +41,3 @@ func TestAPIUse_WorksWithDevFlag(t *testing.T) {
 		t.Fatalf("expected stored api url %q, got %q", configstore.DefaultLocalAPIURL, st.APIURL)
 	}
 }
-
