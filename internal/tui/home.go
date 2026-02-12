@@ -16,6 +16,7 @@ import (
 	"github.com/breyta/breyta-cli/internal/browseropen"
 	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/configstore"
+	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"github.com/breyta/breyta-cli/skills"
 
@@ -1438,6 +1439,16 @@ func (m *homeModel) applyModal() tea.Cmd {
 				m.apiError = err.Error()
 				return
 			}
+			apiURL := strings.TrimSpace(m.apiBaseURL())
+			if apiURL == "" {
+				m.apiError = "missing api url"
+				return
+			}
+			token, _, tokenErr := resolveTokenForAPI(apiURL, m.cfg.Token)
+			if tokenErr != nil && strings.TrimSpace(token) == "" {
+				m.apiError = tokenErr.Error()
+				return
+			}
 
 			target, err := skills.Target(home, p)
 			if err != nil {
@@ -1445,7 +1456,13 @@ func (m *homeModel) applyModal() tea.Cmd {
 				return
 			}
 
-			paths, err := skills.InstallBreytaSkill(home, p)
+			_, files, err := skilldocs.FetchBundle(context.Background(), nil, apiURL, token, skills.BreytaSkillSlug)
+			if err != nil {
+				m.apiError = err.Error()
+				return
+			}
+
+			paths, err := skills.InstallBreytaSkillFiles(home, p, files)
 			if err != nil {
 				m.apiError = err.Error()
 				return
