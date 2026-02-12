@@ -9,6 +9,7 @@ description: >-
 
 ## At a glance
 - [Quick start](#quick-start)
+- [Preflight checklist](#preflight-checklist)
 - [Core concepts](#core-concepts)
 - [CLI workflow](#cli-workflow)
 - [Bindings and activation](#bindings-and-activation)
@@ -47,7 +48,7 @@ Minimal runnable flow (uses `:requires`, `:templates`, and `:functions`):
               :code "(fn [input] {:count (count (:users input))})"}]
  :triggers [{:type :manual :label "Run" :enabled true :config {}}]
  :flow
- '(let [input (flow/input)]
+ '(let [input (flow/input)
         users (flow/step :http :get-users
                          {:connection :api
                           :template :get-users})
@@ -93,6 +94,21 @@ Shorter variant (LLM + template + function + requires):
     reply)}
 ```
 
+## Preflight checklist
+Before starting any Breyta flow task (especially in long/compacted sessions):
+1) Re-open this skill and these references:
+   - `./references/cli-workflow.md`
+   - `./references/bindings-activation.md`
+2) Verify the flow file is a single EDN map and includes quoted `:flow`:
+   - `:flow '(...)` (not `:flow (...)`)
+3) Push then validate/compile before deploy:
+   - `breyta flows push --file ./tmp/flows/<slug>.clj`
+   - `breyta flows validate <slug>`
+   - `breyta flows compile <slug>`
+4) Decide draft vs prod path before running:
+   - Draft: apply/show draft bindings, then `flows draft run`
+   - Prod: deploy -> apply bindings -> activate -> run
+
 ## Core concepts
 - Flow definition: a versioned EDN map that describes triggers, steps, and orchestration.
 - End-user flow: a flow intended for others to use, marked with the `:end-user` tag (MVP).
@@ -105,19 +121,9 @@ Shorter variant (LLM + template + function + requires):
 Details: `./references/core-concepts.md`
 
 ## CLI workflow
-The intended workflow is:
-1) List flows
-2) Pull a flow to a `.clj` file
-   - Reuse an existing local pulled file for the same flow/source when available. Pull again only if the file is missing, stale, or you are switching source (`draft` vs `active`).
-3) Edit the file
-4) Push a new draft version
-   - If push fails, stop and fix the flow file first. Do not continue to bindings commands.
-5) Validate (and optionally compile) the draft
-   - Run `breyta flows validate <slug>` (and `breyta flows compile <slug>` when needed)
-6) Confirm the flow exists in API mode (`breyta flows show <slug> --source draft`)
-   - If this returns "Flow not found", create/push the flow before running any bindings template command.
-7) Deploy (publish a version)
-8) Apply bindings + activate the prod profile
+Use two clear paths to avoid draft/prod confusion:
+1) Authoring (draft): list -> pull -> edit -> push -> draft bindings -> draft run
+2) Live (prod): deploy -> prod bindings -> activate -> run/triggers
 
 Fast loop (agent-friendly): fix or add one step at a time, in isolation first
 1) Add or change exactly one `flow/step`
@@ -198,6 +204,20 @@ Run cancel safety:
 - If short-id resolution is ambiguous, list runs and retry with a full `workflowId`
 
 Details: `./references/cli-workflow.md`
+
+## Common errors (quick fixes)
+- `Missing required field :flow`
+  - Flow file shape is invalid; ensure one top-level EDN map with quoted `:flow`.
+  - Run: `breyta flows paren-check ./tmp/flows/<slug>.clj`, then push again.
+- `Flow has no active version`
+  - Flow exists only as draft (not activated prod yet).
+  - Use: `breyta flows show <slug> --source draft` or deploy+activate for prod.
+- `Failed to load flow-local function ref for deploy-time linting`
+  - A `:function` step `:ref` does not resolve cleanly for deploy linting.
+  - Run `flows validate`/`flows compile`, then verify `:functions [{:id ...}]` ids match each step `:ref`.
+- `Profile has missing activation inputs`
+  - Required activation form inputs are not set on the target profile.
+  - Generate/apply bindings template (`draft` or `prod`) before running.
 
 ## Installations
 How end-user flows (`:tags [:end-user]`) are subscribed to, configured, and run

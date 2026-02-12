@@ -35,7 +35,9 @@ Do not leave it unquoted:
 ```
 
 ## `:requires`
-Use `:requires` to declare connection slots and activation form inputs. Flows with `:requires` must have bindings applied and be activated.
+Use `:requires` to declare connection slots and activation form inputs.
+- Draft runs: apply draft bindings (activation is not required for draft).
+- Prod runs/triggers: apply prod bindings, then activate the prod profile.
 
 ### `:kind :connection`
 Core fields:
