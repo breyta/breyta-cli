@@ -95,8 +95,8 @@ Shorter variant (LLM + template + function + requires):
 ```
 
 ## Preflight checklist
-Before starting any Breyta flow task (especially in long/compacted sessions):
-1) Re-open this skill and these references:
+Before starting any Breyta flow task:
+1) If the session is long-running or context was compacted, re-open this skill and these references before taking action:
    - `./references/cli-workflow.md`
    - `./references/bindings-activation.md`
 2) Verify the flow file is a single EDN map and includes quoted `:flow`:
