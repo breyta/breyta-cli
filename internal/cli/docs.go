@@ -84,6 +84,9 @@ func newDocsCmd(root *cobra.Command, app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&outFormat, "format", "md", "Docs format (md|json)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include recursive subcommands in structured docs")
+	cmd.AddCommand(newDocsIndexCmd(app))
+	cmd.AddCommand(newDocsPageCmd(app))
+	cmd.AddCommand(newDocsDownloadCmd(app))
 	return cmd
 }
 
@@ -206,14 +209,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- **Recommended (per-user / production-like)**: declare `:requires` slots (e.g. `:llm-provider`, `:http-api`) and bind credentials via the UI or CLI, then activate the profile.\n")
 	b.WriteString("  Slot names must be non-namespaced keywords (e.g., `:api`, not `:ns/api`).\n")
 	b.WriteString("  Manual trigger and wait notify field names use non-namespaced keywords (e.g., `{:name :user-id ...}`).\n")
-	if devMode {
-		b.WriteString("- **Dev-only (server-global)**: create `secrets.edn` (gitignored) to provide dev keys directly to the server process.\n\n")
-		b.WriteString("Dev-only `secrets.edn`:\n")
-		b.WriteString("- `cp breyta/secrets.edn.example secrets.edn`\n")
-		b.WriteString("- Add the keys you need and restart `flows-api`\n")
-		b.WriteString("- Never commit `secrets.edn`\n\n")
-		b.WriteString("Dev mode exposes local override flags and env vars for authenticating the CLI to a local `flows-api`.\n\n")
-	}
+	b.WriteString("\n")
 
 	b.WriteString("### Bindings (credentials for `:requires` slots)\n\n")
 	b.WriteString("If a flow declares `:requires` slots (e.g. `:http-api` with `:auth`/`:oauth`, or `:llm-provider`), you must apply bindings to create/update a profile, then enable it.\n")
@@ -272,13 +268,6 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 	b.WriteString("- Use `:headers` for extra request headers; values may be strings or `{:secret-ref \"...\"}`.\n")
 	b.WriteString("- Templates include comments that list OAuth and secret slots.\n\n")
 
-	if devMode {
-		b.WriteString("### Draft preview bindings\n\n")
-		b.WriteString("Draft runs use a user-scoped draft profile and require draft bindings.\n\n")
-		b.WriteString("- Use: `breyta flows draft-bindings-url <slug>` to print the URL\n")
-		b.WriteString("- Run draft: `breyta runs start --flow <slug> --source draft`\n\n")
-	}
-
 	b.WriteString("### Flow body constraints (SCI / orchestration DSL)\n\n")
 	b.WriteString("Flow bodies are intentionally constrained to keep the \"flow language\" small for visualization and translation (engine-agnostic orchestration), and to reduce the security surface area.\n\n")
 	b.WriteString("Practical consequences:\n")
@@ -298,7 +287,7 @@ func renderDocsIndexMD(root *cobra.Command, devMode bool) string {
 		if !c.IsAvailableCommand() {
 			continue
 		}
-		if c.Name() == "help" || c.Name() == "completion" {
+		if c.Name() == "help" || c.Name() == "completion" || c.Name() == "dev" || c.Name() == "debug" {
 			continue
 		}
 		b.WriteString("- `" + c.Name() + "`: " + strings.TrimSpace(c.Short) + "\n")
