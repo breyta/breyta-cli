@@ -17,3 +17,4 @@ This directory (`breyta-cli/`) is a standalone Go module that ships the `breyta`
 - Keep changes small and dependency-light (prefer stdlib).
 - TUI: prefer modal-based interactions; keep keyboard hints in the header.
 - When changing API-facing commands, update `breyta docs` output and `docs/agentic-chat.md` if user-facing behavior changes.
+- For Breyta flow work in long-running or compacted sessions, re-open `skills/breyta/SKILL.md` and re-check `references/cli-workflow.md` plus `references/bindings-activation.md` before taking action.
