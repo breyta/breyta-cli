@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,9 +10,6 @@ import (
 	"sort"
 	"strings"
 )
-
-//go:embed breyta/SKILL.md breyta/references/* breyta/references/steps/*
-var embedded embed.FS
 
 const BreytaSkillSlug = "breyta"
 
@@ -29,42 +25,6 @@ type InstallTarget struct {
 	Provider Provider
 	Dir      string
 	File     string
-}
-
-func BreytaSkillMarkdown() ([]byte, error) {
-	return embedded.ReadFile("breyta/SKILL.md")
-}
-
-func BreytaSkillDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/references")
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		// embed.FS always uses forward slashes, regardless of OS.
-		paths = append(paths, path.Join("breyta", "references", entry.Name()))
-	}
-	return paths, nil
-}
-
-func BreytaSkillStepDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/references/steps")
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		// embed.FS always uses forward slashes, regardless of OS.
-		paths = append(paths, path.Join("breyta", "references", "steps", entry.Name()))
-	}
-	return paths, nil
 }
 
 func Target(homeDir string, provider Provider) (InstallTarget, error) {
@@ -92,34 +52,6 @@ func targetForProvider(homeDir string, provider Provider) InstallTarget {
 		dir := filepath.Join(homeDir, ".codex", "skills", BreytaSkillSlug)
 		return InstallTarget{Provider: ProviderCodex, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
 	}
-}
-
-func InstallBreytaSkill(homeDir string, provider Provider) ([]string, error) {
-	md, err := BreytaSkillMarkdown()
-	if err != nil {
-		return nil, err
-	}
-	docPaths, err := BreytaSkillDocs()
-	if err != nil {
-		return nil, err
-	}
-	stepPaths, err := BreytaSkillStepDocs()
-	if err != nil {
-		return nil, err
-	}
-
-	files := map[string][]byte{
-		"SKILL.md": md,
-	}
-	for _, p := range append(docPaths, stepPaths...) {
-		content, err := embedded.ReadFile(p)
-		if err != nil {
-			return nil, err
-		}
-		rel := strings.TrimPrefix(p, "breyta/")
-		files[rel] = content
-	}
-	return InstallBreytaSkillFiles(homeDir, provider, files)
 }
 
 func installToTarget(content []byte, t InstallTarget) error {
