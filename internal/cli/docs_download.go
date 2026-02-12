@@ -8,15 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/breyta/breyta-cli/internal/api"
-	"github.com/breyta/breyta-cli/internal/skilldocs"
-	"github.com/breyta/breyta-cli/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -29,15 +26,13 @@ type docsPageMeta struct {
 	Tags     []string `json:"tags,omitempty"`
 }
 
-func newDocsDownloadCmd(app *App) *cobra.Command {
+func newDocsSyncCmd(app *App) *cobra.Command {
 	var outDir string
 	var clean bool
-	var includeSkill bool
-	var skillSlug string
 	var timeoutSeconds int
 
 	cmd := &cobra.Command{
-		Use:   "download",
+		Use:   "sync",
 		Short: "Download API docs to a local directory for offline grep/search",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ensureAPIURL(app)
@@ -84,24 +79,7 @@ func newDocsDownloadCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 
-			skillCount := 0
-			if includeSkill {
-				slug := strings.TrimSpace(skillSlug)
-				if slug == "" {
-					return writeErr(cmd, errors.New("skill slug cannot be empty when --include-skill=true"))
-				}
-				written, err := writeSkillBundle(ctx, rootOut, app.APIURL, app.Token, slug)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				skillCount = written
-			}
-
 			fmt.Fprintf(cmd.OutOrStdout(), "Downloaded %d docs pages to %s\n", len(pages), filepath.Join(rootOut, "pages"))
-			if includeSkill {
-				fmt.Fprintf(cmd.OutOrStdout(), "Downloaded skill bundle (%s) with %d files to %s\n",
-					strings.TrimSpace(skillSlug), skillCount, filepath.Join(rootOut, "skills", strings.TrimSpace(skillSlug)))
-			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Ready for grep: rg -n \"<query>\" %s\n", rootOut)
 			return nil
 		},
@@ -109,8 +87,6 @@ func newDocsDownloadCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&outDir, "out", ".breyta-docs", "Output directory for downloaded docs")
 	cmd.Flags().BoolVar(&clean, "clean", false, "Delete output directory before download")
-	cmd.Flags().BoolVar(&includeSkill, "include-skill", true, "Also download docs skill bundle files")
-	cmd.Flags().StringVar(&skillSlug, "skill-slug", skills.BreytaSkillSlug, "Skill slug to download when --include-skill=true")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout-seconds", 90, "Request timeout in seconds")
 	return cmd
 }
@@ -245,42 +221,6 @@ func writeDocsPages(ctx context.Context, client api.Client, rootOut string, page
 	return nil
 }
 
-func writeSkillBundle(ctx context.Context, rootOut, apiURL, token, skillSlug string) (int, error) {
-	manifest, files, err := skilldocs.FetchBundle(ctx, nil, apiURL, token, skillSlug)
-	if err != nil {
-		return 0, fmt.Errorf("fetch skill bundle %q: %w", skillSlug, err)
-	}
-
-	skillRoot := filepath.Join(rootOut, "skills", skillSlug)
-	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return 0, fmt.Errorf("encode skill manifest: %w", err)
-	}
-	if err := writeFile(filepath.Join(skillRoot, "manifest.json"), manifestJSON); err != nil {
-		return 0, err
-	}
-
-	paths := make([]string, 0, len(files))
-	for rel := range files {
-		paths = append(paths, rel)
-	}
-	sort.Strings(paths)
-
-	written := 0
-	for _, rel := range paths {
-		safeRel, ok := sanitizeRelativePath(rel)
-		if !ok {
-			return written, fmt.Errorf("invalid skill file path %q", rel)
-		}
-		dest := filepath.Join(skillRoot, "files", filepath.FromSlash(safeRel))
-		if err := writeFile(dest, files[rel]); err != nil {
-			return written, err
-		}
-		written++
-	}
-	return written, nil
-}
-
 func decodeLooseJSON(raw any, into any) error {
 	b, err := json.Marshal(raw)
 	if err != nil {
@@ -309,18 +249,4 @@ func sanitizeDocSlug(slug string) (string, error) {
 		return "", fmt.Errorf("unsafe docs page slug %q", slug)
 	}
 	return slug, nil
-}
-
-func sanitizeRelativePath(rel string) (string, bool) {
-	rel = strings.TrimSpace(strings.ReplaceAll(rel, "\\", "/"))
-	rel = strings.TrimPrefix(rel, "./")
-	rel = strings.TrimPrefix(rel, "/")
-	if rel == "" {
-		return "", false
-	}
-	cleaned := path.Clean(rel)
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
-		return "", false
-	}
-	return cleaned, true
 }

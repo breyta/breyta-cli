@@ -24,26 +24,7 @@ func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
 	return out.String(), errOut.String(), err
 }
 
-func TestDocs_Index_ShowsMockSurfaceInDevMode(t *testing.T) {
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", "http://localhost:9999",
-		"--token", "user-dev",
-		"docs",
-	)
-	if err != nil {
-		t.Fatalf("docs failed: %v\n%s", err, stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("registry")) {
-		t.Fatalf("expected docs index to include registry in dev mode\n---\n%s", stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("`flows`")) {
-		t.Fatalf("expected docs index to include flows\n---\n%s", stdout)
-	}
-}
-
-func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
+func TestDocs_Help_DefaultSurface(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", tmp)
@@ -53,40 +34,52 @@ func TestDocs_Index_HidesMockSurfaceByDefault(t *testing.T) {
 		"docs",
 	)
 	if err != nil {
-		t.Fatalf("docs failed: %v\n%s", err, stdout)
+		t.Fatalf("docs help failed: %v\n%s", err, stdout)
 	}
-	if bytes.Contains([]byte(stdout), []byte("registry")) {
-		t.Fatalf("expected docs index to hide registry by default\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("find")) {
+		t.Fatalf("expected docs help to include find command\n---\n%s", stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte("`flows`")) {
-		t.Fatalf("expected docs index to include flows\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("show")) {
+		t.Fatalf("expected docs help to include show command\n---\n%s", stdout)
 	}
-}
-
-func TestDocs_Index_IncludesResourcesByDefault(t *testing.T) {
-	stdout, _, err := runCLIArgs(t,
-		"docs",
-	)
-	if err != nil {
-		t.Fatalf("docs failed: %v\n%s", err, stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("`resources`")) {
-		t.Fatalf("expected docs index to include resources\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("sync")) {
+		t.Fatalf("expected docs help to include sync command\n---\n%s", stdout)
 	}
 }
 
-func TestDocs_CanDocumentHiddenCommandByName(t *testing.T) {
+func TestDocsFind_UsesDocsAPI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("q"); got != "flows push" {
+			t.Fatalf("expected q=flows push, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"pages": []map[string]any{
+					{"slug": "build-flow-authoring", "title": "Build: Flow Authoring", "source": "flows-api"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
 	stdout, _, err := runCLIArgs(t,
-		"docs", "resources",
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"docs", "find", "flows push",
+		"--with-summary=false",
 	)
 	if err != nil {
-		t.Fatalf("docs resources failed: %v\n%s", err, stdout)
+		t.Fatalf("docs find failed: %v\n%s", err, stdout)
 	}
-	if !bytes.HasPrefix([]byte(stdout), []byte("## breyta resources")) {
-		t.Fatalf("expected markdown docs header for resources\n---\n%s", stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("Unified resource access")) {
-		t.Fatalf("expected resources docs content\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("build-flow-authoring\tBuild: Flow Authoring")) {
+		t.Fatalf("expected docs find row, got:\n%s", stdout)
 	}
 }
 

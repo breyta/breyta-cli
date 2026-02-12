@@ -22,7 +22,7 @@ type docsIndexRow struct {
 	Description string   `json:"description,omitempty"`
 }
 
-func newDocsIndexCmd(app *App) *cobra.Command {
+func newDocsFindCmd(app *App) *cobra.Command {
 	var outFormat string
 	var source string
 	var query string
@@ -31,10 +31,17 @@ func newDocsIndexCmd(app *App) *cobra.Command {
 	var noHeader bool
 
 	cmd := &cobra.Command{
-		Use:     "index",
-		Aliases: []string{"pages", "list"},
-		Short:   "List available API docs pages",
+		Use:   "find [query]",
+		Short: "Find docs pages",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				if strings.TrimSpace(query) != "" {
+					return writeErr(cmd, fmt.Errorf("query provided twice; use either positional [query] or --q"))
+				}
+				query = strings.Join(args, " ")
+			}
+
 			ensureAPIURL(app)
 			if strings.TrimSpace(app.APIURL) == "" {
 				return writeErr(cmd, fmt.Errorf("missing api base url"))
@@ -113,13 +120,13 @@ func newDocsIndexCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newDocsPageCmd(app *App) *cobra.Command {
+func newDocsShowCmd(app *App) *cobra.Command {
 	var outFormat string
 	var timeoutSeconds int
 
 	cmd := &cobra.Command{
-		Use:   "page <slug>",
-		Short: "Print a docs page to stdout for piping",
+		Use:   "show <slug>",
+		Short: "Print a docs page to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ensureAPIURL(app)

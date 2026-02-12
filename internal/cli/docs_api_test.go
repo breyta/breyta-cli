@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestDocsIndex_PrintsTSVWithSummary(t *testing.T) {
+func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +34,7 @@ func TestDocsIndex_PrintsTSVWithSummary(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cmd := newDocsIndexCmd(&App{APIURL: srv.URL})
+	cmd := newDocsFindCmd(&App{APIURL: srv.URL})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -56,7 +56,7 @@ func TestDocsIndex_PrintsTSVWithSummary(t *testing.T) {
 	}
 }
 
-func TestDocsIndex_WithoutSummary(t *testing.T) {
+func TestDocsFind_WithoutSummary(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +76,7 @@ func TestDocsIndex_WithoutSummary(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cmd := newDocsIndexCmd(&App{APIURL: srv.URL})
+	cmd := newDocsFindCmd(&App{APIURL: srv.URL})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -92,7 +92,7 @@ func TestDocsIndex_WithoutSummary(t *testing.T) {
 	}
 }
 
-func TestDocsPage_PrintsMarkdown(t *testing.T) {
+func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +107,7 @@ func TestDocsPage_PrintsMarkdown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cmd := newDocsPageCmd(&App{APIURL: srv.URL})
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -121,7 +121,7 @@ func TestDocsPage_PrintsMarkdown(t *testing.T) {
 	}
 }
 
-func TestDocsPage_PrintsHTML(t *testing.T) {
+func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ func TestDocsPage_PrintsHTML(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cmd := newDocsPageCmd(&App{APIURL: srv.URL})
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
