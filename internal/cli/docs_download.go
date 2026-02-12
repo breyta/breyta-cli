@@ -18,12 +18,23 @@ import (
 )
 
 type docsPageMeta struct {
-	Slug     string   `json:"slug"`
-	Title    string   `json:"title,omitempty"`
-	Source   string   `json:"source,omitempty"`
-	Category string   `json:"category,omitempty"`
-	Order    int      `json:"order,omitempty"`
-	Tags     []string `json:"tags,omitempty"`
+	Slug          string   `json:"slug"`
+	Title         string   `json:"title,omitempty"`
+	Source        string   `json:"source,omitempty"`
+	Category      string   `json:"category,omitempty"`
+	Order         int      `json:"order,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	Score         float64  `json:"score,omitempty"`
+	Snippet       string   `json:"snippet,omitempty"`
+	MatchedFields []string `json:"matchedFields,omitempty"`
+	Explain       string   `json:"explain,omitempty"`
+}
+
+type docsPagesQueryOptions struct {
+	Source       string
+	Query        string
+	WithSnippets bool
+	Explain      bool
 }
 
 func newDocsSyncCmd(app *App) *cobra.Command {
@@ -67,7 +78,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 				Token:   app.Token,
 			}
 
-			pages, err := fetchDocsPages(ctx, client, "", "")
+			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{})
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -91,13 +102,22 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func fetchDocsPages(ctx context.Context, client api.Client, source, q string) ([]docsPageMeta, error) {
+func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryOptions) ([]docsPageMeta, error) {
 	query := url.Values{}
-	if strings.TrimSpace(source) != "" {
-		query.Set("source", strings.TrimSpace(source))
+	if strings.TrimSpace(opts.Source) != "" {
+		query.Set("source", strings.TrimSpace(opts.Source))
 	}
-	if strings.TrimSpace(q) != "" {
-		query.Set("q", strings.TrimSpace(q))
+	if strings.TrimSpace(opts.Query) != "" {
+		q := strings.TrimSpace(opts.Query)
+		// Send both params for compatibility across server versions.
+		query.Set("query", q)
+		query.Set("q", q)
+	}
+	if opts.WithSnippets {
+		query.Set("with-snippets", "true")
+	}
+	if opts.Explain {
+		query.Set("explain", "true")
 	}
 
 	out, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/docs/pages", query, nil)

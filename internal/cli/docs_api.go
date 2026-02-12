@@ -13,13 +13,17 @@ import (
 )
 
 type docsIndexRow struct {
-	Slug        string   `json:"slug"`
-	Title       string   `json:"title,omitempty"`
-	Source      string   `json:"source,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	Order       int      `json:"order,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Slug          string   `json:"slug"`
+	Title         string   `json:"title,omitempty"`
+	Source        string   `json:"source,omitempty"`
+	Category      string   `json:"category,omitempty"`
+	Order         int      `json:"order,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	Score         float64  `json:"score,omitempty"`
+	Snippet       string   `json:"snippet,omitempty"`
+	MatchedFields []string `json:"matchedFields,omitempty"`
+	Explain       string   `json:"explain,omitempty"`
+	Description   string   `json:"description,omitempty"`
 }
 
 func newDocsFindCmd(app *App) *cobra.Command {
@@ -27,13 +31,23 @@ func newDocsFindCmd(app *App) *cobra.Command {
 	var source string
 	var query string
 	var withSummary bool
+	var withSnippets bool
+	var explain bool
 	var timeoutSeconds int
 	var noHeader bool
 
 	cmd := &cobra.Command{
 		Use:   "find [query]",
 		Short: "Find docs pages",
-		Args:  cobra.ArbitraryArgs,
+		Long: "Find docs pages from the API.\n\n" +
+			"Query supports plain terms and Lucene-style expressions when available on the server,\n" +
+			"for example: `source:cli deploy`, `\"flow deploy\"`, `bindings -oauth`.",
+		Example: strings.TrimSpace(`
+breyta docs find "flows push"
+breyta docs find "source:cli deploy"
+breyta docs find "\"end-user\" AND source:flows-api" --format json
+`),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				if strings.TrimSpace(query) != "" {
@@ -59,7 +73,12 @@ func newDocsFindCmd(app *App) *cobra.Command {
 				Token:   app.Token,
 			}
 
-			pages, err := fetchDocsPages(ctx, client, source, query)
+			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{
+				Source:       source,
+				Query:        query,
+				WithSnippets: withSnippets,
+				Explain:      explain,
+			})
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -67,12 +86,17 @@ func newDocsFindCmd(app *App) *cobra.Command {
 			rows := make([]docsIndexRow, 0, len(pages))
 			for _, p := range pages {
 				rows = append(rows, docsIndexRow{
-					Slug:     p.Slug,
-					Title:    p.Title,
-					Source:   p.Source,
-					Category: p.Category,
-					Order:    p.Order,
-					Tags:     p.Tags,
+					Slug:          p.Slug,
+					Title:         p.Title,
+					Source:        p.Source,
+					Category:      p.Category,
+					Order:         p.Order,
+					Tags:          p.Tags,
+					Score:         p.Score,
+					Snippet:       p.Snippet,
+					MatchedFields: append([]string{}, p.MatchedFields...),
+					Explain:       p.Explain,
+					Description:   p.Snippet,
 				})
 			}
 
@@ -113,8 +137,10 @@ func newDocsFindCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&outFormat, "format", "tsv", "Output format (tsv|json)")
 	cmd.Flags().StringVar(&source, "source", "", "Filter by source (flows-api|cli|all)")
-	cmd.Flags().StringVar(&query, "q", "", "Query filter for slug/title/source")
+	cmd.Flags().StringVar(&query, "q", "", "Query expression (plain terms or Lucene syntax)")
 	cmd.Flags().BoolVar(&withSummary, "with-summary", true, "Fetch each page and include first summary line")
+	cmd.Flags().BoolVar(&withSnippets, "with-snippets", false, "Ask API to include search snippets in results")
+	cmd.Flags().BoolVar(&explain, "explain", false, "Ask API to include query explanation per result")
 	cmd.Flags().BoolVar(&noHeader, "no-header", false, "Do not print tsv header row")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout-seconds", 30, "Request timeout in seconds")
 	return cmd
