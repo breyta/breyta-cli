@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDocsSync_WritesPages(t *testing.T) {
@@ -60,6 +61,7 @@ func TestDocsSync_WritesPages(t *testing.T) {
 		filepath.Join(outDir, "pages", "start-quickstart.md"),
 		filepath.Join(outDir, "pages", "build-flow-basics.md"),
 		filepath.Join(outDir, "pages-index.json"),
+		filepath.Join(outDir, ".breyta-docs-marker"),
 	} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("expected %s to exist: %v", p, err)
@@ -115,5 +117,72 @@ func TestDocsSync_CleanRemovesExistingFiles(t *testing.T) {
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("expected stale file to be removed by --clean, err=%v", err)
+	}
+}
+
+func TestDocsSync_CleanRejectsDangerousPath(t *testing.T) {
+	t.Parallel()
+
+	app := &App{APIURL: "http://example.test"}
+	cmd := newDocsSyncCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--out", ".", "--clean"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error for dangerous clean path")
+	}
+	if !strings.Contains(err.Error(), "refusing to clean dangerous output path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/pages":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"pages": []map[string]any{
+						{"slug": "start-quickstart", "title": "Start"},
+						{"slug": "build-flow-basics", "title": "Build"},
+					},
+				},
+			})
+		case "/api/docs/pages/start-quickstart", "/api/docs/pages/build-flow-basics":
+			if r.URL.Query().Get("format") != "markdown" {
+				t.Fatalf("expected format=markdown, got %q", r.URL.Query().Get("format"))
+			}
+			time.Sleep(700 * time.Millisecond)
+			w.Header().Set("Content-Type", "text/markdown")
+			_, _ = w.Write([]byte("# Page\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	outDir := filepath.Join(t.TempDir(), "docs-dump")
+	app := &App{APIURL: srv.URL}
+	cmd := newDocsSyncCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--out", outDir, "--timeout-seconds", "1"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "pages", "start-quickstart.md")); err != nil {
+		t.Fatalf("expected start page output: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "pages", "build-flow-basics.md")); err != nil {
+		t.Fatalf("expected build page output: %v", err)
 	}
 }

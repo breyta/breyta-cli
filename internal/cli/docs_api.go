@@ -73,7 +73,7 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 			if timeout <= 0 {
 				timeout = 30 * time.Second
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := withRequestTimeout(timeout)
 			defer cancel()
 
 			client := api.Client{
@@ -112,7 +112,9 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 
 			if withSummary {
 				for i := range rows {
-					md, err := fetchDocsPageContent(ctx, client, rows[i].Slug, "markdown")
+					pageCtx, pageCancel := withRequestTimeout(timeout)
+					md, err := fetchDocsPageContent(pageCtx, client, rows[i].Slug, "markdown")
+					pageCancel()
 					if err != nil {
 						return writeErr(cmd, err)
 					}

@@ -60,6 +60,9 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 			rootOut = filepath.Clean(rootOut)
 
 			if clean {
+				if err := validateDocsSyncCleanTarget(rootOut); err != nil {
+					return writeErr(cmd, err)
+				}
 				if err := os.RemoveAll(rootOut); err != nil {
 					return writeErr(cmd, fmt.Errorf("clean output dir: %w", err))
 				}
@@ -72,7 +75,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 			if timeout <= 0 {
 				timeout = 90 * time.Second
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := withRequestTimeout(timeout)
 			defer cancel()
 
 			client := api.Client{
@@ -88,7 +91,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("no docs pages returned by API"))
 			}
 
-			if err := writeDocsPages(ctx, client, rootOut, pages); err != nil {
+			if err := writeDocsPages(client, rootOut, pages, timeout); err != nil {
 				return writeErr(cmd, err)
 			}
 
@@ -210,7 +213,7 @@ func fetchDocsPageContent(ctx context.Context, client api.Client, slug string, o
 	return payload.Data.Page.Markdown, nil
 }
 
-func writeDocsPages(ctx context.Context, client api.Client, rootOut string, pages []docsPageMeta) error {
+func writeDocsPages(client api.Client, rootOut string, pages []docsPageMeta, timeout time.Duration) error {
 	pagesOutDir := filepath.Join(rootOut, "pages")
 	if err := os.MkdirAll(pagesOutDir, 0o755); err != nil {
 		return fmt.Errorf("create pages output dir: %w", err)
@@ -225,7 +228,9 @@ func writeDocsPages(ctx context.Context, client api.Client, rootOut string, page
 		if err != nil {
 			return err
 		}
+		ctx, cancel := withRequestTimeout(timeout)
 		markdown, err := fetchDocsPageMarkdown(ctx, client, page.Slug)
+		cancel()
 		if err != nil {
 			return err
 		}
@@ -246,7 +251,74 @@ func writeDocsPages(ctx context.Context, client api.Client, rootOut string, page
 	if err := writeFile(filepath.Join(rootOut, "pages-index.json"), indexJSON); err != nil {
 		return err
 	}
+	if err := writeFile(filepath.Join(rootOut, ".breyta-docs-marker"), []byte("breyta-docs-v1\n")); err != nil {
+		return err
+	}
 	return nil
+}
+
+func withRequestTimeout(timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+func validateDocsSyncCleanTarget(rootOut string) error {
+	rootOut = filepath.Clean(strings.TrimSpace(rootOut))
+	if rootOut == "" {
+		return errors.New("missing output directory")
+	}
+	if rootOut == "." || rootOut == ".." {
+		return fmt.Errorf("refusing to clean dangerous output path %q", rootOut)
+	}
+
+	if abs, err := filepath.Abs(rootOut); err == nil {
+		if isFilesystemRoot(abs) {
+			return fmt.Errorf("refusing to clean filesystem root %q", abs)
+		}
+		if depth := absolutePathDepth(abs); depth < 2 {
+			return fmt.Errorf("refusing to clean high-level output path %q", abs)
+		}
+		if cwd, err := os.Getwd(); err == nil && sameCleanPath(abs, cwd) {
+			return fmt.Errorf("refusing to clean current working directory %q", abs)
+		}
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" && sameCleanPath(abs, home) {
+			return fmt.Errorf("refusing to clean home directory %q", abs)
+		}
+	}
+	return nil
+}
+
+func sameCleanPath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+func isFilesystemRoot(path string) bool {
+	clean := filepath.Clean(path)
+	vol := filepath.VolumeName(clean)
+	rest := strings.TrimPrefix(clean, vol)
+	sep := string(filepath.Separator)
+	return rest == sep || rest == ""
+}
+
+func absolutePathDepth(path string) int {
+	clean := filepath.Clean(path)
+	vol := filepath.VolumeName(clean)
+	rest := strings.TrimPrefix(clean, vol)
+	sep := string(filepath.Separator)
+	rest = strings.TrimPrefix(rest, sep)
+	if rest == "" {
+		return 0
+	}
+	parts := strings.Split(rest, sep)
+	count := 0
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func decodeLooseJSON(raw any, into any) error {

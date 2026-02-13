@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
@@ -154,6 +155,52 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 	}
 	if !sawPageFetch {
 		t.Fatalf("expected page markdown fetch for summary")
+	}
+}
+
+func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/pages":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"pages": []map[string]any{
+						{"slug": "start-quickstart", "title": "Start: Quickstart"},
+						{"slug": "reference-flow-definition", "title": "Reference: Flow Definition"},
+					},
+				},
+			})
+		case "/api/docs/pages/start-quickstart", "/api/docs/pages/reference-flow-definition":
+			if r.URL.Query().Get("format") != "markdown" {
+				t.Fatalf("expected format=markdown, got %q", r.URL.Query().Get("format"))
+			}
+			time.Sleep(700 * time.Millisecond)
+			_, _ = w.Write([]byte("# Title\n\nSummary line.\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFindCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--timeout-seconds", "1"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "start-quickstart\tStart: Quickstart\tSummary line.\n") {
+		t.Fatalf("expected start summary row, got: %q", got)
+	}
+	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tSummary line.\n") {
+		t.Fatalf("expected reference summary row, got: %q", got)
 	}
 }
 
