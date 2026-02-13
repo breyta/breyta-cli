@@ -186,3 +186,70 @@ func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
 		t.Fatalf("expected build page output: %v", err)
 	}
 }
+
+func TestDocsSync_PaginatesAllPages(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/pages":
+			offset := r.URL.Query().Get("offset")
+			switch offset {
+			case "":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"pages": []map[string]any{
+							{"slug": "start-here", "title": "Start"},
+							{"slug": "build-flow-basics", "title": "Build"},
+						},
+					},
+					"meta": map[string]any{
+						"total": 3,
+						"limit": 2,
+					},
+				})
+			case "2":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"pages": []map[string]any{
+							{"slug": "reference-flow-definition", "title": "Reference"},
+						},
+					},
+					"meta": map[string]any{
+						"total": 3,
+						"limit": 2,
+					},
+				})
+			default:
+				t.Fatalf("unexpected offset %q", offset)
+			}
+		case "/api/docs/pages/start-here", "/api/docs/pages/build-flow-basics", "/api/docs/pages/reference-flow-definition":
+			w.Header().Set("Content-Type", "text/markdown")
+			_, _ = w.Write([]byte("# Page\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	outDir := filepath.Join(t.TempDir(), "docs-dump")
+	app := &App{APIURL: srv.URL}
+	cmd := newDocsSyncCmd(app)
+	cmd.SetArgs([]string{"--out", outDir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(outDir, "pages", "start-here.md"),
+		filepath.Join(outDir, "pages", "build-flow-basics.md"),
+		filepath.Join(outDir, "pages", "reference-flow-definition.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to exist: %v", path, err)
+		}
+	}
+}

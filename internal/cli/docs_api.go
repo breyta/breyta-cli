@@ -81,7 +81,7 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 				Token:   app.Token,
 			}
 
-			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{
+			result, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{
 				Source:       source,
 				Query:        query,
 				WithSnippets: withSnippets,
@@ -92,6 +92,7 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			pages := result.Pages
 
 			rows := make([]docsIndexRow, 0, len(pages))
 			for _, p := range pages {

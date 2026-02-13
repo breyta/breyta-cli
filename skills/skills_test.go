@@ -45,3 +45,21 @@ func TestInstallBreytaSkillFiles_CursorTargetAndReferences(t *testing.T) {
 		t.Fatalf("missing written paths. got=%#v", paths)
 	}
 }
+
+func TestSanitizeRelPath_RejectsAbsoluteAndWindowsPaths(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		"/etc/passwd",
+		"\\windows\\system32\\drivers\\etc\\hosts",
+		"C:/windows/system32",
+		"C:\\windows\\system32",
+		"//server/share/file.txt",
+		"../escape.txt",
+	}
+	for _, tc := range cases {
+		if got, ok := sanitizeRelPath(tc); ok {
+			t.Fatalf("expected %q to be rejected, got %q", tc, got)
+		}
+	}
+}

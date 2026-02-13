@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/skills"
+)
+
+const (
+	syncRequestTimeout = 5 * time.Second
 )
 
 func enabled() bool {
@@ -106,7 +111,10 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 		return nil
 	}
 
-	_, files, err := skilldocs.FetchBundle(context.Background(), nil, apiURL, token, skills.BreytaSkillSlug)
+	ctx, cancel := context.WithTimeout(context.Background(), syncRequestTimeout)
+	defer cancel()
+	httpClient := &http.Client{Timeout: syncRequestTimeout}
+	_, files, err := skilldocs.FetchBundle(ctx, httpClient, apiURL, token, skills.BreytaSkillSlug)
 	if err != nil {
 		return nil
 	}
@@ -135,6 +143,13 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 		_ = saveCache(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
 	}
 	return nil
+}
+
+// MaybeSyncInstalledAsync performs best-effort sync without blocking command startup.
+func MaybeSyncInstalledAsync(currentVersion, apiURL, token string) {
+	go func() {
+		_ = MaybeSyncInstalled(currentVersion, apiURL, token)
+	}()
 }
 
 func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {

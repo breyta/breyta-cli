@@ -39,6 +39,12 @@ type docsPagesQueryOptions struct {
 	Offset       int
 }
 
+type docsPagesQueryResult struct {
+	Pages []docsPageMeta
+	Total int
+	Limit int
+}
+
 func newDocsSyncCmd(app *App) *cobra.Command {
 	var outDir string
 	var clean bool
@@ -83,7 +89,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 				Token:   app.Token,
 			}
 
-			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{Limit: -1})
+			pages, err := fetchAllDocsPages(ctx, client, docsPagesQueryOptions{Limit: 100})
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -107,7 +113,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryOptions) ([]docsPageMeta, error) {
+func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryOptions) (docsPagesQueryResult, error) {
 	query := url.Values{}
 	if strings.TrimSpace(opts.Source) != "" {
 		query.Set("source", strings.TrimSpace(opts.Source))
@@ -133,21 +139,78 @@ func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryO
 
 	out, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/docs/pages", query, nil)
 	if err != nil {
-		return nil, fmt.Errorf("fetch docs pages: %w", err)
+		return docsPagesQueryResult{}, fmt.Errorf("fetch docs pages: %w", err)
 	}
 	if status < 200 || status > 299 {
-		return nil, fmt.Errorf("fetch docs pages failed (status=%d)", status)
+		return docsPagesQueryResult{}, fmt.Errorf("fetch docs pages failed (status=%d)", status)
 	}
 
 	var payload struct {
 		Data struct {
 			Pages []docsPageMeta `json:"pages"`
 		} `json:"data"`
+		Meta struct {
+			Total int `json:"total"`
+			Limit int `json:"limit"`
+		} `json:"meta"`
 	}
 	if err := decodeLooseJSON(out, &payload); err != nil {
-		return nil, fmt.Errorf("decode docs pages response: %w", err)
+		return docsPagesQueryResult{}, fmt.Errorf("decode docs pages response: %w", err)
 	}
-	return payload.Data.Pages, nil
+	return docsPagesQueryResult{
+		Pages: payload.Data.Pages,
+		Total: payload.Meta.Total,
+		Limit: payload.Meta.Limit,
+	}, nil
+}
+
+func fetchAllDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryOptions) ([]docsPageMeta, error) {
+	if opts.Limit <= 0 {
+		opts.Limit = 100
+	}
+	if opts.Offset < 0 {
+		opts.Offset = 0
+	}
+
+	all := make([]docsPageMeta, 0, opts.Limit)
+	seen := map[string]struct{}{}
+	offset := opts.Offset
+
+	// Guard against server-side pagination bugs that never return an empty page.
+	for attempt := 0; attempt < 1000; attempt++ {
+		opts.Offset = offset
+		result, err := fetchDocsPages(ctx, client, opts)
+		if err != nil {
+			return nil, err
+		}
+		if len(result.Pages) == 0 {
+			break
+		}
+
+		added := 0
+		for _, page := range result.Pages {
+			slug := strings.TrimSpace(page.Slug)
+			if slug == "" {
+				continue
+			}
+			if _, exists := seen[slug]; exists {
+				continue
+			}
+			seen[slug] = struct{}{}
+			all = append(all, page)
+			added++
+		}
+
+		offset += len(result.Pages)
+		if result.Total > 0 && offset >= result.Total {
+			break
+		}
+		if added == 0 {
+			// No new pages discovered; avoid infinite loops if server ignores offset.
+			break
+		}
+	}
+	return all, nil
 }
 
 func fetchDocsPageMarkdown(ctx context.Context, client api.Client, slug string) (string, error) {

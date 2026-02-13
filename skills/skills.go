@@ -63,14 +63,32 @@ func installToTarget(content []byte, t InstallTarget) error {
 }
 
 func sanitizeRelPath(rel string) (string, bool) {
-	rel = strings.TrimSpace(strings.ReplaceAll(rel, "\\", "/"))
-	rel = strings.TrimPrefix(rel, "./")
-	rel = strings.TrimPrefix(rel, "/")
+	rel = strings.TrimSpace(rel)
 	if rel == "" {
 		return "", false
 	}
+	if strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, "\\") {
+		return "", false
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	for strings.HasPrefix(rel, "./") {
+		rel = strings.TrimPrefix(rel, "./")
+	}
 	cleaned := path.Clean(rel)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		return "", false
+	}
+	if strings.HasPrefix(cleaned, "/") {
+		return "", false
+	}
+	// Reject Windows drive-qualified absolute paths like C:/...
+	if len(cleaned) >= 2 && cleaned[1] == ':' {
+		c := cleaned[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return "", false
+		}
+	}
+	if strings.HasPrefix(cleaned, "//") {
 		return "", false
 	}
 	return cleaned, true
