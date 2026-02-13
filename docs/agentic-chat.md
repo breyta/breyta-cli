@@ -99,7 +99,8 @@ Use these commands to manage flows:
 - breyta flows push --file ./tmp/flows/<slug>.clj  # validates draft by default
 - breyta flows validate <slug>
 - breyta flows show <slug> --source draft
-- breyta flows deploy <slug>
+- breyta flows deploy <slug> [--deploy-key "$BREYTA_FLOW_DEPLOY_KEY"]
+- breyta flows versions activate <slug> --version <n> [--deploy-key "$BREYTA_FLOW_DEPLOY_KEY"]
 
 End-user installations (flows tagged `:end-user`):
 - breyta flows installations create <slug> --name "My installation"
@@ -116,6 +117,7 @@ To run a flow and see output:
 
 Notes for agents:
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
+- Guarded flows may require a deploy key to deploy/activate versions. Set `BREYTA_FLOW_DEPLOY_KEY` in CI or pass `--deploy-key`.
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Do not run `flows bindings template` or `flows draft bindings template` after a failed `flows push`.
 - If `breyta flows show <slug> --source draft` returns `Flow not found`, create/push the flow first, then retry.
