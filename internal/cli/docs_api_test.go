@@ -20,13 +20,13 @@ func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-quickstart", "title": "Start: Quickstart", "source": "flows-api"},
+						{"slug": "start-here", "title": "Start Here", "source": "flows-api"},
 						{"slug": "reference-flow-definition", "title": "Reference: Flow Definition", "source": "flows-api"},
 					},
 				},
 			})
-		case "/api/docs/pages/start-quickstart":
-			_, _ = w.Write([]byte("# Start: Quickstart\n\nRun your first flow end-to-end.\n"))
+		case "/api/docs/pages/start-here":
+			_, _ = w.Write([]byte("# Start Here\n\nRun your first flow end-to-end.\n"))
 		case "/api/docs/pages/reference-flow-definition":
 			_, _ = w.Write([]byte("# Reference: Flow Definition\n\nCanonical shape for flow definitions.\n"))
 		default:
@@ -49,7 +49,7 @@ func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 	if !strings.Contains(got, "slug\ttitle\tdescription\n") {
 		t.Fatalf("expected tsv header, got: %q", got)
 	}
-	if !strings.Contains(got, "start-quickstart\tStart: Quickstart\tRun your first flow end-to-end.\n") {
+	if !strings.Contains(got, "start-here\tStart Here\tRun your first flow end-to-end.\n") {
 		t.Fatalf("expected start page row, got: %q", got)
 	}
 	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tCanonical shape for flow definitions.\n") {
@@ -67,7 +67,7 @@ func TestDocsFind_WithoutSummary(t *testing.T) {
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-quickstart", "title": "Start: Quickstart", "source": "flows-api"},
+						{"slug": "start-here", "title": "Start Here", "source": "flows-api"},
 					},
 				},
 			})
@@ -88,7 +88,7 @@ func TestDocsFind_WithoutSummary(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-quickstart\tStart: Quickstart\t\n") {
+	if !strings.Contains(got, "start-here\tStart Here\t\n") {
 		t.Fatalf("expected page row without summary, got: %q", got)
 	}
 }
@@ -168,12 +168,12 @@ func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-quickstart", "title": "Start: Quickstart"},
+						{"slug": "start-here", "title": "Start Here"},
 						{"slug": "reference-flow-definition", "title": "Reference: Flow Definition"},
 					},
 				},
 			})
-		case "/api/docs/pages/start-quickstart", "/api/docs/pages/reference-flow-definition":
+		case "/api/docs/pages/start-here", "/api/docs/pages/reference-flow-definition":
 			if r.URL.Query().Get("format") != "markdown" {
 				t.Fatalf("expected format=markdown, got %q", r.URL.Query().Get("format"))
 			}
@@ -196,7 +196,7 @@ func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-quickstart\tStart: Quickstart\tSummary line.\n") {
+	if !strings.Contains(got, "start-here\tStart Here\tSummary line.\n") {
 		t.Fatalf("expected start summary row, got: %q", got)
 	}
 	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tSummary line.\n") {
@@ -208,7 +208,7 @@ func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/docs/pages/start-quickstart" {
+		if r.URL.Path != "/api/docs/pages/start-here" {
 			http.NotFound(w, r)
 			return
 		}
@@ -223,7 +223,7 @@ func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"start-quickstart"})
+	cmd.SetArgs([]string{"start-here"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -237,7 +237,7 @@ func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/docs/pages/start-quickstart" {
+		if r.URL.Path != "/api/docs/pages/start-here" {
 			http.NotFound(w, r)
 			return
 		}
@@ -252,7 +252,7 @@ func TestDocsShow_PrintsHTML(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"start-quickstart", "--format", "html"})
+	cmd.SetArgs([]string{"start-here", "--format", "html"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)

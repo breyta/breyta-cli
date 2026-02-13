@@ -22,12 +22,12 @@ func TestDocsSync_WritesPages(t *testing.T) {
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-quickstart", "title": "Start"},
+						{"slug": "start-here", "title": "Start"},
 						{"slug": "build-flow-basics", "title": "Build"},
 					},
 				},
 			})
-		case "/api/docs/pages/start-quickstart":
+		case "/api/docs/pages/start-here":
 			if r.URL.Query().Get("format") != "markdown" {
 				t.Fatalf("expected format=markdown for start page, got %q", r.URL.Query().Get("format"))
 			}
@@ -58,7 +58,7 @@ func TestDocsSync_WritesPages(t *testing.T) {
 	}
 
 	for _, p := range []string{
-		filepath.Join(outDir, "pages", "start-quickstart.md"),
+		filepath.Join(outDir, "pages", "start-here.md"),
 		filepath.Join(outDir, "pages", "build-flow-basics.md"),
 		filepath.Join(outDir, "pages-index.json"),
 		filepath.Join(outDir, ".breyta-docs-marker"),
@@ -86,10 +86,10 @@ func TestDocsSync_CleanRemovesExistingFiles(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"data": map[string]any{
-					"pages": []map[string]any{{"slug": "start-quickstart", "title": "Start"}},
+					"pages": []map[string]any{{"slug": "start-here", "title": "Start"}},
 				},
 			})
-		case "/api/docs/pages/start-quickstart":
+		case "/api/docs/pages/start-here":
 			w.Header().Set("Content-Type", "text/markdown")
 			_, _ = w.Write([]byte("# Start\n"))
 		default:
@@ -149,12 +149,12 @@ func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-quickstart", "title": "Start"},
+						{"slug": "start-here", "title": "Start"},
 						{"slug": "build-flow-basics", "title": "Build"},
 					},
 				},
 			})
-		case "/api/docs/pages/start-quickstart", "/api/docs/pages/build-flow-basics":
+		case "/api/docs/pages/start-here", "/api/docs/pages/build-flow-basics":
 			if r.URL.Query().Get("format") != "markdown" {
 				t.Fatalf("expected format=markdown, got %q", r.URL.Query().Get("format"))
 			}
@@ -179,7 +179,7 @@ func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
 
-	if _, err := os.Stat(filepath.Join(outDir, "pages", "start-quickstart.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "pages", "start-here.md")); err != nil {
 		t.Fatalf("expected start page output: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "pages", "build-flow-basics.md")); err != nil {
