@@ -33,6 +33,8 @@ func newDocsFindCmd(app *App) *cobra.Command {
 	var withSummary bool
 	var withSnippets bool
 	var explain bool
+	var limit int
+	var offset int
 	var timeoutSeconds int
 	var noHeader bool
 
@@ -54,6 +56,12 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 					return writeErr(cmd, fmt.Errorf("query provided twice; use either positional [query] or --q"))
 				}
 				query = strings.Join(args, " ")
+			}
+			if limit < -1 {
+				return writeErr(cmd, fmt.Errorf("invalid --limit: must be -1 (default) or >= 0"))
+			}
+			if offset < 0 {
+				return writeErr(cmd, fmt.Errorf("invalid --offset: must be >= 0"))
 			}
 
 			ensureAPIURL(app)
@@ -78,6 +86,8 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 				Query:        query,
 				WithSnippets: withSnippets,
 				Explain:      explain,
+				Limit:        limit,
+				Offset:       offset,
 			})
 			if err != nil {
 				return writeErr(cmd, err)
@@ -138,6 +148,8 @@ breyta docs find "\"end-user\" AND source:flows-api" --format json
 	cmd.Flags().StringVar(&outFormat, "format", "tsv", "Output format (tsv|json)")
 	cmd.Flags().StringVar(&source, "source", "", "Filter by source (flows-api|cli|all)")
 	cmd.Flags().StringVar(&query, "q", "", "Query expression (plain terms or Lucene syntax)")
+	cmd.Flags().IntVar(&limit, "limit", -1, "Max results to return (-1 = API default)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset for pagination")
 	cmd.Flags().BoolVar(&withSummary, "with-summary", true, "Fetch each page and include first summary line")
 	cmd.Flags().BoolVar(&withSnippets, "with-snippets", false, "Ask API to include search snippets in results")
 	cmd.Flags().BoolVar(&explain, "explain", false, "Ask API to include query explanation per result")

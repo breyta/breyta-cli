@@ -92,6 +92,71 @@ func TestDocsFind_WithoutSummary(t *testing.T) {
 	}
 }
 
+func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
+	t.Parallel()
+
+	sawQuery := false
+	sawPageFetch := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/pages":
+			sawQuery = true
+			q := r.URL.Query()
+			if got := q.Get("query"); got != "source:cli deploy" {
+				t.Fatalf("expected query=source:cli deploy, got %q", got)
+			}
+			if got := q.Get("q"); got != "source:cli deploy" {
+				t.Fatalf("expected q=source:cli deploy, got %q", got)
+			}
+			if got := q.Get("limit"); got != "25" {
+				t.Fatalf("expected limit=25, got %q", got)
+			}
+			if got := q.Get("offset"); got != "10" {
+				t.Fatalf("expected offset=10, got %q", got)
+			}
+			if got := q.Get("with-snippets"); got != "true" {
+				t.Fatalf("expected with-snippets=true, got %q", got)
+			}
+			if got := q.Get("explain"); got != "true" {
+				t.Fatalf("expected explain=true, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"pages": []map[string]any{
+						{"slug": "reference-cli-commands", "title": "Reference: CLI Commands", "source": "cli"},
+					},
+				},
+			})
+		case "/api/docs/pages/reference-cli-commands":
+			sawPageFetch = true
+			_, _ = w.Write([]byte("# Reference: CLI Commands\n\nCommand catalog.\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFindCmd(&App{APIURL: srv.URL})
+	cmd.SetArgs([]string{
+		"source:cli deploy",
+		"--limit", "25",
+		"--offset", "10",
+		"--with-snippets",
+		"--explain",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !sawQuery {
+		t.Fatalf("expected /api/docs/pages to be requested")
+	}
+	if !sawPageFetch {
+		t.Fatalf("expected page markdown fetch for summary")
+	}
+}
+
 func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	t.Parallel()
 

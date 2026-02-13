@@ -35,6 +35,8 @@ type docsPagesQueryOptions struct {
 	Query        string
 	WithSnippets bool
 	Explain      bool
+	Limit        int
+	Offset       int
 }
 
 func newDocsSyncCmd(app *App) *cobra.Command {
@@ -78,7 +80,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 				Token:   app.Token,
 			}
 
-			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{})
+			pages, err := fetchDocsPages(ctx, client, docsPagesQueryOptions{Limit: -1})
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -118,6 +120,12 @@ func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryO
 	}
 	if opts.Explain {
 		query.Set("explain", "true")
+	}
+	if opts.Limit >= 0 {
+		query.Set("limit", fmt.Sprintf("%d", opts.Limit))
+	}
+	if opts.Offset > 0 {
+		query.Set("offset", fmt.Sprintf("%d", opts.Offset))
 	}
 
 	out, status, err := client.DoRootREST(ctx, http.MethodGet, "/api/docs/pages", query, nil)

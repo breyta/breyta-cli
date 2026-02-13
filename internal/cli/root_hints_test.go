@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -90,5 +92,52 @@ func TestWriteErrIncludesGuidance(t *testing.T) {
 	_ = writeErr(customCmd, errors.New("boom"))
 	if !strings.Contains(buf.String(), "Hint: run `breyta help flows create` for usage or `breyta docs find \"flows create\"` for docs.") {
 		t.Fatalf("direct writeErr missing hint:\n%s", buf.String())
+	}
+}
+
+func TestAPIErrorsIncludeGuidance(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error":{"message":"flow not found","hintRefs":[{"kind":"page","slug":"reference-cli-commands"},{"kind":"find","query":"flows show"}]}}`))
+	}))
+	defer srv.Close()
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{
+		"--dev",
+		"--api", srv.URL,
+		"--token", "dev-user",
+		"--workspace", "ws-acme",
+		"flows", "show", "missing-flow",
+	})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	stderr := errOut.String()
+	if !strings.Contains(stderr, "api error (status=400): flow not found") {
+		t.Fatalf("stderr missing api error details:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Docs: breyta docs show reference-cli-commands") {
+		t.Fatalf("stderr missing docs page hint:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Docs: breyta docs find \"flows show\"") {
+		t.Fatalf("stderr missing docs find hint:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Hint: run `breyta help flows show` for usage or `breyta docs find \"flows show\"` for docs.") {
+		t.Fatalf("stderr missing guidance hint:\n%s", stderr)
 	}
 }
