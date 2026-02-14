@@ -317,9 +317,16 @@ func ensureMeta(out map[string]any) map[string]any {
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
+	url := activationURL(app, flowSlug)
 	meta := ensureMeta(out)
 	if meta == nil {
 		return
+	}
+	if strings.TrimSpace(url) != "" {
+		meta["activationUrl"] = url
+		if _, exists := meta["webUrl"]; !exists {
+			meta["webUrl"] = url
+		}
 	}
 	if _, exists := meta["hint"]; !exists {
 		meta["hint"] = "Flow uses :requires slots. Apply bindings, then enable the profile: breyta flows bindings apply " + flowSlug + " @profile.edn; breyta flows activate " + flowSlug + " --version latest. Tip: prefer reusing existing workspace connections (list: breyta connections list; bind: <slot>.conn=conn-...)."
@@ -336,6 +343,9 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 		return
 	}
 	meta["draftBindingsUrl"] = url
+	if _, exists := meta["webUrl"]; !exists {
+		meta["webUrl"] = url
+	}
 	if _, exists := meta["hint"]; !exists {
 		meta["hint"] = "Draft runs need draft bindings. Set them here: " + url
 	}
@@ -564,6 +574,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 			}
 		}
 	}
+	enrichEnvelopeWebLinks(app, v)
 
 	_ = writeOut(cmd, app, v)
 
