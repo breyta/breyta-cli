@@ -81,15 +81,12 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 			if timeout <= 0 {
 				timeout = 90 * time.Second
 			}
-			ctx, cancel := withRequestTimeout(timeout)
-			defer cancel()
-
 			client := api.Client{
 				BaseURL: app.APIURL,
 				Token:   app.Token,
 			}
 
-			pages, err := fetchAllDocsPages(ctx, client, docsPagesQueryOptions{Limit: 100})
+			pages, err := fetchAllDocsPages(client, docsPagesQueryOptions{Limit: 100}, timeout)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -164,7 +161,7 @@ func fetchDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryO
 	}, nil
 }
 
-func fetchAllDocsPages(ctx context.Context, client api.Client, opts docsPagesQueryOptions) ([]docsPageMeta, error) {
+func fetchAllDocsPages(client api.Client, opts docsPagesQueryOptions, timeout time.Duration) ([]docsPageMeta, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 100
 	}
@@ -178,8 +175,10 @@ func fetchAllDocsPages(ctx context.Context, client api.Client, opts docsPagesQue
 
 	// Guard against server-side pagination bugs that never return an empty page.
 	for attempt := 0; attempt < 1000; attempt++ {
+		reqCtx, cancel := withRequestTimeout(timeout)
 		opts.Offset = offset
-		result, err := fetchDocsPages(ctx, client, opts)
+		result, err := fetchDocsPages(reqCtx, client, opts)
+		cancel()
 		if err != nil {
 			return nil, err
 		}
