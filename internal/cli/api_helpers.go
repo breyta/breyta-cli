@@ -308,7 +308,9 @@ func ensureMeta(out map[string]any) map[string]any {
 	}
 	if metaAny, ok := out["meta"]; ok {
 		if m, ok := metaAny.(map[string]any); ok {
-			return m
+			if m != nil {
+				return m
+			}
 		}
 	}
 	m := map[string]any{}
