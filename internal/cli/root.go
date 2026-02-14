@@ -68,6 +68,7 @@ func NewRootCmd() *cobra.Command {
 		configureVisibility(cmd, app)
 		configureFlagVisibility(cmd, app)
 		defaultHelp(c, args)
+		_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nHelp: %s\n", docsHintForCommand(c), helpHintForCommand(c))
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		// Parse-time: app.DevMode is set from flags/config. Hide dev-only controls unless explicitly enabled.
@@ -225,7 +226,8 @@ func NewRootCmd() *cobra.Command {
 		configureVisibility(cmd.Root(), app)
 
 		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
-		_ = skillsync.MaybeSyncInstalled(buildinfo.DisplayVersion())
+		// Run this asynchronously so command startup is never blocked by network issues.
+		skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
 
 		// Best-effort update check for JSON commands. Never blocks command execution.
 		if isSubcommand {
@@ -262,7 +264,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newDevCmd(app))
 	cmd.AddCommand(newRevenueCmd(app))
 	cmd.AddCommand(newDemandCmd(app))
-	cmd.AddCommand(newDocsCmd(cmd, app))
+	cmd.AddCommand(newDocsCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.AddCommand(newInternalCmd(app))
 
@@ -305,8 +307,59 @@ func writeOut(cmd *cobra.Command, app *App, v any) error {
 }
 
 func writeErr(cmd *cobra.Command, err error) error {
+	if cmd == nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		fmt.Fprintf(os.Stderr, "Hint: run `%s` for usage or `%s` for docs.\n", helpHintForCommand(nil), docsHintForCommand(nil))
+		return err
+	}
 	fmt.Fprintln(cmd.ErrOrStderr(), err.Error())
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Hint: run `%s` for usage or `%s` for docs.\n", helpHintForCommand(cmd), docsHintForCommand(cmd))
 	return err
+}
+
+func helpHintForCommand(cmd *cobra.Command) string {
+	if cmd == nil {
+		return "breyta help"
+	}
+	path := strings.TrimSpace(cmd.CommandPath())
+	if path == "" {
+		if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
+			path = strings.TrimSpace(root.Name())
+		} else {
+			path = "breyta"
+		}
+	}
+	rootName := "breyta"
+	if cmd.Root() != nil && strings.TrimSpace(cmd.Root().Name()) != "" {
+		rootName = strings.TrimSpace(cmd.Root().Name())
+	}
+	tail := strings.TrimSpace(strings.TrimPrefix(path, rootName))
+	if tail == "" {
+		return rootName + " help"
+	}
+	return strings.TrimSpace(rootName + " help " + tail)
+}
+
+func docsHintForCommand(cmd *cobra.Command) string {
+	rootName := "breyta"
+	if cmd != nil {
+		if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
+			rootName = strings.TrimSpace(root.Name())
+		}
+	}
+	if cmd == nil {
+		return rootName + " docs find \"<topic>\""
+	}
+
+	path := strings.TrimSpace(cmd.CommandPath())
+	if path == "" {
+		return rootName + " docs find \"<topic>\""
+	}
+	tail := strings.TrimSpace(strings.TrimPrefix(path, rootName))
+	if tail == "" || strings.HasPrefix(tail, "docs") {
+		return rootName + " docs find \"<topic>\""
+	}
+	return fmt.Sprintf("%s docs find %q", rootName, tail)
 }
 
 func must(err error) {

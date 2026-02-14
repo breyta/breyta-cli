@@ -72,8 +72,8 @@ type Model struct {
 	steps    list.Model
 	runSteps list.Model
 
-	flowsTable table.Model
-	runsTable  table.Model
+	flowsTable    table.Model
+	runsTable     table.Model
 	flowsAll      []*state.Flow
 	flowsPage     int
 	flowsPageSize int

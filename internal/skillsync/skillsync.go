@@ -1,14 +1,21 @@
 package skillsync
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/skills"
+)
+
+const (
+	syncRequestTimeout = 5 * time.Second
 )
 
 func enabled() bool {
@@ -67,12 +74,16 @@ func saveCache(c cacheFile) error {
 	return os.Rename(tmp, p)
 }
 
-func MaybeSyncInstalled(currentVersion string) error {
+func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 	if !enabled() {
 		return nil
 	}
 	currentVersion = strings.TrimSpace(currentVersion)
 	if currentVersion == "" || currentVersion == "dev" {
+		return nil
+	}
+	apiURL = strings.TrimSpace(apiURL)
+	if apiURL == "" {
 		return nil
 	}
 
@@ -100,8 +111,15 @@ func MaybeSyncInstalled(currentVersion string) error {
 		return nil
 	}
 
-	embeddedMD, err := skills.BreytaSkillMarkdown()
+	ctx, cancel := context.WithTimeout(context.Background(), syncRequestTimeout)
+	defer cancel()
+	httpClient := &http.Client{Timeout: syncRequestTimeout}
+	_, files, err := skilldocs.FetchBundle(ctx, httpClient, apiURL, token, skills.BreytaSkillSlug)
 	if err != nil {
+		return nil
+	}
+	desiredMain := files["SKILL.md"]
+	if len(desiredMain) == 0 {
 		return nil
 	}
 
@@ -111,8 +129,8 @@ func MaybeSyncInstalled(currentVersion string) error {
 		if err != nil {
 			continue
 		}
-		backup, backedUp := backupCopyIfModified(t.File, embeddedMD)
-		if _, err := skills.InstallBreytaSkill(home, p); err == nil {
+		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
+		if _, err := skills.InstallBreytaSkillFiles(home, p, files); err == nil {
 			anySynced = true
 		} else if backedUp {
 			// Best-effort rollback: restore the original file contents if the install failed.
@@ -125,6 +143,13 @@ func MaybeSyncInstalled(currentVersion string) error {
 		_ = saveCache(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
 	}
 	return nil
+}
+
+// MaybeSyncInstalledAsync performs best-effort sync without blocking command startup.
+func MaybeSyncInstalledAsync(currentVersion, apiURL, token string) {
+	go func() {
+		_ = MaybeSyncInstalled(currentVersion, apiURL, token)
+	}()
 }
 
 func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {

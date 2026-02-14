@@ -112,8 +112,8 @@ func TestApplyModal_WorkspaceDefault_PersistsConfig(t *testing.T) {
 	options := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	m := homeModel{
 		options: options,
-		apiURL:   configstore.DefaultProdAPIURL,
-		token:    "token",
+		apiURL:  configstore.DefaultProdAPIURL,
+		token:   "token",
 		workspaces: []meWorkspace{
 			{ID: "ws-1", Name: "Alpha"},
 			{ID: "ws-2", Name: "Beta"},

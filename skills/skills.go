@@ -1,17 +1,15 @@
 package skills
 
 import (
-	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
-
-//go:embed breyta/SKILL.md breyta/references/* breyta/references/steps/*
-var embedded embed.FS
 
 const BreytaSkillSlug = "breyta"
 
@@ -27,42 +25,6 @@ type InstallTarget struct {
 	Provider Provider
 	Dir      string
 	File     string
-}
-
-func BreytaSkillMarkdown() ([]byte, error) {
-	return embedded.ReadFile("breyta/SKILL.md")
-}
-
-func BreytaSkillDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/references")
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		// embed.FS always uses forward slashes, regardless of OS.
-		paths = append(paths, path.Join("breyta", "references", entry.Name()))
-	}
-	return paths, nil
-}
-
-func BreytaSkillStepDocs() ([]string, error) {
-	entries, err := embedded.ReadDir("breyta/references/steps")
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		// embed.FS always uses forward slashes, regardless of OS.
-		paths = append(paths, path.Join("breyta", "references", "steps", entry.Name()))
-	}
-	return paths, nil
 }
 
 func Target(homeDir string, provider Provider) (InstallTarget, error) {
@@ -92,40 +54,6 @@ func targetForProvider(homeDir string, provider Provider) InstallTarget {
 	}
 }
 
-func InstallBreytaSkill(homeDir string, provider Provider) ([]string, error) {
-	md, err := BreytaSkillMarkdown()
-	if err != nil {
-		return nil, err
-	}
-	docPaths, err := BreytaSkillDocs()
-	if err != nil {
-		return nil, err
-	}
-	stepPaths, err := BreytaSkillStepDocs()
-	if err != nil {
-		return nil, err
-	}
-
-	switch provider {
-	case ProviderCodex, ProviderCursor, ProviderClaude:
-		t := targetForProvider(homeDir, provider)
-		if err := installToTarget(md, t); err != nil {
-			return nil, err
-		}
-		written := []string{t.File}
-		if written, err = installDocsToTarget(docPaths, t, written); err != nil {
-			return nil, err
-		}
-		if written, err = installDocsToTarget(stepPaths, t, written); err != nil {
-			return nil, err
-		}
-		return written, nil
-
-	default:
-		return nil, fmt.Errorf("unknown provider %q (expected: codex|cursor|claude)", provider)
-	}
-}
-
 func installToTarget(content []byte, t InstallTarget) error {
 	if err := os.MkdirAll(t.Dir, 0o755); err != nil {
 		return err
@@ -134,21 +62,97 @@ func installToTarget(content []byte, t InstallTarget) error {
 	return os.WriteFile(t.File, content, 0o644)
 }
 
-func installDocsToTarget(paths []string, t InstallTarget, written []string) ([]string, error) {
-	for _, path := range paths {
-		content, err := embedded.ReadFile(path)
-		if err != nil {
-			return nil, err
+func sanitizeRelPath(rel string) (string, bool) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return "", false
+	}
+	if strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, "\\") {
+		return "", false
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	for strings.HasPrefix(rel, "./") {
+		rel = strings.TrimPrefix(rel, "./")
+	}
+	cleaned := path.Clean(rel)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		return "", false
+	}
+	if strings.HasPrefix(cleaned, "/") {
+		return "", false
+	}
+	// Reject Windows drive-qualified absolute paths like C:/...
+	if len(cleaned) >= 2 && cleaned[1] == ':' {
+		c := cleaned[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return "", false
 		}
-		rel := strings.TrimPrefix(path, "breyta/")
-		dest := filepath.Join(t.Dir, filepath.FromSlash(rel))
+	}
+	if strings.HasPrefix(cleaned, "//") {
+		return "", false
+	}
+	return cleaned, true
+}
+
+// InstallBreytaSkillFiles installs the breyta skill bundle from provided relative file contents.
+// Required key: "SKILL.md". Additional files are installed under the provider-specific skill directory.
+func InstallBreytaSkillFiles(homeDir string, provider Provider, files map[string][]byte) ([]string, error) {
+	t, err := Target(homeDir, provider)
+	if err != nil {
+		return nil, err
+	}
+	main, ok := files["SKILL.md"]
+	if !ok || len(main) == 0 {
+		return nil, errors.New("missing required skill file: SKILL.md")
+	}
+	if err := installToTarget(main, t); err != nil {
+		return nil, err
+	}
+	written := []string{t.File}
+
+	keys := make([]string, 0, len(files))
+	for rel := range files {
+		if rel == "SKILL.md" {
+			continue
+		}
+		keys = append(keys, rel)
+	}
+	sort.Strings(keys)
+
+	for _, rel := range keys {
+		safeRel, ok := sanitizeRelPath(rel)
+		if !ok {
+			return nil, fmt.Errorf("invalid skill file path %q", rel)
+		}
+		dest := filepath.Join(t.Dir, filepath.FromSlash(safeRel))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(dest, content, 0o644); err != nil {
+		if err := os.WriteFile(dest, files[rel], 0o644); err != nil {
 			return nil, err
 		}
 		written = append(written, dest)
 	}
 	return written, nil
+}
+
+type skillManifest struct {
+	Files []struct {
+		Path string `json:"path"`
+	} `json:"files"`
+}
+
+// ExtractManifestPaths extracts manifest file paths from a docs API manifest payload.
+func ExtractManifestPaths(manifestJSON []byte) ([]string, error) {
+	var payload struct {
+		Data skillManifest `json:"data"`
+	}
+	if err := json.Unmarshal(manifestJSON, &payload); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(payload.Data.Files))
+	for _, f := range payload.Data.Files {
+		out = append(out, f.Path)
+	}
+	return out, nil
 }

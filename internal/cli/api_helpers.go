@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -435,6 +436,94 @@ func extractRunPasteURL(out map[string]any) string {
 	return ""
 }
 
+func scalarString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case fmt.Stringer:
+		return strings.TrimSpace(t.String())
+	case json.Number:
+		return strings.TrimSpace(t.String())
+	case nil:
+		return ""
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", t))
+	}
+}
+
+func errorDocsHintLines(out map[string]any) []string {
+	if out == nil {
+		return nil
+	}
+	errAny, ok := out["error"]
+	if !ok {
+		return nil
+	}
+	errMap, ok := errAny.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	hintRefsAny, ok := errMap["hintRefs"]
+	if !ok {
+		hintRefsAny = errMap["hint-refs"]
+	}
+	refs, ok := hintRefsAny.([]any)
+	if !ok || len(refs) == 0 {
+		return nil
+	}
+
+	lines := make([]string, 0, len(refs))
+	seen := map[string]struct{}{}
+	for _, refAny := range refs {
+		ref, ok := refAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind := strings.ToLower(scalarString(ref["kind"]))
+		var line string
+		switch kind {
+		case "page":
+			slug := scalarString(ref["slug"])
+			if slug == "" {
+				continue
+			}
+			line = fmt.Sprintf("Docs: breyta docs show %s", slug)
+		case "find":
+			query := scalarString(ref["query"])
+			if query == "" {
+				continue
+			}
+			line = fmt.Sprintf("Docs: breyta docs find %q", query)
+		default:
+			continue
+		}
+		if _, exists := seen[line]; exists {
+			continue
+		}
+		seen[line] = struct{}{}
+		lines = append(lines, line)
+		if len(lines) >= 3 {
+			break
+		}
+	}
+	return lines
+}
+
+func writeErrorDocsHints(cmd *cobra.Command, out map[string]any) {
+	lines := errorDocsHintLines(out)
+	if len(lines) == 0 {
+		return
+	}
+	for _, line := range lines {
+		if cmd != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
+		} else {
+			_, _ = fmt.Fprintln(os.Stderr, line)
+		}
+	}
+}
+
 func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) error {
 	// Add progressive-disclosure hints for common auth/binding issues (best-effort).
 	// This keeps agent/human workflows on the “happy path” without requiring out-of-band docs.
@@ -480,10 +569,12 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 
 	// Determine exit code: non-2xx OR ok=false => exit non-zero.
 	if status >= 400 {
+		writeErrorDocsHints(cmd, v)
 		return fmt.Errorf("api error (status=%d): %s", status, formatAPIError(v))
 	}
 	if okAny, ok := v["ok"]; ok {
 		if okb, ok := okAny.(bool); ok && !okb {
+			writeErrorDocsHints(cmd, v)
 			// Surface the server-provided message if present.
 			if errAny, ok := v["error"]; ok {
 				if em, ok := errAny.(map[string]any); ok {
@@ -546,5 +637,8 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 		}
 	}
 
-	return writeAPIResult(cmd, app, out, status)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
 }

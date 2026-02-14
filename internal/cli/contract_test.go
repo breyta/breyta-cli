@@ -202,14 +202,14 @@ func TestContract_FormatFlagRejected(t *testing.T) {
 	}
 }
 
-func TestContract_DocsMarkdownOnDemand(t *testing.T) {
+func TestContract_DocsHelpSurface(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	stdout, _, err := runCLI(t, statePath, "docs", "runs", "list")
+	stdout, _, err := runCLI(t, statePath, "docs")
 	if err != nil {
 		t.Fatalf("docs failed: %v\n%s", err, stdout)
 	}
-	if !bytes.HasPrefix([]byte(stdout), []byte("## breyta runs list")) {
-		t.Fatalf("expected markdown docs header\n---\n%s", stdout)
+	if !bytes.Contains([]byte(stdout), []byte("find")) || !bytes.Contains([]byte(stdout), []byte("show")) || !bytes.Contains([]byte(stdout), []byte("sync")) {
+		t.Fatalf("expected docs help subcommands\n---\n%s", stdout)
 	}
 }
 
