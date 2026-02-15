@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/skills"
 	"github.com/spf13/cobra"
 )
@@ -61,10 +63,28 @@ breyta init --dir ./my-breyta-workspace --force
 			}
 
 			if !noSkill {
-				if _, err := skills.InstallBreytaSkill(home, p); err != nil {
-					return err
+				ensureAPIURL(app)
+				if strings.TrimSpace(app.APIURL) == "" {
+					if noWorkspace {
+						return errors.New("missing api base url (try `breyta auth login` first)")
+					}
+					fmt.Fprintln(cmd.ErrOrStderr(), "warning: missing api base url; skipped skill install (try `breyta auth login`, then `breyta skills install`)")
+				} else {
+					_, files, err := skilldocs.FetchBundle(context.Background(), nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
+					if err != nil {
+						if noWorkspace {
+							return err
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill bundle download failed (%v); continuing without skill install\n", err)
+					} else if _, err := skills.InstallBreytaSkillFiles(home, p, files); err != nil {
+						if noWorkspace {
+							return err
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill install failed (%v); continuing without skill install\n", err)
+					} else {
+						fmt.Fprintf(cmd.OutOrStdout(), "Installed Breyta agent skill bundle for %s in %s\n", target.Provider, target.Dir)
+					}
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Installed Breyta agent skill bundle for %s in %s\n", target.Provider, target.Dir)
 			}
 
 			if noWorkspace {
@@ -188,7 +208,7 @@ This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code,
 Many agent tools only read instructions from the active folder. This file (` + "`AGENTS.md`" + `) is the reliable source of truth.
 
 If the agent needs more detail about Breyta, use:
-` + "`breyta docs`" + ` (and ` + "`breyta docs <command...>`" + `).
+` + "`breyta docs`" + ` (then ` + "`breyta docs find <query>`" + ` / ` + "`breyta docs show <slug>`" + `).
 
 ## Optional: installed skill bundle (nice-to-have)
 Some agent tools can ingest a global skill bundle automatically, but not all do.
@@ -210,8 +230,9 @@ Suggested line to paste into your agent's persistent project instructions:
 6) Run and wait for output: ` + "`breyta runs start --flow <slug> --source latest --input '{\"n\":41}' --wait`" + `
 
 ## Docs for agents
-- On-demand CLI docs: ` + "`breyta docs`" + ` (for example: ` + "`breyta docs flows push`" + `)
-- Installed skill reference (recommended to keep up to date): ` + "`breyta skills install --provider <codex|cursor|claude>`" + `
+- Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
+- Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
+- Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude>`" + `
 
 ## Local development (optional)
 For local ` + "`flows-api`" + ` development you typically use dev mode + env vars:

@@ -2,8 +2,12 @@ package cli_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -22,7 +26,7 @@ func runInit(t *testing.T, homeDir string, args ...string) (string, string, erro
 	errOut := new(bytes.Buffer)
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs(append([]string{"init"}, args...))
+	cmd.SetArgs(args)
 
 	err := cmd.Execute()
 	return out.String(), errOut.String(), err
@@ -32,7 +36,32 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "breyta-workspace")
 
-	_, _, err := runInit(t, homeDir, "--provider", "codex", "--dir", wsDir)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "test",
+					"minCliVersion": "0.0.0",
+					"keyId":         "test",
+					"signature":     "",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			_, _ = w.Write([]byte("# Breyta Skill\n\nUse `breyta docs`.\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	_, _, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -52,8 +81,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
-	if _, err := os.Stat(skillPath); err != nil {
+	b, err := os.ReadFile(skillPath)
+	if err != nil {
 		t.Fatalf("expected skill file to exist: %s: %v", skillPath, err)
+	}
+	if !strings.Contains(string(b), "Breyta Skill") {
+		t.Fatalf("unexpected skill file content: %s", string(b))
 	}
 }
 
@@ -61,7 +94,7 @@ func TestInit_NoSkill_SkipsSkillInstall(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
 
-	_, _, err := runInit(t, homeDir, "--no-skill", "--provider", "codex", "--dir", wsDir)
+	_, _, err := runInit(t, homeDir, "init", "--no-skill", "--provider", "codex", "--dir", wsDir)
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -80,7 +113,32 @@ func TestInit_NoWorkspace_SkipsWorkspaceFiles(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
 
-	_, _, err := runInit(t, homeDir, "--no-workspace", "--provider", "codex", "--dir", wsDir)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "test",
+					"minCliVersion": "0.0.0",
+					"keyId":         "test",
+					"signature":     "",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			_, _ = w.Write([]byte("# Breyta Skill\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	_, _, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--no-workspace", "--provider", "codex", "--dir", wsDir)
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -98,7 +156,7 @@ func TestInit_NoWorkspace_SkipsWorkspaceFiles(t *testing.T) {
 func TestInit_NothingToDo_IsError(t *testing.T) {
 	homeDir := t.TempDir()
 
-	_, _, err := runInit(t, homeDir, "--no-skill", "--no-workspace")
+	_, _, err := runInit(t, homeDir, "init", "--no-skill", "--no-workspace")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
