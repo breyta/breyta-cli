@@ -22,9 +22,15 @@ func writeData(cmd *cobra.Command, app *App, meta map[string]any, data any) erro
 		"meta":        meta,
 		"data":        data,
 	}
-	// Avoid emitting empty meta.
-	if meta == nil {
+	enrichEnvelopeWebLinks(app, out)
+	// Avoid emitting empty meta while preserving any metadata added during enrichment.
+	switch m := out["meta"].(type) {
+	case nil:
 		delete(out, "meta")
+	case map[string]any:
+		if len(m) == 0 {
+			delete(out, "meta")
+		}
 	}
 	return writeOut(cmd, app, out)
 }
