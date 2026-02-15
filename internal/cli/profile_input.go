@@ -280,7 +280,10 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 			if field == "" {
 				return nil, fmt.Errorf("invalid --set %q (missing activation field)", raw)
 			}
-			val := parseSetValue(valRaw)
+			val, err := parseSetValue(valRaw)
+			if err != nil {
+				return nil, err
+			}
 			if isPlaceholder(val) {
 				continue
 			}
@@ -301,7 +304,10 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 			if headerName == "" {
 				return nil, fmt.Errorf("invalid --set %q (missing header name)", raw)
 			}
-			val := parseSetValue(valRaw)
+			val, err := parseSetValue(valRaw)
+			if err != nil {
+				return nil, err
+			}
 			if isPlaceholder(val) {
 				continue
 			}
@@ -318,7 +324,10 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("invalid --set %q (unknown field %q)", raw, field)
 		}
-		val := parseSetValue(valRaw)
+		val, err := parseSetValue(valRaw)
+		if err != nil {
+			return nil, err
+		}
 		if isPlaceholder(val) {
 			continue
 		}
@@ -327,18 +336,49 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 	return out, nil
 }
 
-func parseSetValue(raw string) any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+func parseSetValueFromContent(content string, trimOnStringReturn bool) any {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
 		return ""
 	}
-	if looksLikeJSONValue(raw) {
+	if looksLikeJSONValue(trimmed) {
 		var v any
-		if err := json.Unmarshal([]byte(raw), &v); err == nil {
+		if err := json.Unmarshal([]byte(trimmed), &v); err == nil {
 			return v
 		}
 	}
-	return raw
+	if trimOnStringReturn {
+		return trimmed
+	}
+	return content
+}
+
+func parseSetValue(raw string) (any, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	// Escape hatch for literal values that start with '@'.
+	// Example: --set foo.secret=@@not-a-file
+	if strings.HasPrefix(trimmed, "@@") {
+		return strings.TrimPrefix(trimmed, "@"), nil
+	}
+
+	// Read value from file: --set foo.secret=@/path/to/file
+	if strings.HasPrefix(trimmed, "@") {
+		path := strings.TrimSpace(strings.TrimPrefix(trimmed, "@"))
+		if path == "" {
+			return nil, errors.New("invalid --set value (missing @file path)")
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read --set file %q: %w", path, err)
+		}
+		return parseSetValueFromContent(string(b), false), nil
+	}
+
+	return parseSetValueFromContent(trimmed, true), nil
 }
 
 func looksLikeJSONValue(raw string) bool {

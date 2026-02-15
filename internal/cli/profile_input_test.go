@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -118,6 +120,37 @@ func TestParseSetAssignments(t *testing.T) {
 	}
 	if fmt.Sprint(out["form-batch-size"]) != "500" {
 		t.Fatalf("expected form-batch-size to be 500")
+	}
+}
+
+func TestParseSetAssignments_AllowsFileValues(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("line1\nline2\n"), 0o600); err != nil {
+		t.Fatalf("write temp secret file: %v", err)
+	}
+	items := []string{
+		"webhook-secret.secret=@" + secretPath,
+	}
+	out, err := parseSetAssignments(items)
+	if err != nil {
+		t.Fatalf("parseSetAssignments failed: %v", err)
+	}
+	if out["secret-webhook-secret"] != "line1\nline2\n" {
+		t.Fatalf("expected secret-webhook-secret to match file content, got %#v", out["secret-webhook-secret"])
+	}
+}
+
+func TestParseSetAssignments_AllowsEscapedAt(t *testing.T) {
+	items := []string{
+		"webhook-secret.secret=@@not-a-file",
+	}
+	out, err := parseSetAssignments(items)
+	if err != nil {
+		t.Fatalf("parseSetAssignments failed: %v", err)
+	}
+	if out["secret-webhook-secret"] != "@not-a-file" {
+		t.Fatalf("expected secret-webhook-secret to be literal @not-a-file, got %#v", out["secret-webhook-secret"])
 	}
 }
 func TestBuildProfileTemplate_FromRequirements(t *testing.T) {
