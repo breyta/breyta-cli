@@ -1,6 +1,7 @@
-## Breyta CLI docs
+## Breyta CLI contributor docs
 
-These pages explain how to install and use the `breyta` CLI, plus local development and agent tooling.
+These local pages cover install/setup/development for this repository.
+For product command docs, use `breyta docs find ...` and `breyta docs show ...` (served by flows-api).
 
 - Install: `install.md`
 - Local flows authoring (flows-api, dev): `flows-api-local.md`

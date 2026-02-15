@@ -37,7 +37,7 @@ Determinism and orchestration constraints are documented in:
 ## Agent-first design
 
 - **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
-- **On-demand docs:** `breyta docs` provides Markdown command docs that agent tools can ingest directly.
+- **On-demand docs:** `breyta docs` fetches Markdown docs from the flows-api docs service (`/api/docs/...`) so agent tools can ingest them directly.
 - **Agent tooling:** this repo includes a skill bundle at `skills/breyta/SKILL.md` (install instructions in `docs/agentic-chat.md`).
 
 ### Recommended: set up your agent via the TUI
@@ -128,6 +128,8 @@ Environment/setup details: `docs/agentic-chat.md`.
 
 ## Docs
 
+- Product/command docs are served by flows-api and accessed via `breyta docs find ...` / `breyta docs show ...`.
+- This repo's local `docs/` directory contains contributor setup and development notes:
 - Docs index: `docs/index.md`
 - Install: `docs/install.md`
 - Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
