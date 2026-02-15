@@ -101,22 +101,14 @@ Verify:
 breyta --help
 ```
 
-### Check for updates / upgrade
+### Next: agent-first setup
+
+If you’re using Breyta with a coding agent (Codex, Cursor, Claude Code, etc.), run:
 
 ```bash
-breyta upgrade
-```
-
-If installed via Homebrew, apply upgrade directly:
-
-```bash
-breyta upgrade --apply
-```
-
-Open the latest GitHub release page:
-
-```bash
-breyta upgrade --open
+breyta init --provider <codex|cursor|claude>
+breyta auth login
+breyta flows list
 ```
 
 ### Option D: build a local binary (Go required)

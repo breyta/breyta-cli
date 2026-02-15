@@ -94,10 +94,18 @@ breyta upgrade --open
 After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
 
 ```bash
+breyta init --provider <codex|cursor|claude>
+```
+
+This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
+
+If you only want the skill bundle (no workspace files), use:
+
+```bash
 breyta skills install --provider <codex|cursor|claude>
 ```
 
-Examples:
+Examples (skill-only):
 
 ```bash
 # Codex
@@ -117,6 +125,7 @@ More details (including troubleshooting): `docs/install.md`.
 Hosted Breyta:
 
 ```bash
+breyta init --provider <codex|cursor|claude>
 breyta auth login
 breyta flows list
 ```

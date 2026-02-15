@@ -1,0 +1,105 @@
+package cli_test
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/breyta/breyta-cli/internal/cli"
+)
+
+func runInit(t *testing.T, homeDir string, args ...string) (string, string, error) {
+	t.Helper()
+
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	cmd := cli.NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(append([]string{"init"}, args...))
+
+	err := cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "breyta-workspace")
+
+	_, _, err := runInit(t, homeDir, "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+
+	// Workspace layout
+	for _, p := range []string{
+		filepath.Join(wsDir, "AGENTS.md"),
+		filepath.Join(wsDir, "README.md"),
+		filepath.Join(wsDir, ".gitignore"),
+		filepath.Join(wsDir, "flows"),
+		filepath.Join(wsDir, "tmp", "flows"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected %s to exist: %v", p, err)
+		}
+	}
+
+	// Skill install (Codex)
+	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatalf("expected skill file to exist: %s: %v", skillPath, err)
+	}
+}
+
+func TestInit_NoSkill_SkipsSkillInstall(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+
+	_, _, err := runInit(t, homeDir, "--no-skill", "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(wsDir, "AGENTS.md")); err != nil {
+		t.Fatalf("expected workspace AGENTS.md to exist: %v", err)
+	}
+
+	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err == nil {
+		t.Fatalf("expected skill file to not exist, but found: %s", skillPath)
+	}
+}
+
+func TestInit_NoWorkspace_SkipsWorkspaceFiles(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+
+	_, _, err := runInit(t, homeDir, "--no-workspace", "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+
+	if _, err := os.Stat(wsDir); err == nil {
+		t.Fatalf("expected workspace dir to not be created: %s", wsDir)
+	}
+
+	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatalf("expected skill file to exist: %s: %v", skillPath, err)
+	}
+}
+
+func TestInit_NothingToDo_IsError(t *testing.T) {
+	homeDir := t.TempDir()
+
+	_, _, err := runInit(t, homeDir, "--no-skill", "--no-workspace")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}

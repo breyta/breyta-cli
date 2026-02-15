@@ -2,6 +2,7 @@
 
 These pages explain how to install and use the `breyta` CLI, plus local development and agent tooling.
 
+- Onboarding (agent-first): `onboarding.md`
 - Install: `install.md`
 - Local flows authoring (flows-api, dev): `flows-api-local.md`
 - Flow output artifacts (viewers): `flow-output-artifacts.md`

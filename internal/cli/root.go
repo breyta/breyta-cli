@@ -255,6 +255,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newAPICmd(app))
 	cmd.AddCommand(newWorkspacesCmd(app))
 	cmd.AddCommand(newSkillsCmd(app))
+	cmd.AddCommand(newInitCmd(app))
 	cmd.AddCommand(newDevCmd(app))
 	cmd.AddCommand(newRevenueCmd(app))
 	cmd.AddCommand(newDemandCmd(app))

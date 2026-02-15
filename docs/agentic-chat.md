@@ -71,6 +71,7 @@ Many tools don’t automatically ingest Anthropic skill bundles.
 Use this approach instead:
 1) ensure `breyta` is installed and on PATH (see `docs/install.md`)
 2) ensure `flows-api` is running (see `docs/flows-api-local.md`)
+   - Tip: for hosted onboarding (no local `flows-api`), use `breyta init --provider <codex|cursor|claude>` and `breyta auth login` instead
 3) paste the snippet below into whatever place your tool uses for project instructions / system prompt / agent guidelines.
 
 #### Cursor IDE sandboxing
