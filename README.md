@@ -1,10 +1,10 @@
 # Breyta CLI (`breyta`)
 
-This repo contains the `breyta` command-line interface (CLI) and terminal UI (TUI) for working with Breyta workflows.
+This repo contains the `breyta` command-line interface (CLI) for working with Breyta workflows.
 
 The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, and **Cursor** (and also works great for humans in a terminal).
 
-- `breyta` opens the interactive TUI.
+- `breyta` shows help.
 - `breyta <command>` runs a scriptable CLI command (JSON).
 
 ## What is Breyta?
@@ -18,7 +18,7 @@ With Breyta, you can:
 - Run flows from apps, webhooks, and schedules with clear run history and outputs
 - Give AI agents a deterministic, scriptable way to create and operate workflows through the CLI
 
-This CLI/TUI is the main interface for flow authoring and operations:
+This CLI is the main interface for flow authoring and operations:
 
 - Browse workflows ("flows"), versions, and runs
 - Start runs and inspect results
@@ -40,24 +40,22 @@ Determinism and orchestration constraints are documented in:
 - **On-demand docs:** `breyta docs` provides Markdown command docs that agent tools can ingest directly.
 - **Agent tooling:** this repo includes a skill bundle at `skills/breyta/SKILL.md` (install instructions in `docs/agentic-chat.md`).
 
-### Recommended: set up your agent via the TUI
+### Recommended: set up your agent via CLI
 
-The easiest setup flow is to use the TUI to:
+Use the CLI setup flow to:
 
 - **Log in** (so the CLI can authenticate to the API)
 - **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code)
-- **Browse flows and runs** (the TUI is a great “truth surface” for what your agent created)
+- **Set your default workspace** for subsequent commands
 
-Start the TUI:
+Run:
 
 ```bash
-breyta
+breyta auth login
+breyta skills install --provider <codex|cursor|claude>
+breyta workspaces list
+breyta workspaces use <workspace-id>
 ```
-
-Then use:
-
-- **Auth** (press `a`) to log in
-- **Skills** (press `s`) to install the skill bundle
 
 ## Install
 
@@ -73,6 +71,24 @@ Verify install:
 
 ```bash
 breyta --version
+```
+
+Check for updates:
+
+```bash
+breyta upgrade
+```
+
+Upgrade in one command (Homebrew installs):
+
+```bash
+breyta upgrade --apply
+```
+
+Or open the latest release page:
+
+```bash
+breyta upgrade --open
 ```
 
 After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
@@ -93,8 +109,6 @@ breyta skills install --provider cursor
 # Claude Code
 breyta skills install --provider claude
 ```
-
-You can also do this from the TUI: `breyta` then press `s` (Agent skills).
 
 More details (including troubleshooting): `docs/install.md`.
 

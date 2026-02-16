@@ -61,9 +61,8 @@ mkdir -p ~/.claude/skills/breyta
 rsync -a breyta-cli/skills/breyta/ ~/.claude/skills/breyta/
 ```
 
-You can also install it directly from the CLI/TUI:
-- TUI: press `s` → pick an install target
-- CLI: `breyta skills install --provider claude`
+Install via CLI:
+- `breyta skills install --provider claude`
 
 ### Cursor / Codex / “generic agent”
 
@@ -115,6 +114,8 @@ To run a flow and see output:
 - read output at: data.run.resultPreview.data.result
 
 Notes for agents:
+- Successful and error envelopes may include `meta.update` when a newer CLI is available; use this to prompt users.
+- Upgrade commands: `breyta upgrade` (check), `breyta upgrade --apply` (Homebrew), `breyta upgrade --open` (release page).
 - If a flow declares `:requires` slots, it needs bindings + activation (use `breyta flows bindings apply <slug> @profile.edn`, then `breyta flows activate <slug> --version latest`).
 - Draft preview runs use draft bindings: `http://localhost:8090/<workspace>/flows/<slug>/draft-bindings` (or `breyta flows draft-bindings-url <slug>`), then run with `breyta runs start --flow <slug> --source draft`.
 - Do not run `flows bindings template` or `flows draft bindings template` after a failed `flows push`.

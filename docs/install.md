@@ -101,6 +101,24 @@ Verify:
 breyta --help
 ```
 
+### Check for updates / upgrade
+
+```bash
+breyta upgrade
+```
+
+If installed via Homebrew, apply upgrade directly:
+
+```bash
+breyta upgrade --apply
+```
+
+Open the latest GitHub release page:
+
+```bash
+breyta upgrade --open
+```
+
 ### Option D: build a local binary (Go required)
 
 This builds a binary into `breyta-cli/dist/` and runs it from that folder (useful if you don’t want to touch PATH).
