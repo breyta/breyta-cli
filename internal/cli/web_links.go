@@ -214,9 +214,6 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 			return u
 		}
 	}
-	if u := flowWebURL(base, parentFlowSlug); u != "" {
-		return u
-	}
 	if connID := extractConnectionID(data); connID != "" {
 		return connectionEditWebURL(base, connID)
 	}
@@ -230,15 +227,20 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 	if first == nil {
 		return ""
 	}
-	if u, _ := first["webUrl"].(string); strings.TrimSpace(u) != "" {
-		return strings.TrimSpace(u)
-	}
-
 	if extractRunID(first) != "" && extractFlowSlug(first) != "" {
 		if parentFlowSlug != "" {
 			return flowRunsWebURL(base, parentFlowSlug)
 		}
 		return runsWebURL(base)
+	}
+	if extractProfileID(first) != "" {
+		if parentFlowSlug != "" {
+			return flowInstallationsWebURL(base, parentFlowSlug)
+		}
+		return installationsWebURL(base)
+	}
+	if extractConnectionID(first) != "" {
+		return connectionsWebURL(base)
 	}
 	if extractFlowSlug(first) != "" {
 		if parentFlowSlug != "" {
@@ -246,14 +248,11 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 		}
 		return flowsWebURL(base)
 	}
-	if extractConnectionID(first) != "" {
-		return connectionsWebURL(base)
+	if u, _ := first["webUrl"].(string); strings.TrimSpace(u) != "" {
+		return strings.TrimSpace(u)
 	}
-	if extractProfileID(first) != "" {
-		if parentFlowSlug != "" {
-			return flowInstallationsWebURL(base, parentFlowSlug)
-		}
-		return installationsWebURL(base)
+	if u := flowWebURL(base, parentFlowSlug); u != "" {
+		return u
 	}
 	return ""
 }
