@@ -17,7 +17,7 @@ func newFlowsConfigureCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Configure bindings/activation inputs for the workspace default run target.
 
-This is the canonical replacement for draft-binding setup in the happy path.
+This is the canonical command for workspace-default flow configuration.
 Use "--scope live" to configure the workspace live target.
 Use "flows install configure" when you need installation-specific configuration.
 `),
@@ -56,10 +56,10 @@ Use "flows install configure" when you need installation-specific configuration.
 				}
 				// Canonical configure targets workspace-default profile semantics.
 				if !scopeChanged && payload.ProfileType != "" && payload.ProfileType != "draft" {
-					return writeErr(cmd, errors.New("profile.type must be draft for flows configure"))
+					return writeErr(cmd, errors.New("profile.type is not supported for default configure target"))
 				}
 				if scopeChanged && payload.ProfileType == "draft" {
-					return writeErr(cmd, errors.New("profile.type draft is not valid with --scope live"))
+					return writeErr(cmd, errors.New("profile.type is not supported with --scope live"))
 				}
 				body["inputs"] = payload.Inputs
 			}

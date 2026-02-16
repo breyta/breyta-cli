@@ -15,9 +15,10 @@ type liveProfileTarget struct {
 	ProfileID string
 	Version   int
 	UpdatedAt time.Time
+	Enabled   bool
 }
 
-func resolveLiveProfileTarget(app *App, flowSlug string) (*liveProfileTarget, error) {
+func resolveLiveProfileTarget(app *App, flowSlug string, includeDisabled bool) (*liveProfileTarget, error) {
 	slug := strings.TrimSpace(flowSlug)
 	if slug == "" {
 		return nil, fmt.Errorf("missing flow slug")
@@ -27,7 +28,9 @@ func resolveLiveProfileTarget(app *App, flowSlug string) (*liveProfileTarget, er
 	q := url.Values{}
 	q.Set("flow-slug", slug)
 	q.Set("profile-type", "prod")
-	q.Set("enabled", "true")
+	if !includeDisabled {
+		q.Set("enabled", "true")
+	}
 	q.Set("limit", "200")
 
 	outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/flow-profiles", q, nil)
@@ -56,15 +59,33 @@ func resolveLiveProfileTarget(app *App, flowSlug string) (*liveProfileTarget, er
 		if version <= 0 {
 			continue
 		}
+		enabled := anyBoolWithDefault(item["enabled"], true)
+		if !includeDisabled && !enabled {
+			continue
+		}
 		candidates = append(candidates, liveProfileTarget{
 			ProfileID: profileID,
 			Version:   version,
 			UpdatedAt: parseUpdatedAt(item["updated-at"], item["updatedAt"]),
+			Enabled:   enabled,
 		})
 	}
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("live scope is not configured for %s (run `breyta flows install promote %s --scope live` or `breyta flows configure %s --scope live --set <slot>.conn=...`)", slug, slug, slug)
 	}
+
+	if includeDisabled {
+		enabledCandidates := make([]liveProfileTarget, 0, len(candidates))
+		for _, c := range candidates {
+			if c.Enabled {
+				enabledCandidates = append(enabledCandidates, c)
+			}
+		}
+		if len(enabledCandidates) > 0 {
+			candidates = enabledCandidates
+		}
+	}
+
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].UpdatedAt.Equal(candidates[j].UpdatedAt) {
 			return candidates[i].ProfileID > candidates[j].ProfileID
@@ -161,6 +182,32 @@ func anyInt(v any) int {
 		}
 	}
 	return 0
+}
+
+func anyBoolWithDefault(v any, defaultValue bool) bool {
+	switch t := v.(type) {
+	case nil:
+		return defaultValue
+	case bool:
+		return t
+	case string:
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "true", "1", "yes", "y", "on":
+			return true
+		case "false", "0", "no", "n", "off":
+			return false
+		default:
+			return defaultValue
+		}
+	case float64:
+		return t != 0
+	case int:
+		return t != 0
+	case int64:
+		return t != 0
+	default:
+		return defaultValue
+	}
 }
 
 func valueFromMap(m map[string]any, key string) any {

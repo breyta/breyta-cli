@@ -352,7 +352,7 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|draft|latest)")
+	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")

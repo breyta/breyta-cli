@@ -531,7 +531,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 				if cmd.Flags().Changed("source") || version > 0 {
 					return writeErr(cmd, errors.New("--scope cannot be combined with --source or --version"))
 				}
-				target, err := resolveLiveProfileTarget(app, args[0])
+				target, err := resolveLiveProfileTarget(app, args[0], true)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -549,7 +549,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 				source = "current"
 			}
 			if source != "current" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current or latest)", source))
 			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
@@ -611,7 +611,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
-	cmd.Flags().StringVar(&source, "source", "current", "Fetch source for API mode (current|latest|draft; active is deprecated alias)")
+	cmd.Flags().StringVar(&source, "source", "current", "Fetch source for API mode (current|latest; active is deprecated alias)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
@@ -711,12 +711,12 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				source = "current"
 			}
 			if source != "current" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current or latest)", source))
 			}
 
 			payload := map[string]any{"flowSlug": slug}
 			if scopeChanged {
-				target, err := resolveLiveProfileTarget(app, slug)
+				target, err := resolveLiveProfileTarget(app, slug, true)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -767,7 +767,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
-	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest|draft; active is deprecated alias)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest; active is deprecated alias)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
@@ -1536,12 +1536,12 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 				source = "current"
 			}
 			if source != "current" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current or latest)", source))
 			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if scopeChanged {
-					target, err := resolveLiveProfileTarget(app, args[0])
+					target, err := resolveLiveProfileTarget(app, args[0], true)
 					if err != nil {
 						return writeErr(cmd, err)
 					}
@@ -1587,7 +1587,7 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "current", "Source (current|draft|latest; active is deprecated alias)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest; active is deprecated alias)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	return cmd
 }
@@ -1609,7 +1609,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 				source = "current"
 			}
 			if source != "current" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current or latest)", source))
 			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
@@ -1641,7 +1641,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest|draft; active is deprecated alias)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest; active is deprecated alias)")
 	return cmd
 }
 
@@ -1787,7 +1787,7 @@ func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string
 		}
 		return latest.Flow, "latest", latest.Version, nil
 	default:
-		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q (expected current, latest, draft)", source)
+		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q (expected current or latest)", source)
 	}
 }
 

@@ -59,6 +59,7 @@ func newWebhooksCmd(app *App) *cobra.Command {
 func newWebhooksSendCmd(app *App) *cobra.Command {
 	var eventPathRaw string
 	var baseURLOverride string
+	var current bool
 	var draft bool
 	var jsonPayload string
 	var jsonFile string
@@ -103,7 +104,9 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				return writeFailure(cmd, app, "missing_workspace", errors.New("missing workspace id"), "Provide --workspace or set BREYTA_WORKSPACE.", nil)
 			}
 
-			if draft {
+			useCurrent := current || draft
+
+			if useCurrent {
 				if err := requireAPI(app); err != nil {
 					return writeFailure(cmd, app, "api_auth_required", err, "Provide --token or run `breyta auth login`.", nil)
 				}
@@ -165,8 +168,8 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 			}
 
 			endpoint := ""
-			if draft {
-				endpoint = fmt.Sprintf("/api/events/draft/%s", eventPath)
+			if useCurrent {
+				endpoint = fmt.Sprintf("/api/events/current/%s", eventPath)
 			} else {
 				endpoint = fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
 			}
@@ -186,9 +189,6 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				if persistResources {
 					validateQuery.Set("persist-resources", "true")
 				}
-				if draft {
-					validateQuery.Set("draft", "true")
-				}
 				validateEndpoint := fmt.Sprintf("/api/events/validate/%s", eventPath)
 				validateURL := fmt.Sprintf("%s%s", baseURL, validateEndpoint)
 				client := apiClient(app)
@@ -202,7 +202,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 			client := apiClient(app)
 			client.BaseURL = baseURL
-			if !draft {
+			if !useCurrent {
 				client.Token = ""
 			}
 			out, status, err := client.DoRootRESTBytes(context.Background(), http.MethodPost, endpoint, query, payload.Body, headers)
@@ -238,7 +238,10 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&eventPathRaw, "path", "", "Webhook path (no workspace prefix)")
 	cmd.Flags().StringVar(&baseURLOverride, "base-url", "", "API base URL (default: BREYTA_API_URL or config)")
-	cmd.Flags().BoolVar(&draft, "draft", false, "Send to draft endpoint (/api/events/draft)")
+	cmd.Flags().BoolVar(&current, "current", false, "Send to current endpoint (/api/events/current)")
+	// Backwards compatibility alias. Keep hidden from help.
+	cmd.Flags().BoolVar(&draft, "draft", false, "Internal hidden flag")
+	_ = cmd.Flags().MarkHidden("draft")
 
 	cmd.Flags().StringVar(&jsonPayload, "json", "", "JSON payload string")
 	cmd.Flags().StringVar(&jsonFile, "json-file", "", "JSON payload file path")

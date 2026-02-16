@@ -783,7 +783,7 @@ func TestFlowsValidate_ScopeLive_UsesResolvedVersion(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
-					{"profile-id": "prof-live", "version": 9, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
+					{"profile-id": "prof-live", "version": 9, "enabled": false, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
 				},
 			})
 		case "/api/commands":
@@ -885,7 +885,7 @@ func TestFlowsShow_ScopeLive_UsesResolvedVersion(t *testing.T) {
 			step++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
-					{"profile-id": "prof-live", "version": 11, "enabled": true, "updated-at": "2026-02-16T20:05:00Z", "config": map[string]any{"install-scope": "live"}},
+					{"profile-id": "prof-live", "version": 11, "enabled": false, "updated-at": "2026-02-16T20:05:00Z", "config": map[string]any{"install-scope": "live"}},
 				},
 			})
 		case "/api/commands":
@@ -946,7 +946,7 @@ func TestFlowsPull_ScopeLive_UsesResolvedVersion(t *testing.T) {
 			step++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
-					{"profile-id": "prof-live", "version": 13, "enabled": true, "updated-at": "2026-02-16T20:10:00Z", "config": map[string]any{"install-scope": "live"}},
+					{"profile-id": "prof-live", "version": 13, "enabled": false, "updated-at": "2026-02-16T20:10:00Z", "config": map[string]any{"install-scope": "live"}},
 				},
 			})
 		case "/api/commands":
