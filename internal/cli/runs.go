@@ -48,6 +48,7 @@ func workflowIDFromRunData(data map[string]any) string {
 
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
+	var installationID string
 	var profileID string
 	var status string
 	var limit int
@@ -66,8 +67,13 @@ func newRunsListCmd(app *App) *cobra.Command {
 				if strings.TrimSpace(flow) != "" {
 					payload["flowSlug"] = strings.TrimSpace(flow)
 				}
-				if strings.TrimSpace(profileID) != "" {
-					payload["profileId"] = strings.TrimSpace(profileID)
+				effectiveInstallationID := strings.TrimSpace(installationID)
+				legacyProfileID := strings.TrimSpace(profileID)
+				if effectiveInstallationID == "" {
+					effectiveInstallationID = legacyProfileID
+				}
+				if effectiveInstallationID != "" {
+					payload["profileId"] = effectiveInstallationID
 				}
 				if strings.TrimSpace(status) != "" {
 					payload["status"] = strings.TrimSpace(status)
@@ -139,7 +145,9 @@ func newRunsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Filter by profile id (API mode only)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Filter by installation id (API mode only)")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
@@ -195,6 +203,7 @@ To access run resources, use the resources command:
 
 func newRunsStartCmd(app *App) *cobra.Command {
 	var flow string
+	var installationID string
 	var profileID string
 	var version int
 	var source string
@@ -204,7 +213,15 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start a new run",
+		Short: "Advanced/legacy: start a new run",
+		Long: strings.TrimSpace(`
+Legacy compatibility command.
+
+Prefer:
+- breyta flows run <flow-slug> [--input '{...}'] [--wait]
+
+Use runs start only when integrating with older scripts.
+`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				if err := requireAPI(app); err != nil {
@@ -214,13 +231,18 @@ func newRunsStartCmd(app *App) *cobra.Command {
 				if version > 0 {
 					payload["version"] = version
 				}
-				if strings.TrimSpace(profileID) != "" {
-					payload["profileId"] = strings.TrimSpace(profileID)
+				effectiveInstallationID := strings.TrimSpace(installationID)
+				legacyProfileID := strings.TrimSpace(profileID)
+				if effectiveInstallationID == "" {
+					effectiveInstallationID = legacyProfileID
+				}
+				if effectiveInstallationID != "" {
+					payload["profileId"] = effectiveInstallationID
 				}
 				if strings.TrimSpace(source) != "" && source != "active" {
 					payload["source"] = source
 				}
-				if strings.TrimSpace(profileID) == "" && strings.TrimSpace(source) == "" && app.DevMode {
+				if effectiveInstallationID == "" && strings.TrimSpace(source) == "" && app.DevMode {
 					if runConfigID := loadRunConfigID(app); strings.TrimSpace(runConfigID) != "" {
 						payload["profileId"] = strings.TrimSpace(runConfigID)
 					}
@@ -326,7 +348,9 @@ func newRunsStartCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Flow slug")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Profile id (instance) to run under (API mode only)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to run under (API mode only)")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
 	cmd.Flags().StringVar(&source, "source", "active", "Source (active|draft|latest)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
@@ -334,6 +358,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
 	must(cmd.MarkFlagRequired("flow"))
+	cmd.Hidden = true
 	return cmd
 }
 
@@ -645,7 +670,7 @@ func newRunsRetryCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta runs start` to re-run in API mode).")
+				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta flows run <flow-slug>` to re-run in API mode).")
 			}
 			st, store, err := appStore(app)
 			if err != nil {

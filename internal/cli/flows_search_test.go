@@ -31,7 +31,7 @@ func TestFlowsSearch_BuildsPayload(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"stripe", "--scope", "workspace", "--provider", "stripe", "--limit", "5", "--from", "10", "--full=true"})
+	cmd.SetArgs([]string{"stripe", "--catalog-scope", "workspace", "--provider", "stripe", "--limit", "5", "--from", "10", "--full=true"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())

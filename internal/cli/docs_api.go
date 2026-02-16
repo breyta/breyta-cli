@@ -43,11 +43,11 @@ func newDocsFindCmd(app *App) *cobra.Command {
 		Short: "Find docs pages",
 		Long: "Find docs pages from the API.\n\n" +
 			"Query supports plain terms and Lucene-style expressions when available on the server,\n" +
-			"for example: `source:cli deploy`, `\"flow deploy\"`, `bindings -oauth`.",
+			"for example: `source:cli release`, `\"flow release\"`, `bindings -oauth`.",
 		Example: strings.TrimSpace(`
 breyta docs find "flows push"
-breyta docs find "source:cli deploy"
-breyta docs find "\"end-user\" AND source:flows-api" --format json
+breyta docs find "source:cli release"
+breyta docs find "\"live\" AND source:flows-api" --format json
 `),
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

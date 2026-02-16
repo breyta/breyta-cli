@@ -60,6 +60,104 @@ func TestHelpOutputIncludesDocsHint(t *testing.T) {
 	}
 }
 
+func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	for _, hiddenCmd := range []string{"\n  activate", "\n  deploy", "\n  draft", "\n  installations"} {
+		if strings.Contains(help, hiddenCmd) {
+			t.Fatalf("flows help leaked legacy command %q:\n%s", strings.TrimSpace(hiddenCmd), help)
+		}
+	}
+	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  install") {
+		t.Fatalf("flows help missing canonical lifecycle commands:\n%s", help)
+	}
+}
+
+func TestInstallHelpOmitsLegacyAliasesButLegacyCommandWorks(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "install", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute install help: %v\nstderr:\n%s", err, errOut.String())
+	}
+	help := out.String()
+	if strings.Contains(help, "Aliases:") {
+		t.Fatalf("install help should not advertise legacy aliases:\n%s", help)
+	}
+
+	legacy := NewRootCmd()
+	legacyOut := new(bytes.Buffer)
+	legacyErr := new(bytes.Buffer)
+	legacy.SetOut(legacyOut)
+	legacy.SetErr(legacyErr)
+	legacy.SetArgs([]string{"flows", "installations", "--help"})
+	if err := legacy.Execute(); err != nil {
+		t.Fatalf("execute legacy install help: %v\nstderr:\n%s", err, legacyErr.String())
+	}
+	if !strings.Contains(legacyOut.String(), "breyta flows installations [command]") {
+		t.Fatalf("legacy installations command should remain executable:\n%s", legacyOut.String())
+	}
+}
+
+func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "run", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows run help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "Default:") {
+		t.Fatalf("flows run help missing default section:\n%s", help)
+	}
+	if !strings.Contains(help, "Advanced targeting:") {
+		t.Fatalf("flows run help missing advanced section:\n%s", help)
+	}
+	if !strings.Contains(help, "Advanced: installation scope override") {
+		t.Fatalf("flows run help missing advanced scope flag guidance:\n%s", help)
+	}
+}
+
+func TestInstallPromoteHelpIsMarkedAdvanced(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "install", "promote", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows install promote help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "Advanced rollout command.") {
+		t.Fatalf("flows install promote help missing advanced rollout description:\n%s", help)
+	}
+	if !strings.Contains(help, "Default path:") {
+		t.Fatalf("flows install promote help missing default path context:\n%s", help)
+	}
+}
+
 func TestWriteErrIncludesGuidance(t *testing.T) {
 	root := NewRootCmd()
 	out := new(bytes.Buffer)

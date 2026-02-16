@@ -37,20 +37,30 @@ func newFlowsCmd(app *App) *cobra.Command {
 Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
-3) push -> creates a new draft version
-4) deploy -> promotes latest version to active
+3) push -> updates working copy (and validates by default)
+4) release -> publishes an immutable version and promotes live install in current workspace
+5) run -> verifies behavior in your workspace
+
+Optional explicit check:
+- validate -> checks working copy on demand (useful for CI/debug)
+
+Advanced rollout workflow (optional):
+- release -> publishes immutable version + live install promotion in current workspace
+- install promote/configure -> controls scoped runtime targets (live)
 
 Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
-- breyta flows deploy <slug>
+- breyta flows configure <slug> --set api.conn=conn-...
+- breyta flows release <slug>
+- breyta flows run <slug> --wait
 
 Flow file format (minimal):
 {:slug :my-flow
  :name "My Flow"
  :description "..."
- :tags ["draft"]
+ :tags ["example"]
  :concurrency {:type :singleton :on-new-version :supersede}
  :requires nil
  :templates nil
@@ -63,14 +73,13 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
-- If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
 
-Bindings (credentials for :requires):
-- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), apply bindings once, then activate the profile.
-- Generate a template: breyta flows bindings template <slug> --out profile.edn
-- Apply bindings: breyta flows bindings apply <slug> @profile.edn
-- Enable prod profile: breyta flows activate <slug> --version latest
-- Draft bindings URL (UI): breyta flows draft-bindings-url <slug>
+Advanced install lifecycle:
+- Release with default live promotion: breyta flows release <slug>
+- Release without auto promotion: breyta flows release <slug> --no-install
+- Promote released version to live explicitly: breyta flows install promote <slug> --scope live
+- Configure installation inputs: breyta flows install configure <installation-id> --input '{...}'
+- List installation triggers: breyta flows install triggers <installation-id>
 `),
 	}
 
@@ -78,9 +87,13 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(newFlowsSearchCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
+	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
+	cmd.AddCommand(newFlowsReleaseCmd(app))
+	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
+	cmd.AddCommand(newFlowsInstallationsLegacyCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
@@ -273,9 +286,9 @@ func newFlowsActivateCmd(app *App) *cobra.Command {
 func newFlowsDraftBindingsURLCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "draft-bindings-url <flow-slug>",
-		Short: "Print the draft bindings URL for preview runs",
+		Short: "Print the draft bindings URL for working-copy runs",
 		Long: strings.TrimSpace(`
-Draft preview runs use a user-scoped draft profile. Bind credentials here:
+Working-copy runs use a user-scoped draft profile. Bind credentials here:
 - Draft bindings: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
 `),
 		Args: cobra.ExactArgs(1),
@@ -500,11 +513,16 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 		Short: "Show a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			source = strings.ToLower(strings.TrimSpace(source))
+			if source == "active" {
+				// Back-compat alias. Canonical source is "current".
+				source = "current"
+			}
+			if source != "current" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+			}
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if strings.TrimSpace(source) != "" && source != "active" {
-					payload["source"] = source
-				}
+				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if version > 0 {
 					payload["version"] = version
 				}
@@ -563,7 +581,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
-	cmd.Flags().StringVar(&source, "source", "active", "Fetch source for API mode (active|latest|draft)")
+	cmd.Flags().StringVar(&source, "source", "current", "Fetch source for API mode (current|latest|draft; active is deprecated alias)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
 }
@@ -642,8 +660,17 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				path = filepath.Join("tmp", "flows", slug+".clj")
 			}
 
+			source = strings.ToLower(strings.TrimSpace(source))
+			if source == "active" {
+				// Back-compat alias. Canonical source is "current".
+				source = "current"
+			}
+			if source != "current" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
+			}
+
 			payload := map[string]any{"flowSlug": slug}
-			if strings.TrimSpace(source) != "" && source != "active" {
+			if strings.TrimSpace(source) != "" {
 				payload["source"] = source
 			}
 			if version > 0 {
@@ -682,7 +709,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest|draft; active is deprecated alias)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
 }
@@ -694,7 +721,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var validate bool
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Push a local .clj flow file as a new draft version",
+		Short: "Push a local .clj flow file as an updated working copy",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Push requires --api/BREYTA_API_URL")
@@ -758,7 +785,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if flowSlug == "" {
 				meta := ensureMeta(out)
 				if meta != nil {
-					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug> --source draft"
+					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug>"
 				}
 				return writeAPIResult(cmd, app, out, status)
 			}
@@ -784,7 +811,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
-	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the draft after pushing")
+	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
 }
@@ -1384,21 +1411,23 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 	var source string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug>",
-		Short: "Validate a flow",
+		Short: "Validate the working copy for a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			source = strings.TrimSpace(source)
 			if source == "" {
-				source = "active"
+				source = "current"
 			}
-			if source != "active" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
+			source = strings.ToLower(source)
+			if source == "active" {
+				// Back-compat alias. Canonical source is "current".
+				source = "current"
+			}
+			if source != "current" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
 			}
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if source != "active" {
-					payload["source"] = source
-				}
+				payload := map[string]any{"flowSlug": args[0], "source": source}
 				return doAPICommand(cmd, app, "flows.validate", payload)
 			}
 			st, store, err := appStore(app)
@@ -1438,7 +1467,7 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|draft|latest; active is deprecated alias)")
 	return cmd
 }
 
@@ -1451,16 +1480,18 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			source = strings.TrimSpace(source)
 			if source == "" {
-				source = "active"
+				source = "current"
 			}
-			if source != "active" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
+			source = strings.ToLower(source)
+			if source == "active" {
+				// Back-compat alias. Canonical source is "current".
+				source = "current"
+			}
+			if source != "current" && source != "latest" && source != "draft" {
+				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected current, latest, draft)", source))
 			}
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if source != "active" {
-					payload["source"] = source
-				}
+				payload := map[string]any{"flowSlug": args[0], "source": source}
 				return doAPICommand(cmd, app, "flows.compile", payload)
 			}
 			st, store, err := appStore(app)
@@ -1489,7 +1520,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
+	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest|draft; active is deprecated alias)")
 	return cmd
 }
 
@@ -1608,16 +1639,21 @@ func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string
 	switch source {
 	case "draft":
 		return flowRecordFromFlow(f), "draft", 0, nil
+	case "current":
+		fallthrough
 	case "active":
 		if f.ActiveVersion > 0 {
 			if v, ok := findVersion(f, f.ActiveVersion); ok {
+				if source == "current" {
+					return v.Flow, "current", v.Version, nil
+				}
 				return v.Flow, "active", v.Version, nil
 			}
 		}
 		if len(f.Versions) == 0 {
 			return flowRecordFromFlow(f), "draft", 0, nil
 		}
-		return state.FlowRecord{}, "", 0, errors.New("active version not found; deploy and activate a version first")
+		return state.FlowRecord{}, "", 0, errors.New("current/active version not found; push then release first")
 	case "latest":
 		if len(f.Versions) == 0 {
 			return flowRecordFromFlow(f), "draft", 0, nil
@@ -1630,7 +1666,7 @@ func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string
 		}
 		return latest.Flow, "latest", latest.Version, nil
 	default:
-		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q", source)
+		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q (expected current, latest, draft)", source)
 	}
 }
 
