@@ -59,7 +59,14 @@ breyta init --dir ./my-breyta-workspace --force
 
 			target, err := skills.Target(home, p)
 			if err != nil {
-				return err
+				// In workspace-only mode, provider is irrelevant. Avoid failing init when users
+				// pass an arbitrary --provider value along with --no-skill.
+				if !noSkill {
+					return err
+				}
+				// Best-effort: fall back to a known provider so AGENTS.md can still include
+				// a concrete path example.
+				target, _ = skills.Target(home, skills.ProviderCodex)
 			}
 
 			if !noSkill {

@@ -109,6 +109,25 @@ func TestInit_NoSkill_SkipsSkillInstall(t *testing.T) {
 	}
 }
 
+func TestInit_NoSkill_AllowsUnknownProvider(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+
+	_, _, err := runInit(t, homeDir, "init", "--no-skill", "--provider", "not-a-provider", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(wsDir, "AGENTS.md")); err != nil {
+		t.Fatalf("expected workspace AGENTS.md to exist: %v", err)
+	}
+
+	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err == nil {
+		t.Fatalf("expected skill file to not exist, but found: %s", skillPath)
+	}
+}
+
 func TestInit_NoWorkspace_SkipsWorkspaceFiles(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
