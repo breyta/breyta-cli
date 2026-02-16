@@ -17,7 +17,7 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 		return
 	}
 	if root != "" {
-		absolutizeWebLinkFields(root, data)
+		absolutizeKnownWebLinks(root, data)
 	}
 
 	enrichDataWebLinks(base, data)
@@ -29,29 +29,92 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 	}
 }
 
-func absolutizeWebLinkFields(baseRoot string, value any) {
-	if strings.TrimSpace(baseRoot) == "" || value == nil {
+func absolutizeKnownWebLinks(baseRoot string, data map[string]any) {
+	if strings.TrimSpace(baseRoot) == "" || data == nil {
 		return
 	}
-	switch v := value.(type) {
-	case map[string]any:
-		for key, child := range v {
-			switch key {
-			case "webUrl", "outputWebUrl":
-				if s, ok := child.(string); ok {
-					if abs := absolutizeWebURL(baseRoot, s); abs != "" {
-						v[key] = abs
-					}
-				}
-			default:
-				absolutizeWebLinkFields(baseRoot, child)
+	absolutizeKnownObjectWebLinks(baseRoot, data)
+
+	if run, _ := data["run"].(map[string]any); run != nil {
+		absolutizeKnownObjectWebLinks(baseRoot, run)
+	}
+	if flow, _ := data["flow"].(map[string]any); flow != nil {
+		absolutizeKnownObjectWebLinks(baseRoot, flow)
+	}
+	if inst, _ := data["instance"].(map[string]any); inst != nil {
+		absolutizeKnownObjectWebLinks(baseRoot, inst)
+	}
+	if inst, _ := data["installation"].(map[string]any); inst != nil {
+		absolutizeKnownObjectWebLinks(baseRoot, inst)
+	}
+	if conn, _ := data["connection"].(map[string]any); conn != nil {
+		absolutizeKnownObjectWebLinks(baseRoot, conn)
+	}
+	if items, _ := data["items"].([]any); len(items) > 0 {
+		for _, itemAny := range items {
+			item, _ := itemAny.(map[string]any)
+			if item == nil {
+				continue
 			}
-		}
-	case []any:
-		for _, child := range v {
-			absolutizeWebLinkFields(baseRoot, child)
+			absolutizeKnownObjectWebLinks(baseRoot, item)
 		}
 	}
+}
+
+func absolutizeKnownObjectWebLinks(baseRoot string, m map[string]any) {
+	if !isKnownWebLinkObject(m) {
+		return
+	}
+	if s, ok := m["webUrl"].(string); ok {
+		if abs := absolutizeWebURL(baseRoot, s); abs != "" {
+			m["webUrl"] = abs
+		}
+	}
+	if s, ok := m["outputWebUrl"].(string); ok {
+		if abs := absolutizeWebURL(baseRoot, s); abs != "" {
+			m["outputWebUrl"] = abs
+		}
+	}
+}
+
+func isKnownWebLinkObject(m map[string]any) bool {
+	if m == nil {
+		return false
+	}
+	if strings.HasPrefix(asString(m, "uri"), "res://") {
+		return true
+	}
+	if extractRunID(m) != "" && extractFlowSlug(m) != "" {
+		return true
+	}
+	if extractConnectionID(m) != "" {
+		return true
+	}
+	if extractProfileID(m) != "" {
+		return true
+	}
+	if looksLikeFlowObject(m) && extractFlowSlug(m) != "" {
+		return true
+	}
+	if _, ok := m["run"]; ok {
+		return true
+	}
+	if _, ok := m["flow"]; ok {
+		return true
+	}
+	if _, ok := m["connection"]; ok {
+		return true
+	}
+	if _, ok := m["instance"]; ok {
+		return true
+	}
+	if _, ok := m["installation"]; ok {
+		return true
+	}
+	if _, ok := m["items"]; ok {
+		return true
+	}
+	return false
 }
 
 func absolutizeWebURL(baseRoot, value string) string {
@@ -273,7 +336,7 @@ func parseRunResourceURI(resourceURI string) (workflowID string, stepID string, 
 		return "", "", ""
 	}
 	if parts[1] == "step" && len(parts) >= 4 {
-		decodedStepID, err := url.QueryUnescape(parts[2])
+		decodedStepID, err := url.PathUnescape(parts[2])
 		if err != nil {
 			decodedStepID = parts[2]
 		}
