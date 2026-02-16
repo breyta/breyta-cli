@@ -69,6 +69,8 @@ breyta init --dir ./my-breyta-workspace --force
 				target, _ = skills.Target(home, skills.ProviderCodex)
 			}
 
+			skillInstalled := false
+
 			if !noSkill {
 				ensureAPIURL(app)
 				if strings.TrimSpace(app.APIURL) == "" {
@@ -89,6 +91,8 @@ breyta init --dir ./my-breyta-workspace --force
 						}
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill install failed (%v); continuing without skill install\n", err)
 					} else {
+						skillInstalled = true
+
 						fmt.Fprintf(cmd.OutOrStdout(), "Installed Breyta agent skill bundle for %s in %s\n", target.Provider, target.Dir)
 					}
 				}
@@ -118,7 +122,7 @@ breyta init --dir ./my-breyta-workspace --force
 			}
 
 			agentsPath := filepath.Join(absDir, "AGENTS.md")
-			agentsContent := []byte(renderInitAgentsMD(target, noSkill))
+			agentsContent := []byte(renderInitAgentsMD(target, !skillInstalled))
 			wrote, err := writeInitFile(agentsPath, agentsContent, force)
 			if err != nil {
 				return err

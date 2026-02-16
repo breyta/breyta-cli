@@ -79,6 +79,16 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		}
 	}
 
+	agents, err := os.ReadFile(filepath.Join(wsDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if !strings.Contains(string(agents), "- Breyta skill bundle:") {
+		t.Fatalf("unexpected agents content (missing skill bundle line): %s", string(agents))
+	}
+	if strings.Contains(string(agents), "(Not installed)") {
+		t.Fatalf("unexpected agents content (expected installed): %s", string(agents))
+	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
 	b, err := os.ReadFile(skillPath)
@@ -87,6 +97,36 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "Breyta Skill") {
 		t.Fatalf("unexpected skill file content: %s", string(b))
+	}
+}
+
+func TestInit_SkillInstallFailure_RendersNotInstalledInAgents(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate docs API failure.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("oops"))
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+
+	agents, err := os.ReadFile(filepath.Join(wsDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if !strings.Contains(string(agents), "(Not installed)") {
+		t.Fatalf("expected AGENTS.md to mention skill not installed, got: %s", string(agents))
+	}
+
+	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err == nil {
+		t.Fatalf("expected skill file to not exist, but found: %s", skillPath)
 	}
 }
 
