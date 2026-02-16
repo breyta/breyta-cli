@@ -229,3 +229,42 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 }
+
+func TestWebLinks_ResourcesGetInfersCanonicalRunStepURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/by-uri" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"uri":      "res://v1/ws/ws-acme/result/run/wf-123/step/fetch-sales/output",
+			"type":     "result",
+			"flowSlug": "daily-sales-report",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "get", "res://v1/ws/ws-acme/result/run/wf-123/step/fetch-sales/output",
+	)
+	if err != nil {
+		t.Fatalf("resources get failed: %v\n%s", err, stdout)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?stepId=fetch-sales" {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+	data, _ := out["data"].(map[string]any)
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?stepId=fetch-sales" {
+		t.Fatalf("unexpected data.webUrl: %q", got)
+	}
+}

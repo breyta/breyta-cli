@@ -454,7 +454,12 @@ func runOutputWebURL(base, flowSlug, runID string) string {
 }
 
 func runStepWebURL(base, flowSlug, runID, stepID string) string {
-	return webURL(base, "runs", flowSlug, runID, "steps", stepID)
+	runURL := runWebURL(base, flowSlug, runID)
+	stepID = strings.TrimSpace(stepID)
+	if runURL == "" || stepID == "" {
+		return ""
+	}
+	return runURL + "?stepId=" + url.QueryEscape(stepID)
 }
 
 func installationsWebURL(base string) string {
