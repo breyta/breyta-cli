@@ -137,6 +137,32 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	}
 }
 
+func TestFlowSubcommandHelpOmitsSourceFlag(t *testing.T) {
+	t.Parallel()
+
+	cases := [][]string{
+		{"flows", "show", "--help"},
+		{"flows", "pull", "--help"},
+		{"flows", "validate", "--help"},
+	}
+
+	for _, args := range cases {
+		cmd := NewRootCmd()
+		out := new(bytes.Buffer)
+		errOut := new(bytes.Buffer)
+		cmd.SetOut(out)
+		cmd.SetErr(errOut)
+		cmd.SetArgs(args)
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute %v: %v\nstderr:\n%s", args, err, errOut.String())
+		}
+		if strings.Contains(out.String(), "--source") {
+			t.Fatalf("%v help should not expose --source:\n%s", args, out.String())
+		}
+	}
+}
+
 func TestInstallPromoteHelpIsMarkedAdvanced(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)

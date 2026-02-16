@@ -935,6 +935,80 @@ func TestFlowsShow_ScopeLive_UsesResolvedVersion(t *testing.T) {
 	}
 }
 
+func TestFlowsShow_ScopeLive_ResolvesAcrossProfilePagination(t *testing.T) {
+	t.Parallel()
+
+	profileCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/flow-profiles":
+			profileCalls++
+			cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+			switch cursor {
+			case "":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"items": []map[string]any{
+						{"profile-id": "prof-end-user", "version": 3, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "user-id": "u-1"},
+					},
+					"meta": map[string]any{
+						"hasMore":    true,
+						"nextCursor": "page-2",
+					},
+				})
+			case "page-2":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"items": []map[string]any{
+						{"profile-id": "prof-live", "version": 17, "enabled": true, "updated-at": "2026-02-16T20:05:00Z", "config": map[string]any{"install-scope": "live"}},
+					},
+					"meta": map[string]any{
+						"hasMore": false,
+					},
+				})
+			default:
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected cursor"}})
+			}
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "flows.get" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			if args["source"] != "active" || args["version"] != float64(17) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected source=active version=17"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flow": map[string]any{"slug": "flow-show", "version": 17}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "show", "flow-show",
+		"--scope", "live",
+	)
+	if err != nil {
+		t.Fatalf("flows show --scope live failed: %v\n%s", err, stdout)
+	}
+	if profileCalls != 2 {
+		t.Fatalf("expected 2 paged profile calls, got %d", profileCalls)
+	}
+}
+
 func TestFlowsPull_ScopeLive_UsesResolvedVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-show.clj")

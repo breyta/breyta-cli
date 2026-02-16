@@ -25,51 +25,70 @@ func resolveLiveProfileTarget(app *App, flowSlug string, includeDisabled bool) (
 	}
 
 	client := apiClient(app)
-	q := url.Values{}
-	q.Set("flow-slug", slug)
-	q.Set("profile-type", "prod")
-	if !includeDisabled {
-		q.Set("enabled", "true")
-	}
-	q.Set("limit", "200")
+	candidates := make([]liveProfileTarget, 0, 16)
+	cursor := ""
+	seenCursors := map[string]bool{}
 
-	outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/flow-profiles", q, nil)
-	if err != nil {
-		return nil, err
-	}
-	out, _ := outAny.(map[string]any)
-	if status >= 400 {
-		return nil, fmt.Errorf("resolve live scope: %s", formatAPIError(out))
-	}
-	if out == nil {
-		return nil, fmt.Errorf("resolve live scope: invalid profile list response")
+	for {
+		q := url.Values{}
+		q.Set("flow-slug", slug)
+		q.Set("profile-type", "prod")
+		if !includeDisabled {
+			q.Set("enabled", "true")
+		}
+		q.Set("limit", "200")
+		if strings.TrimSpace(cursor) != "" {
+			q.Set("cursor", cursor)
+		}
+
+		outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/flow-profiles", q, nil)
+		if err != nil {
+			return nil, err
+		}
+		out, _ := outAny.(map[string]any)
+		if status >= 400 {
+			return nil, fmt.Errorf("resolve live scope: %s", formatAPIError(out))
+		}
+		if out == nil {
+			return nil, fmt.Errorf("resolve live scope: invalid profile list response")
+		}
+
+		items := profileItemsFromListResponse(out)
+		for _, item := range items {
+			if profileInstallScope(item) != "live" {
+				continue
+			}
+			profileID := strings.TrimSpace(anyString(item["profile-id"], item["profileId"], item["id"]))
+			if profileID == "" {
+				continue
+			}
+			version := anyInt(item["version"])
+			if version <= 0 {
+				continue
+			}
+			enabled := anyBoolWithDefault(item["enabled"], true)
+			if !includeDisabled && !enabled {
+				continue
+			}
+			candidates = append(candidates, liveProfileTarget{
+				ProfileID: profileID,
+				Version:   version,
+				UpdatedAt: parseUpdatedAt(item["updated-at"], item["updatedAt"]),
+				Enabled:   enabled,
+			})
+		}
+
+		hasMore, nextCursor := profileListPagination(out)
+		if !hasMore || strings.TrimSpace(nextCursor) == "" {
+			break
+		}
+		if seenCursors[nextCursor] {
+			break
+		}
+		seenCursors[nextCursor] = true
+		cursor = nextCursor
 	}
 
-	items := profileItemsFromListResponse(out)
-	candidates := make([]liveProfileTarget, 0, len(items))
-	for _, item := range items {
-		if profileInstallScope(item) != "live" {
-			continue
-		}
-		profileID := strings.TrimSpace(anyString(item["profile-id"], item["profileId"], item["id"]))
-		if profileID == "" {
-			continue
-		}
-		version := anyInt(item["version"])
-		if version <= 0 {
-			continue
-		}
-		enabled := anyBoolWithDefault(item["enabled"], true)
-		if !includeDisabled && !enabled {
-			continue
-		}
-		candidates = append(candidates, liveProfileTarget{
-			ProfileID: profileID,
-			Version:   version,
-			UpdatedAt: parseUpdatedAt(item["updated-at"], item["updatedAt"]),
-			Enabled:   enabled,
-		})
-	}
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("live scope is not configured for %s (run `breyta flows install promote %s --scope live` or `breyta flows configure %s --scope live --set <slot>.conn=...`)", slug, slug, slug)
 	}
@@ -215,4 +234,37 @@ func valueFromMap(m map[string]any, key string) any {
 		return nil
 	}
 	return m[key]
+}
+
+func profileListPagination(out map[string]any) (bool, string) {
+	if out == nil {
+		return false, ""
+	}
+	meta, _ := out["meta"].(map[string]any)
+	data, _ := out["data"].(map[string]any)
+	return anyBool(meta["hasMore"], out["has-more"], data["has-more"]),
+		strings.TrimSpace(anyString(meta["nextCursor"], out["next-cursor"], data["next-cursor"]))
+}
+
+func anyBool(values ...any) bool {
+	for _, value := range values {
+		switch t := value.(type) {
+		case bool:
+			return t
+		case string:
+			switch strings.ToLower(strings.TrimSpace(t)) {
+			case "true", "1", "yes", "y", "on":
+				return true
+			case "false", "0", "no", "n", "off":
+				return false
+			}
+		case float64:
+			return t != 0
+		case int:
+			return t != 0
+		case int64:
+			return t != 0
+		}
+	}
+	return false
 }
