@@ -27,9 +27,9 @@ To make PRs mandatory for `main`, enable branch protection in GitHub:
 - Require a pull request before merging
 - Require status checks to pass: `CI / test`
 
-### Mock mode (local CLI/TUI development)
+### Mock mode (local CLI development)
 
-The CLI includes a mock mode used for local development and TUI iteration.
+The CLI includes a mock mode used for local development and command demos.
 
 Dev-only commands and flags are hidden unless you enable dev mode. You can either:
 
@@ -75,52 +75,7 @@ Workspace selection:
 - `--workspace ws-acme`
 - or `BREYTA_WORKSPACE=ws-acme`
 
-#### Two-terminal workflow (recommended)
-
-Terminal A (TUI):
-
-```bash
-breyta
-```
-
-Terminal B (drive changes):
-
-```bash
-breyta --dev dev seed
-breyta --dev dev advance --ticks 1
-breyta --dev dev advance --ticks 1
-```
-
-The TUI refreshes when the mock state file changes.
-
-### TUI navigation (quick reference)
-
-- **Up/Down**: move selection
-- **Enter**: open
-- **Esc / Backspace**: back
-- **Tab**: switch pane (only in split views)
-- **g**: dashboard
-- **f**: flows table
-- **r**: runs table
-- **m**: marketplace
-- **s**: settings
-- **q**: quit
-
 ### Demo guide (copy/paste)
-
-Terminal A (truth surface):
-
-```bash
-breyta
-```
-
-- Dashboard opens as a navigation hub.
-- Press `f` to open Flows, select `subscription-renewal`, press Enter.
-- In the split view: left pane is stable flow info + steps; right pane shows focused step data.
-- Press `r` to open Runs; open run `4821` and inspect step IO.
-- Press `m` to open Marketplace; use `1/2/3/4` tabs.
-
-Terminal B (drive changes):
 
 ```bash
 breyta flows show subscription-renewal
@@ -137,8 +92,6 @@ breyta flows validate hello-market
 breyta runs start --flow hello-market
 breyta --dev dev advance --ticks 3
 ```
-
-If Terminal A is open, you should see the dashboard update when you seed/start/advance/replay runs.
 
 ### CLI output envelope (mocked surface)
 

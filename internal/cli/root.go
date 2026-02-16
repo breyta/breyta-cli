@@ -10,7 +10,6 @@ import (
 	"github.com/breyta/breyta-cli/internal/mock"
 	"github.com/breyta/breyta-cli/internal/skillsync"
 	"github.com/breyta/breyta-cli/internal/state"
-	"github.com/breyta/breyta-cli/internal/tui"
 	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"os"
 	"strings"
@@ -44,10 +43,6 @@ func NewRootCmd() *cobra.Command {
 		Short:        "Breyta CLI",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// No subcommand => interactive TUI.
-			if cmd.HasSubCommands() && len(args) == 0 {
-				return runTUI(app)
-			}
 			return cmd.Help()
 		},
 	}
@@ -120,8 +115,7 @@ func NewRootCmd() *cobra.Command {
 		// - otherwise: try ~/.config/breyta/config.json (if present)
 		// - otherwise fall back to prod (https://flows.breyta.ai)
 		//
-		// IMPORTANT: We only default when a subcommand is invoked, so `breyta`
-		// still launches the mock/TUI surface by default.
+		// IMPORTANT: We only default when a subcommand is invoked.
 		apiFlagExplicit := false
 		if cmd != nil {
 			// Respect an explicitly passed `--api` even if it's empty (tests and mock mode).
@@ -266,18 +260,10 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newDemandCmd(app))
 	cmd.AddCommand(newDocsCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
+	cmd.AddCommand(newUpgradeCmd(app))
 	cmd.AddCommand(newInternalCmd(app))
 
 	return cmd
-}
-
-func runTUI(app *App) error {
-	return tui.RunHome(tui.HomeConfig{
-		APIURL:      app.APIURL,
-		Token:       app.Token,
-		WorkspaceID: app.WorkspaceID,
-		StatePath:   app.StatePath,
-	})
 }
 
 func appStore(app *App) (*state.State, mock.Store, error) {

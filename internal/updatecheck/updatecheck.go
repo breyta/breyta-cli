@@ -30,6 +30,7 @@ type Notice struct {
 	LatestVersion  string        `json:"latestVersion,omitempty"`
 	CheckedAt      time.Time     `json:"checkedAt,omitempty"`
 	InstallMethod  InstallMethod `json:"installMethod,omitempty"`
+	ReleaseURL     string        `json:"releaseUrl,omitempty"`
 	Upgrade        []string      `json:"upgrade,omitempty"`
 }
 
@@ -89,6 +90,7 @@ func CachedNotice(currentVersion string) *Notice {
 			LatestVersion:  latest,
 			CheckedAt:      time.Now(),
 			InstallMethod:  DetectInstallMethod(),
+			ReleaseURL:     ReleasePageURL,
 		}
 		if n.InstallMethod == InstallMethodBrew {
 			n.Upgrade = []string{"brew", "upgrade", "breyta"}
@@ -113,6 +115,7 @@ func CachedNotice(currentVersion string) *Notice {
 		LatestVersion:  c.LatestTag,
 		CheckedAt:      c.CheckedAt,
 		InstallMethod:  DetectInstallMethod(),
+		ReleaseURL:     ReleasePageURL,
 	}
 	if n.InstallMethod == InstallMethodBrew {
 		n.Upgrade = []string{"brew", "upgrade", "breyta"}
