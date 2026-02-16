@@ -10,10 +10,14 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 	if base == "" || envelope == nil {
 		return
 	}
+	root := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
 
 	data, _ := envelope["data"].(map[string]any)
 	if data == nil {
 		return
+	}
+	if root != "" {
+		absolutizeWebLinkFields(root, data)
 	}
 
 	enrichDataWebLinks(base, data)
@@ -23,6 +27,46 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 			meta["webUrl"] = strings.TrimSpace(webURL)
 		}
 	}
+}
+
+func absolutizeWebLinkFields(baseRoot string, value any) {
+	if strings.TrimSpace(baseRoot) == "" || value == nil {
+		return
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			switch key {
+			case "webUrl", "outputWebUrl":
+				if s, ok := child.(string); ok {
+					if abs := absolutizeWebURL(baseRoot, s); abs != "" {
+						v[key] = abs
+					}
+				}
+			default:
+				absolutizeWebLinkFields(baseRoot, child)
+			}
+		}
+	case []any:
+		for _, child := range v {
+			absolutizeWebLinkFields(baseRoot, child)
+		}
+	}
+}
+
+func absolutizeWebURL(baseRoot, value string) string {
+	baseRoot = strings.TrimRight(strings.TrimSpace(baseRoot), "/")
+	value = strings.TrimSpace(value)
+	if baseRoot == "" || value == "" {
+		return value
+	}
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return value
+	}
+	if strings.HasPrefix(value, "/") {
+		return baseRoot + value
+	}
+	return baseRoot + "/" + strings.TrimLeft(value, "/")
 }
 
 func workspaceWebBaseURL(app *App) string {
