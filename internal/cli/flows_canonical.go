@@ -296,3 +296,54 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&version, "version", "", "Release version to publish (default latest from workspace current)")
 	return cmd
 }
+
+func newFlowsRollbackCmd(app *App) *cobra.Command {
+	var scope string
+	var version string
+
+	cmd := &cobra.Command{
+		Use:   "rollback <flow-slug>",
+		Short: "Promote a prior release version to live",
+		Long: strings.TrimSpace(`
+Rollback updates the live target to a specific released version.
+
+This is an explicit live operation, equivalent to:
+- breyta flows install promote <flow-slug> --scope live --version <n>
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "rollback requires --api/BREYTA_API_URL")
+			}
+			resolvedScope, err := normalizeInstallScope(scope)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if resolvedScope != "live" {
+				return writeErr(cmd, errors.New("flows rollback currently supports --scope live only"))
+			}
+
+			version = strings.TrimSpace(version)
+			if version == "" {
+				return writeErr(cmd, errors.New("missing --version (use a released version number)"))
+			}
+
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"scope":    resolvedScope,
+			}
+			if version != "latest" {
+				v, err := parsePositiveIntFlag(version)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["version"] = v
+			}
+			return doAPICommand(cmd, app, "flows.install.promote", payload)
+		},
+	}
+
+	cmd.Flags().StringVar(&scope, "scope", "live", "Target scope (live only)")
+	cmd.Flags().StringVar(&version, "version", "", "Released version to promote (or latest)")
+	return cmd
+}

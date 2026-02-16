@@ -54,6 +54,7 @@ Quick commands:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows release <slug>
+- breyta flows rollback <slug> --version <n>
 - breyta flows run <slug> --wait
 
 Flow file format (minimal):
@@ -90,6 +91,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
+	cmd.AddCommand(newFlowsRollbackCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
@@ -507,12 +509,40 @@ func newFlowsListCmd(app *App) *cobra.Command {
 func newFlowsShowCmd(app *App) *cobra.Command {
 	var include string
 	var source string
+	var scope string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scopeChanged := cmd.Flags().Changed("scope")
+			if scopeChanged {
+				if !isAPIMode(app) {
+					return writeErr(cmd, errors.New("--scope requires API mode"))
+				}
+				resolvedScope, err := normalizeInstallScope(scope)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedScope != "live" {
+					return writeErr(cmd, errors.New("flows show currently supports --scope live only"))
+				}
+				if cmd.Flags().Changed("source") || version > 0 {
+					return writeErr(cmd, errors.New("--scope cannot be combined with --source or --version"))
+				}
+				target, err := resolveLiveProfileTarget(app, args[0])
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload := map[string]any{
+					"flowSlug": args[0],
+					"source":   "active",
+					"version":  target.Version,
+				}
+				return doAPICommand(cmd, app, "flows.get", payload)
+			}
+
 			source = strings.ToLower(strings.TrimSpace(source))
 			if source == "active" {
 				// Back-compat alias. Canonical source is "current".
@@ -582,6 +612,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
 	cmd.Flags().StringVar(&source, "source", "current", "Fetch source for API mode (current|latest|draft; active is deprecated alias)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
 }
@@ -641,6 +672,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
 	var source string
+	var scope string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "pull <flow-slug>",
@@ -659,6 +691,19 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(path) == "" {
 				path = filepath.Join("tmp", "flows", slug+".clj")
 			}
+			scopeChanged := cmd.Flags().Changed("scope")
+			if scopeChanged {
+				resolvedScope, err := normalizeInstallScope(scope)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedScope != "live" {
+					return writeErr(cmd, errors.New("flows pull currently supports --scope live only"))
+				}
+				if cmd.Flags().Changed("source") || version > 0 {
+					return writeErr(cmd, errors.New("--scope cannot be combined with --source or --version"))
+				}
+			}
 
 			source = strings.ToLower(strings.TrimSpace(source))
 			if source == "active" {
@@ -670,11 +715,20 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			}
 
 			payload := map[string]any{"flowSlug": slug}
-			if strings.TrimSpace(source) != "" {
-				payload["source"] = source
-			}
-			if version > 0 {
-				payload["version"] = version
+			if scopeChanged {
+				target, err := resolveLiveProfileTarget(app, slug)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["source"] = "active"
+				payload["version"] = target.Version
+			} else {
+				if strings.TrimSpace(source) != "" {
+					payload["source"] = source
+				}
+				if version > 0 {
+					payload["version"] = version
+				}
 			}
 
 			client := apiClient(app)
@@ -705,11 +759,16 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, nil, map[string]any{"saved": true, "path": path, "flowSlug": slug})
+			result := map[string]any{"saved": true, "path": path, "flowSlug": slug}
+			if scopeChanged {
+				result["scope"] = "live"
+			}
+			return writeData(cmd, app, nil, result)
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
 	cmd.Flags().StringVar(&source, "source", "current", "Source (current|latest|draft; active is deprecated alias)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
 }
@@ -1445,11 +1504,28 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 
 func newFlowsValidateCmd(app *App) *cobra.Command {
 	var source string
+	var scope string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug>",
 		Short: "Validate the working copy for a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scopeChanged := cmd.Flags().Changed("scope")
+			if scopeChanged {
+				if !isAPIMode(app) {
+					return writeErr(cmd, errors.New("--scope requires API mode"))
+				}
+				resolvedScope, err := normalizeInstallScope(scope)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedScope != "live" {
+					return writeErr(cmd, errors.New("flows validate currently supports --scope live only"))
+				}
+				if cmd.Flags().Changed("source") {
+					return writeErr(cmd, errors.New("--scope cannot be combined with --source"))
+				}
+			}
 			source = strings.TrimSpace(source)
 			if source == "" {
 				source = "current"
@@ -1464,6 +1540,14 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
+				if scopeChanged {
+					target, err := resolveLiveProfileTarget(app, args[0])
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload["source"] = "active"
+					payload["version"] = target.Version
+				}
 				return doAPICommand(cmd, app, "flows.validate", payload)
 			}
 			st, store, err := appStore(app)
@@ -1504,6 +1588,7 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "current", "Source (current|draft|latest; active is deprecated alias)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
 	return cmd
 }
 
