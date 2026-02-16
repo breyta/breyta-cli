@@ -24,4 +24,7 @@ func TestCheckNow_TestOverrides(t *testing.T) {
 	if len(n.Upgrade) == 0 || n.Upgrade[0] != "brew" {
 		t.Fatalf("expected brew upgrade command, got %v", n.Upgrade)
 	}
+	if n.ReleaseURL != ReleasePageURL {
+		t.Fatalf("expected release url %q, got %q", ReleasePageURL, n.ReleaseURL)
+	}
 }

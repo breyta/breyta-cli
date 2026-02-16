@@ -1607,7 +1607,7 @@ func newRegistrySearchCmd(app *App) *cobra.Command {
 			})
 		}
 		meta := map[string]any{"query": args[0], "total": len(items), "hint": "Mock ranking; use `registry show <id|slug>` to inspect a listing"}
-		if err := store.Save(st); err != nil { // no-op but keeps TUI in sync if future changes happen
+		if err := store.Save(st); err != nil {
 			return writeErr(cmd, err)
 		}
 		return writeData(cmd, app, meta, map[string]any{"items": items})

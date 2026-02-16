@@ -1,13 +1,12 @@
 # Breyta CLI (Go) – Agent Notes
 
 This directory (`breyta-cli/`) is a standalone Go module that ships the `breyta` binary:
-- `breyta` (no args): Bubble Tea TUI
+- `breyta` (no args): CLI help
 - `breyta <subcommand>`: CLI API commands
 
 ## Key paths
-- TUI entry: `internal/tui/home.go`
 - Cobra root: `internal/cli/root.go`
-- Agent skill bundle (for external agents authoring flows): `skills/breyta/SKILL.md`
+- Docs + skill bundle source of truth: served by `flows-api` (`/api/docs/...`) in the main `breyta` repo
 
 ## Build & test
 - Build: `go build ./...`
@@ -16,4 +15,4 @@ This directory (`breyta-cli/`) is a standalone Go module that ships the `breyta`
 ## Conventions
 - Keep changes small and dependency-light (prefer stdlib).
 - TUI: prefer modal-based interactions; keep keyboard hints in the header.
-- When changing API-facing commands, update `breyta docs` output and `docs/agentic-chat.md` if user-facing behavior changes.
+- When changing API-facing commands, update the docs pages served by `flows-api` (for example the public docs pages and the `breyta` skill page in `bases/flows-api/resources/public/docs/`).

@@ -719,6 +719,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var repairDelimiters bool
 	var noRepairWriteback bool
 	var validate bool
+	var deployKey string
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push a local .clj flow file as an updated working copy",
@@ -757,13 +758,29 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			}
 
 			if useDoAPICommandFn {
-				return doAPICommandFn(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+				payload := map[string]any{"flowLiteral": flowLiteral}
+				resolvedDeployKey := strings.TrimSpace(deployKey)
+				if resolvedDeployKey == "" {
+					resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+				}
+				if resolvedDeployKey != "" {
+					payload["deploy-key"] = resolvedDeployKey
+				}
+				return doAPICommandFn(cmd, app, "flows.put_draft", payload)
 			}
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+			payload := map[string]any{"flowLiteral": flowLiteral}
+			resolvedDeployKey := strings.TrimSpace(deployKey)
+			if resolvedDeployKey == "" {
+				resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+			}
+			if resolvedDeployKey != "" {
+				payload["deploy-key"] = resolvedDeployKey
+			}
+			out, status, err := client.DoCommand(context.Background(), "flows.put_draft", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -812,12 +829,14 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
+	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
 }
 
 func newFlowsDeployCmd(app *App) *cobra.Command {
 	var version int
+	var deployKey string
 	cmd := &cobra.Command{
 		Use:   "deploy <flow-slug>",
 		Short: "Deploy a flow version (make it active)",
@@ -830,10 +849,18 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 			if version > 0 {
 				payload["version"] = version
 			}
+			resolvedDeployKey := strings.TrimSpace(deployKey)
+			if resolvedDeployKey == "" {
+				resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+			}
+			if resolvedDeployKey != "" {
+				payload["deployKey"] = resolvedDeployKey
+			}
 			return doAPICommand(cmd, app, "flows.deploy", payload)
 		},
 	}
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = latest)")
+	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd
 }
 
@@ -1319,6 +1346,7 @@ func newFlowsVersionsPublishCmd(app *App) *cobra.Command {
 
 func newFlowsVersionsActivateCmd(app *App) *cobra.Command {
 	var version int
+	var deployKey string
 	cmd := &cobra.Command{
 		Use:   "activate <flow-slug>",
 		Short: "Activate a published version",
@@ -1329,6 +1357,13 @@ func newFlowsVersionsActivateCmd(app *App) *cobra.Command {
 			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "version": version}
+				resolvedDeployKey := strings.TrimSpace(deployKey)
+				if resolvedDeployKey == "" {
+					resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+				}
+				if resolvedDeployKey != "" {
+					payload["deployKey"] = resolvedDeployKey
+				}
 				return doAPICommand(cmd, app, "flows.versions.activate", payload)
 			}
 			st, store, err := appStore(app)
@@ -1364,6 +1399,7 @@ func newFlowsVersionsActivateCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&version, "version", 0, "Version")
+	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd
 }
 

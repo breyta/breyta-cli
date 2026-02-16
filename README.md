@@ -1,10 +1,10 @@
 # Breyta CLI (`breyta`)
 
-This repo contains the `breyta` command-line interface (CLI) and terminal UI (TUI) for working with Breyta workflows.
+This repo contains the `breyta` command-line interface (CLI) for working with Breyta workflows.
 
 The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, and **Cursor** (and also works great for humans in a terminal).
 
-- `breyta` opens the interactive TUI.
+- `breyta` shows help.
 - `breyta <command>` runs a scriptable CLI command (JSON).
 
 ## What is Breyta?
@@ -18,7 +18,7 @@ With Breyta, you can:
 - Run flows from apps, webhooks, and schedules with clear run history and outputs
 - Give AI agents a deterministic, scriptable way to create and operate workflows through the CLI
 
-This CLI/TUI is the main interface for flow authoring and operations:
+This CLI is the main interface for flow authoring and operations:
 
 - Browse workflows ("flows"), versions, and runs
 - Start runs and inspect results
@@ -31,33 +31,31 @@ When Breyta fits: multi-step backend workflows with APIs, state, approvals, and 
 Less ideal: one-step automations where you do not need versioning and runtime controls.
 
 Determinism and orchestration constraints are documented in:
-- `docs/flows-api-local.md`
-- `skills/breyta/references/authoring-reference.md`
+- `breyta docs` (product docs served from the Breyta API)
 
 ## Agent-first design
 
 - **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
-- **On-demand docs:** `breyta docs` provides Markdown command docs that agent tools can ingest directly.
-- **Agent tooling:** this repo includes a skill bundle at `skills/breyta/SKILL.md` (install instructions in `docs/agentic-chat.md`).
+- **Docs from the API:** `breyta docs` searches and prints product docs from the Breyta API (`docs find` / `docs show`).
+- **Command truth:** use `breyta help <command...>` for flags and usage.
+- **Agent tooling:** `breyta skills install` downloads the Breyta skill bundle from the docs API and installs it for Codex/Cursor/Claude Code.
 
-### Recommended: set up your agent via the TUI
+### Recommended: set up your agent via CLI
 
-The easiest setup flow is to use the TUI to:
+Use the CLI setup flow to:
 
 - **Log in** (so the CLI can authenticate to the API)
 - **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code)
-- **Browse flows and runs** (the TUI is a great “truth surface” for what your agent created)
+- **Set your default workspace** for subsequent commands
 
-Start the TUI:
+Run:
 
 ```bash
-breyta
+breyta auth login
+breyta skills install --provider <codex|cursor|claude>
+breyta workspaces list
+breyta workspaces use <workspace-id>
 ```
-
-Then use:
-
-- **Auth** (press `a`) to log in
-- **Skills** (press `s`) to install the skill bundle
 
 ## Install
 
@@ -75,13 +73,39 @@ Verify install:
 breyta --version
 ```
 
+Check for updates:
+
+```bash
+breyta upgrade
+```
+
+Upgrade in one command (Homebrew installs):
+
+```bash
+breyta upgrade --apply
+```
+
+Or open the latest release page:
+
+```bash
+breyta upgrade --open
+```
+
 After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
+
+```bash
+breyta init --provider <codex|cursor|claude>
+```
+
+This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
+
+If you only want the skill bundle (no workspace files), use:
 
 ```bash
 breyta skills install --provider <codex|cursor|claude>
 ```
 
-Examples:
+Examples (skill-only):
 
 ```bash
 # Codex
@@ -96,13 +120,14 @@ breyta skills install --provider claude
 
 You can also do this from the TUI: `breyta` then press `s` (Agent skills).
 
-More details (including troubleshooting): `docs/install.md`.
+More details: `breyta docs find "install"` (then `breyta docs show <slug>`).
 
 ## First 2 Minutes
 
 Hosted Breyta:
 
 ```bash
+breyta init --provider <codex|cursor|claude>
 breyta auth login
 breyta flows list
 ```
@@ -124,15 +149,12 @@ breyta flows show <slug> --source latest
 breyta runs start --flow <slug> --source latest --input '{"n":41}' --wait
 ```
 
-Environment/setup details: `docs/agentic-chat.md`.
+Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).
 
-## Docs
+Docs/help:
 
-- Docs index: `docs/index.md`
-- Install: `docs/install.md`
-- Agentic chat setup (Claude Code, Cursor, Codex, etc.): `docs/agentic-chat.md`
-- Cursor IDE sandbox/network troubleshooting: `docs/agentic-chat.md#cursor-ide-sandboxing`
-- Distribution / releases: `docs/distribution.md`
+- Product docs: `breyta docs` / `breyta docs find "<query>"` / `breyta docs show <slug>`
+- Command flags: `breyta help <command...>`
 
 ## Development
 
@@ -140,5 +162,3 @@ This repo also includes local-development tooling and docs:
 
 - Build: `go build ./...`
 - Test: `go test ./...`
-- Local `flows-api` (dev): `docs/flows-api-local.md`
-- CLI development notes (mock mode, demos): `docs/development.md`

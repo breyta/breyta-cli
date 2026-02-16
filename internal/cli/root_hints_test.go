@@ -239,3 +239,38 @@ func TestAPIErrorsIncludeGuidance(t *testing.T) {
 		t.Fatalf("stderr missing guidance hint:\n%s", stderr)
 	}
 }
+
+func TestRootNoArgsShowsHelp(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute with no args: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "Usage:") {
+		t.Fatalf("expected help output, got:\n%s", help)
+	}
+	if !strings.Contains(help, "auth") || !strings.Contains(help, "skills") || !strings.Contains(help, "workspaces") || !strings.Contains(help, "upgrade") {
+		t.Fatalf("help missing expected command groups:\n%s", help)
+	}
+}
+
+func TestRootHasCLIOnboardingCommands(t *testing.T) {
+	root := NewRootCmd()
+
+	if _, _, err := root.Find([]string{"auth", "login"}); err != nil {
+		t.Fatalf("missing auth login command: %v", err)
+	}
+	if _, _, err := root.Find([]string{"skills", "install"}); err != nil {
+		t.Fatalf("missing skills install command: %v", err)
+	}
+	if _, _, err := root.Find([]string{"workspaces", "use"}); err != nil {
+		t.Fatalf("missing workspaces use command: %v", err)
+	}
+}
