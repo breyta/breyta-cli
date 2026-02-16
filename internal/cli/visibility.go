@@ -28,6 +28,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"run":        true, // alias
 		"resources":  true,
 		"docs":       true,
+		"feedback":   true,
 		"auth":       true,
 		"skills":     true,
 		"workspaces": true,
