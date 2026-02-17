@@ -184,7 +184,7 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 	var fileField string
 
 	cmd := &cobra.Command{
-		Use:   "upload <profile-id> --file <path> [--file <path> ...]",
+		Use:   "upload <installation-id> --file <path> [--file <path> ...]",
 		Short: "Upload one or more files to an installation-scoped webhook trigger",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -196,7 +196,7 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 			}
 			profileID := strings.TrimSpace(args[0])
 			if profileID == "" {
-				return writeErr(cmd, errors.New("missing profile id"))
+				return writeErr(cmd, errors.New("missing installation id"))
 			}
 
 			fileField = strings.TrimSpace(fileField)

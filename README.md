@@ -145,8 +145,8 @@ breyta --dev flows list
 Run an existing flow and wait for output:
 
 ```bash
-breyta flows show <slug> --source latest
-breyta runs start --flow <slug> --source latest --input '{"n":41}' --wait
+breyta flows show <slug>
+breyta flows run <slug> --input '{"n":41}' --wait
 ```
 
 Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).

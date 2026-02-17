@@ -103,7 +103,9 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				return writeFailure(cmd, app, "missing_workspace", errors.New("missing workspace id"), "Provide --workspace or set BREYTA_WORKSPACE.", nil)
 			}
 
-			if draft {
+			useDraft := draft
+
+			if useDraft {
 				if err := requireAPI(app); err != nil {
 					return writeFailure(cmd, app, "api_auth_required", err, "Provide --token or run `breyta auth login`.", nil)
 				}
@@ -165,7 +167,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 			}
 
 			endpoint := ""
-			if draft {
+			if useDraft {
 				endpoint = fmt.Sprintf("/api/events/draft/%s", eventPath)
 			} else {
 				endpoint = fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
@@ -186,7 +188,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				if persistResources {
 					validateQuery.Set("persist-resources", "true")
 				}
-				if draft {
+				if useDraft {
 					validateQuery.Set("draft", "true")
 				}
 				validateEndpoint := fmt.Sprintf("/api/events/validate/%s", eventPath)
@@ -202,7 +204,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 			client := apiClient(app)
 			client.BaseURL = baseURL
-			if !draft {
+			if !useDraft {
 				client.Token = ""
 			}
 			out, status, err := client.DoRootRESTBytes(context.Background(), http.MethodPost, endpoint, query, payload.Body, headers)

@@ -23,11 +23,112 @@ import (
 func newConnectionsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "connections", Short: "Manage connections"}
 	cmd.AddCommand(newConnectionsListCmd(app))
+	cmd.AddCommand(newConnectionsUsagesCmd(app))
 	cmd.AddCommand(newConnectionsShowCmd(app))
 	cmd.AddCommand(newConnectionsCreateCmd(app))
 	cmd.AddCommand(newConnectionsUpdateCmd(app))
 	cmd.AddCommand(newConnectionsDeleteCmd(app))
 	cmd.AddCommand(newConnectionsTestCmd(app))
+	return cmd
+}
+
+func newSecretsCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{Use: "secrets", Short: "Manage workspace secrets"}
+	cmd.AddCommand(newSecretsListCmd(app))
+	cmd.AddCommand(newSecretsUsagesCmd(app))
+	cmd.AddCommand(newSecretsDeleteCmd(app))
+	return cmd
+}
+
+func newSecretsListCmd(app *App) *cobra.Command {
+	var secretID string
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List workspace secret IDs",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to manage secrets.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			q := url.Values{}
+			if strings.TrimSpace(secretID) != "" {
+				q.Set("secret-id", strings.TrimSpace(secretID))
+			}
+			out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/secrets", q, nil)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+	cmd.Flags().StringVar(&secretID, "secret-id", "", "Filter to one secret ID")
+	return cmd
+}
+
+func newSecretsUsagesCmd(app *App) *cobra.Command {
+	var secretID string
+	var flowSlug string
+	var onlyConnected bool
+	cmd := &cobra.Command{
+		Use:     "usages",
+		Aliases: []string{"usage"},
+		Short:   "List which flows/profile targets use each secret",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to inspect secret usages.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			q := url.Values{}
+			if strings.TrimSpace(secretID) != "" {
+				q.Set("secret-id", strings.TrimSpace(secretID))
+			}
+			if strings.TrimSpace(flowSlug) != "" {
+				q.Set("flow-slug", strings.TrimSpace(flowSlug))
+			}
+			if onlyConnected {
+				q.Set("only-connected", "true")
+			}
+			out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/secrets/usages", q, nil)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+	cmd.Flags().StringVar(&secretID, "secret-id", "", "Filter to one secret ID")
+	cmd.Flags().StringVar(&flowSlug, "flow", "", "Filter by flow slug")
+	cmd.Flags().BoolVar(&onlyConnected, "only-connected", false, "Show only secrets currently used by flow profiles")
+	return cmd
+}
+
+func newSecretsDeleteCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <secret-id>",
+		Short: "Delete a workspace secret",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to delete secrets.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			secretID := strings.TrimSpace(args[0])
+			if secretID == "" {
+				return writeErr(cmd, errors.New("missing secret-id"))
+			}
+			out, status, err := apiClient(app).DoREST(context.Background(), http.MethodDelete, "/api/secrets/"+url.PathEscape(secretID), nil, nil)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
 	return cmd
 }
 
@@ -81,6 +182,130 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&typ, "type", "", "Filter by connection type (API mode: server-side)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
+	return cmd
+}
+
+func newConnectionsUsagesCmd(app *App) *cobra.Command {
+	var connectionID string
+	var flowSlug string
+	var onlyConnected bool
+	cmd := &cobra.Command{
+		Use:     "usages",
+		Aliases: []string{"usage"},
+		Short:   "List which flows/profile targets use each connection",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isAPIMode(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+				q := url.Values{}
+				if strings.TrimSpace(connectionID) != "" {
+					q.Set("connection-id", strings.TrimSpace(connectionID))
+				}
+				if strings.TrimSpace(flowSlug) != "" {
+					q.Set("flow-slug", strings.TrimSpace(flowSlug))
+				}
+				if onlyConnected {
+					q.Set("only-connected", "true")
+				}
+				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections/usages", q, nil)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeREST(cmd, app, status, out)
+			}
+
+			st, _, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+
+			usagesByConn := map[string][]map[string]any{}
+			for _, prof := range ws.Profiles {
+				if strings.TrimSpace(flowSlug) != "" && strings.TrimSpace(prof.FlowSlug) != strings.TrimSpace(flowSlug) {
+					continue
+				}
+				bindings, _ := prof.Bindings.(map[string]any)
+				for slot, rawConnID := range bindings {
+					connID := strings.TrimSpace(toString(rawConnID))
+					if connID == "" {
+						continue
+					}
+					if strings.TrimSpace(connectionID) != "" && connID != strings.TrimSpace(connectionID) {
+						continue
+					}
+					target := "installation"
+					if strings.EqualFold(strings.TrimSpace(prof.ProfileType), "draft") {
+						target = "draft"
+					} else if strings.TrimSpace(prof.UserID) == "" {
+						target = "live"
+					}
+					usagesByConn[connID] = append(usagesByConn[connID], map[string]any{
+						"connectionId": connID,
+						"flowSlug":     prof.FlowSlug,
+						"slot":         slot,
+						"profileId":    prof.ID,
+						"profileType":  prof.ProfileType,
+						"target":       target,
+						"enabled":      prof.Enabled,
+						"version":      prof.Version,
+						"userId":       prof.UserID,
+					})
+				}
+			}
+
+			connIDs := make([]string, 0, len(ws.Connections))
+			for id := range ws.Connections {
+				if strings.TrimSpace(connectionID) != "" && id != strings.TrimSpace(connectionID) {
+					continue
+				}
+				connIDs = append(connIDs, id)
+			}
+			sort.Strings(connIDs)
+			items := make([]map[string]any, 0, len(connIDs))
+			for _, id := range connIDs {
+				conn := ws.Connections[id]
+				uses := usagesByConn[id]
+				if onlyConnected && len(uses) == 0 {
+					continue
+				}
+				items = append(items, map[string]any{
+					"connectionId": id,
+					"name":         conn.Name,
+					"type":         conn.Type,
+					"status":       conn.Status,
+					"usageCount":   len(uses),
+					"usages":       uses,
+				})
+			}
+
+			connected := 0
+			bindings := 0
+			for _, item := range items {
+				usageCount := anyInt(item["usageCount"])
+				bindings += usageCount
+				if usageCount > 0 {
+					connected++
+				}
+			}
+			return writeData(cmd, app, nil, map[string]any{
+				"items": items,
+				"summary": map[string]any{
+					"connections": len(items),
+					"connected":   connected,
+					"unconnected": len(items) - connected,
+					"bindings":    bindings,
+				},
+			})
+		},
+	}
+	cmd.Flags().StringVar(&connectionID, "connection-id", "", "Filter to one connection ID")
+	cmd.Flags().StringVar(&flowSlug, "flow", "", "Filter by flow slug")
+	cmd.Flags().BoolVar(&onlyConnected, "only-connected", false, "Show only connections currently used by flow profiles")
 	return cmd
 }
 
@@ -305,29 +530,84 @@ func newConnectionsDeleteCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if ws.Connections[args[0]] == nil {
+			connectionID := strings.TrimSpace(args[0])
+			if ws.Connections[connectionID] == nil {
 				return writeErr(cmd, errors.New("connection not found"))
 			}
-			delete(ws.Connections, args[0])
+			usages := make([]map[string]any, 0)
+			for _, prof := range ws.Profiles {
+				bindings, _ := prof.Bindings.(map[string]any)
+				for slot, rawConnID := range bindings {
+					if strings.TrimSpace(toString(rawConnID)) != connectionID {
+						continue
+					}
+					target := "installation"
+					if strings.EqualFold(strings.TrimSpace(prof.ProfileType), "draft") {
+						target = "draft"
+					} else if strings.TrimSpace(prof.UserID) == "" {
+						target = "live"
+					}
+					usages = append(usages, map[string]any{
+						"connectionId": connectionID,
+						"flowSlug":     prof.FlowSlug,
+						"slot":         slot,
+						"profileId":    prof.ID,
+						"profileType":  prof.ProfileType,
+						"target":       target,
+						"enabled":      prof.Enabled,
+						"version":      prof.Version,
+						"userId":       prof.UserID,
+					})
+				}
+			}
+			if len(usages) > 0 {
+				return writeFailure(
+					cmd,
+					app,
+					"connection_in_use",
+					errors.New("connection is still bound to flow profiles"),
+					"Unset or move this connection in flow config before deleting. Use: breyta connections usages --connection-id "+connectionID,
+					map[string]any{
+						"connectionId": connectionID,
+						"usageCount":   len(usages),
+						"usages":       usages,
+					},
+				)
+			}
+			delete(ws.Connections, connectionID)
 			ws.UpdatedAt = time.Now().UTC()
 			if err := store.Save(st); err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, nil, map[string]any{"deleted": true, "id": args[0]})
+			return writeData(cmd, app, nil, map[string]any{"deleted": true, "id": connectionID})
 		},
 	}
 	return cmd
 }
 
 func newConnectionsTestCmd(app *App) *cobra.Command {
+	var all bool
+	var onlyFailing bool
 	cmd := &cobra.Command{
-		Use:   "test <id>",
-		Short: "Test connection",
-		Args:  cobra.ExactArgs(1),
+		Use:   "test [id]",
+		Short: "Test a connection, or all connections with --all",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !all && onlyFailing {
+				return writeErr(cmd, errors.New("--only-failing requires --all"))
+			}
+			if all && len(args) > 0 {
+				return writeErr(cmd, errors.New("provide <id> or --all, not both"))
+			}
+			if !all && len(args) != 1 {
+				return writeErr(cmd, errors.New("connections test requires <id> or --all"))
+			}
 			if isAPIMode(app) {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
+				}
+				if all {
+					return runConnectionBulkTestAPI(cmd, app, onlyFailing)
 				}
 				id := strings.TrimSpace(args[0])
 				if id == "" {
@@ -347,6 +627,45 @@ func newConnectionsTestCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if all {
+				items := make([]map[string]any, 0, len(ws.Connections))
+				keys := make([]string, 0, len(ws.Connections))
+				for id := range ws.Connections {
+					keys = append(keys, id)
+				}
+				sort.Strings(keys)
+				now := time.Now().UTC()
+				for _, id := range keys {
+					c := ws.Connections[id]
+					ok := strings.EqualFold(strings.TrimSpace(c.Status), "ready")
+					if !ok {
+						c.Status = "ready"
+					}
+					c.UpdatedAt = now
+					if onlyFailing && ok {
+						continue
+					}
+					items = append(items, map[string]any{
+						"id":     c.ID,
+						"name":   c.Name,
+						"type":   c.Type,
+						"ok":     true,
+						"status": c.Status,
+					})
+				}
+				ws.UpdatedAt = now
+				if err := store.Save(st); err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeData(cmd, app, nil, map[string]any{
+					"items": items,
+					"summary": map[string]any{
+						"tested": len(keys),
+						"ok":     len(keys),
+						"failed": 0,
+					},
+				})
+			}
 			c := ws.Connections[args[0]]
 			if c == nil {
 				return writeErr(cmd, errors.New("connection not found"))
@@ -361,7 +680,48 @@ func newConnectionsTestCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"id": c.ID, "ok": true, "status": c.Status})
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "Test all workspace connections")
+	cmd.Flags().BoolVar(&onlyFailing, "only-failing", false, "When used with --all, include only failing results")
 	return cmd
+}
+
+func runConnectionBulkTestAPI(cmd *cobra.Command, app *App, onlyFailing bool) error {
+	client := apiClient(app)
+	outAny, status, err := client.DoREST(
+		context.Background(),
+		http.MethodPost,
+		"/api/connections/test",
+		nil,
+		map[string]any{
+			"all":         true,
+			"onlyFailing": onlyFailing,
+		},
+	)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if status >= 400 {
+		return writeREST(cmd, app, status, outAny)
+	}
+
+	out, ok := outAny.(map[string]any)
+	if !ok {
+		return writeErr(cmd, errors.New("bulk test response not an object"))
+	}
+
+	summary, _ := out["summary"].(map[string]any)
+	failedCount := anyInt(summary["failed"])
+	if failedCount > 0 {
+		return writeFailure(
+			cmd,
+			app,
+			"connection_tests_failed",
+			fmt.Errorf("%d connection test(s) failed", failedCount),
+			"Use `breyta connections test <connection-id>` to inspect failing connections individually.",
+			out,
+		)
+	}
+	return writeData(cmd, app, nil, out)
 }
 
 // --- Profiles --------------------------------------------------------------

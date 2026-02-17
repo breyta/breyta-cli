@@ -235,10 +235,10 @@ Suggested line to paste into your agent's persistent project instructions:
 ## Authoring loop (agent-friendly)
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
 2) Edit ` + "`./flows/<slug>.clj`" + `
-3) Push a new draft: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-4) Validate/compile: ` + "`breyta flows validate <slug>`" + ` (and ` + "`breyta flows compile <slug>`" + ` when needed)
-5) Deploy: ` + "`breyta flows deploy <slug>`" + `
-6) Run and wait for output: ` + "`breyta runs start --flow <slug> --source latest --input '{\"n\":41}' --wait`" + `
+3) Push working copy: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
+4) Optional read-only check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
+5) Release: ` + "`breyta flows release <slug>`" + `
+6) Run and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
 
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
@@ -269,7 +269,7 @@ breyta flows list
 
 Suggested workflow:
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Pull, edit, push, validate, deploy, run
+- Pull, edit, push, validate, release, run
 
 Docs:
 - CLI docs: ` + "`breyta docs`" + `

@@ -8,7 +8,7 @@ import (
 
 func newFlowsInstallationsTriggersCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "triggers <profile-id>",
+		Use:   "triggers <installation-id>",
 		Short: "List installation triggers (e.g. upload endpoints)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

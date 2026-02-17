@@ -55,16 +55,18 @@ func configureVisibility(root *cobra.Command, app *App) {
 	}
 
 	allowFlows := map[string]bool{
-		"list":               true,
-		"show":               true,
-		"create":             true,
-		"pull":               true,
-		"push":               true,
-		"deploy":             true,
-		"bindings":           true,
-		"activate":           true,
-		"draft":              true,
-		"draft-bindings-url": true,
+		"list":          true,
+		"search":        true,
+		"show":          true,
+		"create":        true,
+		"configure":     true,
+		"pull":          true,
+		"push":          true,
+		"validate":      true,
+		"release":       true,
+		"promote":       true,
+		"run":           true,
+		"installations": true,
 	}
 	for _, sc := range flowsCmd.Commands() {
 		if !allowFlows[sc.Name()] {

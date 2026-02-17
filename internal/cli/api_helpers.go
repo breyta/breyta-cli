@@ -331,7 +331,7 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 		}
 	}
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Apply bindings, then enable the profile: breyta flows bindings apply " + flowSlug + " @profile.edn; breyta flows activate " + flowSlug + " --version latest. Tip: prefer reusing existing workspace connections (list: breyta connections list; bind: <slot>.conn=conn-...)."
+		meta["hint"] = "Flow uses :requires slots. Connect-first recommendation: reuse or create+test connections before wiring (breyta connections list; breyta connections create ...; breyta connections test <connection-id>). Then configure workspace target and promote live when needed: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows promote " + flowSlug + ". Run against live explicitly with --target live or target a specific install with --installation-id <id>."
 	}
 }
 
@@ -547,7 +547,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				meta["hint"] = "This error usually means the flow needs bindings + activation. Use: breyta flows bindings apply <slug> @profile.edn; breyta flows activate <slug> --version latest"
+				meta["hint"] = "This error usually means the flow needs configuration + installation promotion. Use: breyta flows configure <slug> --set <slot>.conn=conn-...; breyta flows promote <slug>; then run with --target live or --installation-id <id>."
 			}
 		}
 	}
@@ -612,9 +612,9 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 		return writeErr(cmd, err)
 	}
 
-	// Progressive disclosure (activation): only add activation hints when they are likely relevant.
+	// Progressive disclosure: only add installation/configuration hints when relevant.
 	//
-	// Avoid always emitting activationUrl/hints on successful deploys for flows that have no :requires
+	// Avoid always emitting install/configure hints on successful releases for flows that have no :requires
 	// (this was confusing and produced false hints).
 	if slug, _ := args["flowSlug"].(string); strings.TrimSpace(slug) != "" {
 		switch command {
@@ -623,7 +623,7 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 				addActivationHint(app, out, slug)
 			}
 		case "runs.start":
-			// Only add when runs.start failed (common when missing activation/bindings).
+			// Only add when runs.start failed (common when missing installation config).
 			if status >= 400 || !isOK(out) {
 				if source, _ := args["source"].(string); strings.EqualFold(strings.TrimSpace(source), "draft") {
 					addDraftBindingsHint(app, out, slug)
@@ -632,12 +632,28 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 				}
 			}
 		case "flows.deploy":
-			// If deploy failed, activation may still be relevant.
+			// If release/deploy failed, installation promotion may still be relevant.
 			if status >= 400 || !isOK(out) {
 				addActivationHint(app, out, slug)
 			} else {
-				// On success, best-effort check whether the deployed flow declares :requires
-				// before adding activation hints (avoids false positives).
+				// On success, best-effort check whether the released flow declares :requires
+				// before adding installation hints (avoids false positives).
+				getOut, getStatus, getErr := client.DoCommand(
+					context.Background(),
+					"flows.get",
+					map[string]any{"flowSlug": slug},
+				)
+				if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
+					addActivationHint(app, out, slug)
+				}
+			}
+		case "flows.release":
+			// If release failed, installation configuration may still be relevant.
+			if status >= 400 || !isOK(out) {
+				addActivationHint(app, out, slug)
+			} else {
+				// On success, best-effort check whether the released flow declares :requires
+				// before adding installation hints (avoids false positives).
 				getOut, getStatus, getErr := client.DoCommand(
 					context.Background(),
 					"flows.get",

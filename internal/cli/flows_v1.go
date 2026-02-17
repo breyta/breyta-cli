@@ -37,20 +37,33 @@ func newFlowsCmd(app *App) *cobra.Command {
 Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
-3) push -> creates a new draft version
-4) deploy -> promotes latest version to active
+3) push -> updates working copy (and validates by default)
+4) release -> publishes an immutable version and promotes live install in current workspace
+5) run -> verifies behavior in your workspace
+
+Optional explicit check:
+- validate -> read-only verification for CI, troubleshooting, or explicit target checks
+
+Advanced rollout workflow (optional):
+- release -> publishes immutable version + live install promotion in current workspace
+- promote -> updates live target to a released version
+- installations ... -> installation-id scoped management
 
 Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
-- breyta flows deploy <slug>
+- breyta flows configure <slug> --set api.conn=conn-...
+- breyta flows configure check <slug>
+- breyta flows release <slug>
+- breyta flows promote <slug> --version <n>
+- breyta flows run <slug> --wait
 
 Flow file format (minimal):
 {:slug :my-flow
  :name "My Flow"
  :description "..."
- :tags ["draft"]
+ :tags ["example"]
  :concurrency {:type :singleton :on-new-version :supersede}
  :requires nil
  :templates nil
@@ -63,22 +76,25 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
-- If a flow has a draft but no deployed version yet, use: breyta flows show <slug> --source draft (or --source latest).
 
-Bindings (credentials for :requires):
-- If your flow declares :requires slots (e.g. :http-api with :auth/:oauth), apply bindings once, then activate the profile.
-- Generate a template: breyta flows bindings template <slug> --out profile.edn
-- Apply bindings: breyta flows bindings apply <slug> @profile.edn
-- Enable prod profile: breyta flows activate <slug> --version latest
-- Draft bindings URL (UI): breyta flows draft-bindings-url <slug>
-`),
+Advanced install lifecycle:
+- Release with default live promotion: breyta flows release <slug>
+- Release without auto promotion: breyta flows release <slug> --no-install
+- Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
+- Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
+- List installation triggers: breyta flows installations triggers <installation-id>
+		`),
 	}
 
 	cmd.AddCommand(newFlowsListCmd(app))
 	cmd.AddCommand(newFlowsSearchCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
+	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
+	cmd.AddCommand(newFlowsReleaseCmd(app))
+	cmd.AddCommand(newFlowsPromoteCmd(app))
+	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
@@ -106,7 +122,6 @@ Bindings (credentials for :requires):
 	cmd.AddCommand(versions)
 
 	cmd.AddCommand(newFlowsValidateCmd(app))
-	cmd.AddCommand(newFlowsCompileCmd(app))
 
 	return cmd
 }
@@ -273,9 +288,9 @@ func newFlowsActivateCmd(app *App) *cobra.Command {
 func newFlowsDraftBindingsURLCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "draft-bindings-url <flow-slug>",
-		Short: "Print the draft bindings URL for preview runs",
+		Short: "Print the draft bindings URL for working-copy runs",
 		Long: strings.TrimSpace(`
-Draft preview runs use a user-scoped draft profile. Bind credentials here:
+Working-copy runs use a user-scoped draft profile. Bind credentials here:
 - Draft bindings: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
 `),
 		Args: cobra.ExactArgs(1),
@@ -493,18 +508,46 @@ func newFlowsListCmd(app *App) *cobra.Command {
 
 func newFlowsShowCmd(app *App) *cobra.Command {
 	var include string
-	var source string
+	var target string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if strings.TrimSpace(source) != "" && source != "active" {
-					payload["source"] = source
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
+				if !isAPIMode(app) {
+					return writeErr(cmd, errors.New("--target requires API mode"))
 				}
+				s, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				resolvedTarget = s
+				if resolvedTarget == "live" && version > 0 {
+					return writeErr(cmd, errors.New("--target cannot be combined with --version"))
+				}
+				if resolvedTarget == "live" {
+					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload := map[string]any{
+						"flowSlug": args[0],
+						"source":   "active",
+					}
+					if target.Version > 0 {
+						payload["version"] = target.Version
+					}
+					return doAPICommand(cmd, app, "flows.get", payload)
+				}
+			}
+
+			source := "current"
+			if isAPIMode(app) {
+				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if version > 0 {
 					payload["version"] = version
 				}
@@ -563,7 +606,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
-	cmd.Flags().StringVar(&source, "source", "active", "Fetch source for API mode (active|latest|draft)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
 }
@@ -622,7 +665,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
-	var source string
+	var target string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "pull <flow-slug>",
@@ -641,17 +684,42 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(path) == "" {
 				path = filepath.Join("tmp", "flows", slug+".clj")
 			}
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
+				s, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				resolvedTarget = s
+				if resolvedTarget == "live" && version > 0 {
+					return writeErr(cmd, errors.New("--target cannot be combined with --version"))
+				}
+			}
 
 			payload := map[string]any{"flowSlug": slug}
-			if strings.TrimSpace(source) != "" && source != "active" {
-				payload["source"] = source
-			}
-			if version > 0 {
-				payload["version"] = version
+			if resolvedTarget == "live" {
+				target, err := resolveLiveProfileTarget(cmd.Context(), app, slug, true)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["source"] = "active"
+				if target.Version > 0 {
+					payload["version"] = target.Version
+				}
+			} else {
+				payload["source"] = "current"
+				if version > 0 {
+					payload["version"] = version
+				}
 			}
 
 			client := apiClient(app)
-			resp, status, err := client.DoCommand(context.Background(), "flows.get", payload)
+			reqCtx := cmd.Context()
+			if reqCtx == nil {
+				reqCtx = context.Background()
+			}
+			resp, status, err := client.DoCommand(reqCtx, "flows.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -678,27 +746,41 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
 				return writeErr(cmd, err)
 			}
-			return writeData(cmd, app, nil, map[string]any{"saved": true, "path": path, "flowSlug": slug})
+			result := map[string]any{"saved": true, "path": path, "flowSlug": slug}
+			if targetChanged {
+				result["target"] = resolvedTarget
+			}
+			return writeData(cmd, app, nil, result)
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
 }
 
 func newFlowsPushCmd(app *App) *cobra.Command {
 	var file string
+	var target string
 	var repairDelimiters bool
 	var noRepairWriteback bool
 	var validate bool
 	var deployKey string
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Push a local .clj flow file as a new draft version",
+		Short: "Push a local .clj flow file as an updated working copy",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Push requires --api/BREYTA_API_URL")
+			}
+			if cmd.Flags().Changed("target") {
+				resolvedTarget, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedTarget == "live" {
+					return writeErr(cmd, errors.New("--target live is not supported for flows push; push always updates workspace current. Use `breyta flows release <slug>` to publish/install live, or `breyta flows promote <slug>` to retarget live"))
+				}
 			}
 			if strings.TrimSpace(file) == "" {
 				return writeErr(cmd, errors.New("missing --file"))
@@ -775,7 +857,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if flowSlug == "" {
 				meta := ensureMeta(out)
 				if meta != nil {
-					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug> --source draft"
+					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug>"
 				}
 				return writeAPIResult(cmd, app, out, status)
 			}
@@ -799,9 +881,10 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live). live is not valid for push")
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
-	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the draft after pushing")
+	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
@@ -1414,26 +1497,47 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-// --- Validate/compile --------------------------------------------------------
+// --- Validate ----------------------------------------------------------------
 
 func newFlowsValidateCmd(app *App) *cobra.Command {
-	var source string
+	var target string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug>",
-		Short: "Validate a flow",
-		Args:  cobra.ExactArgs(1),
+		Short: "Run read-only flow validation (no mutation)",
+		Long: strings.TrimSpace(`
+Validate is a read-only check you can run on demand.
+
+Why use it if push/release already validate?
+- push validates registration constraints while writing draft state
+- release validates deploy-time constraints for released/lintable code
+- validate gives an explicit check point for CI, troubleshooting, and target-specific verification without mutating flow state
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			source = strings.TrimSpace(source)
-			if source == "" {
-				source = "active"
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
+				if !isAPIMode(app) {
+					return writeErr(cmd, errors.New("--target requires API mode"))
+				}
+				s, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				resolvedTarget = s
 			}
-			if source != "active" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
-			}
+			source := "current"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if source != "active" {
-					payload["source"] = source
+				payload := map[string]any{"flowSlug": args[0], "source": source}
+				if resolvedTarget == "live" {
+					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload["source"] = "active"
+					if target.Version > 0 {
+						payload["version"] = target.Version
+					}
 				}
 				return doAPICommand(cmd, app, "flows.validate", payload)
 			}
@@ -1474,29 +1578,19 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	return cmd
 }
 
 func newFlowsCompileCmd(app *App) *cobra.Command {
-	var source string
 	cmd := &cobra.Command{
 		Use:   "compile <flow-slug>",
 		Short: "Compile a flow (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			source = strings.TrimSpace(source)
-			if source == "" {
-				source = "active"
-			}
-			if source != "active" && source != "latest" && source != "draft" {
-				return writeErr(cmd, fmt.Errorf("invalid --source %q (expected active, latest, draft)", source))
-			}
+			source := "current"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0]}
-				if source != "active" {
-					payload["source"] = source
-				}
+				payload := map[string]any{"flowSlug": args[0], "source": source}
 				return doAPICommand(cmd, app, "flows.compile", payload)
 			}
 			st, store, err := appStore(app)
@@ -1525,7 +1619,6 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "active", "Source (active|latest|draft)")
 	return cmd
 }
 
@@ -1644,16 +1737,21 @@ func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string
 	switch source {
 	case "draft":
 		return flowRecordFromFlow(f), "draft", 0, nil
+	case "current":
+		fallthrough
 	case "active":
 		if f.ActiveVersion > 0 {
 			if v, ok := findVersion(f, f.ActiveVersion); ok {
+				if source == "current" {
+					return v.Flow, "current", v.Version, nil
+				}
 				return v.Flow, "active", v.Version, nil
 			}
 		}
 		if len(f.Versions) == 0 {
 			return flowRecordFromFlow(f), "draft", 0, nil
 		}
-		return state.FlowRecord{}, "", 0, errors.New("active version not found; deploy and activate a version first")
+		return state.FlowRecord{}, "", 0, errors.New("current/active version not found; push then release first")
 	case "latest":
 		if len(f.Versions) == 0 {
 			return flowRecordFromFlow(f), "draft", 0, nil
@@ -1666,7 +1764,7 @@ func flowRecordForSource(f *state.Flow, source string) (state.FlowRecord, string
 		}
 		return latest.Flow, "latest", latest.Version, nil
 	default:
-		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q", source)
+		return state.FlowRecord{}, "", 0, fmt.Errorf("invalid source %q (expected current or latest)", source)
 	}
 }
 

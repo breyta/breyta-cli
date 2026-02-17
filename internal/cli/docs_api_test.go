@@ -103,11 +103,11 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 		case "/api/docs/pages":
 			sawQuery = true
 			q := r.URL.Query()
-			if got := q.Get("query"); got != "source:cli deploy" {
-				t.Fatalf("expected query=source:cli deploy, got %q", got)
+			if got := q.Get("query"); got != "source:cli release" {
+				t.Fatalf("expected query=source:cli release, got %q", got)
 			}
-			if got := q.Get("q"); got != "source:cli deploy" {
-				t.Fatalf("expected q=source:cli deploy, got %q", got)
+			if got := q.Get("q"); got != "source:cli release" {
+				t.Fatalf("expected q=source:cli release, got %q", got)
 			}
 			if got := q.Get("limit"); got != "25" {
 				t.Fatalf("expected limit=25, got %q", got)
@@ -140,7 +140,7 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 
 	cmd := newDocsFindCmd(&App{APIURL: srv.URL})
 	cmd.SetArgs([]string{
-		"source:cli deploy",
+		"source:cli release",
 		"--limit", "25",
 		"--offset", "10",
 		"--with-snippets",
