@@ -87,6 +87,7 @@ Use "flows installations configure" when you need installation-specific configur
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.AddCommand(newFlowsConfigureShowCmd(app))
 	cmd.AddCommand(newFlowsConfigureCheckCmd(app))
+	cmd.AddCommand(newFlowsConfigureSuggestCmd(app))
 	return cmd
 }
 

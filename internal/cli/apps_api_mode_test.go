@@ -474,6 +474,520 @@ func TestFlowsConfigureCheck_LiveTarget(t *testing.T) {
 	}
 }
 
+func TestFlowsConfigureSuggest_DefaultTarget_UsesTemplateStatusAndConnections(t *testing.T) {
+	commandCalls := 0
+	connectionCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			command, _ := body["command"].(string)
+			args, _ := body["args"].(map[string]any)
+			switch command {
+			case "profiles.template":
+				commandCalls++
+				if args["flowSlug"] != "flow-configure" {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+					return
+				}
+				if args["profileType"] != "draft" {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected draft profileType"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"flowSlug": "flow-configure",
+						"requirements": []any{
+							map[string]any{"slot": ":api", "kind": "connection", "type": "http-api"},
+							map[string]any{"kind": "form", "fields": []any{
+								map[string]any{"key": ":region", "required": true},
+							}},
+						},
+					},
+				})
+			case "profiles.status":
+				commandCalls++
+				if args["profileType"] != "draft" {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected draft profileType"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"bindingValues": map[string]any{},
+						"activation": map[string]any{
+							"region": map[string]any{"set": false},
+						},
+					},
+				})
+			default:
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			}
+		case "/api/connections":
+			connectionCalls++
+			if r.URL.Query().Get("type") != "http-api" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "expected type=http-api"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"connection-id": "conn-api-1", "name": "Primary API"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "configure", "suggest", "flow-configure",
+	)
+	if err != nil {
+		t.Fatalf("flows configure suggest failed: %v\n%s", err, stdout)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected 2 command calls, got %d", commandCalls)
+	}
+	if connectionCalls != 1 {
+		t.Fatalf("expected 1 connections call, got %d", connectionCalls)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["target"] != "draft" {
+		t.Fatalf("expected target=draft, got %#v", data["target"])
+	}
+	setArgs, _ := data["suggestedSetArgs"].([]any)
+	if len(setArgs) != 1 || setArgs[0] != "api.conn=conn-api-1" {
+		t.Fatalf("expected suggestedSetArgs with api.conn=conn-api-1, got %#v", setArgs)
+	}
+	missingActivation, _ := data["missingActivationInputs"].([]any)
+	if len(missingActivation) != 1 || missingActivation[0] != "region" {
+		t.Fatalf("expected missingActivationInputs=[region], got %#v", missingActivation)
+	}
+}
+
+func TestFlowsConfigureSuggest_LiveTarget_UsesProdProfileType(t *testing.T) {
+	commandCalls := 0
+	connectionCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			command, _ := body["command"].(string)
+			args, _ := body["args"].(map[string]any)
+			switch command {
+			case "profiles.template":
+				commandCalls++
+				if args["profileType"] != "prod" {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected prod profileType"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"flowSlug": "flow-configure",
+						"requirements": []any{
+							map[string]any{"slot": ":llm", "kind": "connection", "type": "llm-provider"},
+						},
+					},
+				})
+			case "profiles.status":
+				commandCalls++
+				if args["profileType"] != "prod" {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected prod profileType"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"bindingValues": map[string]any{"llm": "conn-existing"},
+						"activation":    map[string]any{},
+					},
+				})
+			default:
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			}
+		case "/api/connections":
+			connectionCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"connection-id": "conn-existing", "name": "OpenAI"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "configure", "suggest", "flow-configure",
+		"--target", "live",
+	)
+	if err != nil {
+		t.Fatalf("flows configure suggest --target live failed: %v\n%s", err, stdout)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected 2 command calls, got %d", commandCalls)
+	}
+	if connectionCalls != 1 {
+		t.Fatalf("expected 1 connections call, got %d", connectionCalls)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["target"] != "live" {
+		t.Fatalf("expected target=live, got %#v", data["target"])
+	}
+	if data["profileType"] != "prod" {
+		t.Fatalf("expected profileType=prod, got %#v", data["profileType"])
+	}
+	suggested, _ := data["suggestedSetArgs"].([]any)
+	if len(suggested) != 0 {
+		t.Fatalf("expected no suggested set args when already configured, got %#v", suggested)
+	}
+}
+
+func TestConnectionsTest_All(t *testing.T) {
+	var bulkCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/connections/test" && r.Method == http.MethodPost:
+			bulkCalls++
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["all"] != true {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing all=true"}})
+				return
+			}
+			if body["onlyFailing"] != false {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "expected onlyFailing=false"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"connection-id": "conn-1", "success": true},
+					map[string]any{"connection-id": "conn-2", "success": true},
+				},
+				"summary": map[string]any{"total": 2, "tested": 2, "ok": 2, "failed": 0},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "test", "--all",
+	)
+	if err != nil {
+		t.Fatalf("connections test --all failed: %v\n%s", err, stdout)
+	}
+	if bulkCalls != 1 {
+		t.Fatalf("expected one bulk test call, got %d", bulkCalls)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	summary, _ := data["summary"].(map[string]any)
+	if summary["failed"] != float64(0) {
+		t.Fatalf("expected failed=0, got %#v", summary["failed"])
+	}
+}
+
+func TestConnectionsTest_AllOnlyFailing_ReturnsFailureEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/connections/test" && r.Method == http.MethodPost:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["all"] != true || body["onlyFailing"] != true {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "expected all=true onlyFailing=true"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"connection-id": "conn-bad", "success": false, "message": "invalid credentials"},
+				},
+				"summary": map[string]any{"total": 2, "tested": 2, "ok": 1, "failed": 1},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "test", "--all", "--only-failing",
+	)
+	if err == nil {
+		t.Fatalf("expected connections test --all --only-failing to fail when one connection fails")
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	ok, _ := out["ok"].(bool)
+	if ok {
+		t.Fatalf("expected ok=false output, got %#v", out["ok"])
+	}
+	errorObj, _ := out["error"].(map[string]any)
+	if errorObj["code"] != "connection_tests_failed" {
+		t.Fatalf("expected connection_tests_failed code, got %#v", errorObj["code"])
+	}
+	details, _ := errorObj["details"].(map[string]any)
+	items, _ := details["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected only failing item in details, got %#v", items)
+	}
+}
+
+func TestConnectionsUsages_API(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/connections/usages" {
+			http.NotFound(w, r)
+			return
+		}
+		called = true
+		if r.URL.Query().Get("connection-id") != "conn-1" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing connection-id query"}})
+			return
+		}
+		if r.URL.Query().Get("flow-slug") != "my-flow" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing flow-slug query"}})
+			return
+		}
+		if r.URL.Query().Get("only-connected") != "true" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing only-connected query"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"connection-id": "conn-1",
+					"usage-count":   2,
+					"usages": []any{
+						map[string]any{"flowSlug": "my-flow", "target": "draft"},
+						map[string]any{"flowSlug": "my-flow", "target": "live"},
+					},
+				},
+			},
+			"summary": map[string]any{"connections": 1, "connected": 1, "unconnected": 0, "bindings": 2},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "usages",
+		"--connection-id", "conn-1",
+		"--flow", "my-flow",
+		"--only-connected",
+	)
+	if err != nil {
+		t.Fatalf("connections usages failed: %v\n%s", err, stdout)
+	}
+	if !called {
+		t.Fatalf("expected /api/connections/usages to be called")
+	}
+}
+
+func TestConnectionsDelete_InUse_ReturnsHintDetails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/connections/conn-in-use" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":   "Connection is still bound to flow profiles",
+			"details": map[string]any{"hint": "Unset or move this connection first"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "delete", "conn-in-use",
+	)
+	if err == nil {
+		t.Fatalf("expected connections delete to fail for in-use connection")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	ok, _ := out["ok"].(bool)
+	if ok {
+		t.Fatalf("expected ok=false output")
+	}
+	data, _ := out["data"].(map[string]any)
+	details, _ := data["details"].(map[string]any)
+	if details["hint"] != "Unset or move this connection first" {
+		t.Fatalf("expected delete hint in response details, got %#v", details)
+	}
+}
+
+func TestSecretsUsages_API(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/secrets/usages" {
+			http.NotFound(w, r)
+			return
+		}
+		called = true
+		if r.URL.Query().Get("secret-id") != "sec-1" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing secret-id query"}})
+			return
+		}
+		if r.URL.Query().Get("flow-slug") != "my-flow" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing flow-slug query"}})
+			return
+		}
+		if r.URL.Query().Get("only-connected") != "true" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing only-connected query"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"secret-id":   "sec-1",
+					"usage-count": 2,
+					"usages": []any{
+						map[string]any{"flowSlug": "my-flow", "target": "draft"},
+						map[string]any{"flowSlug": "my-flow", "target": "live"},
+					},
+				},
+			},
+			"summary": map[string]any{"secrets": 1, "connected": 1, "unconnected": 0, "bindings": 2},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"secrets", "usages",
+		"--secret-id", "sec-1",
+		"--flow", "my-flow",
+		"--only-connected",
+	)
+	if err != nil {
+		t.Fatalf("secrets usages failed: %v\n%s", err, stdout)
+	}
+	if !called {
+		t.Fatalf("expected /api/secrets/usages to be called")
+	}
+}
+
+func TestSecretsDelete_InUse_ReturnsHintDetails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/secrets/sec-in-use" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":   "Secret is still bound to flow profiles",
+			"details": map[string]any{"hint": "Unset or move this secret first"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"secrets", "delete", "sec-in-use",
+	)
+	if err == nil {
+		t.Fatalf("expected secrets delete to fail for in-use secret")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	ok, _ := out["ok"].(bool)
+	if ok {
+		t.Fatalf("expected ok=false output")
+	}
+	data, _ := out["data"].(map[string]any)
+	details, _ := data["details"].(map[string]any)
+	if details["hint"] != "Unset or move this secret first" {
+		t.Fatalf("expected delete hint in response details, got %#v", details)
+	}
+}
+
 func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

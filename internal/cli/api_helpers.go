@@ -331,7 +331,7 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 		}
 	}
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Configure workspace target, then promote live: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows promote " + flowSlug + ". Run against live explicitly with --target live or target a specific install with --installation-id <id>. Tip: prefer reusing existing workspace connections (list: breyta connections list)."
+		meta["hint"] = "Flow uses :requires slots. Connect-first recommendation: reuse or create+test connections before wiring (breyta connections list; breyta connections create ...; breyta connections test <connection-id>). Then configure workspace target and promote live when needed: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows promote " + flowSlug + ". Run against live explicitly with --target live or target a specific install with --installation-id <id>."
 	}
 }
 
