@@ -6,6 +6,10 @@ This is the maintainer runbook for cutting a new `breyta-cli` release.
 
 - Tag format is CalVer: `vYYYY.M.PATCH` (example: `v2026.2.2`).
 - The release workflow only triggers for tags matching this pattern.
+- Release automation also creates a Go-module compatibility tag:
+  - `vYYYY.M.PATCH` -> `v0.YYYYMM.PATCH`
+  - Example: `v2026.2.3` -> `v0.202602.3`
+  - This keeps `go install github.com/breyta/breyta-cli/cmd/breyta@latest` on the newest release commit
 
 ## Prerequisites
 
@@ -58,11 +62,18 @@ Expected outputs:
 
 - GitHub release with archives and checksums
 - Homebrew tap update to `breyta/homebrew-tap` (Formula `breyta`)
+- Go-module compatibility tag pushed to this repo (for `go install ...@latest`)
 
 Watch:
 
 - Actions: <https://github.com/breyta/breyta-cli/actions/workflows/release.yml>
 - Releases: <https://github.com/breyta/breyta-cli/releases>
+
+Verify module tags if needed:
+
+```bash
+go list -m -versions github.com/breyta/breyta-cli
+```
 
 ## Troubleshooting
 

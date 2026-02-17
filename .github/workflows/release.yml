@@ -32,3 +32,12 @@ jobs:
         env:
           # Needs access to publish the GitHub Release *and* to push to `breyta/homebrew-tap`.
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+
+      - name: Publish Go module compatibility tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          module_tag="$(./scripts/release-go-module-tag.sh "${RELEASE_TAG}")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push origin "${module_tag}"
