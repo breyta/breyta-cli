@@ -11,6 +11,7 @@ This directory (`breyta-cli/`) is a standalone Go module that ships the `breyta`
 ## Build & test
 - Build: `go build ./...`
 - Test: `go test ./...`
+- Release runbook: `docs/RELEASING.md`
 
 ## Conventions
 - Keep changes small and dependency-light (prefer stdlib).
