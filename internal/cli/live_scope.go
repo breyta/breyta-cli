@@ -66,9 +66,6 @@ func resolveLiveProfileTarget(ctx context.Context, app *App, flowSlug string, in
 				continue
 			}
 			version := anyInt(item["version"])
-			if version <= 0 {
-				continue
-			}
 			enabled := anyBoolWithDefault(item["enabled"], true)
 			if !includeDisabled && !enabled {
 				continue

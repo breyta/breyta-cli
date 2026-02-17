@@ -1972,3 +1972,77 @@ func TestFlowsDraftReset_UsesFlowsDraftResetCommand(t *testing.T) {
 		t.Fatalf("flows draft reset failed: %v\n%s", err, stdout)
 	}
 }
+
+func TestFlowsRelease_DeployKeyForwardedToReleaseAndPromote(t *testing.T) {
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			step++
+			if args["flowSlug"] != "flow-release" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+				return
+			}
+			if args["deployKey"] != "guarded-secret" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing deployKey"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 3},
+			})
+		case "flows.promote":
+			step++
+			if args["flowSlug"] != "flow-release" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+				return
+			}
+			if args["version"] != float64(3) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing promote version"}})
+				return
+			}
+			if args["deployKey"] != "guarded-secret" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing deployKey"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+		"--deploy-key", "guarded-secret",
+	)
+	if err != nil {
+		t.Fatalf("flows release with --deploy-key failed: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected release + promote commands, got %d", step)
+	}
+}

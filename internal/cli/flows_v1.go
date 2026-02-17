@@ -537,7 +537,9 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 					payload := map[string]any{
 						"flowSlug": args[0],
 						"source":   "active",
-						"version":  target.Version,
+					}
+					if target.Version > 0 {
+						payload["version"] = target.Version
 					}
 					return doAPICommand(cmd, app, "flows.get", payload)
 				}
@@ -702,7 +704,9 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 					return writeErr(cmd, err)
 				}
 				payload["source"] = "active"
-				payload["version"] = target.Version
+				if target.Version > 0 {
+					payload["version"] = target.Version
+				}
 			} else {
 				payload["source"] = "current"
 				if version > 0 {
@@ -1531,7 +1535,9 @@ Why use it if push/release already validate?
 						return writeErr(cmd, err)
 					}
 					payload["source"] = "active"
-					payload["version"] = target.Version
+					if target.Version > 0 {
+						payload["version"] = target.Version
+					}
 				}
 				return doAPICommand(cmd, app, "flows.validate", payload)
 			}

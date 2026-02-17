@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -195,6 +196,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 	var install bool
 	var noInstall bool
 	var version string
+	var deployKey string
 
 	cmd := &cobra.Command{
 		Use:   "release <flow-slug>",
@@ -222,6 +224,14 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 				payload["version"] = v
 			}
 
+			resolvedDeployKey := strings.TrimSpace(deployKey)
+			if resolvedDeployKey == "" {
+				resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+			}
+			if resolvedDeployKey != "" {
+				payload["deployKey"] = resolvedDeployKey
+			}
+
 			if !install {
 				return doAPICommand(cmd, app, "flows.release", payload)
 			}
@@ -242,6 +252,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			releaseData, _ := releaseOut["data"].(map[string]any)
 			if activeVersion := asInt(releaseData["activeVersion"]); activeVersion > 0 {
 				promotePayload["version"] = activeVersion
+			}
+			if resolvedDeployKey != "" {
+				promotePayload["deployKey"] = resolvedDeployKey
 			}
 			promoteOut, promoteStatus, err := client.DoCommand(context.Background(), "flows.promote", promotePayload)
 			if err != nil {
@@ -282,5 +295,6 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&install, "install", true, "Promote this release to live installation target in the current workspace (default true)")
 	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip automatic live installation promotion for this release")
 	cmd.Flags().StringVar(&version, "version", "", "Release version to publish (default latest from workspace current)")
+	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd
 }
