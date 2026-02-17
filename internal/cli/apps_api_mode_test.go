@@ -2056,3 +2056,36 @@ func TestFlowsRelease_DeployKeyForwardedToReleaseAndPromote(t *testing.T) {
 		t.Fatalf("expected release + promote commands, got %d", step)
 	}
 }
+
+func TestFlowsRelease_RequiresAuthPreflightWhenInstallEnabled(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
+
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"flows", "release", "flow-release",
+	)
+	if err == nil {
+		t.Fatalf("expected flows release to fail without auth token")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "missing token") && !strings.Contains(combined, "missing --token or BREYTA_TOKEN") {
+		t.Fatalf("expected missing-token guidance, got:\n%s", combined)
+	}
+	if called {
+		t.Fatalf("expected auth preflight to fail before API call")
+	}
+}

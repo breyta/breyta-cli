@@ -236,6 +236,10 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 				return doAPICommand(cmd, app, "flows.release", payload)
 			}
 
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+
 			client := apiClient(app)
 			releaseOut, releaseStatus, err := client.DoCommand(context.Background(), "flows.release", payload)
 			if err != nil {
