@@ -188,6 +188,9 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				if persistResources {
 					validateQuery.Set("persist-resources", "true")
 				}
+				if useDraft {
+					validateQuery.Set("draft", "true")
+				}
 				validateEndpoint := fmt.Sprintf("/api/events/validate/%s", eventPath)
 				validateURL := fmt.Sprintf("%s%s", baseURL, validateEndpoint)
 				client := apiClient(app)

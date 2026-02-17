@@ -43,6 +43,11 @@ func workflowIDFromRunData(data map[string]any) string {
 	if wf, _ := data["workflowId"].(string); strings.TrimSpace(wf) != "" {
 		return wf
 	}
+	if runData, _ := data["run"].(map[string]any); runData != nil {
+		if wf, _ := runData["workflowId"].(string); strings.TrimSpace(wf) != "" {
+			return wf
+		}
+	}
 	return ""
 }
 

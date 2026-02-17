@@ -1271,6 +1271,80 @@ func TestFlowsRun_ExplicitDraftTarget_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
+	var flowsRunCalls int
+	var runsGetCalls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			flowsRunCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-nested",
+						"status":     "running",
+					},
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-nested" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-nested",
+						"status":     "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run --wait failed: %v\n%s", err, stdout)
+	}
+	if flowsRunCalls != 1 {
+		t.Fatalf("expected 1 flows.run call, got %d", flowsRunCalls)
+	}
+	if runsGetCalls < 1 {
+		t.Fatalf("expected at least 1 runs.get poll, got %d", runsGetCalls)
+	}
+	if !strings.Contains(stdout, "wf-nested") {
+		t.Fatalf("expected output to include workflow id, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRun_RejectsPreviewTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
