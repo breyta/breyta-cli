@@ -57,7 +57,6 @@ Quick commands:
 - breyta flows configure check <slug>
 - breyta flows release <slug>
 - breyta flows promote <slug> --version <n>
-- breyta flows rollback <slug> --version <n>
 - breyta flows run <slug> --wait
 
 Flow file format (minimal):
@@ -81,10 +80,10 @@ Notes:
 Advanced install lifecycle:
 - Release with default live promotion: breyta flows release <slug>
 - Release without auto promotion: breyta flows release <slug> --no-install
-- Promote released version to live explicitly: breyta flows promote <slug>
+- Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List installation triggers: breyta flows installations triggers <installation-id>
-	`),
+		`),
 	}
 
 	cmd.AddCommand(newFlowsListCmd(app))
@@ -95,7 +94,6 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
 	cmd.AddCommand(newFlowsPromoteCmd(app))
-	cmd.AddCommand(newFlowsRollbackCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))

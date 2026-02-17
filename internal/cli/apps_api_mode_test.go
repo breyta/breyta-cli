@@ -1769,7 +1769,7 @@ func TestFlowsPull_TargetLive_UsesResolvedVersion(t *testing.T) {
 	}
 }
 
-func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
+func TestFlowsPromote_WithVersion_UsesInstallPromoteCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -1811,11 +1811,11 @@ func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "rollback", "flow-release",
+		"flows", "promote", "flow-release",
 		"--version", "7",
 	)
 	if err != nil {
-		t.Fatalf("flows rollback failed: %v\n%s", err, stdout)
+		t.Fatalf("flows promote --version failed: %v\n%s", err, stdout)
 	}
 }
 
