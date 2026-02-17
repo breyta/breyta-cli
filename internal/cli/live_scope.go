@@ -241,8 +241,8 @@ func profileListPagination(out map[string]any) (bool, string) {
 	}
 	meta, _ := out["meta"].(map[string]any)
 	data, _ := out["data"].(map[string]any)
-	return anyBool(meta["hasMore"], out["has-more"], data["has-more"]),
-		strings.TrimSpace(anyString(meta["nextCursor"], out["next-cursor"], data["next-cursor"]))
+	return anyBool(meta["hasMore"], out["hasMore"], out["has-more"], data["hasMore"], data["has-more"]),
+		strings.TrimSpace(anyString(meta["nextCursor"], out["nextCursor"], out["next-cursor"], data["nextCursor"], data["next-cursor"]))
 }
 
 func anyBool(values ...any) bool {

@@ -248,7 +248,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 				return nil
 			}
 
-			promotePayload := map[string]any{"flowSlug": args[0]}
+			promotePayload := map[string]any{"flowSlug": args[0], "target": "live"}
 			releaseData, _ := releaseOut["data"].(map[string]any)
 			if activeVersion := asInt(releaseData["activeVersion"]); activeVersion > 0 {
 				promotePayload["version"] = activeVersion

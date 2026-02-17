@@ -1098,6 +1098,11 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 				return
 			}
+			if args["target"] != "live" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing promote target"}})
+				return
+			}
 			if args["version"] != float64(3) {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing promote version"}})
@@ -2006,6 +2011,11 @@ func TestFlowsRelease_DeployKeyForwardedToReleaseAndPromote(t *testing.T) {
 			if args["flowSlug"] != "flow-release" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+				return
+			}
+			if args["target"] != "live" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing promote target"}})
 				return
 			}
 			if args["version"] != float64(3) {
