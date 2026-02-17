@@ -99,7 +99,7 @@ func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testin
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.create" {
+		if body["command"] != "flows.installations.create" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -140,7 +140,7 @@ func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.show" {
+		if body["command"] != "flows.installations.get" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -175,7 +175,7 @@ func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.configure" {
+		if body["command"] != "flows.installations.set_inputs" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -257,7 +257,7 @@ func TestFlowsConfigure_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsConfigure_LiveScope_UsesProdBindingsApply(t *testing.T) {
+func TestFlowsConfigure_LiveTarget_UsesProdBindingsApply(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -296,11 +296,11 @@ func TestFlowsConfigure_LiveScope_UsesProdBindingsApply(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "configure", "flow-configure",
-		"--scope", "live",
+		"--target", "live",
 		"--set", "api.conn=conn-live",
 	)
 	if err != nil {
-		t.Fatalf("flows configure --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows configure --target live failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -344,7 +344,7 @@ func TestFlowsConfigureShow_UsesDraftProfileStatusByDefault(t *testing.T) {
 	}
 }
 
-func TestFlowsConfigureShow_LiveScope_UsesProdProfileStatus(t *testing.T) {
+func TestFlowsConfigureShow_LiveTarget_UsesProdProfileStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -378,10 +378,99 @@ func TestFlowsConfigureShow_LiveScope_UsesProdProfileStatus(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "configure", "show", "flow-configure",
-		"--scope", "live",
+		"--target", "live",
 	)
 	if err != nil {
-		t.Fatalf("flows configure show --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows configure show --target live failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsConfigureCheck_DefaultTarget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.configure.check" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-configure" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if _, ok := args["target"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "target should be omitted by default"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-configure", "target": "draft", "ready": true},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "configure", "check", "flow-configure",
+	)
+	if err != nil {
+		t.Fatalf("flows configure check failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsConfigureCheck_LiveTarget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.configure.check" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-configure" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["target"] != "live" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected target live"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-configure", "target": "live", "ready": false},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "configure", "check", "flow-configure",
+		"--target", "live",
+	)
+	if err != nil {
+		t.Fatalf("flows configure check --target live failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -393,7 +482,7 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.list" {
+		if body["command"] != "flows.installations.list" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -438,7 +527,7 @@ func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testin
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.delete" {
+		if body["command"] != "flows.installations.delete" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -488,7 +577,7 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 				"workspaceId": "ws-acme",
 				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 3},
 			})
-		case "flows.install.promote":
+		case "flows.promote":
 			step++
 			if args["flowSlug"] != "flow-release" {
 				w.WriteHeader(400)
@@ -503,7 +592,7 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
-				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "scope": "live"},
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
 			})
 		default:
 			w.WriteHeader(400)
@@ -592,9 +681,9 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if _, ok := args["scope"]; ok {
+		if _, ok := args["target"]; ok {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "scope should be omitted when not explicitly set"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "target should be omitted when not explicitly set"}})
 			return
 		}
 		if args["profileId"] != "prof-123" {
@@ -623,39 +712,84 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsRun_RejectsPreviewScope(t *testing.T) {
+func TestFlowsRun_ExplicitDraftTarget_UsesCanonicalCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["target"] != "draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=draft"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-3", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--target", "draft",
+	)
+	if err != nil {
+		t.Fatalf("flows run --target draft failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_RejectsPreviewTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:9",
 		"--token", "user-dev",
 		"flows", "run", "flow-preview",
-		"--scope", "preview",
+		"--target", "preview",
 	)
 	if err == nil {
-		t.Fatalf("expected flows run to fail for unsupported preview scope")
+		t.Fatalf("expected flows run to fail for unsupported preview target")
 	}
 	combined := stdout + stderr
-	if !strings.Contains(combined, "invalid --scope (expected live)") {
-		t.Fatalf("expected invalid scope guidance, got:\n%s", combined)
+	if !strings.Contains(combined, "invalid --target (expected draft or live)") {
+		t.Fatalf("expected invalid target guidance, got:\n%s", combined)
 	}
 }
 
-func TestFlowsRun_RejectsEndUserScope(t *testing.T) {
+func TestFlowsRun_RejectsEndUserTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:9",
 		"--token", "user-dev",
 		"flows", "run", "flow-end-user",
-		"--scope", "end-user",
+		"--target", "end-user",
 	)
 	if err == nil {
-		t.Fatalf("expected flows run to fail for unsupported end-user scope")
+		t.Fatalf("expected flows run to fail for unsupported end-user target")
 	}
 	combined := stdout + stderr
-	if !strings.Contains(combined, "invalid --scope (expected live)") {
-		t.Fatalf("expected invalid scope guidance, got:\n%s", combined)
+	if !strings.Contains(combined, "invalid --target (expected draft or live)") {
+		t.Fatalf("expected invalid target guidance, got:\n%s", combined)
 	}
 }
 
@@ -667,7 +801,7 @@ func TestFlowsInstallPromoteLiveTrackLatest_UsesCanonicalCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.promote" {
+		if body["command"] != "flows.promote" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -678,9 +812,9 @@ func TestFlowsInstallPromoteLiveTrackLatest_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if args["scope"] != "live" {
+		if args["target"] != "live" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing scope=live"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=live"}})
 			return
 		}
 		if args["policy"] != "track-latest" {
@@ -691,7 +825,7 @@ func TestFlowsInstallPromoteLiveTrackLatest_UsesCanonicalCommand(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"scope": "live", "policy": "track-latest"},
+			"data":        map[string]any{"target": "live", "policy": "track-latest"},
 		})
 	}))
 	defer srv.Close()
@@ -701,12 +835,11 @@ func TestFlowsInstallPromoteLiveTrackLatest_UsesCanonicalCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "install", "promote", "flow-release",
-		"--scope", "live",
+		"flows", "promote", "flow-release",
 		"--policy", "track-latest",
 	)
 	if err != nil {
-		t.Fatalf("flows install promote live track-latest failed: %v\n%s", err, stdout)
+		t.Fatalf("flows promote live track-latest failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -716,11 +849,11 @@ func TestFlowsInstallPromote_InvalidPolicy(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:9",
 		"--token", "user-dev",
-		"flows", "install", "promote", "flow-release",
+		"flows", "promote", "flow-release",
 		"--policy", "nope",
 	)
 	if err == nil {
-		t.Fatalf("expected flows install promote to fail for invalid policy")
+		t.Fatalf("expected flows promote to fail for invalid policy")
 	}
 	combined := stdout + stderr
 	if !strings.Contains(combined, "invalid --policy (expected pinned or track-latest)") {
@@ -772,7 +905,7 @@ func TestFlowsValidate_DefaultsToCurrentSource(t *testing.T) {
 	}
 }
 
-func TestFlowsValidate_ScopeLive_UsesResolvedVersion(t *testing.T) {
+func TestFlowsValidate_TargetLive_UsesResolvedVersion(t *testing.T) {
 	step := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -823,10 +956,10 @@ func TestFlowsValidate_ScopeLive_UsesResolvedVersion(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "validate", "flow-validate",
-		"--scope", "live",
+		"--target", "live",
 	)
 	if err != nil {
-		t.Fatalf("flows validate --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows validate --target live failed: %v\n%s", err, stdout)
 	}
 	if step != 2 {
 		t.Fatalf("expected profile resolve + validate command, got %d", step)
@@ -877,7 +1010,7 @@ func TestFlowsShow_DefaultsToCurrentSource(t *testing.T) {
 	}
 }
 
-func TestFlowsShow_ScopeLive_UsesResolvedVersion(t *testing.T) {
+func TestFlowsShow_TargetLive_UsesResolvedVersion(t *testing.T) {
 	step := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -925,17 +1058,61 @@ func TestFlowsShow_ScopeLive_UsesResolvedVersion(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "show", "flow-show",
-		"--scope", "live",
+		"--target", "live",
 	)
 	if err != nil {
-		t.Fatalf("flows show --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows show --target live failed: %v\n%s", err, stdout)
 	}
 	if step != 2 {
 		t.Fatalf("expected profile resolve + show command, got %d", step)
 	}
 }
 
-func TestFlowsShow_ScopeLive_ResolvesAcrossProfilePagination(t *testing.T) {
+func TestFlowsShow_TargetDraft_UsesCurrentSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/flow-profiles":
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "should not resolve live profile for --target draft"}})
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "flows.get" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			if args["source"] != "current" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing source=current"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flow": map[string]any{"slug": "flow-show", "version": 7}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "show", "flow-show",
+		"--target", "draft",
+	)
+	if err != nil {
+		t.Fatalf("flows show --target draft failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsShow_TargetLive_ResolvesAcrossProfilePagination(t *testing.T) {
 	t.Parallel()
 
 	profileCalls := 0
@@ -999,17 +1176,17 @@ func TestFlowsShow_ScopeLive_ResolvesAcrossProfilePagination(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "show", "flow-show",
-		"--scope", "live",
+		"--target", "live",
 	)
 	if err != nil {
-		t.Fatalf("flows show --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows show --target live failed: %v\n%s", err, stdout)
 	}
 	if profileCalls != 2 {
 		t.Fatalf("expected 2 paged profile calls, got %d", profileCalls)
 	}
 }
 
-func TestFlowsPull_ScopeLive_UsesResolvedVersion(t *testing.T) {
+func TestFlowsPull_TargetLive_UsesResolvedVersion(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-show.clj")
 	step := 0
@@ -1060,11 +1237,11 @@ func TestFlowsPull_ScopeLive_UsesResolvedVersion(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "pull", "flow-show",
-		"--scope", "live",
+		"--target", "live",
 		"--out", outPath,
 	)
 	if err != nil {
-		t.Fatalf("flows pull --scope live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows pull --target live failed: %v\n%s", err, stdout)
 	}
 	if step != 2 {
 		t.Fatalf("expected profile resolve + pull command, got %d", step)
@@ -1086,7 +1263,7 @@ func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.promote" {
+		if body["command"] != "flows.promote" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -1097,9 +1274,9 @@ func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if args["scope"] != "live" {
+		if args["target"] != "live" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing scope=live"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=live"}})
 			return
 		}
 		if args["version"] != float64(7) {
@@ -1110,7 +1287,7 @@ func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"flowSlug": "flow-release", "scope": "live", "version": 7},
+			"data":        map[string]any{"flowSlug": "flow-release", "target": "live", "version": 7},
 		})
 	}))
 	defer srv.Close()
@@ -1121,7 +1298,6 @@ func TestFlowsRollback_UsesInstallPromoteCommand(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "rollback", "flow-release",
-		"--scope", "live",
 		"--version", "7",
 	)
 	if err != nil {
@@ -1137,7 +1313,7 @@ func TestFlowsInstallSetEnabledFalse_UsesDisableCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.install.disable" {
+		if body["command"] != "flows.installations.set_enabled" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -1166,11 +1342,11 @@ func TestFlowsInstallSetEnabledFalse_UsesDisableCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "install", "set-enabled", "prof-disable",
+		"flows", "installations", "set-enabled", "prof-disable",
 		"--enabled=false",
 	)
 	if err != nil {
-		t.Fatalf("flows install set-enabled failed: %v\n%s", err, stdout)
+		t.Fatalf("flows installations set-enabled failed: %v\n%s", err, stdout)
 	}
 }
 

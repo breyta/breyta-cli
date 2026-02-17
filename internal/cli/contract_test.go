@@ -75,7 +75,7 @@ func TestContract_FlowsListEnvelope(t *testing.T) {
 	}
 }
 
-func TestContract_FlowsCreateEditValidateCompile(t *testing.T) {
+func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 
 	// Create a flow
@@ -108,18 +108,6 @@ func TestContract_FlowsCreateEditValidateCompile(t *testing.T) {
 		t.Fatalf("validate expected ok=true")
 	}
 
-	// Compile
-	stdout, _, err = runCLI(t, statePath, "flows", "compile", "contract-flow", "--pretty")
-	if err != nil {
-		t.Fatalf("compile failed: %v\n%s", err, stdout)
-	}
-	e = decodeEnvelope(t, stdout)
-	if !e.OK {
-		t.Fatalf("compile expected ok=true")
-	}
-	if _, ok := e.Data["plan"]; !ok {
-		t.Fatalf("compile expected data.plan")
-	}
 }
 
 func TestContract_RunsStartAdvanceStepAndEvents(t *testing.T) {

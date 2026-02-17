@@ -13,9 +13,9 @@ func newFlowsInstallationsTriggersCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install triggers requires API mode"))
+				return writeErr(cmd, errors.New("flows installations triggers requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.install.triggers", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.triggers.list", map[string]any{
 				"profileId": args[0],
 			})
 		},

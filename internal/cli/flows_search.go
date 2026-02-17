@@ -9,7 +9,6 @@ import (
 
 func newFlowsSearchCmd(app *App) *cobra.Command {
 	var catalogScope string
-	var legacyScope string
 	var provider string
 	var limit int
 	var from int
@@ -21,13 +20,13 @@ func newFlowsSearchCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Search across approved flows to find reusable examples.
 
-By default the search is global (across all workspaces). Use --scope=workspace to
+By default the search is global (across all workspaces). Use --catalog-scope workspace to
 restrict results to the current workspace.
 
 NOTE: Only flows explicitly approved for reuse are indexed/searchable.
 
 Omit the query to browse recent approved flows (optionally filtered by --provider
-and/or --scope).
+and/or --catalog-scope).
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,10 +40,6 @@ and/or --scope).
 			}
 
 			effectiveScope := strings.TrimSpace(strings.ToLower(catalogScope))
-			legacyScope = strings.TrimSpace(strings.ToLower(legacyScope))
-			if effectiveScope == "" && legacyScope != "" {
-				effectiveScope = legacyScope
-			}
 			if effectiveScope == "" {
 				effectiveScope = "all"
 			}
@@ -73,8 +68,6 @@ and/or --scope).
 	}
 
 	cmd.Flags().StringVar(&catalogScope, "catalog-scope", "all", "Catalog scope: all|workspace")
-	cmd.Flags().StringVar(&legacyScope, "scope", "", "Deprecated alias for --catalog-scope")
-	_ = cmd.Flags().MarkHidden("scope")
 	cmd.Flags().StringVar(&provider, "provider", "", "Filter by provider token (e.g. stripe, slack)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")

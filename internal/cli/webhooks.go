@@ -59,7 +59,6 @@ func newWebhooksCmd(app *App) *cobra.Command {
 func newWebhooksSendCmd(app *App) *cobra.Command {
 	var eventPathRaw string
 	var baseURLOverride string
-	var current bool
 	var draft bool
 	var jsonPayload string
 	var jsonFile string
@@ -104,9 +103,9 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 				return writeFailure(cmd, app, "missing_workspace", errors.New("missing workspace id"), "Provide --workspace or set BREYTA_WORKSPACE.", nil)
 			}
 
-			useCurrent := current || draft
+			useDraft := draft
 
-			if useCurrent {
+			if useDraft {
 				if err := requireAPI(app); err != nil {
 					return writeFailure(cmd, app, "api_auth_required", err, "Provide --token or run `breyta auth login`.", nil)
 				}
@@ -168,8 +167,8 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 			}
 
 			endpoint := ""
-			if useCurrent {
-				endpoint = fmt.Sprintf("/api/events/current/%s", eventPath)
+			if useDraft {
+				endpoint = fmt.Sprintf("/api/events/draft/%s", eventPath)
 			} else {
 				endpoint = fmt.Sprintf("/%s/events/%s", strings.TrimSpace(app.WorkspaceID), eventPath)
 			}
@@ -202,7 +201,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 			client := apiClient(app)
 			client.BaseURL = baseURL
-			if !useCurrent {
+			if !useDraft {
 				client.Token = ""
 			}
 			out, status, err := client.DoRootRESTBytes(context.Background(), http.MethodPost, endpoint, query, payload.Body, headers)
@@ -238,10 +237,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&eventPathRaw, "path", "", "Webhook path (no workspace prefix)")
 	cmd.Flags().StringVar(&baseURLOverride, "base-url", "", "API base URL (default: BREYTA_API_URL or config)")
-	cmd.Flags().BoolVar(&current, "current", false, "Send to current endpoint (/api/events/current)")
-	// Backwards compatibility alias. Keep hidden from help.
-	cmd.Flags().BoolVar(&draft, "draft", false, "Internal hidden flag")
-	_ = cmd.Flags().MarkHidden("draft")
+	cmd.Flags().BoolVar(&draft, "draft", false, "Send to draft endpoint (/api/events/draft)")
 
 	cmd.Flags().StringVar(&jsonPayload, "json", "", "JSON payload string")
 	cmd.Flags().StringVar(&jsonFile, "json-file", "", "JSON payload file path")

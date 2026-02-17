@@ -236,7 +236,7 @@ Suggested line to paste into your agent's persistent project instructions:
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
 2) Edit ` + "`./flows/<slug>.clj`" + `
 3) Push working copy: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-4) Validate/compile: ` + "`breyta flows validate <slug>`" + ` (and ` + "`breyta flows compile <slug>`" + ` when needed)
+4) Optional read-only check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
 5) Release: ` + "`breyta flows release <slug>`" + `
 6) Run and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
 

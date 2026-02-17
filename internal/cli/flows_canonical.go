@@ -122,7 +122,7 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 
 func newFlowsRunCmd(app *App) *cobra.Command {
 	var installationID string
-	var scope string
+	var target string
 	var version int
 	var inputJSON string
 	var wait bool
@@ -136,31 +136,32 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 Default:
 - breyta flows run <flow-slug> [--input '{...}'] [--wait]
 
-Advanced targeting:
-- --installation-id <id> : run a specific installation target
-- --scope live : select installation scope explicitly
-- --version <n> : force a specific release version for this invocation
-`),
+	Advanced targeting:
+	- --installation-id <id> : run a specific installation target
+	- --target draft|live : select run target explicitly (default draft)
+	- --version <n> : force a specific release version for this invocation
+	`),
 		Example: strings.TrimSpace(`
 breyta flows run order-ingest --wait
 breyta flows run order-ingest --input '{"region":"EU"}' --wait
 
-# Advanced
-breyta flows run order-ingest --scope live --wait
-breyta flows run order-ingest --installation-id prof_123 --wait
-`),
+	# Advanced
+	breyta flows run order-ingest --target live --wait
+	breyta flows run order-ingest --target draft --wait
+	breyta flows run order-ingest --installation-id prof_123 --wait
+	`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
 			payload := map[string]any{"flowSlug": args[0]}
-			if cmd.Flags().Changed("scope") {
-				resolvedScope, err := normalizeInstallScope(scope)
+			if cmd.Flags().Changed("target") {
+				resolvedTarget, err := normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				payload["scope"] = resolvedScope
+				payload["target"] = resolvedTarget
 			}
 			installationID = strings.TrimSpace(installationID)
 			if installationID != "" {
@@ -181,7 +182,7 @@ breyta flows run order-ingest --installation-id prof_123 --wait
 	}
 
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
-	cmd.Flags().StringVar(&scope, "scope", "", "Advanced: installation scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
@@ -193,7 +194,6 @@ breyta flows run order-ingest --installation-id prof_123 --wait
 func newFlowsReleaseCmd(app *App) *cobra.Command {
 	var install bool
 	var noInstall bool
-	var scope string
 	var version string
 
 	cmd := &cobra.Command{
@@ -223,18 +223,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			}
 
 			if !install {
-				if cmd.Flags().Changed("scope") {
-					return writeErr(cmd, errors.New("--scope requires installation promotion; remove --scope or omit --no-install"))
-				}
 				return doAPICommand(cmd, app, "flows.release", payload)
-			}
-
-			resolvedScope, err := normalizeInstallScope(scope)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			if resolvedScope != "live" {
-				return writeErr(cmd, errors.New("--install currently supports --scope live only"))
 			}
 
 			client := apiClient(app)
@@ -254,7 +243,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if activeVersion := asInt(releaseData["activeVersion"]); activeVersion > 0 {
 				promotePayload["version"] = activeVersion
 			}
-			promoteOut, promoteStatus, err := client.DoCommand(context.Background(), "flows.install.promote", promotePayload)
+			promoteOut, promoteStatus, err := client.DoCommand(context.Background(), "flows.promote", promotePayload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -276,7 +265,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 				"meta": map[string]any{
 					"released":  true,
 					"installed": true,
-					"scope":     resolvedScope,
+					"target":    "live",
 				},
 				"data": map[string]any{
 					"release": releaseOut["data"],
@@ -290,15 +279,13 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&install, "install", true, "Promote this release to live installation scope in the current workspace (default true)")
+	cmd.Flags().BoolVar(&install, "install", true, "Promote this release to live installation target in the current workspace (default true)")
 	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip automatic live installation promotion for this release")
-	cmd.Flags().StringVar(&scope, "scope", "live", "Installation scope override (currently live only)")
 	cmd.Flags().StringVar(&version, "version", "", "Release version to publish (default latest from workspace current)")
 	return cmd
 }
 
 func newFlowsRollbackCmd(app *App) *cobra.Command {
-	var scope string
 	var version string
 
 	cmd := &cobra.Command{
@@ -308,19 +295,12 @@ func newFlowsRollbackCmd(app *App) *cobra.Command {
 Rollback updates the live target to a specific released version.
 
 This is an explicit live operation, equivalent to:
-- breyta flows install promote <flow-slug> --scope live --version <n>
+- breyta flows promote <flow-slug> --version <n>
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "rollback requires --api/BREYTA_API_URL")
-			}
-			resolvedScope, err := normalizeInstallScope(scope)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			if resolvedScope != "live" {
-				return writeErr(cmd, errors.New("flows rollback currently supports --scope live only"))
 			}
 
 			version = strings.TrimSpace(version)
@@ -330,7 +310,7 @@ This is an explicit live operation, equivalent to:
 
 			payload := map[string]any{
 				"flowSlug": args[0],
-				"scope":    resolvedScope,
+				"target":   "live",
 			}
 			if version != "latest" {
 				v, err := parsePositiveIntFlag(version)
@@ -339,11 +319,10 @@ This is an explicit live operation, equivalent to:
 				}
 				payload["version"] = v
 			}
-			return doAPICommand(cmd, app, "flows.install.promote", payload)
+			return doAPICommand(cmd, app, "flows.promote", payload)
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "live", "Target scope (live only)")
 	cmd.Flags().StringVar(&version, "version", "", "Released version to promote (or latest)")
 	return cmd
 }

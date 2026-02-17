@@ -84,7 +84,7 @@ func inferDefaultFileField(trigger installationTrigger) (string, bool) {
 
 func fetchInstallationTriggers(ctx context.Context, app *App, profileID string) ([]installationTrigger, error) {
 	client := apiClient(app)
-	out, status, err := client.DoCommand(ctx, "flows.install.triggers", map[string]any{
+	out, status, err := client.DoCommand(ctx, "flows.installations.triggers.list", map[string]any{
 		"profileId": profileID,
 	})
 	if err != nil {
@@ -189,7 +189,7 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install upload requires API mode"))
+				return writeErr(cmd, errors.New("flows installations upload requires API mode"))
 			}
 			if strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("missing workspace id (provide --workspace or set BREYTA_WORKSPACE)"))

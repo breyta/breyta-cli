@@ -42,18 +42,21 @@ Flow authoring uses a file workflow:
 5) run -> verifies behavior in your workspace
 
 Optional explicit check:
-- validate -> checks working copy on demand (useful for CI/debug)
+- validate -> read-only verification for CI, troubleshooting, or explicit target checks
 
 Advanced rollout workflow (optional):
 - release -> publishes immutable version + live install promotion in current workspace
-- install promote/configure -> controls scoped runtime targets (live)
+- promote -> updates live target to a released version
+- installations ... -> installation-id scoped management
 
 Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows configure <slug> --set api.conn=conn-...
+- breyta flows configure check <slug>
 - breyta flows release <slug>
+- breyta flows promote <slug> --version <n>
 - breyta flows rollback <slug> --version <n>
 - breyta flows run <slug> --wait
 
@@ -78,10 +81,10 @@ Notes:
 Advanced install lifecycle:
 - Release with default live promotion: breyta flows release <slug>
 - Release without auto promotion: breyta flows release <slug> --no-install
-- Promote released version to live explicitly: breyta flows install promote <slug> --scope live
-- Configure installation inputs: breyta flows install configure <installation-id> --input '{...}'
-- List installation triggers: breyta flows install triggers <installation-id>
-`),
+- Promote released version to live explicitly: breyta flows promote <slug>
+- Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
+- List installation triggers: breyta flows installations triggers <installation-id>
+	`),
 	}
 
 	cmd.AddCommand(newFlowsListCmd(app))
@@ -91,11 +94,11 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
+	cmd.AddCommand(newFlowsPromoteCmd(app))
 	cmd.AddCommand(newFlowsRollbackCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
-	cmd.AddCommand(newFlowsInstallationsLegacyCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
@@ -121,7 +124,6 @@ Advanced install lifecycle:
 	cmd.AddCommand(versions)
 
 	cmd.AddCommand(newFlowsValidateCmd(app))
-	cmd.AddCommand(newFlowsCompileCmd(app))
 
 	return cmd
 }
@@ -508,38 +510,39 @@ func newFlowsListCmd(app *App) *cobra.Command {
 
 func newFlowsShowCmd(app *App) *cobra.Command {
 	var include string
-	var scope string
+	var target string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			scopeChanged := cmd.Flags().Changed("scope")
-			if scopeChanged {
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
 				if !isAPIMode(app) {
-					return writeErr(cmd, errors.New("--scope requires API mode"))
+					return writeErr(cmd, errors.New("--target requires API mode"))
 				}
-				resolvedScope, err := normalizeInstallScope(scope)
+				s, err := normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				if resolvedScope != "live" {
-					return writeErr(cmd, errors.New("flows show currently supports --scope live only"))
+				resolvedTarget = s
+				if resolvedTarget == "live" && version > 0 {
+					return writeErr(cmd, errors.New("--target cannot be combined with --version"))
 				}
-				if version > 0 {
-					return writeErr(cmd, errors.New("--scope cannot be combined with --version"))
+				if resolvedTarget == "live" {
+					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload := map[string]any{
+						"flowSlug": args[0],
+						"source":   "active",
+						"version":  target.Version,
+					}
+					return doAPICommand(cmd, app, "flows.get", payload)
 				}
-				target, err := resolveLiveProfileTarget(app, args[0], true)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				payload := map[string]any{
-					"flowSlug": args[0],
-					"source":   "active",
-					"version":  target.Version,
-				}
-				return doAPICommand(cmd, app, "flows.get", payload)
 			}
 
 			source := "current"
@@ -603,7 +606,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
-	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
 }
@@ -662,7 +665,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
-	var scope string
+	var target string
 	var version int
 	cmd := &cobra.Command{
 		Use:   "pull <flow-slug>",
@@ -681,23 +684,22 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(path) == "" {
 				path = filepath.Join("tmp", "flows", slug+".clj")
 			}
-			scopeChanged := cmd.Flags().Changed("scope")
-			if scopeChanged {
-				resolvedScope, err := normalizeInstallScope(scope)
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
+				s, err := normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				if resolvedScope != "live" {
-					return writeErr(cmd, errors.New("flows pull currently supports --scope live only"))
-				}
-				if version > 0 {
-					return writeErr(cmd, errors.New("--scope cannot be combined with --version"))
+				resolvedTarget = s
+				if resolvedTarget == "live" && version > 0 {
+					return writeErr(cmd, errors.New("--target cannot be combined with --version"))
 				}
 			}
 
 			payload := map[string]any{"flowSlug": slug}
-			if scopeChanged {
-				target, err := resolveLiveProfileTarget(app, slug, true)
+			if resolvedTarget == "live" {
+				target, err := resolveLiveProfileTarget(cmd.Context(), app, slug, true)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -711,7 +713,11 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			}
 
 			client := apiClient(app)
-			resp, status, err := client.DoCommand(context.Background(), "flows.get", payload)
+			reqCtx := cmd.Context()
+			if reqCtx == nil {
+				reqCtx = context.Background()
+			}
+			resp, status, err := client.DoCommand(reqCtx, "flows.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -739,20 +745,21 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			result := map[string]any{"saved": true, "path": path, "flowSlug": slug}
-			if scopeChanged {
-				result["scope"] = "live"
+			if targetChanged {
+				result["target"] = resolvedTarget
 			}
 			return writeData(cmd, app, nil, result)
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
-	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
 }
 
 func newFlowsPushCmd(app *App) *cobra.Command {
 	var file string
+	var target string
 	var repairDelimiters bool
 	var noRepairWriteback bool
 	var validate bool
@@ -763,6 +770,15 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Push requires --api/BREYTA_API_URL")
+			}
+			if cmd.Flags().Changed("target") {
+				resolvedTarget, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedTarget == "live" {
+					return writeErr(cmd, errors.New("--target live is not supported for flows push; push always updates workspace current. Use `breyta flows release <slug>` to publish/install live, or `breyta flows promote <slug>` to retarget live"))
+				}
 			}
 			if strings.TrimSpace(file) == "" {
 				return writeErr(cmd, errors.New("missing --file"))
@@ -863,6 +879,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live). live is not valid for push")
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
@@ -1478,33 +1495,40 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-// --- Validate/compile --------------------------------------------------------
+// --- Validate ----------------------------------------------------------------
 
 func newFlowsValidateCmd(app *App) *cobra.Command {
-	var scope string
+	var target string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug>",
-		Short: "Validate the working copy for a flow",
-		Args:  cobra.ExactArgs(1),
+		Short: "Run read-only flow validation (no mutation)",
+		Long: strings.TrimSpace(`
+Validate is a read-only check you can run on demand.
+
+Why use it if push/release already validate?
+- push validates registration constraints while writing draft state
+- release validates deploy-time constraints for released/lintable code
+- validate gives an explicit check point for CI, troubleshooting, and target-specific verification without mutating flow state
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			scopeChanged := cmd.Flags().Changed("scope")
-			if scopeChanged {
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := "draft"
+			if targetChanged {
 				if !isAPIMode(app) {
-					return writeErr(cmd, errors.New("--scope requires API mode"))
+					return writeErr(cmd, errors.New("--target requires API mode"))
 				}
-				resolvedScope, err := normalizeInstallScope(scope)
+				s, err := normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				if resolvedScope != "live" {
-					return writeErr(cmd, errors.New("flows validate currently supports --scope live only"))
-				}
+				resolvedTarget = s
 			}
 			source := "current"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
-				if scopeChanged {
-					target, err := resolveLiveProfileTarget(app, args[0], true)
+				if resolvedTarget == "live" {
+					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
 					if err != nil {
 						return writeErr(cmd, err)
 					}
@@ -1550,7 +1574,7 @@ func newFlowsValidateCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, out)
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "Scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	return cmd
 }
 

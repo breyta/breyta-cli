@@ -481,6 +481,7 @@ func TestFlowsPush_SendsDeployKeyFromEnv(t *testing.T) {
 		"--token", "user-dev",
 		"flows", "push",
 		"--file", flowFile,
+		"--target", "draft",
 		"--validate=false",
 	)
 	if err != nil {
@@ -492,6 +493,38 @@ func TestFlowsPush_SendsDeployKeyFromEnv(t *testing.T) {
 	}
 	if ok, _ := e["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	flowFile := filepath.Join(tmp, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :push-live-target :name \"Push Live Target\" :concurrency {:type :singleton :on-new-version :supersede} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
+		t.Fatalf("failed to write test flow file: %v", err)
+	}
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "push",
+		"--file", flowFile,
+		"--target", "live",
+	)
+	if err == nil {
+		t.Fatalf("expected flows push --target live to fail")
+	}
+	combined := []byte(stdout + stderr)
+	if !bytes.Contains(combined, []byte("--target live is not supported for flows push")) {
+		t.Fatalf("expected educational target-live message, got:\n%s", string(combined))
+	}
+	if !bytes.Contains(combined, []byte("breyta flows release <slug>")) {
+		t.Fatalf("expected release guidance in error, got:\n%s", string(combined))
+	}
+	if !bytes.Contains(combined, []byte("breyta flows promote <slug>")) {
+		t.Fatalf("expected promote guidance in error, got:\n%s", string(combined))
 	}
 }
 

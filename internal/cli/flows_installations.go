@@ -11,7 +11,7 @@ import (
 
 func newFlowsInstallationsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "install",
+		Use:   "installations",
 		Short: "Manage flow installations",
 		Long: strings.TrimSpace(`
 Advanced runtime targeting and rollout controls.
@@ -19,7 +19,7 @@ Advanced runtime targeting and rollout controls.
 Most users should use:
 - breyta flows run <flow-slug>
 
-Use install commands only when you need explicit scopes, installation-specific
+Use install commands only when you need explicit targets, installation-specific
 config/triggers, or controlled promotion.
 `),
 	}
@@ -28,22 +28,12 @@ config/triggers, or controlled promotion.
 	cmd.AddCommand(newFlowsInstallationsGetCmd(app))
 	cmd.AddCommand(newFlowsInstallationsRenameCmd(app))
 	cmd.AddCommand(newFlowsInstallationsSetInputsCmd(app))
-	cmd.AddCommand(newFlowsInstallationsPromoteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsSetEnabledCmd(app))
 	cmd.AddCommand(newFlowsInstallationsEnableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDeleteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
 	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
-	return cmd
-}
-
-func newFlowsInstallationsLegacyCmd(app *App) *cobra.Command {
-	cmd := newFlowsInstallationsCmd(app)
-	cmd.Use = "installations"
-	cmd.Aliases = []string{"installation", "installs"}
-	cmd.Short = "Manage flow installations (legacy alias)"
-	cmd.Hidden = true
 	return cmd
 }
 
@@ -55,13 +45,13 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install list requires API mode"))
+				return writeErr(cmd, errors.New("flows installations list requires API mode"))
 			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if all {
 				payload["all"] = true
 			}
-			return doAPICommand(cmd, app, "flows.install.list", payload)
+			return doAPICommand(cmd, app, "flows.installations.list", payload)
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "List all installations for the flow (creator-only)")
@@ -76,13 +66,13 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install create requires API mode"))
+				return writeErr(cmd, errors.New("flows installations create requires API mode"))
 			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if strings.TrimSpace(name) != "" {
 				payload["name"] = strings.TrimSpace(name)
 			}
-			return doAPICommand(cmd, app, "flows.install.create", payload)
+			return doAPICommand(cmd, app, "flows.installations.create", payload)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Installation name (optional)")
@@ -97,12 +87,12 @@ func newFlowsInstallationsRenameCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install rename requires API mode"))
+				return writeErr(cmd, errors.New("flows installations rename requires API mode"))
 			}
 			if strings.TrimSpace(name) == "" {
 				return writeErr(cmd, errors.New("missing --name"))
 			}
-			return doAPICommand(cmd, app, "flows.install.rename", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.rename", map[string]any{
 				"profileId": args[0],
 				"name":      strings.TrimSpace(name),
 			})
@@ -122,7 +112,7 @@ func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install configure requires API mode"))
+				return writeErr(cmd, errors.New("flows installations configure requires API mode"))
 			}
 			if strings.TrimSpace(inputJSON) == "" {
 				return writeErr(cmd, errors.New("missing --input"))
@@ -131,7 +121,7 @@ func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return doAPICommand(cmd, app, "flows.install.configure", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.set_inputs", map[string]any{
 				"profileId": args[0],
 				"inputs":    m,
 			})
@@ -142,16 +132,16 @@ func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func normalizeInstallScope(scope string) (string, error) {
-	s := strings.ToLower(strings.TrimSpace(scope))
+func normalizeInstallTarget(target string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(target))
 	if s == "" {
-		return "live", nil
+		return "draft", nil
 	}
 	switch s {
-	case "live":
+	case "draft", "live":
 		return s, nil
 	default:
-		return "", errors.New("invalid --scope (expected live)")
+		return "", errors.New("invalid --target (expected draft or live)")
 	}
 }
 
@@ -168,34 +158,26 @@ func normalizeInstallPolicy(policy string) (string, error) {
 	}
 }
 
-func newFlowsInstallationsPromoteCmd(app *App) *cobra.Command {
+func newFlowsPromoteCmd(app *App) *cobra.Command {
 	var version string
-	var scope string
 	var policy string
 	cmd := &cobra.Command{
 		Use:   "promote <flow-slug>",
-		Short: "Advanced: promote a released version to an installation scope",
+		Short: "Promote a released version to live in this workspace",
 		Long: strings.TrimSpace(`
-Advanced rollout command.
+Promote a released version to the live target in the current workspace.
 
-Default path:
+Most users run workspace-draft by default with:
 - breyta flows run <flow-slug>
-
-Use promote when you need explicit scoped targets (for example live)
-or pinned rollout control.
 `),
 		Example: strings.TrimSpace(`
-breyta flows install promote order-ingest --scope live
-breyta flows install promote order-ingest --scope live --version 42
+breyta flows promote order-ingest
+breyta flows promote order-ingest --version 42
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install promote requires API mode"))
-			}
-			resolvedScope, err := normalizeInstallScope(scope)
-			if err != nil {
-				return writeErr(cmd, err)
+				return writeErr(cmd, errors.New("flows promote requires API mode"))
 			}
 			resolvedPolicy, err := normalizeInstallPolicy(policy)
 			if err != nil {
@@ -203,7 +185,7 @@ breyta flows install promote order-ingest --scope live --version 42
 			}
 			payload := map[string]any{
 				"flowSlug": args[0],
-				"scope":    resolvedScope,
+				"target":   "live",
 			}
 			if strings.TrimSpace(version) != "" && strings.TrimSpace(version) != "latest" {
 				v, err := parsePositiveIntFlag(version)
@@ -215,14 +197,10 @@ breyta flows install promote order-ingest --scope live --version 42
 			if resolvedPolicy != "" {
 				payload["policy"] = resolvedPolicy
 			}
-			if resolvedScope != "live" {
-				return writeErr(cmd, errors.New("flows install promote currently supports --scope live only"))
-			}
-			return doAPICommand(cmd, app, "flows.install.promote", payload)
+			return doAPICommand(cmd, app, "flows.promote", payload)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "latest", "Release version to promote (or latest)")
-	cmd.Flags().StringVar(&scope, "scope", "live", "Advanced: installation scope (live only)")
 	cmd.Flags().StringVar(&policy, "policy", "", "Advanced: install policy override (pinned|track-latest)")
 	return cmd
 }
@@ -235,14 +213,14 @@ func newFlowsInstallationsSetEnabledCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install set-enabled requires API mode"))
+				return writeErr(cmd, errors.New("flows installations set-enabled requires API mode"))
 			}
 			if !cmd.Flags().Changed("enabled") {
 				return writeErr(cmd, errors.New("missing --enabled (true|false)"))
 			}
-			command := "flows.install.disable"
+			command := "flows.installations.set_enabled"
 			if enabled {
-				command = "flows.install.enable"
+				command = "flows.installations.set_enabled"
 			}
 			return doAPICommand(cmd, app, command, map[string]any{
 				"profileId": args[0],
@@ -261,9 +239,9 @@ func newFlowsInstallationsEnableCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install enable requires API mode"))
+				return writeErr(cmd, errors.New("flows installations enable requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.install.enable", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.set_enabled", map[string]any{
 				"profileId": args[0],
 				"enabled":   true,
 			})
@@ -279,9 +257,9 @@ func newFlowsInstallationsDisableCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install disable requires API mode"))
+				return writeErr(cmd, errors.New("flows installations disable requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.install.disable", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.set_enabled", map[string]any{
 				"profileId": args[0],
 				"enabled":   false,
 			})
@@ -298,9 +276,9 @@ func newFlowsInstallationsDeleteCmd(app *App) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install delete requires API mode"))
+				return writeErr(cmd, errors.New("flows installations delete requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.install.delete", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.delete", map[string]any{
 				"profileId": args[0],
 			})
 		},

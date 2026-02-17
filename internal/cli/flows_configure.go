@@ -10,7 +10,7 @@ import (
 func newFlowsConfigureCmd(app *App) *cobra.Command {
 	var profileArg string
 	var setArgs []string
-	var scope string
+	var target string
 	cmd := &cobra.Command{
 		Use:   "configure <flow-slug> [@profile.edn]",
 		Short: "Configure workspace default run target",
@@ -18,8 +18,9 @@ func newFlowsConfigureCmd(app *App) *cobra.Command {
 Configure bindings/activation inputs for the workspace default run target.
 
 This is the canonical command for workspace-default flow configuration.
-Use "--scope live" to configure the workspace live target.
-Use "flows install configure" when you need installation-specific configuration.
+Use "--target draft|live" to choose draft (default) or live target.
+Use "flows configure check <flow-slug>" to verify required config before running.
+Use "flows installations configure" when you need installation-specific configuration.
 `),
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,11 +36,11 @@ Use "flows install configure" when you need installation-specific configuration.
 			if strings.TrimSpace(profileArg) == "" && len(setArgs) == 0 {
 				return writeErr(cmd, errors.New("missing profile file or --set (use @profile.edn, --profile, or --set)"))
 			}
-			scopeChanged := cmd.Flags().Changed("scope")
-			resolvedScope := ""
-			if scopeChanged {
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := ""
+			if targetChanged {
 				var err error
-				resolvedScope, err = normalizeInstallScope(scope)
+				resolvedTarget, err = normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -54,12 +55,14 @@ Use "flows install configure" when you need installation-specific configuration.
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				// Canonical configure targets workspace-default profile semantics.
-				if !scopeChanged && payload.ProfileType != "" && payload.ProfileType != "draft" {
+				targetsLive := targetChanged && resolvedTarget == "live"
+				targetsCurrent := !targetsLive
+				// Current/default configure targets workspace-default profile semantics.
+				if targetsCurrent && payload.ProfileType != "" && payload.ProfileType != "draft" {
 					return writeErr(cmd, errors.New("profile.type is not supported for default configure target"))
 				}
-				if scopeChanged && payload.ProfileType == "draft" {
-					return writeErr(cmd, errors.New("profile.type is not supported with --scope live"))
+				if targetsLive && payload.ProfileType == "draft" {
+					return writeErr(cmd, errors.New("profile.type is not supported with --target live"))
 				}
 				body["inputs"] = payload.Inputs
 			}
@@ -73,10 +76,7 @@ Use "flows install configure" when you need installation-specific configuration.
 					inputs[k] = v
 				}
 			}
-			if scopeChanged {
-				if resolvedScope != "live" {
-					return writeErr(cmd, errors.New("flows configure currently supports --scope live only"))
-				}
+			if targetChanged && resolvedTarget == "live" {
 				return doAPICommand(cmd, app, "profiles.bindings.apply", body)
 			}
 			return doAPICommand(cmd, app, "flows.configure", body)
@@ -84,13 +84,14 @@ Use "flows install configure" when you need installation-specific configuration.
 	}
 	cmd.Flags().StringVar(&profileArg, "profile", "", "Bindings profile (@profile.edn or inline EDN)")
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
-	cmd.Flags().StringVar(&scope, "scope", "", "Target scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.AddCommand(newFlowsConfigureShowCmd(app))
+	cmd.AddCommand(newFlowsConfigureCheckCmd(app))
 	return cmd
 }
 
 func newFlowsConfigureShowCmd(app *App) *cobra.Command {
-	var scope string
+	var target string
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Inspect configured bindings for default or live target",
@@ -100,21 +101,18 @@ func newFlowsConfigureShowCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("flows configure show requires API mode"))
 			}
 
-			scopeChanged := cmd.Flags().Changed("scope")
-			resolvedScope := ""
-			if scopeChanged {
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := ""
+			if targetChanged {
 				var err error
-				resolvedScope, err = normalizeInstallScope(scope)
+				resolvedTarget, err = normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
-				}
-				if resolvedScope != "live" {
-					return writeErr(cmd, errors.New("flows configure show currently supports --scope live only"))
 				}
 			}
 
 			profileType := "draft"
-			if scopeChanged {
+			if targetChanged && resolvedTarget == "live" {
 				profileType = "prod"
 			}
 			return doAPICommand(cmd, app, "profiles.status", map[string]any{
@@ -123,6 +121,33 @@ func newFlowsConfigureShowCmd(app *App) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "Target scope override (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
+	return cmd
+}
+
+func newFlowsConfigureCheckCmd(app *App) *cobra.Command {
+	var target string
+	cmd := &cobra.Command{
+		Use:   "check <flow-slug>",
+		Short: "Check whether required configuration is complete",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows configure check requires API mode"))
+			}
+			payload := map[string]any{
+				"flowSlug": args[0],
+			}
+			if cmd.Flags().Changed("target") {
+				resolvedTarget, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["target"] = resolvedTarget
+			}
+			return doAPICommand(cmd, app, "flows.configure.check", payload)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	return cmd
 }

@@ -14,9 +14,9 @@ func newFlowsInstallationsGetCmd(app *App) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows install show requires API mode"))
+				return writeErr(cmd, errors.New("flows installations show requires API mode"))
 			}
-			return doAPICommand(cmd, app, "flows.install.show", map[string]any{
+			return doAPICommand(cmd, app, "flows.installations.get", map[string]any{
 				"profileId": args[0],
 			})
 		},

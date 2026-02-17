@@ -18,10 +18,13 @@ type liveProfileTarget struct {
 	Enabled   bool
 }
 
-func resolveLiveProfileTarget(app *App, flowSlug string, includeDisabled bool) (*liveProfileTarget, error) {
+func resolveLiveProfileTarget(ctx context.Context, app *App, flowSlug string, includeDisabled bool) (*liveProfileTarget, error) {
 	slug := strings.TrimSpace(flowSlug)
 	if slug == "" {
 		return nil, fmt.Errorf("missing flow slug")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	client := apiClient(app)
@@ -41,21 +44,21 @@ func resolveLiveProfileTarget(app *App, flowSlug string, includeDisabled bool) (
 			q.Set("cursor", cursor)
 		}
 
-		outAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/flow-profiles", q, nil)
+		outAny, status, err := client.DoREST(ctx, http.MethodGet, "/api/flow-profiles", q, nil)
 		if err != nil {
 			return nil, err
 		}
 		out, _ := outAny.(map[string]any)
 		if status >= 400 {
-			return nil, fmt.Errorf("resolve live scope: %s", formatAPIError(out))
+			return nil, fmt.Errorf("resolve live target: %s", formatAPIError(out))
 		}
 		if out == nil {
-			return nil, fmt.Errorf("resolve live scope: invalid profile list response")
+			return nil, fmt.Errorf("resolve live target: invalid profile list response")
 		}
 
 		items := profileItemsFromListResponse(out)
 		for _, item := range items {
-			if profileInstallScope(item) != "live" {
+			if profileInstallTarget(item) != "live" {
 				continue
 			}
 			profileID := strings.TrimSpace(anyString(item["profile-id"], item["profileId"], item["id"]))
@@ -90,7 +93,7 @@ func resolveLiveProfileTarget(app *App, flowSlug string, includeDisabled bool) (
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("live scope is not configured for %s (run `breyta flows install promote %s --scope live` or `breyta flows configure %s --scope live --set <slot>.conn=...`)", slug, slug, slug)
+		return nil, fmt.Errorf("live target is not configured for %s (run `breyta flows promote %s` or `breyta flows configure %s --target live --set <slot>.conn=...`)", slug, slug, slug)
 	}
 
 	if includeDisabled {
@@ -131,15 +134,14 @@ func profileItemsFromListResponse(out map[string]any) []map[string]any {
 	return items
 }
 
-func profileInstallScope(item map[string]any) string {
+func profileInstallTarget(item map[string]any) string {
 	config, _ := item["config"].(map[string]any)
-	rawScope := anyString(
+	rawTarget := anyString(
 		valueFromMap(config, "install-scope"),
 		valueFromMap(config, "installScope"),
-		valueFromMap(config, "scope"),
 	)
-	scope := strings.ToLower(strings.TrimSpace(rawScope))
-	switch scope {
+	target := strings.ToLower(strings.TrimSpace(rawTarget))
+	switch target {
 	case "live":
 		return "live"
 	case "end-user":

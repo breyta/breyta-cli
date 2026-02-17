@@ -73,30 +73,30 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	}
 
 	help := out.String()
-	for _, hiddenCmd := range []string{"\n  activate", "\n  deploy", "\n  draft", "\n  installations"} {
+	for _, hiddenCmd := range []string{"\n  activate", "\n  deploy", "\n  draft", "\n  install "} {
 		if strings.Contains(help, hiddenCmd) {
 			t.Fatalf("flows help leaked legacy command %q:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
 	}
-	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  install") {
+	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
 		t.Fatalf("flows help missing canonical lifecycle commands:\n%s", help)
 	}
 }
 
-func TestInstallHelpOmitsLegacyAliasesButLegacyCommandWorks(t *testing.T) {
+func TestInstallationsHelpAndInstallAbbreviationResolvesToCanonical(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"flows", "install", "--help"})
+	cmd.SetArgs([]string{"flows", "installations", "--help"})
 
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute install help: %v\nstderr:\n%s", err, errOut.String())
+		t.Fatalf("execute installations help: %v\nstderr:\n%s", err, errOut.String())
 	}
 	help := out.String()
 	if strings.Contains(help, "Aliases:") {
-		t.Fatalf("install help should not advertise legacy aliases:\n%s", help)
+		t.Fatalf("installations help should not advertise legacy aliases:\n%s", help)
 	}
 
 	legacy := NewRootCmd()
@@ -104,12 +104,12 @@ func TestInstallHelpOmitsLegacyAliasesButLegacyCommandWorks(t *testing.T) {
 	legacyErr := new(bytes.Buffer)
 	legacy.SetOut(legacyOut)
 	legacy.SetErr(legacyErr)
-	legacy.SetArgs([]string{"flows", "installations", "--help"})
+	legacy.SetArgs([]string{"flows", "install", "--help"})
 	if err := legacy.Execute(); err != nil {
-		t.Fatalf("execute legacy install help: %v\nstderr:\n%s", err, legacyErr.String())
+		t.Fatalf("execute install abbreviation help: %v\nstderr:\n%s", err, legacyErr.String())
 	}
-	if !strings.Contains(legacyOut.String(), "breyta flows installations [command]") {
-		t.Fatalf("legacy installations command should remain executable:\n%s", legacyOut.String())
+	if strings.Contains(legacyOut.String(), "\n  install ") {
+		t.Fatalf("install should not appear as a distinct command surface:\n%s", legacyOut.String())
 	}
 }
 
@@ -132,8 +132,8 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	if !strings.Contains(help, "Advanced targeting:") {
 		t.Fatalf("flows run help missing advanced section:\n%s", help)
 	}
-	if !strings.Contains(help, "Advanced: installation scope override") {
-		t.Fatalf("flows run help missing advanced scope flag guidance:\n%s", help)
+	if !strings.Contains(help, "Advanced: run target override (draft|live)") {
+		t.Fatalf("flows run help missing advanced target flag guidance:\n%s", help)
 	}
 }
 
@@ -163,24 +163,24 @@ func TestFlowSubcommandHelpOmitsSourceFlag(t *testing.T) {
 	}
 }
 
-func TestInstallPromoteHelpIsMarkedAdvanced(t *testing.T) {
+func TestFlowsPromoteHelpDescribesLivePromotion(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"flows", "install", "promote", "--help"})
+	cmd.SetArgs([]string{"flows", "promote", "--help"})
 
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute flows install promote help: %v\nstderr:\n%s", err, errOut.String())
+		t.Fatalf("execute flows promote help: %v\nstderr:\n%s", err, errOut.String())
 	}
 
 	help := out.String()
-	if !strings.Contains(help, "Advanced rollout command.") {
-		t.Fatalf("flows install promote help missing advanced rollout description:\n%s", help)
+	if !strings.Contains(help, "Promote a released version to the live target in the current workspace.") {
+		t.Fatalf("flows promote help missing live promotion description:\n%s", help)
 	}
-	if !strings.Contains(help, "Default path:") {
-		t.Fatalf("flows install promote help missing default path context:\n%s", help)
+	if strings.Contains(help, "--target") {
+		t.Fatalf("flows promote help should not expose --target:\n%s", help)
 	}
 }
 

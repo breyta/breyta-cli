@@ -331,7 +331,7 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 		}
 	}
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Configure workspace target first, then promote live installation scope: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows install promote " + flowSlug + " --scope live. Tip: prefer reusing existing workspace connections (list: breyta connections list)."
+		meta["hint"] = "Flow uses :requires slots. Configure workspace target, then promote live: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows promote " + flowSlug + ". Run against live explicitly with --target live or target a specific install with --installation-id <id>. Tip: prefer reusing existing workspace connections (list: breyta connections list)."
 	}
 }
 
@@ -547,7 +547,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				meta["hint"] = "This error usually means the flow needs configuration + installation promotion. Use: breyta flows configure <slug> --set <slot>.conn=conn-...; breyta flows install promote <slug> --scope live"
+				meta["hint"] = "This error usually means the flow needs configuration + installation promotion. Use: breyta flows configure <slug> --set <slot>.conn=conn-...; breyta flows promote <slug>; then run with --target live or --installation-id <id>."
 			}
 		}
 	}
