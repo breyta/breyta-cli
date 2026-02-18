@@ -65,12 +65,13 @@ Choose one:
   - `brew tap breyta/tap`
   - `brew install breyta`
 - **Prebuilt binaries (no Go required):** https://github.com/breyta/breyta-cli/releases
-- **From source (Go required):** `go install ./cmd/breyta` (from this repo)
+- **Go install latest release (Go required):** `go install github.com/breyta/breyta-cli/cmd/breyta@latest`
+- **From source checkout (Go required):** `go install ./cmd/breyta` (from this repo)
 
 Verify install:
 
 ```bash
-breyta --version
+breyta version
 ```
 
 Check for updates:
