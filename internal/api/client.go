@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -125,6 +127,36 @@ func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
 		delayMS = maxDurationMS - jitterMS
 	}
 	return time.Duration(delayMS+jitterMS) * time.Millisecond
+}
+
+func shouldRetryCommandTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	// Treat non-context transport errors as retryable (EOF/reset/etc).
+	return true
+}
+
+func waitCommandRetryDelay(ctx context.Context, attempt int, retryAfterHeader string) error {
+	delay := commandRetryDelay(attempt, retryAfterHeader)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c Client) baseEndpointFor(path string) (string, error) {
@@ -379,6 +411,12 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
+			if attempt < attempts && shouldRetryCommandTransportError(err) {
+				if waitErr := waitCommandRetryDelay(ctx, attempt, ""); waitErr != nil {
+					return nil, 0, waitErr
+				}
+				continue
+			}
 			return nil, 0, err
 		}
 
@@ -389,15 +427,8 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 		}
 
 		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt < attempts {
-			delay := commandRetryDelay(attempt, resp.Header.Get("Retry-After"))
-			if delay > 0 {
-				timer := time.NewTimer(delay)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return nil, 0, ctx.Err()
-				case <-timer.C:
-				}
+			if waitErr := waitCommandRetryDelay(ctx, attempt, resp.Header.Get("Retry-After")); waitErr != nil {
+				return nil, 0, waitErr
 			}
 			continue
 		}
