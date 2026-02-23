@@ -25,6 +25,7 @@ const (
 	defaultCommandRetryAttempts = 3
 	defaultCommandRetryBaseMS   = 250
 	defaultCommandRetryMaxMS    = 2000
+	maxCommandRetryShift        = 20
 )
 
 func commandIdempotencyKey(command string) string {
@@ -85,6 +86,9 @@ func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
 	if retryAfter > 0 {
 		return retryAfter
 	}
+	if attempt < 1 {
+		attempt = 1
+	}
 	baseMS := envInt("BREYTA_CLI_COMMAND_RETRY_BASE_MS", defaultCommandRetryBaseMS)
 	maxMS := envInt("BREYTA_CLI_COMMAND_RETRY_MAX_MS", defaultCommandRetryMaxMS)
 	if baseMS < 0 {
@@ -96,19 +100,24 @@ func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
 	if maxMS > 0 && baseMS > maxMS {
 		baseMS = maxMS
 	}
-	exp := 1
-	if attempt > 1 {
-		exp = 1 << (attempt - 1)
+	shift := attempt - 1
+	if shift > maxCommandRetryShift {
+		shift = maxCommandRetryShift
 	}
-	delayMS := baseMS * exp
-	if maxMS > 0 && delayMS > maxMS {
-		delayMS = maxMS
+	multiplier := int64(1) << shift
+	delayMS := int64(baseMS) * multiplier
+	if maxMS > 0 && delayMS > int64(maxMS) {
+		delayMS = int64(maxMS)
 	}
 	if delayMS <= 0 {
 		return 0
 	}
 	// Deterministic tiny jitter avoids synchronized retry spikes without introducing random test flakiness.
-	jitterMS := (attempt * 37) % 97
+	jitterMS := int64((attempt % 97) * 37 % 97)
+	maxDurationMS := int64(^uint64(0)>>1) / int64(time.Millisecond)
+	if delayMS > maxDurationMS-jitterMS {
+		delayMS = maxDurationMS - jitterMS
+	}
 	return time.Duration(delayMS+jitterMS) * time.Millisecond
 }
 

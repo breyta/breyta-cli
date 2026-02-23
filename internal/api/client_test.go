@@ -216,3 +216,19 @@ func TestCommandRetryDelay_ParsesRetryAfterTimestamp(t *testing.T) {
 		t.Fatalf("expected positive delay for retry-after timestamp, got %s", d)
 	}
 }
+
+func TestCommandRetryDelay_HighAttemptDoesNotOverflow(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "250")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+
+	d := commandRetryDelay(80, "")
+	if d <= 0 {
+		t.Fatalf("expected positive delay for high retry attempt, got %s", d)
+	}
+
+	maxExpectedMS := int64(250)*(int64(1)<<maxCommandRetryShift) + 96
+	maxExpected := time.Duration(maxExpectedMS) * time.Millisecond
+	if d > maxExpected {
+		t.Fatalf("expected delay <= %s for bounded shift, got %s", maxExpected, d)
+	}
+}
