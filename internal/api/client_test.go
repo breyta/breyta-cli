@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClient_baseEndpointFor_AppendsPath(t *testing.T) {
@@ -100,11 +101,13 @@ func TestClient_DoRootREST_AllowsNonJSONResponse(t *testing.T) {
 
 func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	var got map[string]any
+	var gotIdempotency string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
+		gotIdempotency = r.Header.Get("Idempotency-Key")
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &got)
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -131,5 +134,85 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	}
 	if args["x"] != float64(1) {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+	if strings.TrimSpace(gotIdempotency) == "" {
+		t.Fatalf("expected idempotency header to be set")
+	}
+}
+
+func TestClient_DoCommand_RetriesOn429ThenSucceeds(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", "2")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "0")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+	attempts := 0
+	var seen []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		seen = append(seen, r.Header.Get("Idempotency-Key"))
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "retry": true})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "flows.run", map[string]any{"flowSlug": "demo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if len(seen) != 2 || strings.TrimSpace(seen[0]) == "" || seen[0] != seen[1] {
+		t.Fatalf("expected stable idempotency key across retries, got %#v", seen)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestClient_DoCommand_ReturnsLast503AfterRetryBudget(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", "2")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "0")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+	attempts := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "code": "overloaded"})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "flows.run", map[string]any{"flowSlug": "demo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != 503 {
+		t.Fatalf("expected 503, got %d", status)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if out["code"] != "overloaded" {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestCommandRetryDelay_ParsesRetryAfterTimestamp(t *testing.T) {
+	at := time.Now().Add(250 * time.Millisecond).UTC().Format(http.TimeFormat)
+	d := commandRetryDelay(1, at)
+	if d <= 0 {
+		t.Fatalf("expected positive delay for retry-after timestamp, got %s", d)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +19,97 @@ type Client struct {
 	WorkspaceID string
 	Token       string
 	HTTP        *http.Client
+}
+
+const (
+	defaultCommandRetryAttempts = 3
+	defaultCommandRetryBaseMS   = 250
+	defaultCommandRetryMaxMS    = 2000
+)
+
+func commandIdempotencyKey(command string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(command), ".", "-")
+	if normalized == "" {
+		normalized = "unknown-command"
+	}
+	return fmt.Sprintf("cli:%s:%d", normalized, time.Now().UnixNano())
+}
+
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func commandRetryAttempts() int {
+	enabled := strings.ToLower(strings.TrimSpace(os.Getenv("BREYTA_CLI_COMMAND_RETRY_ENABLED")))
+	if enabled == "false" || enabled == "0" || enabled == "no" {
+		return 1
+	}
+	attempts := envInt("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", defaultCommandRetryAttempts)
+	if attempts < 1 {
+		return 1
+	}
+	return attempts
+}
+
+func parseRetryAfter(headerValue string) time.Duration {
+	s := strings.TrimSpace(headerValue)
+	if s == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(s); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if at, err := http.ParseTime(s); err == nil {
+		d := time.Until(at)
+		if d <= 0 {
+			return 0
+		}
+		return d
+	}
+	return 0
+}
+
+func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
+	retryAfter := parseRetryAfter(retryAfterHeader)
+	if retryAfter > 0 {
+		return retryAfter
+	}
+	baseMS := envInt("BREYTA_CLI_COMMAND_RETRY_BASE_MS", defaultCommandRetryBaseMS)
+	maxMS := envInt("BREYTA_CLI_COMMAND_RETRY_MAX_MS", defaultCommandRetryMaxMS)
+	if baseMS < 0 {
+		baseMS = 0
+	}
+	if maxMS < 0 {
+		maxMS = 0
+	}
+	if maxMS > 0 && baseMS > maxMS {
+		baseMS = maxMS
+	}
+	exp := 1
+	if attempt > 1 {
+		exp = 1 << (attempt - 1)
+	}
+	delayMS := baseMS * exp
+	if maxMS > 0 && delayMS > maxMS {
+		delayMS = maxMS
+	}
+	if delayMS <= 0 {
+		return 0
+	}
+	// Deterministic tiny jitter avoids synchronized retry spikes without introducing random test flakiness.
+	jitterMS := (attempt * 37) % 97
+	return time.Duration(delayMS+jitterMS) * time.Millisecond
 }
 
 func (c Client) baseEndpointFor(path string) (string, error) {
@@ -250,35 +343,56 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	}
 	payload := map[string]any{"command": command, "args": filtered}
 
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
-		return nil, 0, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
+	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if strings.TrimSpace(c.Token) != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
+	idempotencyKey := commandIdempotencyKey(command)
 
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
+	attempts := commandRetryAttempts()
+	for attempt := 1; attempt <= attempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
+		if err != nil {
+			return nil, 0, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if strings.TrimSpace(c.Token) != "" {
+			req.Header.Set("Authorization", "Bearer "+c.Token)
+		}
+		req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
+		req.Header.Set("Idempotency-Key", idempotencyKey)
 
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		b, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, resp.StatusCode, readErr
+		}
+
+		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt < attempts {
+			delay := commandRetryDelay(attempt, resp.Header.Get("Retry-After"))
+			if delay > 0 {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil, 0, ctx.Err()
+				case <-timer.C:
+				}
+			}
+			continue
+		}
+
+		var out map[string]any
+		if err := json.Unmarshal(b, &out); err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
+		}
+		return out, resp.StatusCode, nil
 	}
 
-	var out map[string]any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
-	}
-	return out, resp.StatusCode, nil
+	return nil, 0, fmt.Errorf("command request exhausted retries without response")
 }
