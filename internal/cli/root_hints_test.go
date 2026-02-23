@@ -83,6 +83,29 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestFlowsHelpHidesLegacyLifecycleCommandsInDevMode(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"--dev", "flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	for _, hiddenCmd := range []string{"\n  activate", "\n  deploy", "\n  draft", "\n  install "} {
+		if strings.Contains(help, hiddenCmd) {
+			t.Fatalf("flows help leaked legacy command %q in dev mode:\n%s", strings.TrimSpace(hiddenCmd), help)
+		}
+	}
+	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
+		t.Fatalf("flows help missing canonical lifecycle commands in dev mode:\n%s", help)
+	}
+}
+
 func TestInstallationsHelpAndInstallAbbreviationResolvesToCanonical(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)

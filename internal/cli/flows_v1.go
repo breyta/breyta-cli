@@ -267,9 +267,10 @@ func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
 func newFlowsActivateCmd(app *App) *cobra.Command {
 	var version string
 	cmd := &cobra.Command{
-		Use:   "activate <flow-slug>",
-		Short: "Enable the prod profile for a flow",
-		Args:  cobra.ExactArgs(1),
+		Use:    "activate <flow-slug>",
+		Short:  "Enable the prod profile for a flow",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows activate requires API mode"))
