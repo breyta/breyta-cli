@@ -114,6 +114,12 @@ func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
 	}
 	// Deterministic tiny jitter avoids synchronized retry spikes without introducing random test flakiness.
 	jitterMS := int64((attempt % 97) * 37 % 97)
+	if maxMS > 0 {
+		maxWithJitter := int64(maxMS)
+		if delayMS+jitterMS > maxWithJitter {
+			return time.Duration(maxWithJitter) * time.Millisecond
+		}
+	}
 	maxDurationMS := int64(^uint64(0)>>1) / int64(time.Millisecond)
 	if delayMS > maxDurationMS-jitterMS {
 		delayMS = maxDurationMS - jitterMS

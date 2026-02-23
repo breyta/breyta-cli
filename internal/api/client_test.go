@@ -232,3 +232,13 @@ func TestCommandRetryDelay_HighAttemptDoesNotOverflow(t *testing.T) {
 		t.Fatalf("expected delay <= %s for bounded shift, got %s", maxExpected, d)
 	}
 }
+
+func TestCommandRetryDelay_DoesNotExceedConfiguredMaxAfterJitter(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "100")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "120")
+
+	d := commandRetryDelay(2, "")
+	if d > 120*time.Millisecond {
+		t.Fatalf("expected delay <= 120ms, got %s", d)
+	}
+}
