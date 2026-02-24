@@ -1181,6 +1181,78 @@ func TestFlowsRelease_NoInstallSkipsPromote(t *testing.T) {
 	}
 }
 
+func TestFlowsRelease_PromoteScopeLive_UsesCanonicalCommand(t *testing.T) {
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			step++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 3},
+			})
+		case "flows.promote":
+			step++
+			if args["scope"] != "live" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing scope=live"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live", "scope": "live"},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+		"--promote-scope", "live",
+	)
+	if err != nil {
+		t.Fatalf("flows release --promote-scope live failed: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected release + promote commands, got %d", step)
+	}
+}
+
+func TestFlowsRelease_NoInstallRejectsPromoteScope(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+		"--no-install",
+		"--promote-scope", "live",
+	)
+	if err == nil {
+		t.Fatalf("expected flows release --no-install --promote-scope to fail")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "--promote-scope cannot be used with --no-install") {
+		t.Fatalf("expected promote-scope/no-install validation message, got:\n%s", combined)
+	}
+}
+
 func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -1436,6 +1508,46 @@ func TestFlowsInstallPromoteLiveTrackLatest_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallPromote_LiveScope_UsesCanonicalCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.promote" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["scope"] != "live" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing scope=live"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"target": "live", "scope": "live"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "promote", "flow-release",
+		"--scope", "live",
+	)
+	if err != nil {
+		t.Fatalf("flows promote --scope live failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsInstallPromote_InvalidPolicy(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
@@ -1451,6 +1563,24 @@ func TestFlowsInstallPromote_InvalidPolicy(t *testing.T) {
 	combined := stdout + stderr
 	if !strings.Contains(combined, "invalid --policy (expected pinned or track-latest)") {
 		t.Fatalf("expected invalid policy guidance, got:\n%s", combined)
+	}
+}
+
+func TestFlowsInstallPromote_InvalidScope(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "promote", "flow-release",
+		"--scope", "workspace",
+	)
+	if err == nil {
+		t.Fatalf("expected flows promote to fail for invalid scope")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "invalid --scope (expected all or live)") {
+		t.Fatalf("expected invalid scope guidance, got:\n%s", combined)
 	}
 }
 

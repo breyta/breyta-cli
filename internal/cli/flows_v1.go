@@ -38,15 +38,15 @@ Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
 3) push -> updates working copy (and validates by default)
-4) release -> publishes an immutable version and promotes live install in current workspace
+4) release -> publishes an immutable version and promotes live + installations in current workspace
 5) run -> verifies behavior in your workspace
 
 Optional explicit check:
 - validate -> read-only verification for CI, troubleshooting, or explicit target checks
 
 Advanced rollout workflow (optional):
-- release -> publishes immutable version + live install promotion in current workspace
-- promote -> updates live target to a released version
+- release -> publishes immutable version + live/installations promotion in current workspace
+- promote -> updates live target and installations to a released version
 - installations ... -> installation-id scoped management
 
 Quick commands:
@@ -78,7 +78,7 @@ Notes:
 - Use flow/input for inputs and flow/step for steps.
 
 Advanced install lifecycle:
-- Release with default live promotion: breyta flows release <slug>
+- Release with default live + installations promotion: breyta flows release <slug>
 - Release without auto promotion: breyta flows release <slug> --no-install
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
