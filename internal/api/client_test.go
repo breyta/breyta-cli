@@ -18,6 +18,22 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+type errReadCloser struct {
+	payload []byte
+	read    bool
+}
+
+func (r *errReadCloser) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.ErrUnexpectedEOF
+	}
+	r.read = true
+	n := copy(p, r.payload)
+	return n, io.ErrUnexpectedEOF
+}
+
+func (r *errReadCloser) Close() error { return nil }
+
 func TestClient_baseEndpointFor_AppendsPath(t *testing.T) {
 	c := Client{BaseURL: "http://example.test/base/"}
 	got, err := c.baseEndpointFor("/api/me")
@@ -265,6 +281,51 @@ func TestClient_DoCommand_RetriesOnTransportErrorThenSucceeds(t *testing.T) {
 		attempts++
 		if attempts == 1 {
 			return nil, io.ErrUnexpectedEOF
+		}
+		return http.DefaultTransport.RoundTrip(req)
+	})
+
+	c := Client{
+		BaseURL:     srv.URL,
+		WorkspaceID: "ws-acme",
+		HTTP:        &http.Client{Transport: transport},
+	}
+	out, status, err := c.DoCommand(context.Background(), "flows.run", map[string]any{"flowSlug": "demo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestClient_DoCommand_RetriesOnRetryableStatusEvenWhenBodyReadFails(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", "2")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "0")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+	attempts := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{"Retry-After": []string{"0"}},
+				Body:       &errReadCloser{payload: []byte(`{"ok":false}`)},
+				Request:    req,
+			}, nil
 		}
 		return http.DefaultTransport.RoundTrip(req)
 	})

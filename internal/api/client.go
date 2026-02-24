@@ -440,6 +440,12 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 		b, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if readErr != nil {
+			if shouldRetryCommandStatus(resp.StatusCode) && attempt < attempts {
+				if waitErr := waitCommandRetryDelay(ctx, attempt, resp.Header.Get("Retry-After"), idempotencyKey); waitErr != nil {
+					return nil, 0, waitErr
+				}
+				continue
+			}
 			return nil, resp.StatusCode, readErr
 		}
 
