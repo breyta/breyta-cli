@@ -186,6 +186,40 @@ func TestClient_DoCommand_RetriesOn429ThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestClient_DoCommand_RetriesOn502ThenSucceeds(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", "2")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "0")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+	attempts := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "retry": true})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "flows.run", map[string]any{"flowSlug": "demo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
 func TestClient_DoCommand_ReturnsLast503AfterRetryBudget(t *testing.T) {
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_ATTEMPTS", "2")
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "0")
@@ -257,7 +291,7 @@ func TestClient_DoCommand_RetriesOnTransportErrorThenSucceeds(t *testing.T) {
 
 func TestCommandRetryDelay_ParsesRetryAfterTimestamp(t *testing.T) {
 	at := time.Now().Add(250 * time.Millisecond).UTC().Format(http.TimeFormat)
-	d := commandRetryDelay(1, at)
+	d := commandRetryDelay(1, at, "seed")
 	if d <= 0 {
 		t.Fatalf("expected positive delay for retry-after timestamp, got %s", d)
 	}
@@ -267,7 +301,7 @@ func TestCommandRetryDelay_HighAttemptDoesNotOverflow(t *testing.T) {
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "250")
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
 
-	d := commandRetryDelay(80, "")
+	d := commandRetryDelay(80, "", "seed")
 	if d <= 0 {
 		t.Fatalf("expected positive delay for high retry attempt, got %s", d)
 	}
@@ -283,8 +317,21 @@ func TestCommandRetryDelay_DoesNotExceedConfiguredMaxAfterJitter(t *testing.T) {
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "100")
 	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "120")
 
-	d := commandRetryDelay(2, "")
+	d := commandRetryDelay(2, "", "seed")
 	if d > 120*time.Millisecond {
 		t.Fatalf("expected delay <= 120ms, got %s", d)
+	}
+}
+
+func TestCommandRetryDelay_UsesRequestSpecificJitterSeed(t *testing.T) {
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_BASE_MS", "1")
+	t.Setenv("BREYTA_CLI_COMMAND_RETRY_MAX_MS", "0")
+
+	seen := map[time.Duration]struct{}{}
+	for _, seed := range []string{"seed-a", "seed-b", "seed-c"} {
+		seen[commandRetryDelay(2, "", seed)] = struct{}{}
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected at least two distinct jitter delays across seeds, got %d", len(seen))
 	}
 }

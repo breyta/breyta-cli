@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -83,7 +84,16 @@ func parseRetryAfter(headerValue string) time.Duration {
 	return 0
 }
 
-func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
+func commandRetryJitterMS(attempt int, jitterSeed string) int64 {
+	if attempt < 1 {
+		attempt = 1
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(jitterSeed))
+	return (int64(h.Sum32()) + int64(attempt*37)) % 97
+}
+
+func commandRetryDelay(attempt int, retryAfterHeader string, jitterSeed string) time.Duration {
 	retryAfter := parseRetryAfter(retryAfterHeader)
 	if retryAfter > 0 {
 		return retryAfter
@@ -115,7 +125,7 @@ func commandRetryDelay(attempt int, retryAfterHeader string) time.Duration {
 		return 0
 	}
 	// Deterministic tiny jitter avoids synchronized retry spikes without introducing random test flakiness.
-	jitterMS := int64((attempt % 97) * 37 % 97)
+	jitterMS := commandRetryJitterMS(attempt, jitterSeed)
 	if maxMS > 0 {
 		maxWithJitter := int64(maxMS)
 		if delayMS+jitterMS > maxWithJitter {
@@ -144,8 +154,8 @@ func shouldRetryCommandTransportError(err error) bool {
 	return true
 }
 
-func waitCommandRetryDelay(ctx context.Context, attempt int, retryAfterHeader string) error {
-	delay := commandRetryDelay(attempt, retryAfterHeader)
+func waitCommandRetryDelay(ctx context.Context, attempt int, retryAfterHeader string, jitterSeed string) error {
+	delay := commandRetryDelay(attempt, retryAfterHeader, jitterSeed)
 	if delay <= 0 {
 		return nil
 	}
@@ -157,6 +167,13 @@ func waitCommandRetryDelay(ctx context.Context, attempt int, retryAfterHeader st
 	case <-timer.C:
 		return nil
 	}
+}
+
+func shouldRetryCommandStatus(status int) bool {
+	return status == http.StatusTooManyRequests ||
+		status == http.StatusServiceUnavailable ||
+		status == http.StatusBadGateway ||
+		status == http.StatusGatewayTimeout
 }
 
 func (c Client) baseEndpointFor(path string) (string, error) {
@@ -412,7 +429,7 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
 			if attempt < attempts && shouldRetryCommandTransportError(err) {
-				if waitErr := waitCommandRetryDelay(ctx, attempt, ""); waitErr != nil {
+				if waitErr := waitCommandRetryDelay(ctx, attempt, "", idempotencyKey); waitErr != nil {
 					return nil, 0, waitErr
 				}
 				continue
@@ -426,8 +443,8 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 			return nil, resp.StatusCode, readErr
 		}
 
-		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt < attempts {
-			if waitErr := waitCommandRetryDelay(ctx, attempt, resp.Header.Get("Retry-After")); waitErr != nil {
+		if shouldRetryCommandStatus(resp.StatusCode) && attempt < attempts {
+			if waitErr := waitCommandRetryDelay(ctx, attempt, resp.Header.Get("Retry-After"), idempotencyKey); waitErr != nil {
 				return nil, 0, waitErr
 			}
 			continue
