@@ -158,14 +158,29 @@ func normalizeInstallPolicy(policy string) (string, error) {
 	}
 }
 
+func normalizePromoteScope(scope string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(scope))
+	if s == "" {
+		return "", nil
+	}
+	switch s {
+	case "all", "live":
+		return s, nil
+	default:
+		return "", errors.New("invalid --scope (expected all or live)")
+	}
+}
+
 func newFlowsPromoteCmd(app *App) *cobra.Command {
 	var version string
 	var policy string
+	var scope string
 	cmd := &cobra.Command{
 		Use:   "promote <flow-slug>",
-		Short: "Promote a released version to live in this workspace",
+		Short: "Promote a released version to live and all installations in this workspace",
 		Long: strings.TrimSpace(`
 Promote a released version to the live target in the current workspace.
+By default, this also updates all end-user installations for the flow.
 
 Most users run workspace-draft by default with:
 - breyta flows run <flow-slug>
@@ -183,6 +198,10 @@ breyta flows promote order-ingest --version 42
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			resolvedScope, err := normalizePromoteScope(scope)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			payload := map[string]any{
 				"flowSlug": args[0],
 				"target":   "live",
@@ -197,11 +216,15 @@ breyta flows promote order-ingest --version 42
 			if resolvedPolicy != "" {
 				payload["policy"] = resolvedPolicy
 			}
+			if resolvedScope != "" {
+				payload["scope"] = resolvedScope
+			}
 			return doAPICommand(cmd, app, "flows.promote", payload)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "latest", "Release version to promote (or latest)")
 	cmd.Flags().StringVar(&policy, "policy", "", "Advanced: install policy override (pinned|track-latest)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Advanced: promotion scope override (all|live). Default all")
 	return cmd
 }
 
