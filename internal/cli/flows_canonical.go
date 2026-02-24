@@ -217,6 +217,10 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if !install && cmd.Flags().Changed("promote-scope") {
 				return writeErr(cmd, errors.New("--promote-scope cannot be used with --no-install"))
 			}
+			resolvedPromoteScope, err := normalizePromoteScope(promoteScope)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 
 			payload := map[string]any{"flowSlug": args[0]}
 			version = strings.TrimSpace(version)
@@ -257,10 +261,6 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			}
 
 			promotePayload := map[string]any{"flowSlug": args[0], "target": "live"}
-			resolvedPromoteScope, err := normalizePromoteScope(promoteScope)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
 			if resolvedPromoteScope != "" {
 				promotePayload["scope"] = resolvedPromoteScope
 			}

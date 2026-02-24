@@ -1253,6 +1253,24 @@ func TestFlowsRelease_NoInstallRejectsPromoteScope(t *testing.T) {
 	}
 }
 
+func TestFlowsRelease_InvalidPromoteScopeFailsBeforeRelease(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+		"--promote-scope", "workspace",
+	)
+	if err == nil {
+		t.Fatalf("expected flows release --promote-scope workspace to fail")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "invalid --scope (expected all or live)") {
+		t.Fatalf("expected invalid scope guidance, got:\n%s", combined)
+	}
+}
+
 func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
