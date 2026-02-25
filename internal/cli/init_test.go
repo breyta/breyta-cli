@@ -100,6 +100,50 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 }
 
+func TestInit_GeminiProvider_InstallsSkill(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "test",
+					"minCliVersion": "0.0.0",
+					"keyId":         "test",
+					"signature":     "",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			_, _ = w.Write([]byte("# Breyta Skill\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	_, _, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--no-workspace", "--provider", "gemini", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+
+	if _, err := os.Stat(wsDir); err == nil {
+		t.Fatalf("expected workspace dir to not be created: %s", wsDir)
+	}
+
+	skillPath := filepath.Join(homeDir, ".gemini", "skills", "breyta", "SKILL.md")
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatalf("expected skill file to exist: %s: %v", skillPath, err)
+	}
+}
+
 func TestInit_SkillInstallFailure_RendersNotInstalledInAgents(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")

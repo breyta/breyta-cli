@@ -19,6 +19,7 @@ const (
 	ProviderCodex  Provider = "codex"
 	ProviderCursor Provider = "cursor"
 	ProviderClaude Provider = "claude"
+	ProviderGemini Provider = "gemini"
 )
 
 type InstallTarget struct {
@@ -33,10 +34,10 @@ func Target(homeDir string, provider Provider) (InstallTarget, error) {
 		return InstallTarget{}, errors.New("missing home dir")
 	}
 	switch provider {
-	case ProviderCodex, ProviderCursor, ProviderClaude:
+	case ProviderCodex, ProviderCursor, ProviderClaude, ProviderGemini:
 		return targetForProvider(homeDir, provider), nil
 	default:
-		return InstallTarget{}, fmt.Errorf("unknown provider %q (expected: codex|cursor|claude)", provider)
+		return InstallTarget{}, fmt.Errorf("unknown provider %q (expected: codex|cursor|claude|gemini)", provider)
 	}
 }
 
@@ -48,6 +49,9 @@ func targetForProvider(homeDir string, provider Provider) InstallTarget {
 	case ProviderCursor:
 		dir := filepath.Join(homeDir, ".cursor", "rules", BreytaSkillSlug)
 		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "RULE.md")}
+	case ProviderGemini:
+		dir := filepath.Join(homeDir, ".gemini", "skills", BreytaSkillSlug)
+		return InstallTarget{Provider: provider, Dir: dir, File: filepath.Join(dir, "SKILL.md")}
 	default: // codex
 		dir := filepath.Join(homeDir, ".codex", "skills", BreytaSkillSlug)
 		return InstallTarget{Provider: ProviderCodex, Dir: dir, File: filepath.Join(dir, "SKILL.md")}

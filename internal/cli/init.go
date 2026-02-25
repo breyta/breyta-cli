@@ -25,7 +25,7 @@ func newInitCmd(app *App) *cobra.Command {
 		Short: "Bootstrap local setup for agent-driven Breyta usage",
 		Long: strings.TrimSpace(`
 Sets up Breyta for agent-first usage:
-- installs the Breyta agent skill bundle for Codex/Cursor/Claude Code
+- installs the Breyta agent skill bundle for Codex/Cursor/Claude Code/Gemini CLI
 - creates a local "agent workspace" directory with an AGENTS.md file
 
 It does not require authentication, but you'll typically run ` + "`breyta auth login`" + `
@@ -35,9 +35,10 @@ right after to connect the CLI to your Breyta account.
 # Install the skill bundle for your agent tool and create ./breyta-workspace
 breyta init --provider codex
 
-# Cursor and Claude Code
+# Cursor, Claude Code, and Gemini CLI
 breyta init --provider cursor
 breyta init --provider claude
+breyta init --provider gemini
 
 # Use a specific directory and overwrite existing files
 breyta init --dir ./my-breyta-workspace --force
@@ -165,7 +166,7 @@ breyta init --dir ./my-breyta-workspace --force
 	}
 
 	_ = app
-	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location for the agent skill bundle (codex|cursor|claude)")
+	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location for the agent skill bundle (codex|cursor|claude|gemini)")
 	cmd.Flags().StringVar(&dir, "dir", "breyta-workspace", "Workspace directory to create (contains AGENTS.md, flows/, tmp/flows/)")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files in the workspace directory")
 	cmd.Flags().BoolVar(&noSkill, "no-skill", false, "Skip installing the agent skill bundle")
@@ -204,7 +205,7 @@ func renderInitAgentsMD(target skills.InstallTarget, skillNotInstalled bool) str
 
 	return strings.TrimSpace(`# Breyta agent workspace
 
-This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code, etc.) to build and operate Breyta workflows ("flows") through the ` + "`breyta`" + ` CLI.
+This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code, Gemini CLI, etc.) to build and operate Breyta workflows ("flows") through the ` + "`breyta`" + ` CLI.
 
 ## First-time setup
 - Verify the CLI is installed: ` + "`breyta --version`" + `
@@ -243,7 +244,7 @@ Suggested line to paste into your agent's persistent project instructions:
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
-- Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude>`" + `
+- Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
 
 ## Local development (optional)
 For local ` + "`flows-api`" + ` development you typically use dev mode + env vars:

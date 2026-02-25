@@ -98,7 +98,7 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 	}
 
 	installedProviders := []skills.Provider{}
-	for _, p := range []skills.Provider{skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude} {
+	for _, p := range []skills.Provider{skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude, skills.ProviderGemini} {
 		t, err := skills.Target(home, p)
 		if err != nil {
 			continue

@@ -60,7 +60,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location (codex|cursor|claude)")
+	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location (codex|cursor|claude|gemini)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print every installed file path")
 	return cmd
 }
