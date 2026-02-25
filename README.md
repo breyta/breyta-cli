@@ -2,7 +2,7 @@
 
 This repo contains the `breyta` command-line interface (CLI) for working with Breyta workflows.
 
-The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, and **Cursor** (and also works great for humans in a terminal).
+The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, **Cursor**, and **Gemini CLI** (and also works great for humans in a terminal).
 
 - `breyta` shows help.
 - `breyta <command>` runs a scriptable CLI command (JSON).
@@ -42,21 +42,21 @@ Concurrency policy quick rule:
 - **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
 - **Docs from the API:** `breyta docs` searches and prints product docs from the Breyta API (`docs find` / `docs show`).
 - **Command truth:** use `breyta help <command...>` for flags and usage.
-- **Agent tooling:** `breyta skills install` downloads the Breyta skill bundle from the docs API and installs it for Codex/Cursor/Claude Code.
+- **Agent tooling:** `breyta skills install` downloads the Breyta skill bundle from the docs API and installs it for Codex/Cursor/Claude Code/Gemini CLI.
 
 ### Recommended: set up your agent via CLI
 
 Use the CLI setup flow to:
 
 - **Log in** (so the CLI can authenticate to the API)
-- **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code)
+- **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code / Gemini CLI)
 - **Set your default workspace** for subsequent commands
 
 Run:
 
 ```bash
 breyta auth login
-breyta skills install --provider <codex|cursor|claude>
+breyta skills install --provider <codex|cursor|claude|gemini>
 breyta workspaces list
 breyta workspaces use <workspace-id>
 ```
@@ -96,10 +96,10 @@ Or open the latest release page:
 breyta upgrade --open
 ```
 
-After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code):
+After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code/Gemini CLI):
 
 ```bash
-breyta init --provider <codex|cursor|claude>
+breyta init --provider <codex|cursor|claude|gemini>
 ```
 
 This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
@@ -107,7 +107,7 @@ This installs the Breyta skill bundle for your agent tool and creates a local `b
 If you only want the skill bundle (no workspace files), use:
 
 ```bash
-breyta skills install --provider <codex|cursor|claude>
+breyta skills install --provider <codex|cursor|claude|gemini>
 ```
 
 Examples (skill-only):
@@ -121,6 +121,9 @@ breyta skills install --provider cursor
 
 # Claude Code
 breyta skills install --provider claude
+
+# Gemini CLI
+breyta skills install --provider gemini
 ```
 
 You can also do this from the TUI: `breyta` then press `s` (Agent skills).
@@ -132,7 +135,7 @@ More details: `breyta docs find "install"` (then `breyta docs show <slug>`).
 Hosted Breyta:
 
 ```bash
-breyta init --provider <codex|cursor|claude>
+breyta init --provider <codex|cursor|claude|gemini>
 breyta auth login
 breyta flows list
 ```

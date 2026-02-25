@@ -18,6 +18,9 @@ func TestTarget_ProviderPaths(t *testing.T) {
 	if got, err := Target(home, ProviderClaude); err != nil || got.File != filepath.Join(home, ".claude", "skills", BreytaSkillSlug, "SKILL.md") {
 		t.Fatalf("claude target mismatch: %+v (err=%v)", got, err)
 	}
+	if got, err := Target(home, ProviderGemini); err != nil || got.File != filepath.Join(home, ".gemini", "skills", BreytaSkillSlug, "SKILL.md") {
+		t.Fatalf("gemini target mismatch: %+v (err=%v)", got, err)
+	}
 }
 
 func TestInstallBreytaSkillFiles_CursorTargetAndReferences(t *testing.T) {
