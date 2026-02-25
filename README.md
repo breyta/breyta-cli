@@ -33,6 +33,10 @@ Less ideal: one-step automations where you do not need versioning and runtime co
 Determinism and orchestration constraints are documented in:
 - `breyta docs` (product docs served from the Breyta API)
 
+Concurrency policy quick rule:
+- Reconciler, sweeper, and scheduled cleanup flows: `:on-new-version :supersede`
+- Use `:on-new-version :drain` only when in-flight runs must finish on the old version
+
 ## Agent-first design
 
 - **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
