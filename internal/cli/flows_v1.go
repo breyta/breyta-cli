@@ -76,6 +76,9 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- Concurrency guidance:
+  - Reconciler/sweeper/scheduled cleanup flows should use :on-new-version :supersede so fixes take effect immediately
+  - Use :on-new-version :drain only when in-flight runs must finish on the old version
 
 Advanced install lifecycle:
 - Release with default live + installations promotion: breyta flows release <slug>
