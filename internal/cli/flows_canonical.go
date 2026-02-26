@@ -283,7 +283,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if releaseStatus >= 400 || !isOK(releaseOut) {
+			releaseOK := releaseStatus < 400 && isOK(releaseOut)
+			trackCommandTelemetry(app, "flows.release", payload, releaseStatus, releaseOK)
+			if !releaseOK {
 				if err := writeAPIResult(cmd, app, releaseOut, releaseStatus); err != nil {
 					return writeErr(cmd, err)
 				}
@@ -305,7 +307,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if promoteStatus >= 400 || !isOK(promoteOut) {
+			promoteOK := promoteStatus < 400 && isOK(promoteOut)
+			trackCommandTelemetry(app, "flows.promote", promotePayload, promoteStatus, promoteOK)
+			if !promoteOK {
 				if err := writeAPIResult(cmd, app, promoteOut, promoteStatus); err != nil {
 					return writeErr(cmd, err)
 				}
