@@ -265,6 +265,7 @@ Use runs start only when integrating with older scripts.
 				if err != nil {
 					return writeErr(cmd, err)
 				}
+				trackCommandTelemetry(app, "runs.start", payload, status, status < 400 && isOK(startResp))
 				if !wait {
 					return writeAPIResult(cmd, app, startResp, status)
 				}

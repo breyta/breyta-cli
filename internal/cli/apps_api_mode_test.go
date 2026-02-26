@@ -99,6 +99,137 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
+func TestRunsStart_EmitsRunStartedTelemetry(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
+
+	events := make(chan string, 4)
+	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capture/" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if event, _ := body["event"].(string); strings.TrimSpace(event) != "" {
+			events <- event
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	}))
+	defer posthog.Close()
+	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.start" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"workflowId": "wf-telemetry-1"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", jwtWithEmailForCLI("user@example.com"),
+		"runs", "start",
+		"--flow", "my-flow",
+	)
+	if err != nil {
+		t.Fatalf("runs start failed: %v\n%s", err, stdout)
+	}
+
+	select {
+	case event := <-events:
+		if event != "cli_run_started" {
+			t.Fatalf("expected cli_run_started event, got %q", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected cli_run_started telemetry event")
+	}
+}
+
+func TestFlowsDraftRun_EmitsRunStartedTelemetry(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
+
+	events := make(chan string, 4)
+	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capture/" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if event, _ := body["event"].(string); strings.TrimSpace(event) != "" {
+			events <- event
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	}))
+	defer posthog.Close()
+	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.start" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["source"] != "draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing source=draft"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"workflowId": "wf-telemetry-2"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", jwtWithEmailForCLI("user@example.com"),
+		"flows", "draft", "run", "my-flow",
+	)
+	if err != nil {
+		t.Fatalf("flows draft run failed: %v\n%s", err, stdout)
+	}
+
+	select {
+	case event := <-events:
+		if event != "cli_run_started" {
+			t.Fatalf("expected cli_run_started event, got %q", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected cli_run_started telemetry event")
+	}
+}
+
 func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
