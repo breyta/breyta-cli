@@ -754,6 +754,13 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if targetChanged {
 				result["target"] = resolvedTarget
 			}
+			trackCLIEvent(app, "cli_flow_pulled", nil, app.Token, map[string]any{
+				"product":   "flows",
+				"channel":   "cli",
+				"api_host":  apiHostname(app.APIURL),
+				"flow_slug": slug,
+				"target":    resolvedTarget,
+			})
 			return writeData(cmd, app, nil, result)
 		},
 	}
@@ -846,10 +853,6 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if status >= 400 {
 				return writeAPIResult(cmd, app, out, status)
 			}
-			if !validate {
-				return writeAPIResult(cmd, app, out, status)
-			}
-
 			flowSlug := ""
 			if dataAny, ok := out["data"]; ok {
 				if data, ok := dataAny.(map[string]any); ok {
@@ -858,11 +861,27 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					}
 				}
 			}
+			if !validate {
+				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
+					"product":   "flows",
+					"channel":   "cli",
+					"api_host":  apiHostname(app.APIURL),
+					"flow_slug": flowSlug,
+					"validated": false,
+				})
+				return writeAPIResult(cmd, app, out, status)
+			}
 			if flowSlug == "" {
 				meta := ensureMeta(out)
 				if meta != nil {
 					meta["hint"] = "Draft pushed, but flowSlug missing for validation. Run: breyta flows validate <slug>"
 				}
+				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
+					"product":   "flows",
+					"channel":   "cli",
+					"api_host":  apiHostname(app.APIURL),
+					"validated": false,
+				})
 				return writeAPIResult(cmd, app, out, status)
 			}
 
@@ -881,6 +900,14 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				meta["validated"] = true
 				meta["validateSource"] = "draft"
 			}
+			trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
+				"product":         "flows",
+				"channel":         "cli",
+				"api_host":        apiHostname(app.APIURL),
+				"flow_slug":       flowSlug,
+				"validated":       true,
+				"validate_source": "draft",
+			})
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}

@@ -28,16 +28,23 @@ type posthogCapturePayload struct {
 
 var posthogCaptureFn = sendPosthogCapture
 
+var commandTelemetryEvents = map[string]string{
+	"flows.put_draft":                 "cli_flow_pushed",
+	"flows.validate":                  "cli_flow_validated",
+	"flows.release":                   "cli_flow_released",
+	"flows.promote":                   "cli_flow_promoted",
+	"flows.deploy":                    "cli_flow_deployed",
+	"flows.versions.publish":          "cli_flow_version_published",
+	"flows.versions.activate":         "cli_flow_version_activated",
+	"flows.installations.create":      "cli_installation_created",
+	"flows.installations.set_input":   "cli_installation_configured",
+	"flows.installations.set_inputs":  "cli_installation_configured",
+	"flows.installations.set_enabled": "cli_installation_toggled",
+	"runs.start":                      "cli_run_started",
+	"flows.run":                       "cli_run_started",
+}
+
 func trackAuthLoginTelemetry(app *App, source, token string, uid any) {
-	if !posthogEnabledForLogin(app) {
-		return
-	}
-
-	distinctID := telemetryDistinctID(uid, token)
-	if strings.TrimSpace(distinctID) == "" {
-		return
-	}
-
 	props := map[string]any{
 		"product":  "flows",
 		"channel":  "cli",
@@ -48,18 +55,71 @@ func trackAuthLoginTelemetry(app *App, source, token string, uid any) {
 		props["email_domain"] = emailDomain(email)
 	}
 
-	payload := posthogCapturePayload{
-		Event:      "cli_auth_login_completed",
-		DistinctID: distinctID,
-		Properties: props,
-	}
+	trackCLIEvent(app, "cli_auth_login_completed", uid, token, props)
+}
 
+func trackCLIEvent(app *App, event string, uid any, token string, properties map[string]any) {
+	if !posthogEnabledForLogin(app) {
+		return
+	}
+	if strings.TrimSpace(event) == "" {
+		return
+	}
+	distinctID := telemetryDistinctID(uid, token)
+	if strings.TrimSpace(distinctID) == "" {
+		return
+	}
+	payload := posthogCapturePayload{
+		Event:      strings.TrimSpace(event),
+		DistinctID: distinctID,
+		Properties: properties,
+	}
 	// Best-effort, non-blocking telemetry.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 		defer cancel()
 		_ = posthogCaptureFn(ctx, payload)
 	}()
+}
+
+func trackCommandTelemetry(app *App, command string, args map[string]any, status int, ok bool) {
+	event, exists := commandTelemetryEvents[strings.TrimSpace(command)]
+	if !exists {
+		return
+	}
+	props := map[string]any{
+		"product":   "flows",
+		"channel":   "cli",
+		"command":   strings.TrimSpace(command),
+		"api_host":  apiHostname(app.APIURL),
+		"status":    status,
+		"success":   ok,
+		"flow_slug": argString(args, "flowSlug", "flow-slug", "slug"),
+		"target":    argString(args, "target"),
+		"source":    argString(args, "source"),
+	}
+	if installationID := argString(args, "installationId", "installation-id", "profileId", "profile-id"); installationID != "" {
+		props["installation_id"] = installationID
+	}
+	trackCLIEvent(app, event, nil, app.Token, props)
+}
+
+func argString(args map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if args == nil {
+			return ""
+		}
+		raw, ok := args[key]
+		if !ok {
+			continue
+		}
+		if s, ok := raw.(string); ok {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 func posthogEnabledForLogin(app *App) bool {
