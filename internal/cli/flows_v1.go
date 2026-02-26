@@ -57,6 +57,8 @@ Quick commands:
 - breyta flows configure check <slug>
 - breyta flows release <slug>
 - breyta flows promote <slug> --version <n>
+- breyta flows show <slug> --target live
+- breyta flows run <slug> --target live --wait
 - breyta flows run <slug> --wait
 
 Flow file format (minimal):
@@ -76,6 +78,9 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- activeVersion is a flow release counter. Live runtime can resolve to a different installation version
+  - verify live with: breyta flows show <slug> --target live
+  - smoke-run live with: breyta flows run <slug> --target live --wait
 - Concurrency guidance:
   - Reconciler/sweeper/scheduled cleanup flows should use :on-new-version :supersede so fixes take effect immediately
   - Use :on-new-version :drain only when in-flight runs must finish on the old version
@@ -517,7 +522,19 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show a flow",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Show a flow definition for a specific source target.
+
+- Default (no --target): workspace current (draft) source
+- --target live: resolves the live installation profile and fetches its active version
+
+Use --target live when verifying what production/live runs are executing.
+`),
+		Example: strings.TrimSpace(`
+breyta flows show order-ingest
+breyta flows show order-ingest --target live
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetChanged := cmd.Flags().Changed("target")
 			resolvedTarget := "draft"
@@ -1515,6 +1532,13 @@ Why use it if push/release already validate?
 - push validates registration constraints while writing draft state
 - release validates deploy-time constraints for released/lintable code
 - validate gives an explicit check point for CI, troubleshooting, and target-specific verification without mutating flow state
+
+Recommended release safety sequence:
+- breyta flows configure check <flow-slug>
+- breyta flows validate <flow-slug>
+- breyta flows release <flow-slug>
+- breyta flows show <flow-slug> --target live
+- breyta flows run <flow-slug> --target live --wait
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

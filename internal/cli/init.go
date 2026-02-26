@@ -237,9 +237,12 @@ Suggested line to paste into your agent's persistent project instructions:
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
 2) Edit ` + "`./flows/<slug>.clj`" + `
 3) Push working copy: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-4) Optional read-only check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-5) Release: ` + "`breyta flows release <slug>`" + `
-6) Run and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
+4) Check required config: ` + "`breyta flows configure check <slug>`" + `
+5) Optional read-only check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
+6) Release: ` + "`breyta flows release <slug>`" + `
+7) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+8) Smoke-run live target: ` + "`breyta flows run <slug> --target live --wait`" + `
+9) Optional draft run and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
 
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)

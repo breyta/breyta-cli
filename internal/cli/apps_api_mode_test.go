@@ -1136,6 +1136,79 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			step++
+			if args["flowSlug"] != "flow-release" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 3},
+			})
+		case "flows.promote":
+			step++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+	)
+	if err != nil {
+		t.Fatalf("flows release failed: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected release + promote commands, got %d", step)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	verifyHint, _ := meta["verifyHint"].(string)
+	if !strings.Contains(verifyHint, "flows show <slug> --target live") {
+		t.Fatalf("expected verifyHint to mention flows show live target, got: %q", verifyHint)
+	}
+	verifyCommands, _ := meta["verifyCommands"].([]any)
+	if len(verifyCommands) != 2 {
+		t.Fatalf("expected two verify commands, got %#v", meta["verifyCommands"])
+	}
+	if verifyCommands[0] != "breyta flows show flow-release --target live" {
+		t.Fatalf("unexpected first verify command: %#v", verifyCommands[0])
+	}
+	if verifyCommands[1] != "breyta flows run flow-release --target live --wait" {
+		t.Fatalf("unexpected second verify command: %#v", verifyCommands[1])
+	}
+}
+
 func TestFlowsRelease_NoInstallSkipsPromote(t *testing.T) {
 	step := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
