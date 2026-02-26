@@ -197,6 +197,8 @@ via flows-api (/api/auth/token). Prefer browser login.
 				}
 			}
 
+			trackAuthLoginTelemetry(app, tokenSource, token, uid)
+
 			switch printMode {
 			case "token":
 				fmt.Fprintln(cmd.OutOrStdout(), token)
