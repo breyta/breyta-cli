@@ -29,7 +29,6 @@ type posthogCapturePayload struct {
 var posthogCaptureFn = sendPosthogCapture
 
 var commandTelemetryEvents = map[string]string{
-	"flows.put_draft":                 "cli_flow_pushed",
 	"flows.validate":                  "cli_flow_validated",
 	"flows.release":                   "cli_flow_released",
 	"flows.promote":                   "cli_flow_promoted",
