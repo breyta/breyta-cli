@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,7 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func jwtWithEmailForCLI(email string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"` + email + `"}`))
+	return header + "." + payload + "."
+}
 
 func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1133,6 +1141,88 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	}
 	if step != 2 {
 		t.Fatalf("expected release + promote commands, got %d", step)
+	}
+}
+
+func TestFlowsRelease_DefaultInstallEmitsTelemetry(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
+
+	events := make(chan string, 8)
+	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capture/" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if event, _ := body["event"].(string); strings.TrimSpace(event) != "" {
+			events <- event
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	}))
+	defer posthog.Close()
+	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 3},
+			})
+		case "flows.promote":
+			if args["version"] != float64(3) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing promote version"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", jwtWithEmailForCLI("user@example.com"),
+		"flows", "release", "flow-release",
+	)
+	if err != nil {
+		t.Fatalf("flows release failed: %v\n%s", err, stdout)
+	}
+
+	want := map[string]bool{
+		"cli_flow_released": false,
+		"cli_flow_promoted": false,
+	}
+	deadline := time.After(2 * time.Second)
+	for !(want["cli_flow_released"] && want["cli_flow_promoted"]) {
+		select {
+		case event := <-events:
+			if _, ok := want[event]; ok {
+				want[event] = true
+			}
+		case <-deadline:
+			t.Fatalf("expected release/promote telemetry events, got released=%v promoted=%v", want["cli_flow_released"], want["cli_flow_promoted"])
+		}
 	}
 }
 

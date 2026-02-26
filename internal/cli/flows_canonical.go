@@ -44,6 +44,17 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 	if err != nil {
 		return writeErr(cmd, err)
 	}
+	flowSlug, _ := payload["flowSlug"].(string)
+	if status < 400 && isOK(startResp) {
+		trackCLIEvent(app, "cli_flow_run_started", nil, app.Token, map[string]any{
+			"product":   "flows",
+			"channel":   "cli",
+			"api_host":  apiHostname(app.APIURL),
+			"flow_slug": strings.TrimSpace(flowSlug),
+			"command":   strings.TrimSpace(command),
+			"wait":      wait,
+		})
+	}
 	if !wait || status >= 400 {
 		if err := writeAPIResult(cmd, app, startResp, status); err != nil {
 			return writeErr(cmd, err)
@@ -85,6 +96,16 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		statusStr, _ := run["status"].(string)
 		s := strings.ToLower(strings.TrimSpace(statusStr))
 		if s == "completed" || s == "failed" || s == "cancelled" || s == "canceled" || s == "terminated" || s == "timed-out" || s == "timed_out" {
+			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
+				"product":     "flows",
+				"channel":     "cli",
+				"api_host":    apiHostname(app.APIURL),
+				"flow_slug":   strings.TrimSpace(flowSlug),
+				"command":     strings.TrimSpace(command),
+				"workflow_id": workflowID,
+				"run_status":  s,
+				"wait":        wait,
+			})
 			if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
 				return writeErr(cmd, err)
 			}
@@ -92,6 +113,15 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		}
 
 		if time.Now().After(deadline) {
+			trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
+				"product":     "flows",
+				"channel":     "cli",
+				"api_host":    apiHostname(app.APIURL),
+				"flow_slug":   strings.TrimSpace(flowSlug),
+				"command":     strings.TrimSpace(command),
+				"workflow_id": workflowID,
+				"wait":        wait,
+			})
 			timeoutOut := map[string]any{
 				"ok": false,
 				"error": map[string]any{
@@ -253,7 +283,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if releaseStatus >= 400 || !isOK(releaseOut) {
+			releaseOK := releaseStatus < 400 && isOK(releaseOut)
+			trackCommandTelemetry(app, "flows.release", payload, releaseStatus, releaseOK)
+			if !releaseOK {
 				if err := writeAPIResult(cmd, app, releaseOut, releaseStatus); err != nil {
 					return writeErr(cmd, err)
 				}
@@ -275,7 +307,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if promoteStatus >= 400 || !isOK(promoteOut) {
+			promoteOK := promoteStatus < 400 && isOK(promoteOut)
+			trackCommandTelemetry(app, "flows.promote", promotePayload, promoteStatus, promoteOK)
+			if !promoteOK {
 				if err := writeAPIResult(cmd, app, promoteOut, promoteStatus); err != nil {
 					return writeErr(cmd, err)
 				}
