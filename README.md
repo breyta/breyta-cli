@@ -157,6 +157,21 @@ breyta flows show <slug>
 breyta flows run <slug> --input '{"n":41}' --wait
 ```
 
+Draft vs live verification (recommended before/after release):
+
+```bash
+# Pre-release checks
+breyta flows configure check <slug>
+breyta flows validate <slug>
+
+# Publish + promote
+breyta flows release <slug>
+
+# Verify installed live target (do not rely on activeVersion alone)
+breyta flows show <slug> --target live
+breyta flows run <slug> --target live --wait
+```
+
 Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).
 
 Docs/help:

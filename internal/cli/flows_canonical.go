@@ -291,15 +291,20 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 					return commandWorkspaceID(promoteOut)
 				}(),
 				"meta": map[string]any{
-					"released":  true,
-					"installed": true,
-					"target":    "live",
+					"released":   true,
+					"installed":  true,
+					"target":     "live",
+					"verifyHint": "Live runtime can differ from flow activeVersion. Verify with `breyta flows show <slug> --target live` and `breyta flows run <slug> --target live --wait`.",
 					"scope": func() string {
 						if resolvedPromoteScope != "" {
 							return resolvedPromoteScope
 						}
 						return "all"
 					}(),
+					"verifyCommands": []string{
+						"breyta flows show " + args[0] + " --target live",
+						"breyta flows run " + args[0] + " --target live --wait",
+					},
 				},
 				"data": map[string]any{
 					"release": releaseOut["data"],

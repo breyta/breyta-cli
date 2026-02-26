@@ -89,6 +89,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if strings.Contains(string(agents), "(Not installed)") {
 		t.Fatalf("unexpected agents content (expected installed): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Verify live install target: `breyta flows show <slug> --target live`") {
+		t.Fatalf("unexpected agents content (missing live verify show step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Smoke-run live target: `breyta flows run <slug> --target live --wait`") {
+		t.Fatalf("unexpected agents content (missing live verify run step): %s", string(agents))
+	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
 	b, err := os.ReadFile(skillPath)
