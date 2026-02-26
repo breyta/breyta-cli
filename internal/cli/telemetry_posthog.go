@@ -73,12 +73,10 @@ func trackCLIEvent(app *App, event string, uid any, token string, properties map
 		DistinctID: distinctID,
 		Properties: properties,
 	}
-	// Best-effort, non-blocking telemetry.
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		defer cancel()
-		_ = posthogCaptureFn(ctx, payload)
-	}()
+	// Best-effort telemetry with a short bounded timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_ = posthogCaptureFn(ctx, payload)
 }
 
 func trackCommandTelemetry(app *App, command string, args map[string]any, status int, ok bool) {
