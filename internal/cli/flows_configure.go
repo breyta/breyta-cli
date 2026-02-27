@@ -177,14 +177,20 @@ func newFlowsConfigureCheckCmd(app *App) *cobra.Command {
 			payload := map[string]any{
 				"flowSlug": args[0],
 			}
-			if cmd.Flags().Changed("target") {
-				resolvedTarget, err := normalizeInstallTarget(target)
+			targetChanged := cmd.Flags().Changed("target")
+			resolvedTarget := ""
+			if targetChanged {
+				var err error
+				resolvedTarget, err = normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
 				payload["target"] = resolvedTarget
 			}
 			if cmd.Flags().Changed("version") {
+				if !targetChanged || resolvedTarget != "live" {
+					return writeErr(cmd, errors.New("--version requires --target live"))
+				}
 				versionValue := strings.TrimSpace(version)
 				if versionValue == "" {
 					return writeErr(cmd, errors.New("--version must be a positive integer or latest"))

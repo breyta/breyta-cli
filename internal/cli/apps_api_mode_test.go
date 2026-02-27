@@ -601,6 +601,24 @@ func TestFlowsConfigureCheck_LiveTargetWithVersion(t *testing.T) {
 	}
 }
 
+func TestFlowsConfigureCheck_VersionRequiresLiveTarget(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "configure", "check", "flow-configure",
+		"--version", "9",
+	)
+	if err == nil {
+		t.Fatalf("expected flows configure check to fail without --target live when --version is provided")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "--version requires --target live") {
+		t.Fatalf("expected --version/--target guidance, got:\n%s", combined)
+	}
+}
+
 func TestFlowsConfigureSuggest_DefaultTarget_UsesTemplateStatusAndConnections(t *testing.T) {
 	commandCalls := 0
 	connectionCalls := 0
