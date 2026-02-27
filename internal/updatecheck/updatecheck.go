@@ -32,7 +32,10 @@ type Notice struct {
 	InstallMethod  InstallMethod `json:"installMethod,omitempty"`
 	ReleaseURL     string        `json:"releaseUrl,omitempty"`
 	Upgrade        []string      `json:"upgrade,omitempty"`
+	FixCommand     string        `json:"fixCommand,omitempty"`
 }
+
+const DefaultFixCommand = "breyta upgrade --all --yes"
 
 func DetectInstallMethod() InstallMethod {
 	if v := strings.TrimSpace(os.Getenv(testInstallMethodEnv)); v != "" {
@@ -91,6 +94,7 @@ func CachedNotice(currentVersion string) *Notice {
 			CheckedAt:      time.Now(),
 			InstallMethod:  DetectInstallMethod(),
 			ReleaseURL:     ReleasePageURL,
+			FixCommand:     DefaultFixCommand,
 		}
 		if n.InstallMethod == InstallMethodBrew {
 			n.Upgrade = []string{"brew", "upgrade", "breyta"}
@@ -116,6 +120,7 @@ func CachedNotice(currentVersion string) *Notice {
 		CheckedAt:      c.CheckedAt,
 		InstallMethod:  DetectInstallMethod(),
 		ReleaseURL:     ReleasePageURL,
+		FixCommand:     DefaultFixCommand,
 	}
 	if n.InstallMethod == InstallMethodBrew {
 		n.Upgrade = []string{"brew", "upgrade", "breyta"}

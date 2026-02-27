@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/buildinfo"
+	"github.com/breyta/breyta-cli/internal/skillsync"
+	"github.com/breyta/breyta-cli/skills"
 )
 
 func TestUpgradeCommand_ChecksAndReturnsNotice(t *testing.T) {
@@ -50,6 +52,9 @@ func TestUpgradeCommand_ChecksAndReturnsNotice(t *testing.T) {
 	if got, _ := update["available"].(bool); !got {
 		t.Fatalf("expected available=true, got %#v", update["available"])
 	}
+	if got, _ := update["fixCommand"].(string); got != "breyta upgrade --all --yes" {
+		t.Fatalf("unexpected fixCommand: %q", got)
+	}
 }
 
 func TestUpgradeCommand_ApplyUsesUpgradeCommand(t *testing.T) {
@@ -65,6 +70,8 @@ func TestUpgradeCommand_ApplyUsesUpgradeCommand(t *testing.T) {
 
 	orig := runUpgradeCommand
 	defer func() { runUpgradeCommand = orig }()
+	origSync := syncInstalledSkills
+	defer func() { syncInstalledSkills = origSync }()
 
 	var called bool
 	var got []string
@@ -72,6 +79,9 @@ func TestUpgradeCommand_ApplyUsesUpgradeCommand(t *testing.T) {
 		called = true
 		got = append([]string{}, argv...)
 		return nil
+	}
+	syncInstalledSkills = func(_ context.Context, _ string, _ string) (skillsync.SyncResult, error) {
+		return skillsync.SyncResult{}, nil
 	}
 
 	root := NewRootCmd()
@@ -89,6 +99,79 @@ func TestUpgradeCommand_ApplyUsesUpgradeCommand(t *testing.T) {
 	}
 	if len(got) != 3 || got[0] != "brew" || got[1] != "upgrade" || got[2] != "breyta" {
 		t.Fatalf("unexpected upgrade command: %v", got)
+	}
+}
+
+func TestUpgradeCommand_AllRequiresYes(t *testing.T) {
+	origVersion := buildinfo.Version
+	buildinfo.Version = "v2026.1.1"
+	defer func() { buildinfo.Version = origVersion }()
+
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_UPDATE_TEST_LATEST_TAG", "v3000.12.9999")
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"upgrade", "--all", "--pretty"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("expected error for missing --yes")
+	}
+}
+
+func TestUpgradeCommand_AllRunsSkillsAndCLI(t *testing.T) {
+	origVersion := buildinfo.Version
+	buildinfo.Version = "v2026.1.1"
+	defer func() { buildinfo.Version = origVersion }()
+
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_UPDATE_TEST_LATEST_TAG", "v3000.12.9999")
+	t.Setenv("BREYTA_UPDATE_TEST_INSTALL_METHOD", "brew")
+	t.Setenv("BREYTA_UPDATE_TEST_BREW_AVAILABLE", "1")
+
+	origUpgrade := runUpgradeCommand
+	defer func() { runUpgradeCommand = origUpgrade }()
+	origSync := syncInstalledSkills
+	defer func() { syncInstalledSkills = origSync }()
+
+	var upgradeCalled bool
+	runUpgradeCommand = func(_ctx context.Context, argv []string, _out io.Writer, _errOut io.Writer) error {
+		upgradeCalled = true
+		if len(argv) != 3 || argv[0] != "brew" || argv[1] != "upgrade" || argv[2] != "breyta" {
+			t.Fatalf("unexpected upgrade command argv: %v", argv)
+		}
+		return nil
+	}
+
+	var syncCalled bool
+	syncInstalledSkills = func(_ctx context.Context, _apiURL string, _token string) (skillsync.SyncResult, error) {
+		syncCalled = true
+		return skillsync.SyncResult{
+			InstalledProviders: []skills.Provider{skills.ProviderCodex},
+			SyncedProviders:    []skills.Provider{skills.ProviderCodex},
+		}, nil
+	}
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"upgrade", "--all", "--yes", "--pretty"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("upgrade --all --yes failed: %v\nstderr:\n%s\nstdout:\n%s", err, errOut.String(), out.String())
+	}
+	if !syncCalled {
+		t.Fatalf("expected skills sync to be executed")
+	}
+	if !upgradeCalled {
+		t.Fatalf("expected cli upgrade to be executed")
 	}
 }
 
