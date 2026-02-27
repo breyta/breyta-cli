@@ -566,7 +566,7 @@ breyta flows show order-ingest --target live
 				}
 			}
 
-			source := "current"
+			source := "draft"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if version > 0 {
@@ -729,7 +729,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 					payload["version"] = target.Version
 				}
 			} else {
-				payload["source"] = "current"
+				payload["source"] = "draft"
 				if version > 0 {
 					payload["version"] = version
 				}
@@ -1556,7 +1556,7 @@ Recommended release safety sequence:
 			}
 			source := "current"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0], "source": source}
+				payload := map[string]any{"flowSlug": args[0], "source": "draft"}
 				if resolvedTarget == "live" {
 					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
 					if err != nil {
