@@ -1,8 +1,10 @@
 package skillsync
 
 import (
+	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/skills"
@@ -41,6 +43,12 @@ func TestSyncProvidersContinuesAfterProviderFailure(t *testing.T) {
 	if syncErr == nil {
 		t.Fatalf("expected sync error when one provider fails")
 	}
+	if !strings.Contains(syncErr.Error(), "codex install failed") {
+		t.Fatalf("expected install error to be wrapped, got %q", syncErr.Error())
+	}
+	if strings.Contains(syncErr.Error(), "%!w(<nil>)") {
+		t.Fatalf("unexpected nil-wrapped sync error: %q", syncErr.Error())
+	}
 	if len(synced) != 1 || synced[0] != skills.ProviderCursor {
 		t.Fatalf("expected only cursor to sync successfully, got %v", synced)
 	}
@@ -58,3 +66,34 @@ func TestSyncProvidersContinuesAfterProviderFailure(t *testing.T) {
 	}
 }
 
+func TestMaybeSyncInstalledSavesCacheAfterPartialSyncError(t *testing.T) {
+	origSync := syncInstalledNow
+	origSave := saveCacheFile
+	t.Cleanup(func() {
+		syncInstalledNow = origSync
+		saveCacheFile = origSave
+	})
+
+	syncInstalledNow = func(ctx context.Context, apiURL, token string) (SyncResult, error) {
+		return SyncResult{SyncedProviders: []skills.Provider{skills.ProviderCodex}}, errors.New("one provider failed")
+	}
+
+	saved := false
+	saveCacheFile = func(c cacheFile) error {
+		saved = true
+		if c.LastSyncedVersion != "v1.2.3" {
+			t.Fatalf("unexpected cached version: %q", c.LastSyncedVersion)
+		}
+		if c.SyncedAt.IsZero() {
+			t.Fatalf("expected non-zero syncedAt")
+		}
+		return nil
+	}
+
+	if err := MaybeSyncInstalled("v1.2.3", "https://api.example.com", "token"); err != nil {
+		t.Fatalf("MaybeSyncInstalled returned error: %v", err)
+	}
+	if !saved {
+		t.Fatalf("expected cache to be saved on partial sync success")
+	}
+}

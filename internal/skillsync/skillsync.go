@@ -20,6 +20,8 @@ const (
 )
 
 var installBreytaSkillFiles = skills.InstallBreytaSkillFiles
+var syncInstalledNow = SyncInstalledNow
+var saveCacheFile = saveCache
 
 func enabled() bool {
 	return strings.TrimSpace(os.Getenv("BREYTA_NO_SKILL_SYNC")) == ""
@@ -110,15 +112,17 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 			continue
 		}
 		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
-		if _, err := installBreytaSkillFiles(home, p, files); err == nil {
+		if _, installErr := installBreytaSkillFiles(home, p, files); installErr == nil {
 			synced = append(synced, p)
 			continue
 		} else if backedUp {
 			// Best-effort rollback: restore the original file contents if install fails.
 			_ = os.WriteFile(t.File, backup, 0o644)
-		}
-		if firstErr == nil {
-			firstErr = fmt.Errorf("provider %s sync failed: %w", p, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
+			}
+		} else if firstErr == nil {
+			firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
 		}
 	}
 	return synced, firstErr
@@ -180,12 +184,12 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), syncRequestTimeout)
 	defer cancel()
-	res, err := SyncInstalledNow(ctx, apiURL, token)
+	res, err := syncInstalledNow(ctx, apiURL, token)
+	if len(res.SyncedProviders) > 0 {
+		_ = saveCacheFile(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
+	}
 	if err != nil {
 		return nil
-	}
-	if len(res.SyncedProviders) > 0 {
-		_ = saveCache(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
 	}
 	return nil
 }
