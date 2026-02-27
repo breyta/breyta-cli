@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 const (
 	syncRequestTimeout = 5 * time.Second
 )
+
+var installBreytaSkillFiles = skills.InstallBreytaSkillFiles
 
 func enabled() bool {
 	return strings.TrimSpace(os.Getenv("BREYTA_NO_SKILL_SYNC")) == ""
@@ -100,24 +103,25 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 	}
 
 	synced := make([]skills.Provider, 0, len(providers))
+	var firstErr error
 	for _, p := range providers {
 		t, err := skills.Target(home, p)
 		if err != nil {
 			continue
 		}
 		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
-		if _, err := skills.InstallBreytaSkillFiles(home, p, files); err == nil {
+		if _, err := installBreytaSkillFiles(home, p, files); err == nil {
 			synced = append(synced, p)
 			continue
 		} else if backedUp {
 			// Best-effort rollback: restore the original file contents if install fails.
 			_ = os.WriteFile(t.File, backup, 0o644)
-			return synced, err
-		} else {
-			return synced, err
+		}
+		if firstErr == nil {
+			firstErr = fmt.Errorf("provider %s sync failed: %w", p, err)
 		}
 	}
-	return synced, nil
+	return synced, firstErr
 }
 
 // SyncInstalledNow refreshes already-installed Breyta skills for all detected providers.

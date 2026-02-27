@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 
@@ -172,6 +173,50 @@ func TestUpgradeCommand_AllRunsSkillsAndCLI(t *testing.T) {
 	}
 	if !upgradeCalled {
 		t.Fatalf("expected cli upgrade to be executed")
+	}
+}
+
+func TestUpgradeCommand_AllWithUnknownInstallDoesNotFail(t *testing.T) {
+	origVersion := buildinfo.Version
+	buildinfo.Version = "v2026.1.1"
+	defer func() { buildinfo.Version = origVersion }()
+
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_UPDATE_TEST_LATEST_TAG", "v3000.12.9999")
+	t.Setenv("BREYTA_UPDATE_TEST_INSTALL_METHOD", "unknown")
+
+	origSync := syncInstalledSkills
+	defer func() { syncInstalledSkills = origSync }()
+	syncInstalledSkills = func(_ctx context.Context, _apiURL, _token string) (skillsync.SyncResult, error) {
+		return skillsync.SyncResult{}, errors.New("skills sync unavailable")
+	}
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"upgrade", "--all", "--yes", "--pretty"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("upgrade --all --yes should not fail for unknown install method: %v\nstderr:\n%s\nstdout:\n%s", err, errOut.String(), out.String())
+	}
+
+	var env map[string]any
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out.String())
+	}
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data object: %#v", env["data"])
+	}
+	cliData, ok := data["cli"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing cli data: %#v", data["cli"])
+	}
+	if got, _ := cliData["reason"].(string); got != "manual_upgrade_required" {
+		t.Fatalf("expected manual_upgrade_required reason, got %q", got)
 	}
 }
 
