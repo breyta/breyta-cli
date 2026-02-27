@@ -87,7 +87,7 @@ func (a *App) emitUpdateReminder(cmd *cobra.Command) {
 	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
-		"Update available: %s -> %s. Run `%s`.\n",
+		"New Breyta version is available: %s -> %s. Run `%s`.\n",
 		current,
 		latest,
 		a.updateFixCommand(),
