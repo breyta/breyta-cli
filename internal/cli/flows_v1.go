@@ -566,7 +566,7 @@ breyta flows show order-ingest --target live
 				}
 			}
 
-			source := "current"
+			source := "draft"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if version > 0 {
@@ -729,7 +729,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 					payload["version"] = target.Version
 				}
 			} else {
-				payload["source"] = "current"
+				payload["source"] = "draft"
 				if version > 0 {
 					payload["version"] = version
 				}
@@ -1554,7 +1554,7 @@ Recommended release safety sequence:
 				}
 				resolvedTarget = s
 			}
-			source := "current"
+			source := "draft"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if resolvedTarget == "live" {
@@ -1616,7 +1616,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 		Short: "Compile a flow (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			source := "current"
+			source := "draft"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				return doAPICommand(cmd, app, "flows.compile", payload)

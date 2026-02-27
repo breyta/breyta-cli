@@ -22,6 +22,7 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 	var profileArg string
 	var setArgs []string
 	var fromDraft bool
+	var version string
 	cmd := &cobra.Command{
 		Use:   "apply <flow-slug> [@profile.edn]",
 		Short: "Apply prod bindings using a profile file",
@@ -37,6 +38,21 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 				body := map[string]any{
 					"flowSlug": args[0],
 				}
+				if cmd.Flags().Changed("version") {
+					versionValue := strings.TrimSpace(version)
+					if versionValue == "" {
+						return writeErr(cmd, errors.New("--version must be a positive integer or latest"))
+					}
+					if strings.EqualFold(versionValue, "latest") {
+						body["version"] = "latest"
+					} else {
+						v, err := parsePositiveIntFlag(versionValue)
+						if err != nil {
+							return writeErr(cmd, err)
+						}
+						body["version"] = v
+					}
+				}
 				return doAPICommand(cmd, app, "profiles.bindings.apply_from_draft", body)
 			}
 			if len(args) == 2 {
@@ -51,6 +67,21 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 			body := map[string]any{
 				"flowSlug": args[0],
 				"inputs":   map[string]any{},
+			}
+			if cmd.Flags().Changed("version") {
+				versionValue := strings.TrimSpace(version)
+				if versionValue == "" {
+					return writeErr(cmd, errors.New("--version must be a positive integer or latest"))
+				}
+				if strings.EqualFold(versionValue, "latest") {
+					body["version"] = "latest"
+				} else {
+					v, err := parsePositiveIntFlag(versionValue)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					body["version"] = v
+				}
 			}
 			if strings.TrimSpace(profileArg) != "" {
 				payload, err := parseProfileArg(profileArg)
@@ -78,6 +109,7 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&profileArg, "profile", "", "Bindings profile (@profile.edn or inline EDN)")
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
 	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote the current user's draft bindings to prod")
+	cmd.Flags().StringVar(&version, "version", "", "Flow version override (positive integer or latest)")
 	return cmd
 }
 
