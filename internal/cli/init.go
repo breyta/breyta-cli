@@ -86,7 +86,7 @@ breyta init --dir ./my-breyta-workspace --force
 							return err
 						}
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill bundle download failed (%v); continuing without skill install\n", err)
-					} else if _, err := skills.InstallBreytaSkillFiles(home, p, files); err != nil {
+					} else if _, err := skills.InstallBreytaSkillFiles(home, p, skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)); err != nil {
 						if noWorkspace {
 							return err
 						}
