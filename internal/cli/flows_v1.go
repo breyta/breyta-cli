@@ -1554,9 +1554,9 @@ Recommended release safety sequence:
 				}
 				resolvedTarget = s
 			}
-			source := "draft"
+			source := "current"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0], "source": source}
+				payload := map[string]any{"flowSlug": args[0], "source": "draft"}
 				if resolvedTarget == "live" {
 					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
 					if err != nil {
@@ -1616,7 +1616,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 		Short: "Compile a flow (mock)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			source := "draft"
+			source := "current"
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0], "source": source}
 				return doAPICommand(cmd, app, "flows.compile", payload)

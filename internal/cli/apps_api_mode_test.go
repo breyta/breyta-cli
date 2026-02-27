@@ -309,6 +309,25 @@ func TestFlowsConfigure_LiveTarget_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsConfigure_VersionRequiresLiveTarget(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "configure", "flow-configure",
+		"--set", "api.conn=conn-123",
+		"--version", "3",
+	)
+	if err == nil {
+		t.Fatalf("expected flows configure to fail without --target live when --version is provided")
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "--version requires --target live") {
+		t.Fatalf("expected --version/--target guidance, got:\n%s", combined)
+	}
+}
+
 func TestFlowsConfigure_LiveTargetFromDraft_UsesCanonicalCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

@@ -48,6 +48,9 @@ Use "flows installations configure" when you need installation-specific configur
 			if targetChanged {
 				body["target"] = resolvedTarget
 			}
+			if versionChanged && (!targetChanged || resolvedTarget != "live") {
+				return writeErr(cmd, errors.New("--version requires --target live"))
+			}
 			if versionChanged {
 				if versionValue == "" {
 					return writeErr(cmd, errors.New("--version must be a positive integer or latest"))
