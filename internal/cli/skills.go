@@ -46,6 +46,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 			paths, err := skills.InstallBreytaSkillFiles(home, p, files)
 			if err != nil {
 				return err

@@ -118,6 +118,7 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 	if err != nil {
 		return nil
 	}
+	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 	desiredMain := files["SKILL.md"]
 	if len(desiredMain) == 0 {
 		return nil
