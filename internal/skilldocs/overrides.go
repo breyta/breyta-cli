@@ -1,9 +1,6 @@
 package skilldocs
 
-import (
-	"regexp"
-	"strings"
-)
+import "strings"
 
 // ApplyCLIOverrides patches downloaded skill bundle text to keep command guidance
 // aligned with current CLI behavior.
@@ -92,10 +89,45 @@ func ensureNamingConventionsSection(body string) string {
 	if strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)") {
 		return body
 	}
-	if loc := capabilityDiscoveryHeading.FindStringIndex(body); loc != nil {
-		return body[:loc[0]] + namingConventionsSection + "\n\n" + body[loc[0]:]
+	if headingPos := capabilityDiscoveryH2LineStart(body); headingPos >= 0 {
+		return body[:headingPos] + namingConventionsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
 }
 
-var capabilityDiscoveryHeading = regexp.MustCompile(`(?m)^## Capability Discovery[ \t]*$`)
+func capabilityDiscoveryH2LineStart(body string) int {
+	inFence := false
+	fenceKind := ""
+	offset := 0
+	for _, line := range strings.SplitAfter(body, "\n") {
+		lineNoEOL := strings.TrimRight(line, "\r\n")
+		if kind, ok := markdownFenceKind(lineNoEOL); ok {
+			if !inFence {
+				inFence = true
+				fenceKind = kind
+			} else if kind == fenceKind {
+				inFence = false
+				fenceKind = ""
+			}
+			offset += len(line)
+			continue
+		}
+
+		if !inFence && strings.TrimSpace(lineNoEOL) == "## Capability Discovery" {
+			return offset
+		}
+		offset += len(line)
+	}
+	return -1
+}
+
+func markdownFenceKind(line string) (string, bool) {
+	trimmed := strings.TrimLeft(line, " \t")
+	if strings.HasPrefix(trimmed, "```") {
+		return "```", true
+	}
+	if strings.HasPrefix(trimmed, "~~~") {
+		return "~~~", true
+	}
+	return "", false
+}
