@@ -97,17 +97,17 @@ func ensureNamingConventionsSection(body string) string {
 
 func capabilityDiscoveryH2LineStart(body string) int {
 	inFence := false
-	fenceKind := ""
+	openFence := markdownFence{}
 	offset := 0
 	for _, line := range strings.SplitAfter(body, "\n") {
 		lineNoEOL := strings.TrimRight(line, "\r\n")
-		if kind, ok := markdownFenceKind(lineNoEOL); ok {
+		if marker, ok := markdownFenceMarker(lineNoEOL); ok {
 			if !inFence {
 				inFence = true
-				fenceKind = kind
-			} else if kind == fenceKind {
+				openFence = marker
+			} else if marker.char == openFence.char && marker.length >= openFence.length {
 				inFence = false
-				fenceKind = ""
+				openFence = markdownFence{}
 			}
 			offset += len(line)
 			continue
@@ -121,13 +121,28 @@ func capabilityDiscoveryH2LineStart(body string) int {
 	return -1
 }
 
-func markdownFenceKind(line string) (string, bool) {
+type markdownFence struct {
+	char   byte
+	length int
+}
+
+func markdownFenceMarker(line string) (markdownFence, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
-	if strings.HasPrefix(trimmed, "```") {
-		return "```", true
+	if trimmed == "" {
+		return markdownFence{}, false
 	}
-	if strings.HasPrefix(trimmed, "~~~") {
-		return "~~~", true
+	markerChar := trimmed[0]
+	if markerChar != '`' && markerChar != '~' {
+		return markdownFence{}, false
 	}
-	return "", false
+
+	count := 0
+	for count < len(trimmed) && trimmed[count] == markerChar {
+		count++
+	}
+	if count < 3 {
+		return markdownFence{}, false
+	}
+
+	return markdownFence{char: markerChar, length: count}, true
 }

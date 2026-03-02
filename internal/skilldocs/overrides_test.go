@@ -155,3 +155,32 @@ func TestApplyCLIOverrides_IgnoresCapabilityHeadingInsideCodeFence(t *testing.T)
 		t.Fatalf("expected naming conventions inserted before real H2 heading, got:\n%s", body)
 	}
 }
+
+func TestApplyCLIOverrides_IgnoresCapabilityHeadingInsideNestedBacktickFence(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Intro",
+			"````md",
+			"```md",
+			"## Capability Discovery",
+			"- example only",
+			"```",
+			"````",
+			"",
+			"## Capability Discovery",
+			"- real section",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "````md\n```md\n## Capability Discovery\n- example only\n```\n````") {
+		t.Fatalf("expected nested fenced example to remain intact, got:\n%s", body)
+	}
+	sectionPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
+	realHeadingPos := strings.LastIndex(body, "\n## Capability Discovery\n")
+	realSectionPos := strings.LastIndex(body, "- real section")
+	if sectionPos == -1 || realHeadingPos == -1 || realSectionPos == -1 || !(sectionPos < realHeadingPos && realHeadingPos < realSectionPos) {
+		t.Fatalf("expected naming conventions inserted before real H2 heading outside nested fence, got:\n%s", body)
+	}
+}
