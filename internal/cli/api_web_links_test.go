@@ -191,6 +191,11 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 					"uri":    "res://v1/ws/ws-acme/result/run/wf-123/flow-output",
 					"type":   "result",
 					"webUrl": "/ws-acme/runs/daily-sales-report/wf-123/output",
+					"adapter": map[string]any{
+						"details": map[string]any{
+							"path": "workspaces/ws-acme/runs/wf-123/demo-result.json",
+						},
+					},
 				},
 			},
 		})
@@ -227,6 +232,12 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 	first, _ := items[0].(map[string]any)
 	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
 		t.Fatalf("unexpected item webUrl: %q", got)
+	}
+	if got, _ := first["display-name"].(string); got != "demo-result.json" {
+		t.Fatalf("unexpected item display-name: %q", got)
+	}
+	if got, _ := first["source-label"].(string); got != "run wf-123" {
+		t.Fatalf("unexpected item source-label: %q", got)
 	}
 }
 

@@ -97,6 +97,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -259,6 +260,7 @@ func newResourcesWorkflowListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -299,6 +301,7 @@ func newResourcesWorkflowStepCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}
