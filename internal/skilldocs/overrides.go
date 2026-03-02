@@ -28,12 +28,21 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			"- Schedule triggers require a prod profile before deploy and activate",
 			"- Schedule triggers require a prod profile before deploy and activate\n- For keyed concurrency (`:type :keyed`), schedule `:config :input` must include the key-field (for example `:request-id`) or activation will fail",
 		},
+		{
+			"- Run a hard quality gate before each build/release cycle",
+			"- Run a planning gate before each build/release cycle (required). Keep quality checks, but do not block early iteration with a rigid quality gate before design is complete",
+		},
+		{
+			"- Quality gate is the first step",
+			"- Planning gate is the first step",
+		},
 	}
 
 	for _, pair := range replacements {
 		updated = strings.ReplaceAll(updated, pair[0], pair[1])
 	}
 	updated = ensureNamingConventionsSection(updated)
+	updated = ensureWorkflowPlanningSection(updated)
 	if updated == original {
 		return files
 	}
@@ -85,6 +94,36 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
   - for workspace lookup, use breyta flows list output with explicit keywords and grep/filter locally
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example autonomous, support, gmail, reply)`
 
+const workflowPlanningSection = `## Workflow architecture planning (Required before build)
+
+Goal: design the flow architecture first so implementation follows a clear pattern and does not fragment across many trial versions.
+
+- planning gate first
+  - before editing or pushing, write a one-page architecture brief
+  - keep quality checks in the loop, but do not replace planning with a hard quality gate
+- required architecture brief fields
+  - goal and success criteria (what outcome this flow must deliver)
+  - trigger map (manual, webhook, schedule, event) and why each trigger exists
+  - path map (primary success path, fallback path, stop path)
+  - step contract table (step id, plain-language title, input, output, side effect)
+  - branch contract table for each if (question label, yes action, no action, decision signal)
+  - failure policy (retry, fallback, fail-fast rules)
+  - idempotency and duplicate protection strategy
+  - observability plan (what run output proves success, what labels make triage fast)
+- pattern-first design (adapted from proven n8n workflow patterns)
+  - choose the dominant pattern up front: webhook processing, HTTP API integration, database operations, AI agent workflow, or scheduled task
+  - if multiple patterns are needed, split by clear subpaths and name each subpath explicitly in steps/titles
+  - enforce deterministic progression: trigger -> intake -> decide -> act -> summarize -> post-process
+  - define edge cases before build (no items, partial data, external API failure, already-processed input)
+- support-agent pattern defaults
+  - path one: renew watch subscription
+  - path two: process support email and draft/send response
+  - keep shared preparation and final summary explicit, not hidden in generic finalize/normalize labels
+- anti-patterns to avoid
+  - technical/internal step names that hide behavior
+  - branch labels that do not read like operator decisions
+  - adding new versions to discover architecture instead of deciding architecture before edits`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -93,6 +132,20 @@ func ensureNamingConventionsSection(body string) string {
 		return body[:headingPos] + namingConventionsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
+}
+
+func ensureWorkflowPlanningSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Workflow architecture planning (Required before build)") >= 0 {
+		return body
+	}
+	namingPos := h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)")
+	if namingPos >= 0 {
+		return body[:namingPos] + workflowPlanningSection + "\n\n" + body[namingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + workflowPlanningSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + workflowPlanningSection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {
