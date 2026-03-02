@@ -32,6 +32,24 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaSkillAddsKeyedScheduleGuard(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Core learnings",
+			"- Schedule triggers require a prod profile before deploy and activate",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "For keyed concurrency (`:type :keyed`), schedule `:config :input` must include the key-field") {
+		t.Fatalf("expected keyed schedule guard in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "activation will fail") {
+		t.Fatalf("expected explicit activation failure warning in override, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte("hello"),
