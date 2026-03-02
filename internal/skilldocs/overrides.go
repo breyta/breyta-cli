@@ -24,6 +24,10 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`\n   - Approved template discovery: `breyta flows search <query>`",
 		},
+		{
+			"- Schedule triggers require a prod profile before deploy and activate",
+			"- Schedule triggers require a prod profile before deploy and activate\n- For keyed concurrency (`:type :keyed`), schedule `:config :input` must include the key-field (for example `:request-id`) or activation will fail",
+		},
 	}
 
 	for _, pair := range replacements {
