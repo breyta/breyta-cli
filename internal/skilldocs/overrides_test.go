@@ -184,3 +184,57 @@ func TestApplyCLIOverrides_IgnoresCapabilityHeadingInsideNestedBacktickFence(t *
 		t.Fatalf("expected naming conventions inserted before real H2 heading outside nested fence, got:\n%s", body)
 	}
 }
+
+func TestApplyCLIOverrides_DoesNotCloseFenceOnTrailingFenceText(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Intro",
+			"```md",
+			"`````clj",
+			"## Capability Discovery",
+			"- example only",
+			"```",
+			"",
+			"## Capability Discovery",
+			"- real section",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "```md\n`````clj\n## Capability Discovery\n- example only\n```") {
+		t.Fatalf("expected fenced example with trailing fence text to remain intact, got:\n%s", body)
+	}
+	sectionPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
+	realHeadingPos := strings.LastIndex(body, "\n## Capability Discovery\n")
+	realSectionPos := strings.LastIndex(body, "- real section")
+	if sectionPos == -1 || realHeadingPos == -1 || realSectionPos == -1 || !(sectionPos < realHeadingPos && realHeadingPos < realSectionPos) {
+		t.Fatalf("expected naming conventions inserted before real H2 heading outside fence, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_DoesNotSkipInsertWhenNamingHeadingOnlyInFence(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Intro",
+			"```md",
+			"## Readability + Searchability Naming Conventions (Required)",
+			"```",
+			"",
+			"## Capability Discovery",
+			"- real section",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	count := strings.Count(body, "## Readability + Searchability Naming Conventions (Required)")
+	if count != 2 {
+		t.Fatalf("expected one inserted naming section plus fenced example heading, got %d occurrences:\n%s", count, body)
+	}
+	sectionPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)\n\nGoal:")
+	realHeadingPos := strings.LastIndex(body, "\n## Capability Discovery\n")
+	if sectionPos == -1 || realHeadingPos == -1 || sectionPos > realHeadingPos {
+		t.Fatalf("expected inserted naming section before real capability heading, got:\n%s", body)
+	}
+}

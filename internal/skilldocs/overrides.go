@@ -86,16 +86,16 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example autonomous, support, gmail, reply)`
 
 func ensureNamingConventionsSection(body string) string {
-	if strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)") {
+	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
 	}
-	if headingPos := capabilityDiscoveryH2LineStart(body); headingPos >= 0 {
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
 		return body[:headingPos] + namingConventionsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
 }
 
-func capabilityDiscoveryH2LineStart(body string) int {
+func h2LineStartOutsideFences(body, heading string) int {
 	inFence := false
 	openFence := markdownFence{}
 	offset := 0
@@ -105,7 +105,7 @@ func capabilityDiscoveryH2LineStart(body string) int {
 			if !inFence {
 				inFence = true
 				openFence = marker
-			} else if marker.char == openFence.char && marker.length >= openFence.length {
+			} else if marker.char == openFence.char && marker.length >= openFence.length && marker.validCloser {
 				inFence = false
 				openFence = markdownFence{}
 			}
@@ -113,7 +113,7 @@ func capabilityDiscoveryH2LineStart(body string) int {
 			continue
 		}
 
-		if !inFence && strings.TrimSpace(lineNoEOL) == "## Capability Discovery" {
+		if !inFence && strings.TrimSpace(lineNoEOL) == heading {
 			return offset
 		}
 		offset += len(line)
@@ -122,8 +122,9 @@ func capabilityDiscoveryH2LineStart(body string) int {
 }
 
 type markdownFence struct {
-	char   byte
-	length int
+	char        byte
+	length      int
+	validCloser bool
 }
 
 func markdownFenceMarker(line string) (markdownFence, bool) {
@@ -144,5 +145,10 @@ func markdownFenceMarker(line string) (markdownFence, bool) {
 		return markdownFence{}, false
 	}
 
-	return markdownFence{char: markerChar, length: count}, true
+	remainder := strings.TrimLeft(trimmed[count:], " \t")
+	return markdownFence{
+		char:        markerChar,
+		length:      count,
+		validCloser: remainder == "",
+	}, true
 }
