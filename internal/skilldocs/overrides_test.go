@@ -102,3 +102,29 @@ func TestApplyCLIOverrides_DoesNotDuplicateNamingConventions(t *testing.T) {
 		t.Fatalf("expected naming conventions header exactly once, got %d\n%s", count, body)
 	}
 }
+
+func TestApplyCLIOverrides_DoesNotMatchSubHeadingCapabilityDiscovery(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Non-Negotiables",
+			"- Keep :flow orchestration-focused.",
+			"",
+			"### Capability Discovery",
+			"- legacy subsection",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "### Capability Discovery") {
+		t.Fatalf("expected original H3 heading to remain, got:\n%s", body)
+	}
+	if strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)\n\n### Capability Discovery") {
+		t.Fatalf("unexpected insertion before H3 Capability Discovery heading:\n%s", body)
+	}
+	sectionPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
+	h3Pos := strings.Index(body, "### Capability Discovery")
+	if sectionPos == -1 || h3Pos == -1 || sectionPos < h3Pos {
+		t.Fatalf("expected conventions section appended after existing H3 subsection when H2 is absent, got:\n%s", body)
+	}
+}

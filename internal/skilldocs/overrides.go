@@ -1,6 +1,9 @@
 package skilldocs
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // ApplyCLIOverrides patches downloaded skill bundle text to keep command guidance
 // aligned with current CLI behavior.
@@ -89,8 +92,10 @@ func ensureNamingConventionsSection(body string) string {
 	if strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)") {
 		return body
 	}
-	if strings.Contains(body, "## Capability Discovery") {
-		return strings.Replace(body, "## Capability Discovery", namingConventionsSection+"\n\n## Capability Discovery", 1)
+	if loc := capabilityDiscoveryHeading.FindStringIndex(body); loc != nil {
+		return body[:loc[0]] + namingConventionsSection + "\n\n" + body[loc[0]:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
 }
+
+var capabilityDiscoveryHeading = regexp.MustCompile(`(?m)^## Capability Discovery[ \t]*$`)
