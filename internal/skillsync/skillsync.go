@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,10 @@ const (
 	syncRequestTimeout = 5 * time.Second
 )
 
+var installBreytaSkillFiles = skills.InstallBreytaSkillFiles
+var syncInstalledNow = SyncInstalledNow
+var saveCacheFile = saveCache
+
 func enabled() bool {
 	return strings.TrimSpace(os.Getenv("BREYTA_NO_SKILL_SYNC")) == ""
 }
@@ -25,6 +30,11 @@ func enabled() bool {
 type cacheFile struct {
 	LastSyncedVersion string    `json:"lastSyncedVersion,omitempty"`
 	SyncedAt          time.Time `json:"syncedAt,omitempty"`
+}
+
+type SyncResult struct {
+	InstalledProviders []skills.Provider `json:"installedProviders,omitempty"`
+	SyncedProviders    []skills.Provider `json:"syncedProviders,omitempty"`
 }
 
 func cachePath() (string, error) {
@@ -74,6 +84,86 @@ func saveCache(c cacheFile) error {
 	return os.Rename(tmp, p)
 }
 
+func installedProviders(home string) []skills.Provider {
+	out := []skills.Provider{}
+	for _, p := range []skills.Provider{skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude, skills.ProviderGemini} {
+		t, err := skills.Target(home, p)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(t.File); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func syncProviders(home string, providers []skills.Provider, files map[string][]byte) ([]skills.Provider, error) {
+	desiredMain := files["SKILL.md"]
+	if len(desiredMain) == 0 {
+		return nil, errors.New("missing required skill file: SKILL.md")
+	}
+
+	synced := make([]skills.Provider, 0, len(providers))
+	var firstErr error
+	for _, p := range providers {
+		t, err := skills.Target(home, p)
+		if err != nil {
+			continue
+		}
+		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
+		if _, installErr := installBreytaSkillFiles(home, p, files); installErr == nil {
+			synced = append(synced, p)
+			continue
+		} else if backedUp {
+			// Best-effort rollback: restore the original file contents if install fails.
+			_ = os.WriteFile(t.File, backup, 0o644)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
+			}
+		} else if firstErr == nil {
+			firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
+		}
+	}
+	return synced, firstErr
+}
+
+// SyncInstalledNow refreshes already-installed Breyta skills for all detected providers.
+func SyncInstalledNow(ctx context.Context, apiURL, token string) (SyncResult, error) {
+	apiURL = strings.TrimSpace(apiURL)
+	if apiURL == "" {
+		return SyncResult{}, errors.New("missing api base url")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return SyncResult{}, err
+	}
+	providers := installedProviders(home)
+	if len(providers) == 0 {
+		return SyncResult{}, nil
+	}
+
+	httpClient := &http.Client{Timeout: syncRequestTimeout}
+	_, files, err := skilldocs.FetchBundle(ctx, httpClient, apiURL, token, skills.BreytaSkillSlug)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
+
+	synced, err := syncProviders(home, providers, files)
+	if err != nil {
+		return SyncResult{
+			InstalledProviders: providers,
+			SyncedProviders:    synced,
+		}, err
+	}
+	return SyncResult{
+		InstalledProviders: providers,
+		SyncedProviders:    synced,
+	}, nil
+}
+
 func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 	if !enabled() {
 		return nil
@@ -92,56 +182,14 @@ func MaybeSyncInstalled(currentVersion, apiURL, token string) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-
-	installedProviders := []skills.Provider{}
-	for _, p := range []skills.Provider{skills.ProviderCodex, skills.ProviderCursor, skills.ProviderClaude, skills.ProviderGemini} {
-		t, err := skills.Target(home, p)
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(t.File); err == nil {
-			installedProviders = append(installedProviders, p)
-		}
-	}
-	if len(installedProviders) == 0 {
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), syncRequestTimeout)
 	defer cancel()
-	httpClient := &http.Client{Timeout: syncRequestTimeout}
-	_, files, err := skilldocs.FetchBundle(ctx, httpClient, apiURL, token, skills.BreytaSkillSlug)
+	res, err := syncInstalledNow(ctx, apiURL, token)
+	if len(res.SyncedProviders) > 0 {
+		_ = saveCacheFile(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
+	}
 	if err != nil {
 		return nil
-	}
-	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
-	desiredMain := files["SKILL.md"]
-	if len(desiredMain) == 0 {
-		return nil
-	}
-
-	anySynced := false
-	for _, p := range installedProviders {
-		t, err := skills.Target(home, p)
-		if err != nil {
-			continue
-		}
-		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
-		if _, err := skills.InstallBreytaSkillFiles(home, p, files); err == nil {
-			anySynced = true
-		} else if backedUp {
-			// Best-effort rollback: restore the original file contents if the install failed.
-			// This avoids leaving users with a missing or corrupted skill file.
-			_ = os.WriteFile(t.File, backup, 0o644)
-		}
-	}
-
-	if anySynced {
-		_ = saveCache(cacheFile{LastSyncedVersion: currentVersion, SyncedAt: time.Now()})
 	}
 	return nil
 }

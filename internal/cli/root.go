@@ -31,8 +31,9 @@ type App struct {
 	DevProfileOverride   string
 	visibilityConfigured bool
 
-	updateNotice *updatecheck.Notice
-	updateCh     <-chan *updatecheck.Notice
+	updateNotice        *updatecheck.Notice
+	updateCh            <-chan *updatecheck.Notice
+	updateReminderShown bool
 }
 
 func NewRootCmd() *cobra.Command {
@@ -226,8 +227,12 @@ func NewRootCmd() *cobra.Command {
 		// Best-effort update check for JSON commands. Never blocks command execution.
 		if isSubcommand {
 			app.startUpdateCheckNonBlocking(context.Background(), 24*time.Hour)
+			app.emitUpdateReminder(cmd)
 		}
 		return nil
+	}
+	cmd.PersistentPostRun = func(cmd *cobra.Command, args []string) {
+		app.emitUpdateReminder(cmd)
 	}
 
 	defaultPath, _ := state.DefaultPath()
