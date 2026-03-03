@@ -73,6 +73,12 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 
 	got := ApplyCLIOverrides("breyta", input)
 	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "## Workflow architecture planning (Required before build)") {
+		t.Fatalf("expected workflow planning section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "planning gate first") {
+		t.Fatalf("expected planning-first guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)") {
 		t.Fatalf("expected naming conventions section, got:\n%s", body)
 	}
@@ -81,6 +87,11 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
+	}
+	workflowPos := strings.Index(body, "## Workflow architecture planning (Required before build)")
+	namingPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
+	if workflowPos == -1 || namingPos == -1 || workflowPos > namingPos {
+		t.Fatalf("expected workflow planning section before naming conventions, got:\n%s", body)
 	}
 }
 
@@ -100,6 +111,50 @@ func TestApplyCLIOverrides_DoesNotDuplicateNamingConventions(t *testing.T) {
 	count := strings.Count(body, "## Readability + Searchability Naming Conventions (Required)")
 	if count != 1 {
 		t.Fatalf("expected naming conventions header exactly once, got %d\n%s", count, body)
+	}
+}
+
+func TestApplyCLIOverrides_DoesNotDuplicateWorkflowPlanningSection(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Workflow architecture planning (Required before build)",
+			"- existing content",
+			"",
+			"## Capability Discovery",
+			"- breyta docs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	count := strings.Count(body, "## Workflow architecture planning (Required before build)")
+	if count != 1 {
+		t.Fatalf("expected workflow planning header exactly once, got %d\n%s", count, body)
+	}
+}
+
+func TestApplyCLIOverrides_RewritesHardQualityGateLanguage(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Workflow quality",
+			"- Run a hard quality gate before each build/release cycle",
+			"- Quality gate is the first step",
+			"",
+			"## Capability Discovery",
+			"- breyta docs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Contains(body, "Run a hard quality gate before each build/release cycle") {
+		t.Fatalf("expected hard quality gate language to be rewritten, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Run a planning gate before each build/release cycle (required).") {
+		t.Fatalf("expected planning gate wording, got:\n%s", body)
+	}
+	if !strings.Contains(body, "- Planning gate is the first step") {
+		t.Fatalf("expected first-step planning wording, got:\n%s", body)
 	}
 }
 
