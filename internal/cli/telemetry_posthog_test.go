@@ -136,3 +136,69 @@ func TestTrackCommandTelemetry_SkipsUnmappedCommand(t *testing.T) {
 		// Expected: no telemetry for unmapped commands.
 	}
 }
+
+func TestTrackAuthLoginTelemetry_UsesTokenHashDistinctIDWhenEmailMissing(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+
+	orig := posthogCaptureFn
+	t.Cleanup(func() { posthogCaptureFn = orig })
+
+	captured := make(chan posthogCapturePayload, 1)
+	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
+		captured <- payload
+		return nil
+	}
+
+	app := &App{APIURL: "https://flows.breyta.ai"}
+	token := "opaque-token-without-email-claim"
+	trackAuthLoginTelemetry(app, "browser", token, nil)
+
+	select {
+	case payload := <-captured:
+		want := telemetryDistinctID(nil, token)
+		if payload.DistinctID != want {
+			t.Fatalf("unexpected distinct id: got %q want %q", payload.DistinctID, want)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected telemetry capture to be called")
+	}
+}
+
+func TestTrackAuthAndCommandTelemetry_UseSameDistinctIDScheme(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+
+	orig := posthogCaptureFn
+	t.Cleanup(func() { posthogCaptureFn = orig })
+
+	captured := make(chan posthogCapturePayload, 2)
+	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
+		captured <- payload
+		return nil
+	}
+
+	token := "opaque-token-without-email-claim"
+	app := &App{
+		APIURL: "https://flows.breyta.ai",
+		Token:  token,
+	}
+	trackAuthLoginTelemetry(app, "browser", token, "uid-123")
+	trackCommandTelemetry(app, "flows.validate", map[string]any{"flowSlug": "daily-sales"}, 200, true)
+
+	first := <-captured
+	second := <-captured
+	if first.DistinctID != second.DistinctID {
+		t.Fatalf("expected identical distinct ids, got %q and %q", first.DistinctID, second.DistinctID)
+	}
+}
+
+func TestPosthogEnabledForLogin_DisabledOverridesEnabled(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "true")
+
+	app := &App{APIURL: "https://flows.breyta.ai"}
+	if posthogEnabledForLogin(app) {
+		t.Fatal("expected telemetry to be disabled when BREYTA_POSTHOG_DISABLED=true")
+	}
+}

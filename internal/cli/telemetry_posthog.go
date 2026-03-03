@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"context"
 	"encoding/json"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,26 +122,39 @@ func argString(args map[string]any, keys ...string) string {
 }
 
 func posthogEnabledForLogin(app *App) bool {
-	if forceEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("BREYTA_POSTHOG_ENABLED")), "true"); forceEnabled {
-		return true
-	}
 	if disabled := strings.EqualFold(strings.TrimSpace(os.Getenv("BREYTA_POSTHOG_DISABLED")), "true"); disabled {
 		return false
+	}
+	if forceEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("BREYTA_POSTHOG_ENABLED")), "true"); forceEnabled {
+		return true
 	}
 	return strings.EqualFold(apiHostname(app.APIURL), "flows.breyta.ai")
 }
 
 func telemetryDistinctID(uid any, token string) string {
-	if uidStr, ok := uid.(string); ok {
-		uidStr = strings.TrimSpace(uidStr)
-		if uidStr != "" {
-			return uidStr
-		}
-	}
 	if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
 		return "email:" + strings.ToLower(email)
 	}
+	if tokenID := tokenHashID(token); tokenID != "" {
+		return "token:" + tokenID
+	}
+	if uidStr, ok := uid.(string); ok {
+		uidStr = strings.TrimSpace(uidStr)
+		if uidStr != "" {
+			return "uid:" + uidStr
+		}
+	}
 	return ""
+}
+
+func tokenHashID(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	// 16 bytes is enough entropy for distinct-id stability while keeping payload compact.
+	return hex.EncodeToString(sum[:16])
 }
 
 func apiHostname(baseURL string) string {
