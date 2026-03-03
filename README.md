@@ -103,6 +103,7 @@ breyta init --provider <codex|cursor|claude|gemini>
 ```
 
 This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
+The generated workspace guidance is draft-first: iterate on `draft`, then do a single `live` release after approval.
 
 If you only want the skill bundle (no workspace files), use:
 
@@ -164,7 +165,7 @@ Draft vs live verification (recommended before/after release):
 breyta flows configure check <slug>
 breyta flows validate <slug>
 
-# Publish + promote
+# Publish + promote (once after draft checks pass and behavior is approved)
 breyta flows release <slug>
 
 # Verify installed live target (do not rely on activeVersion alone)
