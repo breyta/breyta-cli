@@ -95,6 +95,15 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Smoke-run live target: `breyta flows run <slug> --target live --wait`") {
 		t.Fatalf("unexpected agents content (missing live verify run step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "## Release hygiene (required)") {
+		t.Fatalf("unexpected agents content (missing release hygiene section): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
+		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Release once (after explicit sign-off): `breyta flows release <slug>`") {
+		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
+	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
 	b, err := os.ReadFile(skillPath)
