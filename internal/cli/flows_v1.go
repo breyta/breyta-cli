@@ -893,6 +893,14 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
+				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
+					"product":         "flows",
+					"channel":         "cli",
+					"api_host":        apiHostname(app.APIURL),
+					"flow_slug":       flowSlug,
+					"validated":       false,
+					"validate_source": "draft",
+				})
 				return writeAPIResult(cmd, app, validateOut, validateStatus)
 			}
 			meta := ensureMeta(out)
