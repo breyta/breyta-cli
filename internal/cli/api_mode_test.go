@@ -683,3 +683,63 @@ func TestResources_DefaultsToAPIMode(t *testing.T) {
 		t.Fatalf("expected missing-token error, got:\n%s", stderr)
 	}
 }
+
+func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/search" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("q"); got != "transcript summary" {
+			t.Fatalf("expected q=transcript summary, got %q", got)
+		}
+		if got := r.URL.Query().Get("type"); got != "result" {
+			t.Fatalf("expected type=result, got %q", got)
+		}
+		if got := r.URL.Query().Get("content-sources"); got != "result,file" {
+			t.Fatalf("expected content-sources=result,file, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "30" {
+			t.Fatalf("expected limit=30, got %q", got)
+		}
+		if got := r.URL.Query().Get("offset"); got != "10" {
+			t.Fatalf("expected offset=10, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"query": "transcript summary",
+			"items": []any{
+				map[string]any{
+					"uri":  "res://v1/ws/ws-acme/result/run/wf-123/flow-output",
+					"type": "result",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "search", "transcript summary",
+		"--type", "result",
+		"--content-sources", "result,file",
+		"--limit", "30",
+		"--offset", "10",
+	)
+	if err != nil {
+		t.Fatalf("resources search failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", out)
+	}
+	data, _ := out["data"].(map[string]any)
+	if got, _ := data["query"].(string); got != "transcript summary" {
+		t.Fatalf("unexpected data.query: %q", got)
+	}
+}
