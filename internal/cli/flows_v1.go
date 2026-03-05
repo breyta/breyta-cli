@@ -55,6 +55,7 @@ Quick commands:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows configure check <slug>
+- breyta flows marketplace update <slug> --visible true
 - breyta flows release <slug>
 - breyta flows promote <slug> --version <n>
 - breyta flows show <slug> --target live
@@ -105,6 +106,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
+	cmd.AddCommand(newFlowsMarketplaceCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
