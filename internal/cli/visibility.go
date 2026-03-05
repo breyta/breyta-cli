@@ -67,6 +67,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"promote":       true,
 		"run":           true,
 		"installations": true,
+		"marketplace":   true,
 	}
 	for _, sc := range flowsCmd.Commands() {
 		if !allowFlows[sc.Name()] {
