@@ -175,6 +175,12 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 }
 
 func TestAuthAPIConnection_UsesStoredRefreshToken(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
 	storePath := filepath.Join(t.TempDir(), "auth.json")
 	t.Setenv("BREYTA_AUTH_STORE", storePath)
 	var got map[string]any
@@ -212,6 +218,7 @@ func TestAuthAPIConnection_UsesStoredRefreshToken(t *testing.T) {
 	}
 
 	stdout, _, err := runCLIArgs(t,
+		"--dev",
 		"--api", srv.URL,
 		"--workspace", "ws-acme",
 		"auth", "api-connection",
