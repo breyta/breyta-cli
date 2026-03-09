@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/breyta/breyta-cli/internal/cli"
+	"github.com/breyta/breyta-cli/internal/authstore"
 )
 
 func runCLIArgsWithIn(t *testing.T, stdin string, args ...string) (string, string, error) {
@@ -169,5 +171,65 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 	}
 	if data["email"] != "a@b.com" {
 		t.Fatalf("expected email a@b.com, got %#v\n%s", data["email"], stdout)
+	}
+}
+
+func TestAuthAPIConnection_UsesStoredRefreshToken(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/runtime-connection" {
+			http.NotFound(w, r)
+			return
+		}
+		if gotAuth := r.Header.Get("Authorization"); gotAuth != "Bearer id-token-123" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing auth"})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"secretId": "breyta-api-auth",
+			"connection": map[string]any{
+				"connection-id": "conn-123",
+				"name":          "Breyta API",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	st := &authstore.Store{}
+	st.SetRecord(srv.URL, authstore.Record{
+		Token:        "id-token-123",
+		RefreshToken: "refresh-token-123",
+		ExpiresAt:    time.Date(2026, 3, 9, 12, 0, 0, 0, time.UTC),
+	})
+	if err := authstore.SaveAtomic(storePath, st); err != nil {
+		t.Fatalf("save auth store: %v", err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--api", srv.URL,
+		"--workspace", "ws-acme",
+		"auth", "api-connection",
+		"--base-url", "https://flows.example.com",
+	)
+	if err != nil {
+		t.Fatalf("auth api-connection failed: %v\n%s", err, stdout)
+	}
+	if got["refreshToken"] != "refresh-token-123" {
+		t.Fatalf("expected refreshToken in request, got %#v", got)
+	}
+	if got["token"] != "id-token-123" {
+		t.Fatalf("expected token in request, got %#v", got)
+	}
+	if got["baseUrl"] != "https://flows.example.com" {
+		t.Fatalf("expected baseUrl in request, got %#v", got)
+	}
+	if !strings.Contains(stdout, `"connection-id": "conn-123"`) && !strings.Contains(stdout, `"connection-id":"conn-123"`) {
+		t.Fatalf("expected connection id in output:\n%s", stdout)
 	}
 }

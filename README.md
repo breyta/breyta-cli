@@ -158,6 +158,18 @@ breyta flows show <slug>
 breyta flows run <slug> --input '{"n":41}' --wait
 ```
 
+Create a reusable Breyta API runtime connection from your current login:
+
+```bash
+breyta auth login
+breyta auth api-connection --name "Breyta API"
+breyta connections list --type http-api
+```
+
+This is useful when a flow needs to call Breyta's own `/api/commands` at runtime. The
+command provisions a normal secret-backed `http-api` connection with OAuth refresh, so
+the flow can bind a connection slot instead of carrying a raw refresh token in activation.
+
 Draft vs live verification (recommended before/after release):
 
 ```bash
