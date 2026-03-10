@@ -7,35 +7,40 @@ import (
 	"time"
 )
 
-func jwtWithEmail(email string) string {
+func jwtForTelemetry(email, uid, name string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"` + email + `"}`))
+	payload := `{"email":"` + email + `","user_id":"` + uid + `","sub":"` + uid + `","name":"` + name + `"}`
+	payload = base64.RawURLEncoding.EncodeToString([]byte(payload))
 	return header + "." + payload + "."
 }
 
-func TestTrackAuthLoginTelemetry_SendsForHostedFlows(t *testing.T) {
+func TestTrackAuthLoginTelemetry_IdentifiesForHostedFlows(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
 
 	orig := posthogCaptureFn
-	t.Cleanup(func() { posthogCaptureFn = orig })
+	origIdentify := posthogIdentifyFn
+	t.Cleanup(func() {
+		posthogCaptureFn = orig
+		posthogIdentifyFn = origIdentify
+	})
 
-	captured := make(chan posthogCapturePayload, 1)
-	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
-		captured <- payload
+	identified := make(chan posthogIdentifyPayload, 1)
+	posthogIdentifyFn = func(_ context.Context, payload posthogIdentifyPayload) error {
+		identified <- payload
 		return nil
 	}
 
 	app := &App{APIURL: "https://flows.breyta.ai"}
-	trackAuthLoginTelemetry(app, "browser", jwtWithEmail("user@example.com"), nil)
+	trackAuthLoginTelemetry(app, "browser", jwtForTelemetry("user@example.com", "uid-123", "User Example"), nil)
 
 	select {
-	case payload := <-captured:
-		if payload.Event != "cli_auth_login_completed" {
-			t.Fatalf("unexpected event: %q", payload.Event)
-		}
-		if payload.DistinctID != "email:user@example.com" {
+	case payload := <-identified:
+		if payload.DistinctID != "uid-123" {
 			t.Fatalf("unexpected distinct id: %q", payload.DistinctID)
+		}
+		if got, _ := payload.Properties["email"].(string); got != "user@example.com" {
+			t.Fatalf("unexpected email property: %q", got)
 		}
 		if got, _ := payload.Properties["source"].(string); got != "browser" {
 			t.Fatalf("unexpected source property: %q", got)
@@ -43,8 +48,11 @@ func TestTrackAuthLoginTelemetry_SendsForHostedFlows(t *testing.T) {
 		if got, _ := payload.Properties["api_host"].(string); got != "flows.breyta.ai" {
 			t.Fatalf("unexpected api_host property: %q", got)
 		}
+		if got, _ := payload.Properties["name"].(string); got != "User Example" {
+			t.Fatalf("unexpected name property: %q", got)
+		}
 	case <-time.After(1 * time.Second):
-		t.Fatal("expected telemetry capture to be called")
+		t.Fatal("expected identify to be called")
 	}
 }
 
@@ -52,21 +60,21 @@ func TestTrackAuthLoginTelemetry_DoesNotSendForNonHostedAPI(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
 
-	orig := posthogCaptureFn
-	t.Cleanup(func() { posthogCaptureFn = orig })
+	origIdentify := posthogIdentifyFn
+	t.Cleanup(func() { posthogIdentifyFn = origIdentify })
 
-	captured := make(chan posthogCapturePayload, 1)
-	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
-		captured <- payload
+	identified := make(chan posthogIdentifyPayload, 1)
+	posthogIdentifyFn = func(_ context.Context, payload posthogIdentifyPayload) error {
+		identified <- payload
 		return nil
 	}
 
 	app := &App{APIURL: "http://localhost:8089"}
-	trackAuthLoginTelemetry(app, "browser", jwtWithEmail("user@example.com"), nil)
+	trackAuthLoginTelemetry(app, "browser", jwtForTelemetry("user@example.com", "uid-123", "User Example"), nil)
 
 	select {
-	case payload := <-captured:
-		t.Fatalf("did not expect telemetry capture, got payload: %+v", payload)
+	case payload := <-identified:
+		t.Fatalf("did not expect identify, got payload: %+v", payload)
 	case <-time.After(200 * time.Millisecond):
 		// Expected: no telemetry for non-hosted API by default.
 	}
@@ -87,7 +95,7 @@ func TestTrackCommandTelemetry_EmitsMappedEvent(t *testing.T) {
 
 	app := &App{
 		APIURL: "https://flows.breyta.ai",
-		Token:  jwtWithEmail("user@example.com"),
+		Token:  jwtForTelemetry("user@example.com", "uid-123", "User Example"),
 	}
 	trackCommandTelemetry(app, "flows.validate", map[string]any{"flowSlug": "daily-sales"}, 200, true)
 
@@ -96,7 +104,7 @@ func TestTrackCommandTelemetry_EmitsMappedEvent(t *testing.T) {
 		if payload.Event != "cli_flow_validated" {
 			t.Fatalf("unexpected event: %q", payload.Event)
 		}
-		if payload.DistinctID != "email:user@example.com" {
+		if payload.DistinctID != "uid-123" {
 			t.Fatalf("unexpected distinct id: %q", payload.DistinctID)
 		}
 		if got, _ := payload.Properties["flow_slug"].(string); got != "daily-sales" {
@@ -125,7 +133,7 @@ func TestTrackCommandTelemetry_SkipsUnmappedCommand(t *testing.T) {
 
 	app := &App{
 		APIURL: "https://flows.breyta.ai",
-		Token:  jwtWithEmail("user@example.com"),
+		Token:  jwtForTelemetry("user@example.com", "uid-123", "User Example"),
 	}
 	trackCommandTelemetry(app, "flows.list", nil, 200, true)
 
@@ -137,16 +145,16 @@ func TestTrackCommandTelemetry_SkipsUnmappedCommand(t *testing.T) {
 	}
 }
 
-func TestTrackAuthLoginTelemetry_UsesTokenHashDistinctIDWhenEmailMissing(t *testing.T) {
+func TestTrackAuthLoginTelemetry_UsesTokenHashDistinctIDWhenUIDAndEmailMissing(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
 
-	orig := posthogCaptureFn
-	t.Cleanup(func() { posthogCaptureFn = orig })
+	origIdentify := posthogIdentifyFn
+	t.Cleanup(func() { posthogIdentifyFn = origIdentify })
 
-	captured := make(chan posthogCapturePayload, 1)
-	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
-		captured <- payload
+	identified := make(chan posthogIdentifyPayload, 1)
+	posthogIdentifyFn = func(_ context.Context, payload posthogIdentifyPayload) error {
+		identified <- payload
 		return nil
 	}
 
@@ -155,13 +163,13 @@ func TestTrackAuthLoginTelemetry_UsesTokenHashDistinctIDWhenEmailMissing(t *test
 	trackAuthLoginTelemetry(app, "browser", token, nil)
 
 	select {
-	case payload := <-captured:
+	case payload := <-identified:
 		want := telemetryDistinctID(nil, token)
 		if payload.DistinctID != want {
 			t.Fatalf("unexpected distinct id: got %q want %q", payload.DistinctID, want)
 		}
 	case <-time.After(1 * time.Second):
-		t.Fatal("expected telemetry capture to be called")
+		t.Fatal("expected identify to be called")
 	}
 }
 
@@ -170,15 +178,23 @@ func TestTrackAuthAndCommandTelemetry_UseSameDistinctIDScheme(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
 
 	orig := posthogCaptureFn
-	t.Cleanup(func() { posthogCaptureFn = orig })
+	origIdentify := posthogIdentifyFn
+	t.Cleanup(func() {
+		posthogCaptureFn = orig
+		posthogIdentifyFn = origIdentify
+	})
 
-	captured := make(chan posthogCapturePayload, 2)
+	captured := make(chan string, 2)
+	posthogIdentifyFn = func(_ context.Context, payload posthogIdentifyPayload) error {
+		captured <- payload.DistinctID
+		return nil
+	}
 	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
-		captured <- payload
+		captured <- payload.DistinctID
 		return nil
 	}
 
-	token := "opaque-token-without-email-claim"
+	token := jwtForTelemetry("user@example.com", "uid-123", "User Example")
 	app := &App{
 		APIURL: "https://flows.breyta.ai",
 		Token:  token,
@@ -188,8 +204,8 @@ func TestTrackAuthAndCommandTelemetry_UseSameDistinctIDScheme(t *testing.T) {
 
 	first := <-captured
 	second := <-captured
-	if first.DistinctID != second.DistinctID {
-		t.Fatalf("expected identical distinct ids, got %q and %q", first.DistinctID, second.DistinctID)
+	if first != second {
+		t.Fatalf("expected identical distinct ids, got %q and %q", first, second)
 	}
 }
 

@@ -36,3 +36,24 @@ func TestEmailFromToken_NonJWT(t *testing.T) {
 		t.Fatalf("expected empty email, got %q", got)
 	}
 }
+
+func TestUIDFromToken(t *testing.T) {
+	tok := jwtToken(t, map[string]any{"user_id": "uid-123", "sub": "sub-123"})
+	if got := UIDFromToken(tok); got != "uid-123" {
+		t.Fatalf("unexpected uid: %q", got)
+	}
+}
+
+func TestUIDFromToken_FallsBackToSub(t *testing.T) {
+	tok := jwtToken(t, map[string]any{"sub": "sub-123"})
+	if got := UIDFromToken(tok); got != "sub-123" {
+		t.Fatalf("unexpected uid: %q", got)
+	}
+}
+
+func TestNameFromToken(t *testing.T) {
+	tok := jwtToken(t, map[string]any{"name": "Test User"})
+	if got := NameFromToken(tok); got != "Test User" {
+		t.Fatalf("unexpected name: %q", got)
+	}
+}
