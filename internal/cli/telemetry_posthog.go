@@ -28,7 +28,13 @@ type posthogCapturePayload struct {
 	Properties map[string]any
 }
 
+type posthogIdentifyPayload struct {
+	DistinctID string
+	Properties map[string]any
+}
+
 var posthogCaptureFn = sendPosthogCapture
+var posthogIdentifyFn = sendPosthogIdentify
 
 var commandTelemetryEvents = map[string]string{
 	"flows.validate":                  "cli_flow_validated",
@@ -53,10 +59,13 @@ func trackAuthLoginTelemetry(app *App, source, token string, uid any) {
 		"api_host": apiHostname(app.APIURL),
 	}
 	if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
+		props["email"] = strings.ToLower(email)
 		props["email_domain"] = emailDomain(email)
 	}
-
-	trackCLIEvent(app, "cli_auth_login_completed", uid, token, props)
+	if name := strings.TrimSpace(authinfo.NameFromToken(token)); name != "" {
+		props["name"] = name
+	}
+	identifyCLIUser(app, uid, token, props)
 }
 
 func trackCLIEvent(app *App, event string, uid any, token string, properties map[string]any) {
@@ -79,6 +88,22 @@ func trackCLIEvent(app *App, event string, uid any, token string, properties map
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	_ = posthogCaptureFn(ctx, payload)
+}
+
+func identifyCLIUser(app *App, uid any, token string, properties map[string]any) {
+	if !posthogEnabledForLogin(app) {
+		return
+	}
+	distinctID := telemetryDistinctID(uid, token)
+	if strings.TrimSpace(distinctID) == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_ = posthogIdentifyFn(ctx, posthogIdentifyPayload{
+		DistinctID: distinctID,
+		Properties: properties,
+	})
 }
 
 func trackCommandTelemetry(app *App, command string, args map[string]any, status int, ok bool) {
@@ -132,16 +157,23 @@ func posthogEnabledForLogin(app *App) bool {
 }
 
 func telemetryDistinctID(uid any, token string) string {
-	if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
-		return "email:" + strings.ToLower(email)
-	}
-	if tokenID := tokenHashID(token); tokenID != "" {
-		return "token:" + tokenID
+	token = strings.TrimSpace(token)
+	if token != "" {
+		if tokenUID := strings.TrimSpace(authinfo.UIDFromToken(token)); tokenUID != "" {
+			return tokenUID
+		}
+		if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
+			return "email:" + strings.ToLower(email)
+		}
+		if tokenID := tokenHashID(token); tokenID != "" {
+			return "token:" + tokenID
+		}
+		return ""
 	}
 	if uidStr, ok := uid.(string); ok {
 		uidStr = strings.TrimSpace(uidStr)
 		if uidStr != "" {
-			return "uid:" + uidStr
+			return uidStr
 		}
 	}
 	return ""
@@ -221,6 +253,40 @@ func sendPosthogCapture(ctx context.Context, payload posthogCapturePayload) erro
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("posthog capture failed (status=%d)", resp.StatusCode)
+	}
+	return nil
+}
+
+func sendPosthogIdentify(ctx context.Context, payload posthogIdentifyPayload) error {
+	body, err := json.Marshal(map[string]any{
+		"api_key":     posthogAPIKey(),
+		"event":       "$identify",
+		"distinct_id": payload.DistinctID,
+		"properties": map[string]any{
+			"$set": payload.Properties,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	host := strings.TrimRight(posthogHost(), "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/capture/", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("posthog identify failed (status=%d)", resp.StatusCode)
 	}
 	return nil
 }
