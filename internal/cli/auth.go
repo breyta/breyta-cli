@@ -51,6 +51,7 @@ func newAuthCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAuthWhoamiCmd(app))
 	cmd.AddCommand(newAuthLoginCmd(app))
 	cmd.AddCommand(newAuthLogoutCmd(app))
+	cmd.AddCommand(newAuthAPIConnectionCmd(app))
 	return cmd
 }
 
@@ -302,6 +303,83 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&storePath, "store", envOr("BREYTA_AUTH_STORE", ""), "Path to auth store (default: user config dir)")
 	cmd.Flags().BoolVar(&all, "all", false, "Remove all stored tokens")
+	return cmd
+}
+
+func newAuthAPIConnectionCmd(app *App) *cobra.Command {
+	var name string
+	var secretID string
+	var connectionID string
+	var baseURL string
+
+	cmd := &cobra.Command{
+		Use:   "api-connection",
+		Short: "Create a reusable Breyta API runtime connection from the current login",
+		Long: strings.TrimSpace(`
+Create or update a secret-backed Breyta API connection that flows can use at runtime.
+
+This takes the refresh token from your current ` + "`breyta auth login`" + ` session and asks
+flows-api to provision a normal ` + "`http-api`" + ` connection configured for Breyta API OAuth
+refresh. The resulting connection can be bound to flow ` + "`:http-api`" + ` slots and reused
+across workspaces without embedding refresh tokens directly in flow activation forms.
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(baseURL) == "" {
+				baseURL = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+			}
+			storePath := resolveAuthStorePath(app)
+			if strings.TrimSpace(storePath) == "" {
+				return writeErr(cmd, errors.New("auth store path is unavailable"))
+			}
+			st, err := authstore.Load(storePath)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			rec, ok := st.GetRecord(app.APIURL)
+			if !ok {
+				return writeErr(cmd, errors.New("no stored auth record for current API URL; run `breyta auth login` first"))
+			}
+			if strings.TrimSpace(rec.RefreshToken) == "" {
+				return writeErr(cmd, errors.New("current login does not have a refresh token; run `breyta auth login` again"))
+			}
+
+			body := map[string]any{
+				"refreshToken": rec.RefreshToken,
+				"token":        rec.Token,
+				"baseUrl":      baseURL,
+			}
+			if !rec.ExpiresAt.IsZero() {
+				body["expiresAt"] = rec.ExpiresAt.UTC().Format(time.RFC3339)
+			}
+			if strings.TrimSpace(name) != "" {
+				body["name"] = strings.TrimSpace(name)
+			}
+			if strings.TrimSpace(secretID) != "" {
+				body["secretId"] = strings.TrimSpace(secretID)
+			}
+			if strings.TrimSpace(connectionID) != "" {
+				body["connectionId"] = strings.TrimSpace(connectionID)
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+			defer cancel()
+
+			out, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/auth/runtime-connection", nil, body)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Connection name (default: Breyta API)")
+	cmd.Flags().StringVar(&secretID, "secret-id", "", "Secret id to store refreshed auth under")
+	cmd.Flags().StringVar(&connectionID, "connection-id", "", "Update an existing connection instead of creating a new one")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Breyta API base URL (default: current --api value)")
+
 	return cmd
 }
 
