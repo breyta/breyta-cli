@@ -31,6 +31,7 @@ Resources provide a unified model for all data produced and consumed by flows:
 
 API routes:
   GET /<workspace>/api/resources                  - List resources
+  GET /<workspace>/api/resources/search?q=...     - Search resources
   GET /<workspace>/api/resources/by-uri?uri=...   - Get resource metadata
   GET /<workspace>/api/resources/content?uri=...  - Read resource content
   GET /<workspace>/api/resources/url?uri=...      - Get signed URL
@@ -53,6 +54,7 @@ Types:
 	}
 
 	cmd.AddCommand(newResourcesListCmd(app))
+	cmd.AddCommand(newResourcesSearchCmd(app))
 	cmd.AddCommand(newResourcesGetCmd(app))
 	cmd.AddCommand(newResourcesReadCmd(app))
 	cmd.AddCommand(newResourcesURLCmd(app))
@@ -97,6 +99,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -105,6 +108,62 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&prefix, "prefix", "", "Filter by URI prefix")
 	cmd.Flags().StringVar(&tags, "tags", "", "Filter by tags (comma-separated)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	return cmd
+}
+
+func newResourcesSearchCmd(app *App) *cobra.Command {
+	var typeFilter string
+	var contentSources string
+	var limit int
+	var offset int
+
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search resources in workspace",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := strings.TrimSpace(args[0])
+			if query == "" {
+				return writeErr(cmd, errors.New("missing search query"))
+			}
+
+			q := url.Values{}
+			q.Set("q", query)
+			if typeFilter != "" {
+				q.Set("type", strings.TrimSpace(typeFilter))
+			}
+			if strings.TrimSpace(contentSources) != "" {
+				q.Set("content-sources", strings.TrimSpace(contentSources))
+			}
+			if limit > 0 {
+				q.Set("limit", strconv.Itoa(limit))
+			}
+			if offset > 0 {
+				q.Set("offset", strconv.Itoa(offset))
+			}
+
+			out, status, err := apiClient(app).DoREST(
+				context.Background(),
+				http.MethodGet,
+				"/api/resources/search",
+				q,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			out = enrichResourceListPayload(out)
+			return writeREST(cmd, app, status, out)
+		},
+	}
+
+	cmd.Flags().StringVar(&typeFilter, "type", "", "Filter by resource type (result, import, file, bundle, external-dir)")
+	cmd.Flags().StringVar(&contentSources, "content-sources", "file,result", "Comma-separated resource source types to search")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset (>=0)")
 	return cmd
 }
 
@@ -259,6 +318,7 @@ func newResourcesWorkflowListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -299,6 +359,7 @@ func newResourcesWorkflowStepCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			out = enrichResourceListPayload(out)
 			return writeREST(cmd, app, status, out)
 		},
 	}

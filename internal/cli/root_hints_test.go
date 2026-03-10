@@ -186,6 +186,48 @@ func TestFlowSubcommandHelpOmitsSourceFlag(t *testing.T) {
 	}
 }
 
+func TestFlowsShowHelpExplainsDraftVsLiveTarget(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "show", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows show help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "workspace current (draft) source") {
+		t.Fatalf("flows show help missing draft/source guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "Use --target live when verifying what production/live runs are executing.") {
+		t.Fatalf("flows show help missing live verification guidance:\n%s", help)
+	}
+}
+
+func TestFlowsValidateHelpIncludesReleaseSafetySequence(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "validate", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows validate help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "Recommended release safety sequence:") {
+		t.Fatalf("flows validate help missing release safety section:\n%s", help)
+	}
+	if !strings.Contains(help, "breyta flows show <flow-slug> --target live") {
+		t.Fatalf("flows validate help missing live show verification command:\n%s", help)
+	}
+}
+
 func TestFlowsPromoteHelpDescribesLivePromotion(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)

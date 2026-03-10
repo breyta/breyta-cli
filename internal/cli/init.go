@@ -86,7 +86,7 @@ breyta init --dir ./my-breyta-workspace --force
 							return err
 						}
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill bundle download failed (%v); continuing without skill install\n", err)
-					} else if _, err := skills.InstallBreytaSkillFiles(home, p, files); err != nil {
+					} else if _, err := skills.InstallBreytaSkillFiles(home, p, skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)); err != nil {
 						if noWorkspace {
 							return err
 						}
@@ -233,13 +233,22 @@ If you want the agent to *always* use the skill when Breyta is involved, explici
 Suggested line to paste into your agent's persistent project instructions:
 - "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), and use the ` + "`breyta`" + ` CLI."
 
-## Authoring loop (agent-friendly)
+## Release hygiene (required)
+- Iterate in ` + "`draft`" + ` while editing and debugging.
+- Do not repeatedly release to ` + "`live`" + ` during normal iteration.
+- Release to ` + "`live`" + ` once after draft behavior is verified and you have explicit sign-off.
+
+## Authoring loop (agent-friendly, draft-first)
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
 2) Edit ` + "`./flows/<slug>.clj`" + `
-3) Push working copy: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-4) Optional read-only check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-5) Release: ` + "`breyta flows release <slug>`" + `
-6) Run and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
+3) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
+4) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
+5) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
+6) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
+7) Repeat steps 2-6 until behavior is correct in draft
+8) Release once (after explicit sign-off): ` + "`breyta flows release <slug>`" + `
+9) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+10) Smoke-run live target: ` + "`breyta flows run <slug> --target live --wait`" + `
 
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
@@ -270,7 +279,8 @@ breyta flows list
 
 Suggested workflow:
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Pull, edit, push, validate, release, run
+- Iterate in draft: pull, edit, push, configure check, run/validate
+- Release once to live after draft is verified and approved
 
 Docs:
 - CLI docs: ` + "`breyta docs`" + `

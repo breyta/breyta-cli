@@ -103,6 +103,7 @@ breyta init --provider <codex|cursor|claude|gemini>
 ```
 
 This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
+The generated workspace guidance is draft-first: iterate on `draft`, then do a single `live` release after approval.
 
 If you only want the skill bundle (no workspace files), use:
 
@@ -155,6 +156,21 @@ Run an existing flow and wait for output:
 ```bash
 breyta flows show <slug>
 breyta flows run <slug> --input '{"n":41}' --wait
+```
+
+Draft vs live verification (recommended before/after release):
+
+```bash
+# Pre-release checks
+breyta flows configure check <slug>
+breyta flows validate <slug>
+
+# Publish + promote (once after draft checks pass and behavior is approved)
+breyta flows release <slug>
+
+# Verify installed live target (do not rely on activeVersion alone)
+breyta flows show <slug> --target live
+breyta flows run <slug> --target live --wait
 ```
 
 Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).

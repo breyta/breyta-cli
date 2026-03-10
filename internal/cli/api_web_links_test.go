@@ -191,6 +191,11 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 					"uri":    "res://v1/ws/ws-acme/result/run/wf-123/flow-output",
 					"type":   "result",
 					"webUrl": "/ws-acme/runs/daily-sales-report/wf-123/output",
+					"adapter": map[string]any{
+						"details": map[string]any{
+							"path": "workspaces/ws-acme/runs/wf-123/demo-result.json",
+						},
+					},
 				},
 			},
 		})
@@ -227,6 +232,72 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 	first, _ := items[0].(map[string]any)
 	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
 		t.Fatalf("unexpected item webUrl: %q", got)
+	}
+	if got, _ := first["display-name"].(string); got != "demo-result.json" {
+		t.Fatalf("unexpected item display-name: %q", got)
+	}
+	if got, _ := first["source-label"].(string); got != "run wf-123" {
+		t.Fatalf("unexpected item source-label: %q", got)
+	}
+}
+
+func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/search" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"query": "transcript",
+			"items": []any{
+				map[string]any{
+					"uri":    "res://v1/ws/ws-acme/result/run/wf-123/flow-output",
+					"type":   "result",
+					"webUrl": "/ws-acme/runs/daily-sales-report/wf-123/output",
+					"adapter": map[string]any{
+						"details": map[string]any{
+							"path": "workspaces/ws-acme/runs/wf-123/transcript-jan-02.txt",
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "search", "transcript",
+	)
+	if err != nil {
+		t.Fatalf("resources search failed: %v\n%s", err, stdout)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+	data, _ := out["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("unexpected items length: %d", len(items))
+	}
+	first, _ := items[0].(map[string]any)
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+		t.Fatalf("unexpected item webUrl: %q", got)
+	}
+	if got, _ := first["display-name"].(string); got != "transcript-jan-02.txt" {
+		t.Fatalf("unexpected item display-name: %q", got)
+	}
+	if got, _ := first["source-label"].(string); got != "run wf-123" {
+		t.Fatalf("unexpected item source-label: %q", got)
 	}
 }
 

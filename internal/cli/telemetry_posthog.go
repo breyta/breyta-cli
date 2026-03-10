@@ -2,10 +2,10 @@ package cli
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"

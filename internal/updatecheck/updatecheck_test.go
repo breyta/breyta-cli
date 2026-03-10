@@ -27,4 +27,7 @@ func TestCheckNow_TestOverrides(t *testing.T) {
 	if n.ReleaseURL != ReleasePageURL {
 		t.Fatalf("expected release url %q, got %q", ReleasePageURL, n.ReleaseURL)
 	}
+	if n.FixCommand != DefaultFixCommand {
+		t.Fatalf("expected fix command %q, got %q", DefaultFixCommand, n.FixCommand)
+	}
 }

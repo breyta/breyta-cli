@@ -184,6 +184,8 @@ By default, this also updates all end-user installations for the flow.
 
 Most users run workspace-draft by default with:
 - breyta flows run <flow-slug>
+
+After promote, verify the live runtime explicitly with flows show and a live smoke run.
 `),
 		Example: strings.TrimSpace(`
 breyta flows promote order-ingest
