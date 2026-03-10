@@ -157,20 +157,24 @@ func posthogEnabledForLogin(app *App) bool {
 }
 
 func telemetryDistinctID(uid any, token string) string {
-	if tokenUID := strings.TrimSpace(authinfo.UIDFromToken(token)); tokenUID != "" {
-		return tokenUID
+	token = strings.TrimSpace(token)
+	if token != "" {
+		if tokenUID := strings.TrimSpace(authinfo.UIDFromToken(token)); tokenUID != "" {
+			return tokenUID
+		}
+		if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
+			return "email:" + strings.ToLower(email)
+		}
+		if tokenID := tokenHashID(token); tokenID != "" {
+			return "token:" + tokenID
+		}
+		return ""
 	}
 	if uidStr, ok := uid.(string); ok {
 		uidStr = strings.TrimSpace(uidStr)
 		if uidStr != "" {
 			return uidStr
 		}
-	}
-	if email := strings.TrimSpace(authinfo.EmailFromToken(token)); email != "" {
-		return "email:" + strings.ToLower(email)
-	}
-	if tokenID := tokenHashID(token); tokenID != "" {
-		return "token:" + tokenID
 	}
 	return ""
 }

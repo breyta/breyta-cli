@@ -173,6 +173,34 @@ func TestTrackAuthLoginTelemetry_UsesTokenHashDistinctIDWhenUIDAndEmailMissing(t
 	}
 }
 
+func TestTrackAuthLoginTelemetry_PrefersOpaqueTokenFallbackOverSeparateUID(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+
+	origIdentify := posthogIdentifyFn
+	t.Cleanup(func() { posthogIdentifyFn = origIdentify })
+
+	identified := make(chan posthogIdentifyPayload, 1)
+	posthogIdentifyFn = func(_ context.Context, payload posthogIdentifyPayload) error {
+		identified <- payload
+		return nil
+	}
+
+	app := &App{APIURL: "https://flows.breyta.ai"}
+	token := "opaque-token-without-email-claim"
+	trackAuthLoginTelemetry(app, "browser", token, "uid-from-auth-response")
+
+	select {
+	case payload := <-identified:
+		want := telemetryDistinctID(nil, token)
+		if payload.DistinctID != want {
+			t.Fatalf("unexpected distinct id: got %q want %q", payload.DistinctID, want)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected identify to be called")
+	}
+}
+
 func TestTrackAuthAndCommandTelemetry_UseSameDistinctIDScheme(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
@@ -206,6 +234,12 @@ func TestTrackAuthAndCommandTelemetry_UseSameDistinctIDScheme(t *testing.T) {
 	second := <-captured
 	if first != second {
 		t.Fatalf("expected identical distinct ids, got %q and %q", first, second)
+	}
+}
+
+func TestTelemetryDistinctID_UsesUIDWhenTokenMissing(t *testing.T) {
+	if got := telemetryDistinctID("uid-123", ""); got != "uid-123" {
+		t.Fatalf("unexpected distinct id: %q", got)
 	}
 }
 
