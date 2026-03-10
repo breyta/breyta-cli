@@ -24,6 +24,120 @@ func isAPIValidFlowSlug(s string) bool {
 	return apiValidFlowSlugRe.MatchString(strings.TrimSpace(s))
 }
 
+func normalizeOptionalText(s string) string {
+	return strings.TrimSpace(s)
+}
+
+func appendFlowGroupMetadata(out map[string]any, flow *state.Flow) {
+	if flow == nil {
+		return
+	}
+	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription)
+}
+
+func appendGroupMetadata(out map[string]any, groupKey, groupName, groupDescription string) {
+	if out == nil {
+		return
+	}
+	if groupKey = normalizeOptionalText(groupKey); groupKey != "" {
+		out["groupKey"] = groupKey
+	}
+	if groupName = normalizeOptionalText(groupName); groupName != "" {
+		out["groupName"] = groupName
+	}
+	if groupDescription = normalizeOptionalText(groupDescription); groupDescription != "" {
+		out["groupDescription"] = groupDescription
+	}
+}
+
+func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[string]any {
+	groupKey = normalizeOptionalText(groupKey)
+	if ws == nil || groupKey == "" {
+		return nil
+	}
+
+	members := make([]*state.Flow, 0, len(ws.Flows))
+	for _, candidate := range ws.Flows {
+		if candidate == nil || candidate.Slug == currentSlug {
+			continue
+		}
+		if normalizeOptionalText(candidate.GroupKey) == groupKey {
+			members = append(members, candidate)
+		}
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		leftName := strings.ToLower(normalizeOptionalText(members[i].Name))
+		rightName := strings.ToLower(normalizeOptionalText(members[j].Name))
+		if leftName == rightName {
+			return members[i].Slug < members[j].Slug
+		}
+		return leftName < rightName
+	})
+
+	items := make([]map[string]any, 0, len(members))
+	for _, member := range members {
+		item := map[string]any{
+			"flowSlug":    member.Slug,
+			"name":        member.Name,
+			"description": member.Description,
+		}
+		appendFlowGroupMetadata(item, member)
+		items = append(items, item)
+	}
+	return items
+}
+
+func resolveLocalFlowGroupUpdate(cmd *cobra.Command, flow *state.Flow, groupKey, groupName, groupDescription string) (string, string, string, bool, error) {
+	groupKeyProvided := cmd.Flags().Changed("group-key")
+	groupNameProvided := cmd.Flags().Changed("group-name")
+	groupDescriptionProvided := cmd.Flags().Changed("group-description")
+	if !groupKeyProvided && !groupNameProvided && !groupDescriptionProvided {
+		return "", "", "", false, nil
+	}
+
+	currentGroupKey := normalizeOptionalText(flow.GroupKey)
+	currentGroupName := normalizeOptionalText(flow.GroupName)
+	currentGroupDescription := normalizeOptionalText(flow.GroupDescription)
+	requestedGroupKey := normalizeOptionalText(groupKey)
+	requestedGroupName := normalizeOptionalText(groupName)
+	requestedGroupDescription := normalizeOptionalText(groupDescription)
+	clearGroup := groupKeyProvided && requestedGroupKey == ""
+
+	finalGroupKey := currentGroupKey
+	if clearGroup {
+		finalGroupKey = ""
+	} else if groupKeyProvided {
+		finalGroupKey = requestedGroupKey
+	}
+
+	finalGroupName := currentGroupName
+	if clearGroup {
+		finalGroupName = ""
+	} else if groupNameProvided {
+		finalGroupName = requestedGroupName
+	}
+
+	finalGroupDescription := currentGroupDescription
+	if clearGroup {
+		finalGroupDescription = ""
+	} else if groupDescriptionProvided {
+		finalGroupDescription = requestedGroupDescription
+	}
+
+	if groupKeyProvided && requestedGroupKey != "" && !isAPIValidFlowSlug(requestedGroupKey) {
+		return "", "", "", false, fmt.Errorf("invalid --group-key %q (must start with a letter; allowed: letters, digits, hyphen (-), underscore (_); max 128 chars)", requestedGroupKey)
+	}
+	if (groupNameProvided || groupDescriptionProvided) && finalGroupKey == "" {
+		return "", "", "", false, errors.New("groupKey is required")
+	}
+	if finalGroupKey != "" && finalGroupName == "" {
+		return "", "", "", false, errors.New("groupName is required")
+	}
+
+	return finalGroupKey, finalGroupName, finalGroupDescription, true, nil
+}
+
 // doAPICommandFn is a test hook to stub API calls in command unit tests.
 var doAPICommandFn = doAPICommand
 var useDoAPICommandFn bool
@@ -489,7 +603,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 
 			items := make([]map[string]any, 0, len(flows))
 			for _, f := range flows {
-				items = append(items, map[string]any{
+				item := map[string]any{
 					"flowSlug":       f.Slug,
 					"name":           f.Name,
 					"description":    f.Description,
@@ -499,7 +613,9 @@ func newFlowsListCmd(app *App) *cobra.Command {
 					"activeCount":    activeCount[f.Slug],
 					"lastStatus":     lastStatus[f.Slug],
 					"lastWorkflowId": lastWorkflow[f.Slug],
-				})
+				}
+				appendFlowGroupMetadata(item, f)
+				items = append(items, item)
 			}
 
 			meta := map[string]any{"total": total, "shown": len(items), "truncated": truncated}
@@ -576,13 +692,17 @@ breyta flows show order-ingest --target live
 				}
 				return doAPICommand(cmd, app, "flows.get", payload)
 			}
-			st, store, err := appStore(app)
+			st, _, err := appStore(app)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			f, err := store.GetFlow(st, args[0])
+			ws, err := getWorkspace(st, app.WorkspaceID)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			f := ws.Flows[args[0]]
+			if f == nil {
+				return writeErr(cmd, errors.New("flow not found"))
 			}
 			inc := parseCSV(include)
 
@@ -594,6 +714,7 @@ breyta flows show order-ingest --target live
 				"activeVersion": f.ActiveVersion,
 				"updatedAt":     f.UpdatedAt,
 			}
+			appendFlowGroupMetadata(out, f)
 
 			// Default: lightweight step list.
 			steps := make([]map[string]any, 0, len(f.Steps))
@@ -601,6 +722,9 @@ breyta flows show order-ingest --target live
 				steps = append(steps, map[string]any{"id": s.ID, "type": s.Type, "title": s.Title})
 			}
 			out["steps"] = steps
+			if groupKey := normalizeOptionalText(f.GroupKey); groupKey != "" {
+				out["groupFlows"] = localGroupFlows(ws, f.Slug, groupKey)
+			}
 
 			if inc["spine"] {
 				out["spine"] = f.Spine
@@ -980,6 +1104,7 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
 	var name, description, tags string
+	var groupKey, groupName, groupDescription string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
 		Short: "Update flow metadata",
@@ -995,6 +1120,18 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 				}
 				if strings.TrimSpace(tags) != "" {
 					payload["tags"] = tags
+				}
+				if cmd.Flags().Changed("group-key") {
+					payload["groupKey"] = normalizeOptionalText(groupKey)
+				}
+				if cmd.Flags().Changed("group-name") {
+					payload["groupName"] = normalizeOptionalText(groupName)
+				}
+				if cmd.Flags().Changed("group-description") {
+					payload["groupDescription"] = normalizeOptionalText(groupDescription)
+				}
+				if useDoAPICommandFn {
+					return doAPICommandFn(cmd, app, "flows.update", payload)
 				}
 				return doAPICommand(cmd, app, "flows.update", payload)
 			}
@@ -1019,6 +1156,15 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
 			}
+			resolvedGroupKey, resolvedGroupName, resolvedGroupDescription, groupChanged, err := resolveLocalFlowGroupUpdate(cmd, f, groupKey, groupName, groupDescription)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if groupChanged {
+				f.GroupKey = resolvedGroupKey
+				f.GroupName = resolvedGroupName
+				f.GroupDescription = resolvedGroupDescription
+			}
 			f.UpdatedAt = time.Now().UTC()
 			ws.UpdatedAt = f.UpdatedAt
 			if err := store.Save(st); err != nil {
@@ -1030,6 +1176,9 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Name")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
+	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
+	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")
+	cmd.Flags().StringVar(&groupDescription, "group-description", "", "Group description")
 	return cmd
 }
 
