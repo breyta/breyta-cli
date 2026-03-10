@@ -133,3 +133,37 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 		t.Fatalf("unexpected args: %#v", args)
 	}
 }
+
+func TestClient_DoGlobalCommand_UsesGlobalEndpointWithoutWorkspaceHeader(t *testing.T) {
+	var got map[string]any
+	var gotWorkspaceHeader string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/global/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		gotWorkspaceHeader = r.Header.Get("X-Breyta-Workspace")
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, Token: "tok", HTTP: srv.Client()}
+	out, status, err := c.DoGlobalCommand(context.Background(), "flows.search", map[string]any{"x": 1})
+	if err != nil {
+		t.Fatalf("DoGlobalCommand: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+	if gotWorkspaceHeader != "" {
+		t.Fatalf("expected no workspace header, got %q", gotWorkspaceHeader)
+	}
+	if got["command"] != "flows.search" {
+		t.Fatalf("unexpected payload command: %#v", got["command"])
+	}
+}

@@ -46,6 +46,10 @@ and/or --catalog-scope).
 			if effectiveScope != "all" && effectiveScope != "workspace" {
 				return writeErr(cmd, errors.New("--catalog-scope must be 'all' or 'workspace'"))
 			}
+			workspaceID := strings.TrimSpace(app.WorkspaceID)
+			if effectiveScope == "workspace" && workspaceID == "" {
+				return writeErr(cmd, errors.New("workspace-scoped catalog search requires --workspace or BREYTA_WORKSPACE"))
+			}
 
 			payload := map[string]any{
 				"scope":             effectiveScope,
@@ -60,6 +64,9 @@ and/or --catalog-scope).
 				payload["provider"] = strings.TrimSpace(provider)
 			}
 
+			if workspaceID == "" && effectiveScope == "all" {
+				return doGlobalAPICommand(cmd, app, "flows.search", payload)
+			}
 			if useDoAPICommandFn {
 				return doAPICommandFn(cmd, app, "flows.search", payload)
 			}
