@@ -43,6 +43,13 @@ func (c Client) endpoint() (string, error) {
 	return c.baseEndpointFor("/api/commands")
 }
 
+func (c Client) globalEndpoint() (string, error) {
+	if strings.TrimSpace(c.BaseURL) == "" {
+		return "", fmt.Errorf("missing api base url")
+	}
+	return c.baseEndpointFor("/api/global/commands")
+}
+
 func (c Client) endpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
@@ -237,6 +244,24 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	if err != nil {
 		return nil, 0, err
 	}
+	return c.doCommandWithEndpoint(ctx, endpoint, command, args, true)
+}
+
+func (c Client) DoGlobalCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, 0, fmt.Errorf("missing command")
+	}
+	endpoint, err := c.globalEndpoint()
+	if err != nil {
+		return nil, 0, err
+	}
+	return c.doCommandWithEndpoint(ctx, endpoint, command, args, false)
+}
+
+func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool) (map[string]any, int, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, 0, fmt.Errorf("missing command endpoint")
+	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -263,7 +288,9 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
+	if includeWorkspace && strings.TrimSpace(c.WorkspaceID) != "" {
+		req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
+	}
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

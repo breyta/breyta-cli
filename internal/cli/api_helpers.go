@@ -672,3 +672,19 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 	}
 	return nil
 }
+
+func doGlobalAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
+	if err := requireAPI(app); err != nil {
+		return writeErr(cmd, err)
+	}
+	client := apiClient(app)
+	out, status, err := client.DoGlobalCommand(context.Background(), command, args)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
+}
