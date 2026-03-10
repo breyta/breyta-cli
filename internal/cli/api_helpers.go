@@ -611,6 +611,7 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 	if err != nil {
 		return writeErr(cmd, err)
 	}
+	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
 
 	// Progressive disclosure: only add installation/configuration hints when relevant.
 	//

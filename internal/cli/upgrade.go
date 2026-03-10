@@ -124,29 +124,29 @@ func newUpgradeCmd(app *App) *cobra.Command {
 						"applied":   false,
 						"reason":    "already_up_to_date",
 					}
-					} else if len(notice.Upgrade) == 0 {
-						if apply || cliOnly {
-							return writeErr(cmd, errors.New("no automatic upgrade command available; use --open to view release artifacts"))
-						}
-						data["cli"] = map[string]any{
-							"requested": true,
-							"applied":   false,
-							"reason":    "manual_upgrade_required",
-							"hint":      "run `breyta upgrade --open` to view release artifacts",
-						}
-					} else {
-						if err := runUpgradeCommand(cmd.Context(), notice.Upgrade, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
-							return writeErr(cmd, err)
-						}
-						data["cli"] = map[string]any{
-							"requested": true,
-							"applied":   true,
-							"command":   notice.Upgrade,
-						}
+				} else if len(notice.Upgrade) == 0 {
+					if apply || cliOnly {
+						return writeErr(cmd, errors.New("no automatic upgrade command available; use --open to view release artifacts"))
+					}
+					data["cli"] = map[string]any{
+						"requested": true,
+						"applied":   false,
+						"reason":    "manual_upgrade_required",
+						"hint":      "run `breyta upgrade --open` to view release artifacts",
+					}
+				} else {
+					if err := runUpgradeCommand(cmd.Context(), notice.Upgrade, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+						return writeErr(cmd, err)
+					}
+					data["cli"] = map[string]any{
+						"requested": true,
+						"applied":   true,
+						"command":   notice.Upgrade,
 					}
 				}
+			}
 
-				if open {
+			if open {
 				if err := openReleasePage(notice.ReleaseURL); err != nil {
 					return writeErr(cmd, err)
 				}
