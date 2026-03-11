@@ -95,6 +95,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Read and follow the installed skill bundle first.") {
 		t.Fatalf("unexpected agents content (missing skill pointer): %s", string(agents))
 	}
+	if strings.Contains(string(agents), "Install the Breyta skill bundle first when possible") {
+		t.Fatalf("unexpected agents content (missing installed-skill branch selection): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "`breyta docs find \"CLI Workflow\"`") {
 		t.Fatalf("unexpected agents content (missing workflow doc pointer): %s", string(agents))
 	}
@@ -217,6 +220,12 @@ func TestInit_SkillInstallFailure_RendersNotInstalledInAgents(t *testing.T) {
 	}
 	if !strings.Contains(string(agents), "(Not installed)") {
 		t.Fatalf("expected AGENTS.md to mention skill not installed, got: %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Install the Breyta skill bundle first when possible, or fall back to `breyta docs find \"CLI Workflow\"` and `breyta docs find \"CLI Essentials\"`.") {
+		t.Fatalf("expected AGENTS.md to include docs fallback guidance when skill install is skipped, got: %s", string(agents))
+	}
+	if strings.Contains(string(agents), "Read and follow the installed skill bundle first.") {
+		t.Fatalf("expected AGENTS.md to avoid installed-skill-first guidance when skill is missing, got: %s", string(agents))
 	}
 
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")

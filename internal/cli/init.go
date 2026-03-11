@@ -199,8 +199,10 @@ tmp/
 
 func renderInitAgentsMD(target skills.InstallTarget, skillNotInstalled bool) string {
 	skillLine := "- Breyta skill bundle: " + target.File + "\n"
+	skillGuidance := "- Read and follow the installed skill bundle first.\n"
 	if skillNotInstalled {
 		skillLine = "- (Not installed) Breyta skill bundle would be at: " + target.File + "\n"
+		skillGuidance = "- Install the Breyta skill bundle first when possible, or fall back to `breyta docs find \"CLI Workflow\"` and `breyta docs find \"CLI Essentials\"`.\n"
 	}
 
 	return strings.TrimSpace(`# Breyta agent workspace
@@ -222,7 +224,7 @@ Many agent tools only read instructions from the active folder. This file (` + "
 ` + skillLine + `
 - (Re)install / update it with: ` + "`breyta skills install --provider " + string(target.Provider) + "`" + `
 
-- Read and follow the installed skill bundle first.
+` + skillGuidance + `
 - Open the workflow doctrine with: ` + "`breyta docs find \"CLI Workflow\"`" + `
 - Use the condensed loop with: ` + "`breyta docs find \"CLI Essentials\"`" + `
 - Use ` + "`breyta help <command...>`" + ` for flag truth.
