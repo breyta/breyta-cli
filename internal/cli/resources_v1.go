@@ -64,7 +64,11 @@ Types:
 
 func newResourcesListCmd(app *App) *cobra.Command {
 	var typeFilter string
+	var typesFilter string
 	var prefix string
+	var query string
+	var accept string
+	var excludeTier string
 	var tags string
 	var limit int
 
@@ -78,6 +82,18 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			q := url.Values{}
 			if typeFilter != "" {
 				q.Set("type", typeFilter)
+			}
+			if strings.TrimSpace(typesFilter) != "" {
+				q.Set("types", strings.TrimSpace(typesFilter))
+			}
+			if strings.TrimSpace(query) != "" {
+				q.Set("query", strings.TrimSpace(query))
+			}
+			if strings.TrimSpace(accept) != "" {
+				q.Set("accept", strings.TrimSpace(accept))
+			}
+			if strings.TrimSpace(excludeTier) != "" {
+				q.Set("exclude-tier", strings.TrimSpace(excludeTier))
 			}
 			if prefix != "" {
 				q.Set("prefix", prefix)
@@ -105,9 +121,13 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&typeFilter, "type", "", "Filter by resource type (result, import, file, bundle, external-dir)")
+	cmd.Flags().StringVar(&typesFilter, "types", "", "Filter by resource types (comma-separated; supports file,result for picker-style queries)")
+	cmd.Flags().StringVar(&query, "query", "", "Search query to combine with list filters")
+	cmd.Flags().StringVar(&accept, "accept", "", "Filter by MIME types or wildcards (comma-separated, e.g. text/*,application/json)")
+	cmd.Flags().StringVar(&excludeTier, "exclude-tier", "", "Exclude storage tiers (comma-separated; e.g. ephemeral)")
 	cmd.Flags().StringVar(&prefix, "prefix", "", "Filter by URI prefix")
 	cmd.Flags().StringVar(&tags, "tags", "", "Filter by tags (comma-separated)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-1000)")
 	return cmd
 }
 
