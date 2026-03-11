@@ -92,17 +92,65 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Verify live install target: `breyta flows show <slug> --target live`") {
 		t.Fatalf("unexpected agents content (missing live verify show step): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Smoke-run live target: `breyta flows run <slug> --target live --wait`") {
+	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
 		t.Fatalf("unexpected agents content (missing live verify run step): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "## Release hygiene (required)") {
 		t.Fatalf("unexpected agents content (missing release hygiene section): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "## Authoring standard (required before editing)") {
+		t.Fatalf("unexpected agents content (missing authoring standard section): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "## Reliability checklist (required)") {
+		t.Fatalf("unexpected agents content (missing reliability checklist): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "## Scale-aware defaults") {
+		t.Fatalf("unexpected agents content (missing scale-aware defaults): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "idempotency key or dedupe strategy") {
+		t.Fatalf("unexpected agents content (missing duplicate protection guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Choose concurrency mode intentionally before draft runs") {
+		t.Fatalf("unexpected agents content (missing concurrency planning guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "`sequential` for ordered work, shared state, large artifacts, or fragile APIs") {
+		t.Fatalf("unexpected agents content (missing sequential mode guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "`fanout` only for independent bounded items") {
+		t.Fatalf("unexpected agents content (missing fanout guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "`keyed` when work must serialize per entity") {
+		t.Fatalf("unexpected agents content (missing keyed guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "pass signed URLs/blob refs for large files") {
+		t.Fatalf("unexpected agents content (missing large file reference guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Cursors/checkpoints do not advance past failed work.") {
+		t.Fatalf("unexpected agents content (missing cursor safety guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "The chosen concurrency mode is justified in plain language.") {
+		t.Fatalf("unexpected agents content (missing concurrency justification guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Shared state and side effects that must not overlap are named explicitly.") {
+		t.Fatalf("unexpected agents content (missing overlap guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Prefer sequential mode when uncertain; concurrency is opt-in, not the default.") {
+		t.Fatalf("unexpected agents content (missing sequential default guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
 		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Run at least one failure/no-op/replay check when feasible before release") {
+		t.Fatalf("unexpected agents content (missing failure/no-op/replay step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "If using concurrency, verify no skipped, duplicated, or overlapped work in draft output") {
+		t.Fatalf("unexpected agents content (missing concurrency verification step): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Release once (after explicit sign-off): `breyta flows release <slug>`") {
 		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
+		t.Fatalf("unexpected agents content (missing live proof step): %s", string(agents))
 	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
