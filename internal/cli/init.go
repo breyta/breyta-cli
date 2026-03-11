@@ -240,9 +240,10 @@ Suggested line to paste into persistent project instructions:
 3) Structure-check the flow file: ` + "`breyta flows paren-check ./flows/<slug>.clj`" + `, then ` + "`breyta flows paren-repair ./flows/<slug>.clj`" + ` if needed
 4) Declare ` + "`:requires`" + ` and add ` + "`:persist`" + ` for growing outputs
 5) Push and check config: ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` then ` + "`breyta flows configure check <slug>`" + `
-6) Run draft and inspect proof: ` + "`breyta flows run <slug> --wait`" + `, ` + "`breyta runs show <workflow-id>`" + `, ` + "`breyta resources workflow list <workflow-id>`" + `
-7) Release once after draft proof and explicit approval: ` + "`breyta flows release <slug>`" + `
-8) Verify live explicitly: ` + "`breyta flows show <slug> --target live`" + ` and ` + "`breyta flows run <slug> --target live --wait`" + `
+6) If the check reports missing bindings or inputs, run ` + "`breyta flows configure <slug> --set ...`" + ` and re-run the check
+7) Run draft and inspect proof: ` + "`breyta flows run <slug> --wait`" + `, ` + "`breyta runs show <workflow-id>`" + `, ` + "`breyta resources workflow list <workflow-id>`" + `
+8) Release once after draft proof and explicit approval: ` + "`breyta flows release <slug>`" + `
+9) Verify live explicitly: ` + "`breyta flows show <slug> --target live`" + ` and ` + "`breyta flows run <slug> --target live --wait`" + `
 
 ## Guardrails
 - Fail closed on sensitive routing and hidden behavior inputs.

@@ -119,6 +119,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Declare `:requires` and add `:persist` for growing outputs") {
 		t.Fatalf("unexpected agents content (missing requires/persist guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "If the check reports missing bindings or inputs, run `breyta flows configure <slug> --set ...` and re-run the check") {
+		t.Fatalf("unexpected agents content (missing configure remediation step): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "breyta resources workflow list <workflow-id>") {
 		t.Fatalf("unexpected agents content (missing resource inspection step): %s", string(agents))
 	}
