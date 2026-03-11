@@ -238,6 +238,45 @@ Suggested line to paste into your agent's persistent project instructions:
 - Do not repeatedly release to ` + "`live`" + ` during normal iteration.
 - Release to ` + "`live`" + ` once after draft behavior is verified and you have explicit sign-off.
 
+## Authoring standard (required before editing)
+- Write the problem contract: trigger, inputs, outputs, side effects, failure behavior.
+- Write the trigger map and path map: success path, fallback path, stop path.
+- Define side effects and duplicate protection before building:
+  - what must happen exactly once
+  - idempotency key or dedupe strategy
+- Define retry/timeout policy for each external boundary before draft runs.
+- Choose concurrency mode intentionally before draft runs:
+  - ` + "`sequential`" + ` for ordered work, shared state, large artifacts, or fragile APIs
+  - ` + "`fanout`" + ` only for independent bounded items
+  - ` + "`keyed`" + ` when work must serialize per entity
+- For concurrent paths, write down what must never overlap and what timeout/partial-failure behavior is acceptable.
+- Decide how large resources move through the flow:
+  - inline small values
+  - persist large artifacts
+  - pass signed URLs/blob refs for large files
+- Decide what run output proves success:
+  - result fields
+  - counts
+  - child workflow ids
+  - resource refs
+
+## Reliability checklist (required)
+- Exactly-once side effects have explicit duplicate protection.
+- Retries are only used for transient failures and are bounded.
+- Cursors/checkpoints do not advance past failed work.
+- Concurrency is intentional and bounded.
+- The chosen concurrency mode is justified in plain language.
+- Shared state and side effects that must not overlap are named explicitly.
+- Large payloads are passed by reference, not copied through many steps.
+- Step ids/titles are operator-readable and make side effects obvious.
+- Final run result contains proof of success, not just a ` + "`completed`" + ` status.
+
+## Scale-aware defaults
+- Prefer sequential handling for large artifact transfer unless fanout safety is proven.
+- Prefer sequential mode when uncertain; concurrency is opt-in, not the default.
+- Prefer child flows for heavyweight artifact creation or handoff.
+- Use blob persistence + refs for large files instead of re-shaping raw bytes across many steps.
+
 ## Authoring loop (agent-friendly, draft-first)
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
 2) Edit ` + "`./flows/<slug>.clj`" + `
@@ -245,10 +284,12 @@ Suggested line to paste into your agent's persistent project instructions:
 4) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
 5) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
 6) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-7) Repeat steps 2-6 until behavior is correct in draft
-8) Release once (after explicit sign-off): ` + "`breyta flows release <slug>`" + `
-9) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
-10) Smoke-run live target: ` + "`breyta flows run <slug> --target live --wait`" + `
+7) Run at least one failure/no-op/replay check when feasible before release
+8) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
+9) Repeat steps 2-8 until behavior is correct and side effects are understood in draft
+10) Release once (after explicit sign-off): ` + "`breyta flows release <slug>`" + `
+11) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+12) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
 
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)

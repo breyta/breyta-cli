@@ -17,3 +17,7 @@ This directory (`breyta-cli/`) is a standalone Go module that ships the `breyta`
 - Keep changes small and dependency-light (prefer stdlib).
 - TUI: prefer modal-based interactions; keep keyboard hints in the header.
 - When changing API-facing commands, update the docs pages served by `flows-api` (for example the public docs pages and the `breyta` skill page in `bases/flows-api/resources/public/docs/`).
+- Keep Breyta flow-authoring guidance aligned across the three user-facing surfaces in this repo:
+  - installed skill override text in `internal/skilldocs/overrides.go`
+  - generated `breyta init` workspace guidance in `internal/cli/init.go`
+  - repo-facing docs in `README.md`

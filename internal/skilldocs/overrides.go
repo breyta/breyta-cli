@@ -43,6 +43,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	}
 	updated = ensureNamingConventionsSection(updated)
 	updated = ensureWorkflowPlanningSection(updated)
+	updated = ensureReliabilitySection(updated)
 	if updated == original {
 		return files
 	}
@@ -124,6 +125,52 @@ Goal: design the flow architecture first so implementation follows a clear patte
   - branch labels that do not read like operator decisions
   - adding new versions to discover architecture instead of deciding architecture before edits`
 
+const reliabilitySection = `## Reliability + determinism planning (Required before push)
+
+Goal: make side effects safe, runs replayable, and runtime behavior predictable before draft iteration turns into many versions.
+
+- required before push
+  - define every side effect and what must happen exactly once
+  - name the idempotency or duplicate-protection key for each side-effectful path
+  - classify every external call as retryable vs fail-fast
+  - set timeout expectations for each external boundary
+  - choose concurrency intentionally (` + "`sequential`" + `, ` + "`fanout`" + `, ` + "`keyed`" + `) and state why
+  - for each concurrent path, define the protected resource or side effect (API, cursor, blob store, destination record, installation)
+  - define payload strategy: inline small data, persist large artifacts, pass refs for large blobs
+  - define cursor/checkpoint behavior for partial failure and replay
+  - define exact runtime proof: result fields, counters, child runs, or resources that prove success
+- concurrency defaults (be explicit)
+  - use ` + "`sequential`" + ` when order matters, when mutating shared state, when moving large artifacts, or when external systems are slow/fragile
+  - use ` + "`fanout`" + ` only for independent, bounded, side-effect-safe items with explicit timeout awareness
+  - use ` + "`keyed`" + ` when work must serialize per entity while allowing cross-entity parallelism
+  - if concurrency is not clearly beneficial, default to ` + "`sequential`" + `
+- concurrency questions to answer before build
+  - what can run in parallel safely?
+  - what must never overlap?
+  - what is the per-item timeout and what happens when one item stalls?
+  - how are partial successes summarized without losing failed items?
+- scale-aware defaults
+  - use sequential handling for large file transfer unless there is explicit evidence fanout is safe
+  - prefer child flows to isolate heavyweight artifact creation and handoff
+  - pass signed URLs/blob refs for large artifacts instead of moving large bodies through many steps
+- failure-safety defaults
+  - retries only for transient failures with bounded attempts/backoff
+  - never advance cursors/checkpoints past failed work
+  - resume/replay behavior should be explicit for partial success paths
+- anti-patterns to avoid
+  - using ` + "`:fanout`" + ` for large file transfer without child-timeout awareness
+  - using concurrency before defining what shared state or side effect it can corrupt
+  - relying on step result shapes that are not guaranteed inside the same flow
+  - hiding side effects behind vague step names like ` + "`finalize`" + ` or ` + "`process`" + `
+  - discovering reliability limits by repeatedly pushing new versions
+- required pre-release verification
+  - run a happy path
+  - run a no-item / no-op path when applicable
+  - exercise at least one partial failure or retry path when feasible
+  - replay or rerun once to verify idempotency/duplicate protection
+  - for concurrent paths, prove the chosen mode with evidence: counts, failures, child runs, and no skipped/reprocessed items
+  - after release, capture live smoke proof when the side effects are safe`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -146,6 +193,20 @@ func ensureWorkflowPlanningSection(body string) string {
 		return body[:headingPos] + workflowPlanningSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + workflowPlanningSection + "\n"
+}
+
+func ensureReliabilitySection(body string) string {
+	if h2LineStartOutsideFences(body, "## Reliability + determinism planning (Required before push)") >= 0 {
+		return body
+	}
+	namingPos := h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)")
+	if namingPos >= 0 {
+		return body[:namingPos] + reliabilitySection + "\n\n" + body[namingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + reliabilitySection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + reliabilitySection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {

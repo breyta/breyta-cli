@@ -79,6 +79,36 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "planning gate first") {
 		t.Fatalf("expected planning-first guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "## Reliability + determinism planning (Required before push)") {
+		t.Fatalf("expected reliability section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "name the idempotency or duplicate-protection key") {
+		t.Fatalf("expected idempotency guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "use `sequential` when order matters") {
+		t.Fatalf("expected explicit sequential guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "use `fanout` only for independent, bounded, side-effect-safe items") {
+		t.Fatalf("expected explicit fanout guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "use `keyed` when work must serialize per entity") {
+		t.Fatalf("expected explicit keyed guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "if concurrency is not clearly beneficial, default to `sequential`") {
+		t.Fatalf("expected sequential-default guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "pass signed URLs/blob refs for large artifacts") {
+		t.Fatalf("expected large artifact reference guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "never advance cursors/checkpoints past failed work") {
+		t.Fatalf("expected cursor safety guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "define exact runtime proof") {
+		t.Fatalf("expected observability/runtime proof guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "prove the chosen mode with evidence") {
+		t.Fatalf("expected concurrency verification guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Readability + Searchability Naming Conventions (Required)") {
 		t.Fatalf("expected naming conventions section, got:\n%s", body)
 	}
@@ -89,9 +119,10 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
 	}
 	workflowPos := strings.Index(body, "## Workflow architecture planning (Required before build)")
+	reliabilityPos := strings.Index(body, "## Reliability + determinism planning (Required before push)")
 	namingPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
-	if workflowPos == -1 || namingPos == -1 || workflowPos > namingPos {
-		t.Fatalf("expected workflow planning section before naming conventions, got:\n%s", body)
+	if workflowPos == -1 || reliabilityPos == -1 || namingPos == -1 || !(workflowPos < reliabilityPos && reliabilityPos < namingPos) {
+		t.Fatalf("expected workflow, reliability, then naming sections in order, got:\n%s", body)
 	}
 }
 
@@ -130,6 +161,25 @@ func TestApplyCLIOverrides_DoesNotDuplicateWorkflowPlanningSection(t *testing.T)
 	count := strings.Count(body, "## Workflow architecture planning (Required before build)")
 	if count != 1 {
 		t.Fatalf("expected workflow planning header exactly once, got %d\n%s", count, body)
+	}
+}
+
+func TestApplyCLIOverrides_DoesNotDuplicateReliabilitySection(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Reliability + determinism planning (Required before push)",
+			"- existing content",
+			"",
+			"## Capability Discovery",
+			"- breyta docs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	count := strings.Count(body, "## Reliability + determinism planning (Required before push)")
+	if count != 1 {
+		t.Fatalf("expected reliability header exactly once, got %d\n%s", count, body)
 	}
 }
 

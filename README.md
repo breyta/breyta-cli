@@ -185,6 +185,18 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+## Reliable flow authoring
+
+When using `breyta` to create or edit flows, treat reliability and determinism as part of the design contract, not cleanup after the first working run.
+
+- Write the contract first: trigger, inputs, outputs, side effects, failure behavior.
+- Design deterministic progression up front: trigger -> intake -> decide -> act -> summarize -> post-process.
+- Define idempotency or duplicate protection for every side effect.
+- Choose retry and timeout behavior intentionally for every external boundary.
+- Keep concurrency bounded; avoid fanout for large artifact transfer unless you have explicit proof it is safe.
+- Pass large artifacts by reference (persisted blob, signed URL, resource ref), not through many in-memory reshaping steps.
+- Run `breyta flows configure check <slug>` and a representative run before release; verify success from run outputs, side effects, and resource refs, not only a `completed` status.
+
 Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).
 
 Docs/help:
