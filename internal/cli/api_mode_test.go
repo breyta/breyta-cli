@@ -743,3 +743,59 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		t.Fatalf("unexpected data.query: %q", got)
 	}
 }
+
+func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("query"); got != "transcript" {
+			t.Fatalf("expected query=transcript, got %q", got)
+		}
+		if got := r.URL.Query().Get("types"); got != "file,result" {
+			t.Fatalf("expected types=file,result, got %q", got)
+		}
+		if got := r.URL.Query().Get("accept"); got != "text/*,application/json" {
+			t.Fatalf("expected accept=text/*,application/json, got %q", got)
+		}
+		if got := r.URL.Query().Get("exclude-tier"); got != "ephemeral" {
+			t.Fatalf("expected exclude-tier=ephemeral, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "1000" {
+			t.Fatalf("expected limit=1000, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"uri":  "res://v1/ws/ws-acme/result/blob/bucket/persist/transcript-a.json",
+					"type": "result",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "list",
+		"--query", "transcript",
+		"--types", "file,result",
+		"--accept", "text/*,application/json",
+		"--exclude-tier", "ephemeral",
+		"--limit", "1000",
+	)
+	if err != nil {
+		t.Fatalf("resources list failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", out)
+	}
+}
