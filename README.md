@@ -103,7 +103,7 @@ breyta init --provider <codex|cursor|claude|gemini>
 ```
 
 This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
-The generated workspace guidance is draft-first: iterate on `draft`, then do a single `live` release after approval.
+The generated workspace guidance is intentionally thin: it points the agent to the installed Breyta skill bundle and the CLI workflow docs, then gives a condensed authoring loop for local iteration.
 
 If you only want the skill bundle (no workspace files), use:
 
@@ -187,15 +187,20 @@ breyta flows run <slug> --target live --wait
 
 ## Reliable flow authoring
 
-When using `breyta` to create or edit flows, treat reliability and determinism as part of the design contract, not cleanup after the first working run.
+The full flow-authoring doctrine now lives in the public Breyta docs and installed skill bundle.
+Use these as the source of truth:
 
-- Write the contract first: trigger, inputs, outputs, side effects, failure behavior.
-- Design deterministic progression up front: trigger -> intake -> decide -> act -> summarize -> post-process.
-- Define idempotency or duplicate protection for every side effect.
-- Choose retry and timeout behavior intentionally for every external boundary.
-- Keep concurrency bounded; avoid fanout for large artifact transfer unless you have explicit proof it is safe.
-- Pass large artifacts by reference (persisted blob, signed URL, resource ref), not through many in-memory reshaping steps.
-- Run `breyta flows configure check <slug>` and a representative run before release; verify success from run outputs, side effects, and resource refs, not only a `completed` status.
+- `breyta skills install --provider <codex|cursor|claude|gemini>`
+- `breyta docs find "CLI Workflow"`
+- `breyta docs find "CLI Essentials"`
+
+The short version:
+
+- discover the right starting point (`flows list/show` for existing local work, `flows search` for reusable-pattern discovery)
+- pull, edit, `paren-check`, and `paren-repair` if needed
+- declare `:requires`, add `:persist` for growing outputs, then push
+- run `flows configure check`, run draft, and inspect output plus persisted resources
+- release once after draft proof, then verify live explicitly with `flows show --target live` and `flows run --target live`
 
 Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).
 
