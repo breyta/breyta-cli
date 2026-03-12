@@ -9,12 +9,6 @@ available under the MIT License. In practice, this repo is the client for
 Breyta, so most usage happens inside a Breyta workspace rather than as a
 standalone general-purpose tool.
 
-## Recommended For
-
-- Coding agents such as Codex, Cursor, Claude Code, and Gemini CLI
-- Developers and operators who want a scriptable interface to Breyta flows
-- Teams that want local, inspectable tooling for authoring and operating flows
-
 ## Install
 
 Choose one:
@@ -35,7 +29,7 @@ Verify the install:
 breyta version
 ```
 
-## Recommended Setup For Coding-Agent Users
+## Getting started
 
 The usual path is:
 
@@ -81,20 +75,10 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
-## Working Style
-
-When using `breyta` to create or edit flows, treat reliability as part of the
-design contract rather than cleanup after the first successful run.
-
-- Define triggers, inputs, outputs, side effects, and failure behavior first
-- Choose retries, timeouts, and concurrency intentionally
-- Use explicit duplicate protection for every side effect
-- Prefer references for large artifacts instead of copying large payloads
-- Verify outcomes from run outputs and side effects, not only from status
-
 ## Docs And Help
 
 - Product docs:
+  - https://flows.breyta.ai/docs
   - `breyta docs`
   - `breyta docs find "<query>"`
   - `breyta docs show <slug>`
