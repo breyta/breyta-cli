@@ -169,7 +169,6 @@ Quick commands:
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows configure check <slug>
-- breyta flows marketplace update <slug> --visible true
 - breyta flows release <slug>
 - breyta flows promote <slug> --version <n>
 - breyta flows show <slug> --target live

@@ -47,6 +47,7 @@ func NewRootCmd() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.SetHelpCommand(newHelpCmd(app, cmd))
 
 	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
@@ -61,8 +62,15 @@ func NewRootCmd() *cobra.Command {
 	// Ensure dev-only flags and commands remain hidden in help output unless explicitly enabled.
 	defaultHelp := cmd.HelpFunc()
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		configureVisibility(cmd, app)
-		configureFlagVisibility(cmd, app)
+		target := c
+		if target == nil {
+			target = cmd
+		}
+		if root := target.Root(); root != nil {
+			target = root
+		}
+		configureVisibility(target, app)
+		configureFlagVisibility(target, app)
 		defaultHelp(c, args)
 		_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nHelp: %s\n", docsHintForCommand(c), helpHintForCommand(c))
 	})
@@ -237,6 +245,9 @@ func NewRootCmd() *cobra.Command {
 
 	defaultPath, _ := state.DefaultPath()
 	cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
+	if f := cmd.PersistentFlags().Lookup("state"); f != nil {
+		f.Hidden = true
+	}
 
 	cmd.AddCommand(newFlowsCmd(app))
 	cmd.AddCommand(newRunsCmd(app))
@@ -359,5 +370,27 @@ func docsHintForCommand(cmd *cobra.Command) string {
 func must(err error) {
 	if err != nil {
 		panic(err)
+	}
+}
+
+func newHelpCmd(app *App, root *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		Long:  "Help provides help for any command in the application.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := root
+			if len(args) > 0 {
+				found, _, err := root.Find(args)
+				if err != nil {
+					return err
+				}
+				target = found
+			}
+			configureVisibility(root, app)
+			configureFlagVisibility(root, app)
+			return target.Help()
+		},
 	}
 }

@@ -78,8 +78,29 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 			t.Fatalf("flows help leaked legacy command %q:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
 	}
+	if strings.Contains(help, "marketplace") {
+		t.Fatalf("flows help leaked hidden marketplace surface:\n%s", help)
+	}
 	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
 		t.Fatalf("flows help missing canonical lifecycle commands:\n%s", help)
+	}
+}
+
+func TestHelpFlowsHidesMarketplaceSurface(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"help", "flows"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute help flows: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if strings.Contains(help, "marketplace") {
+		t.Fatalf("help flows leaked hidden marketplace surface:\n%s", help)
 	}
 }
 
