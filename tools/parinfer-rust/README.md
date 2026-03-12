@@ -1,8 +1,14 @@
 # Vendored `parinfer-rust` binaries
 
-This directory is for **prebuilt `parinfer-rust` CLI binaries** that we bundle alongside `breyta` in release archives and Homebrew installs.
+Maintainer note: this directory holds the prebuilt `parinfer-rust` binaries that
+ship alongside `breyta` in release archives and Homebrew installs.
 
-Why: end users typically only install `breyta`, but we want SOTA delimiter repair (Parinfer) available without extra installs.
+End users normally do not need to manage these files directly. They are bundled
+so `breyta` can offer delimiter repair out of the box without requiring a
+separate `parinfer-rust` install.
+
+Upstream project: <https://github.com/eraserhd/parinfer-rust>
+Upstream license: ISC
 
 ## Layout
 
@@ -16,7 +22,7 @@ Place binaries here (per target):
 
 The release config (`.goreleaser.yaml`) includes the matching file into the archive as `parinfer-rust` next to the `breyta` binary, and Homebrew installs it into `bin/`.
 
-## How it’s used
+## How It Is Used
 
 The CLI prefers the bundled binary (sibling `parinfer-rust` next to `breyta`), then falls back to `PATH` (for local dev via `cargo install parinfer-rust`), and finally falls back to a built-in best-effort delimiter balancer.
 

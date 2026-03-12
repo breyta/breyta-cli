@@ -1,212 +1,145 @@
 # Breyta CLI (`breyta`)
 
-This repo contains the `breyta` command-line interface (CLI) for working with Breyta workflows.
+`breyta` is the command-line interface for working with Breyta flows from coding
+agents and terminals.
 
-The CLI is **agent-first**: it’s designed to be called by tools like **Codex**, **Claude Code**, **Cursor**, and **Gemini CLI** (and also works great for humans in a terminal).
+This repository is public so you can inspect what runs on your machine, build
+the CLI yourself, and understand how it talks to the Breyta API. The code is
+available under the MIT License. In practice, this repo is the client for
+Breyta, so most usage happens inside a Breyta workspace rather than as a
+standalone general-purpose tool.
 
-- `breyta` shows help.
-- `breyta <command>` runs a scriptable CLI command (JSON).
+## Recommended For
 
-## What is Breyta?
-
-Breyta is a workflow platform with a deterministic runtime for building and operating reliable backend automations ("flows") with your coding agent.
-
-With Breyta, you can:
-
-- Build multi-step flows with triggers, waits, external API calls, and human approvals
-- Version, deploy, and safely roll forward workflow changes
-- Run flows from apps, webhooks, and schedules with clear run history and outputs
-- Give AI agents a deterministic, scriptable way to create and operate workflows through the CLI
-
-This CLI is the main interface for flow authoring and operations:
-
-- Browse workflows ("flows"), versions, and runs
-- Start runs and inspect results
-- Cancel active runs when needed with `breyta runs cancel <workflow-id> --reason "..."`
-- Fetch run artifacts via a unified "resources" interface
-
-Typical flow example: Stripe webhook -> normalize payload -> approval step -> external action -> artifact/audit output.
-
-When Breyta fits: multi-step backend workflows with APIs, state, approvals, and operational visibility.
-Less ideal: one-step automations where you do not need versioning and runtime controls.
-
-Determinism and orchestration constraints are documented in:
-- `breyta docs` (product docs served from the Breyta API)
-
-Concurrency policy quick rule:
-- Reconciler, sweeper, and scheduled cleanup flows: `:on-new-version :supersede`
-- Use `:on-new-version :drain` only when in-flight runs must finish on the old version
-
-## Agent-first design
-
-- **Scriptable outputs:** CLI commands return stable JSON, which makes it easy for agents to parse and act on results.
-- **Docs from the API:** `breyta docs` searches and prints product docs from the Breyta API (`docs find` / `docs show`).
-- **Command truth:** use `breyta help <command...>` for flags and usage.
-- **Agent tooling:** `breyta skills install` downloads the Breyta skill bundle from the docs API and installs it for Codex/Cursor/Claude Code/Gemini CLI.
-
-### Recommended: set up your agent via CLI
-
-Use the CLI setup flow to:
-
-- **Log in** (so the CLI can authenticate to the API)
-- **Install the Breyta skill** to your local agent tool (Codex / Cursor / Claude Code / Gemini CLI)
-- **Set your default workspace** for subsequent commands
-
-Run:
-
-```bash
-breyta auth login
-breyta skills install --provider <codex|cursor|claude|gemini>
-breyta workspaces list
-breyta workspaces use <workspace-id>
-```
+- Coding agents such as Codex, Cursor, Claude Code, and Gemini CLI
+- Developers and operators who want a scriptable interface to Breyta flows
+- Teams that want local, inspectable tooling for authoring and operating flows
 
 ## Install
 
 Choose one:
 
-- **Homebrew (macOS):**
+- Homebrew (macOS):
   - `brew tap breyta/tap`
   - `brew install breyta`
-- **Prebuilt binaries (no Go required):** https://github.com/breyta/breyta-cli/releases
-- **Go install latest release (Go required):** `go install github.com/breyta/breyta-cli/cmd/breyta@latest`
-- **From source checkout (Go required):** `go install ./cmd/breyta` (from this repo)
+- Prebuilt binaries:
+  - https://github.com/breyta/breyta-cli/releases
+- Go install:
+  - `go install github.com/breyta/breyta-cli/cmd/breyta@latest`
+- From source checkout:
+  - `go install ./cmd/breyta`
 
-Verify install:
+Verify the install:
 
 ```bash
 breyta version
 ```
 
-Check for updates:
+## Recommended Setup For Coding-Agent Users
 
-```bash
-breyta upgrade
-```
+The usual path is:
 
-Upgrade in one command (Homebrew installs):
-
-```bash
-breyta upgrade --apply
-```
-
-Or open the latest release page:
-
-```bash
-breyta upgrade --open
-```
-
-After installing `breyta`, install the agent skill bundle (recommended for Codex/Cursor/Claude Code/Gemini CLI):
+1. Install the CLI
+2. Bootstrap a local agent workspace
+3. Authenticate
+4. Pick a workspace
+5. Start working with flows
 
 ```bash
 breyta init --provider <codex|cursor|claude|gemini>
+breyta auth login
+breyta workspaces list
+breyta workspaces use <workspace-id>
+breyta flows list
 ```
 
-This installs the Breyta skill bundle for your agent tool and creates a local `breyta-workspace/` directory with an `AGENTS.md` file.
-The generated workspace guidance is draft-first: iterate on `draft`, then do a single `live` release after approval.
+`breyta init` installs the Breyta skill bundle for your agent tool and creates a
+local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
 
-If you only want the skill bundle (no workspace files), use:
+If you only want the skill bundle and not the workspace files:
 
 ```bash
 breyta skills install --provider <codex|cursor|claude|gemini>
 ```
 
-Examples (skill-only):
+## First Workflow
+
+Pull a flow into a local workspace, edit it, push it back to draft, and run it:
 
 ```bash
-# Codex
-breyta skills install --provider codex
-
-# Cursor
-breyta skills install --provider cursor
-
-# Claude Code
-breyta skills install --provider claude
-
-# Gemini CLI
-breyta skills install --provider gemini
-```
-
-You can also do this from the TUI: `breyta` then press `s` (Agent skills).
-
-More details: `breyta docs find "install"` (then `breyta docs show <slug>`).
-
-## First 2 Minutes
-
-Hosted Breyta:
-
-```bash
-breyta init --provider <codex|cursor|claude|gemini>
-breyta auth login
-breyta flows list
-```
-
-Local development (`flows-api` running locally):
-
-```bash
-export BREYTA_API_URL="http://localhost:8090"
-export BREYTA_WORKSPACE="ws-acme"
-export BREYTA_TOKEN="dev-user-123"
-breyta --dev workspaces current --pretty
-breyta --dev flows list
-```
-
-Run an existing flow and wait for output:
-
-```bash
-breyta flows show <slug>
-breyta flows run <slug> --input '{"n":41}' --wait
-```
-
-Create a reusable Breyta API runtime connection from your current login:
-
-```bash
-breyta auth login
-breyta auth api-connection --name "Breyta API"
-breyta connections list --type http-api
-```
-
-This is useful when a flow needs to call Breyta's own `/api/commands` at runtime. The
-command provisions a normal secret-backed `http-api` connection with OAuth refresh, so
-the flow can bind a connection slot instead of carrying a raw refresh token in activation.
-
-Draft vs live verification (recommended before/after release):
-
-```bash
-# Pre-release checks
+breyta flows pull <slug> --out ./flows/<slug>.clj
+breyta flows push --file ./flows/<slug>.clj
 breyta flows configure check <slug>
-breyta flows validate <slug>
+breyta flows run <slug> --wait
+```
 
-# Publish + promote (once after draft checks pass and behavior is approved)
+When the draft behavior is correct, publish once:
+
+```bash
 breyta flows release <slug>
-
-# Verify installed live target (do not rely on activeVersion alone)
 breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
-## Reliable flow authoring
+## Working Style
 
-When using `breyta` to create or edit flows, treat reliability and determinism as part of the design contract, not cleanup after the first working run.
+When using `breyta` to create or edit flows, treat reliability as part of the
+design contract rather than cleanup after the first successful run.
 
-- Write the contract first: trigger, inputs, outputs, side effects, failure behavior.
-- Design deterministic progression up front: trigger -> intake -> decide -> act -> summarize -> post-process.
-- Define idempotency or duplicate protection for every side effect.
-- Choose retry and timeout behavior intentionally for every external boundary.
-- Keep concurrency bounded; avoid fanout for large artifact transfer unless you have explicit proof it is safe.
-- Pass large artifacts by reference (persisted blob, signed URL, resource ref), not through many in-memory reshaping steps.
-- Run `breyta flows configure check <slug>` and a representative run before release; verify success from run outputs, side effects, and resource refs, not only a `completed` status.
+- Define triggers, inputs, outputs, side effects, and failure behavior first
+- Choose retries, timeouts, and concurrency intentionally
+- Use explicit duplicate protection for every side effect
+- Prefer references for large artifacts instead of copying large payloads
+- Verify outcomes from run outputs and side effects, not only from status
 
-Environment/setup details: `breyta docs find "agent"` (and `breyta docs show <slug>`).
+## Docs And Help
 
-Docs/help:
+- Product docs:
+  - `breyta docs`
+  - `breyta docs find "<query>"`
+  - `breyta docs show <slug>`
+- Command usage:
+  - `breyta help <command...>`
 
-- Product docs: `breyta docs` / `breyta docs find "<query>"` / `breyta docs show <slug>`
-- Command flags: `breyta help <command...>`
+## Updates
 
-## Development
+Check for a newer release:
 
-This repo also includes local-development tooling and docs:
+```bash
+breyta upgrade
+```
 
-- Build: `go build ./...`
-- Test: `go test ./...`
+Apply an update automatically when supported:
+
+```bash
+breyta upgrade --apply
+```
+
+Open the latest release page:
+
+```bash
+breyta upgrade --open
+```
+
+## Repository Policy
+
+This repo is public for transparency and inspectability. We are not accepting
+pull requests or code contributions at this time.
+
+- General help, bugs, and feedback: `hello@breyta.ai`
+- In-product feedback: `breyta feedback send`
+- Security reporting: see `SECURITY.md`
+
+## Maintainer Docs
+
+These docs stay in the repo for Breyta maintainers, but they are not part of
+the main user path:
+
+- Release runbook: `docs/RELEASING.md`
+- Bundled `parinfer-rust` notes: `tools/parinfer-rust/README.md`
+- Bundled `parinfer-rust` build steps: `tools/parinfer-rust/BUILDING.md`
+
+## License
+
+- Repo license: `LICENSE`
+- Third-party notices: `THIRD_PARTY_NOTICES.md`

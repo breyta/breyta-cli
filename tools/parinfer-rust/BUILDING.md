@@ -1,8 +1,13 @@
 # Building `parinfer-rust` binaries (manual, via GitHub Actions)
 
-We bundle a pinned `parinfer-rust` executable alongside `breyta` release artifacts so end users don’t need extra tooling installed.
+Maintainer-only notes for updating the vendored `parinfer-rust` binaries.
 
-This is intentionally **manual**: we build once, commit the binaries into this repo under `tools/parinfer-rust/`, and then keep them stable.
+We bundle a pinned `parinfer-rust` executable alongside `breyta` release
+artifacts so end users do not need extra tooling installed.
+
+This is intentionally **manual**: build once, commit the binaries into this repo
+under `tools/parinfer-rust/`, and keep them stable until the next planned
+refresh.
 
 ## Build in GitHub Actions
 
@@ -24,9 +29,10 @@ Unzip each artifact and copy the contained binaries into:
 - `tools/parinfer-rust/linux/arm64/parinfer-rust`
 - `tools/parinfer-rust/windows/amd64/parinfer-rust.exe`
 
-Commit the binaries (and ideally also record the chosen ref somewhere, e.g. in a release note or PR description).
+Commit the binaries and record the chosen upstream ref in a release note or
+maintainer note.
 
-## Local dev note
+## Local Dev Note
 
 If a developer builds `breyta` locally (without vendored binaries present), the CLI will:
 
