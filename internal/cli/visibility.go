@@ -90,17 +90,6 @@ func hideDevOnlyCommandTree(cmd *cobra.Command, app *App) *cobra.Command {
 		}
 		current.Hidden = true
 
-		prevPersistent := current.PersistentPreRunE
-		current.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-			if app == nil || (!app.DevMode && !devModeEnabled()) {
-				return writeErr(cmd, errors.New("this command is not part of the public CLI surface"))
-			}
-			if prevPersistent != nil {
-				return prevPersistent(cmd, args)
-			}
-			return nil
-		}
-
 		prev := current.PreRunE
 		current.PreRunE = func(cmd *cobra.Command, args []string) error {
 			if app == nil || (!app.DevMode && !devModeEnabled()) {
