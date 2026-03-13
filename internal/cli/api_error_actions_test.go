@@ -198,3 +198,61 @@ func TestAPIErrorActions_ConnectionFallbackBuildsEditURL(t *testing.T) {
 		t.Fatalf("stderr missing connection edit guidance:\n%s", stderr)
 	}
 }
+
+func TestAPIErrorActions_DraftBindingsHintWinsForDraftProfileMissing(t *testing.T) {
+	t.Parallel()
+
+	wantURL := "https://flows.breyta.ai/ws-acme/flows/demo-flow/draft-bindings"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"meta": map[string]any{
+				"draftBindingsUrl": wantURL,
+			},
+			"error": map[string]any{
+				"code":    "profile_missing",
+				"message": "Flow requires a profile before running.",
+				"details": map[string]any{
+					"flowSlug": "demo-flow",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "demo-flow",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run to fail")
+	}
+
+	out := decodeAPIErrorEnvelope(t, stdout)
+	meta, _ := out["meta"].(map[string]any)
+	if got, _ := meta["webUrl"].(string); got != wantURL {
+		t.Fatalf("expected draft bindings page as meta.webUrl, got %q", got)
+	}
+	errMap, _ := out["error"].(map[string]any)
+	actions, _ := errMap["actions"].([]any)
+	first, _ := actions[0].(map[string]any)
+	if got, _ := first["kind"].(string); got != "draft-bindings" {
+		t.Fatalf("expected first action to be draft-bindings, got %q", got)
+	}
+	if got, _ := first["url"].(string); got != wantURL {
+		t.Fatalf("unexpected first action url: %q", got)
+	}
+	if !strings.Contains(stderr, "Open Draft bindings: "+wantURL) {
+		t.Fatalf("stderr missing draft bindings guidance:\n%s", stderr)
+	}
+}

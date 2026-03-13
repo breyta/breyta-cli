@@ -620,6 +620,8 @@ func legacyRecoveryActions(app *App, out map[string]any) []map[string]any {
 	message := strings.ToLower(firstNonBlankString(errMap["message"], out["hint"]))
 	flowSlug := firstNonBlankString(details["flowSlug"], details["flow-slug"])
 	profileID := firstNonBlankString(details["profileId"], details["profile-id"])
+	draftBindingsHintURL := firstNonBlankString(meta["draftBindingsUrl"])
+	activationHintURL := firstNonBlankString(meta["activationUrl"])
 
 	actions := []map[string]any{}
 	seen := map[string]struct{}{}
@@ -640,7 +642,9 @@ func legacyRecoveryActions(app *App, out map[string]any) []map[string]any {
 				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "installation", "Installation", installationWebURL(base, flowSlug, profileID), map[string]any{"profileId": profileID}))
 			}
 		case "profile_missing":
-			if strings.Contains(message, "draft profile") {
+			if draftBindingsHintURL != "" {
+				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftBindingsHintURL, nil))
+			} else if strings.Contains(message, "draft profile") {
 				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftBindingsURL(app, flowSlug), nil))
 			} else {
 				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activationURL(app, flowSlug), nil))
@@ -650,11 +654,11 @@ func legacyRecoveryActions(app *App, out map[string]any) []map[string]any {
 		}
 	}
 
-	if draftURL := firstNonBlankString(meta["draftBindingsUrl"]); draftURL != "" {
-		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftURL, nil))
+	if draftBindingsHintURL != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftBindingsHintURL, nil))
 	}
-	if activation := firstNonBlankString(meta["activationUrl"]); activation != "" {
-		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activation, nil))
+	if activationHintURL != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activationHintURL, nil))
 	}
 	if webURL := firstNonBlankString(meta["webUrl"]); webURL != "" {
 		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "open", "Open page", webURL, nil))
