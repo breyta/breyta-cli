@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/breyta/breyta-cli/internal/cli"
 	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/cli"
 )
 
 func runCLIArgsWithIn(t *testing.T, stdin string, args ...string) (string, string, error) {
