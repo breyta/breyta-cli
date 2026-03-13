@@ -353,7 +353,23 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
-func runFailureShouldUseDraftBindings(command string, args map[string]any) bool {
+func draftBindingsHintRelevant(out map[string]any) bool {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return false
+	}
+	switch strings.ToLower(firstNonBlankString(errMap["code"])) {
+	case "profile_missing", "profile_activation_inputs_incomplete", "profile_bindings_incomplete":
+		return true
+	default:
+		return false
+	}
+}
+
+func runFailureShouldUseDraftBindings(command string, args map[string]any, out map[string]any) bool {
+	if !draftBindingsHintRelevant(out) {
+		return false
+	}
 	switch command {
 	case "runs.start":
 		source, _ := args["source"].(string)
@@ -407,7 +423,7 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		}
 	case "runs.start", "flows.run":
 		if status >= 400 || !isOK(out) {
-			if runFailureShouldUseDraftBindings(command, args) {
+			if runFailureShouldUseDraftBindings(command, args, out) {
 				addDraftBindingsHint(app, out, slug)
 			} else {
 				addActivationHint(app, out, slug)

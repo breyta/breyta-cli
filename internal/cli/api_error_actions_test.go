@@ -61,6 +61,9 @@ func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.
 	if got, _ := meta["webUrl"].(string); got != "https://flows.breyta.ai/ws-acme/billing" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
+	if got, _ := meta["draftBindingsUrl"].(string); got != "" {
+		t.Fatalf("did not expect draft bindings hint on billing error, got %q", got)
+	}
 	errMap, _ := out["error"].(map[string]any)
 	actions, _ := errMap["actions"].([]any)
 	first, _ := actions[0].(map[string]any)
