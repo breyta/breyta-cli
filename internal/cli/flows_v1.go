@@ -887,7 +887,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				}
 			}
 
-			resp, status, err := runAPICommand(app, "flows.get", payload)
+			resp, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

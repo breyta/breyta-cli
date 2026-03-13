@@ -661,18 +661,25 @@ func enrichAPICommandResult(app *App, client api.Client, command string, args ma
 	}
 }
 
-func runAPICommand(app *App, command string, args map[string]any) (map[string]any, int, error) {
+func runAPICommandWithContext(ctx context.Context, app *App, command string, args map[string]any) (map[string]any, int, error) {
 	if err := requireAPI(app); err != nil {
 		return nil, 0, err
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	client := apiClient(app)
-	out, status, err := client.DoCommand(context.Background(), command, args)
+	out, status, err := client.DoCommand(ctx, command, args)
 	if err != nil {
 		return nil, 0, err
 	}
 	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
 	enrichAPICommandResult(app, client, command, args, out, status)
 	return out, status, nil
+}
+
+func runAPICommand(app *App, command string, args map[string]any) (map[string]any, int, error) {
+	return runAPICommandWithContext(context.Background(), app, command, args)
 }
 
 func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
