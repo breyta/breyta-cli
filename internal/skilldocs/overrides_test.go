@@ -82,6 +82,15 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "## Reliability + determinism planning (Required before push)") {
 		t.Fatalf("expected reliability section, got:\n%s", body)
 	}
+	if !strings.Contains(body, "## Provenance for derived flows (Required when reusing existing flows)") {
+		t.Fatalf("expected provenance section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows provenance set <slug> --from-consulted") {
+		t.Fatalf("expected provenance command guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows provenance set <slug> --template <template-slug>") {
+		t.Fatalf("expected template provenance guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "name the idempotency or duplicate-protection key") {
 		t.Fatalf("expected idempotency guidance, got:\n%s", body)
 	}
@@ -120,9 +129,10 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	workflowPos := strings.Index(body, "## Workflow architecture planning (Required before build)")
 	reliabilityPos := strings.Index(body, "## Reliability + determinism planning (Required before push)")
+	provenancePos := strings.Index(body, "## Provenance for derived flows (Required when reusing existing flows)")
 	namingPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
-	if workflowPos == -1 || reliabilityPos == -1 || namingPos == -1 || !(workflowPos < reliabilityPos && reliabilityPos < namingPos) {
-		t.Fatalf("expected workflow, reliability, then naming sections in order, got:\n%s", body)
+	if workflowPos == -1 || reliabilityPos == -1 || provenancePos == -1 || namingPos == -1 || !(workflowPos < reliabilityPos && reliabilityPos < provenancePos && provenancePos < namingPos) {
+		t.Fatalf("expected workflow, reliability, provenance, then naming sections in order, got:\n%s", body)
 	}
 }
 

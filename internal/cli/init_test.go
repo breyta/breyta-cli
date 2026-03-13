@@ -146,6 +146,18 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "If using concurrency, verify no skipped, duplicated, or overlapped work in draft output") {
 		t.Fatalf("unexpected agents content (missing concurrency verification step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "## Provenance for derived flows") {
+		t.Fatalf("unexpected agents content (missing provenance section): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "breyta flows provenance set <slug> --from-consulted") {
+		t.Fatalf("unexpected agents content (missing provenance set command): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "breyta flows provenance set <slug> --template <template-slug>") {
+		t.Fatalf("unexpected agents content (missing template provenance command): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Only flows actually opened with `breyta flows show` or `breyta flows pull` become consulted provenance candidates") {
+		t.Fatalf("unexpected agents content (missing consulted-flow guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Release once (after explicit sign-off): `breyta flows release <slug>`") {
 		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
 	}

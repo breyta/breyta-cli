@@ -291,6 +291,16 @@ Suggested line to paste into your agent's persistent project instructions:
 11) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
 12) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
 
+## Provenance for derived flows
+- Keep ` + "`created-by`" + ` as the creator of the current flow record.
+- When a flow is derived from existing flows, store source lineage separately as provenance metadata.
+- Only flows actually opened with ` + "`breyta flows show`" + ` or ` + "`breyta flows pull`" + ` become consulted provenance candidates. Search hits alone do not.
+- After creating or updating a derived flow, persist curated provenance with:
+  - ` + "`breyta flows provenance set <slug> --from-consulted`" + `
+  - ` + "`breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`" + `
+  - ` + "`breyta flows provenance set <slug> --template <template-slug>`" + `
+- Clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `.
+
 ## Docs for agents
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
@@ -320,6 +330,7 @@ breyta flows list
 Suggested workflow:
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run/validate
+- If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved
 
 Recovery URLs:

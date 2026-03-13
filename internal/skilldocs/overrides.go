@@ -45,9 +45,10 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	for _, pair := range replacements {
 		updated = strings.ReplaceAll(updated, pair[0], pair[1])
 	}
-	updated = ensureNamingConventionsSection(updated)
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)
+	updated = ensureProvenanceSection(updated)
+	updated = ensureNamingConventionsSection(updated)
 	if updated == original {
 		return files
 	}
@@ -175,6 +176,20 @@ Goal: make side effects safe, runs replayable, and runtime behavior predictable 
   - for concurrent paths, prove the chosen mode with evidence: counts, failures, child runs, and no skipped/reprocessed items
   - after release, capture live smoke proof when the side effects are safe`
 
+const provenanceSection = `## Provenance for derived flows (Required when reusing existing flows)
+
+Goal: preserve clear lineage to source flows without changing the meaning of ` + "`created-by`" + `.
+
+- keep ` + "`created-by`" + ` as the creator of the current flow record
+- when the new flow is based on one or more existing flows, store those refs as provenance metadata
+- search hits alone do not count as provenance; only flows actually opened with ` + "`breyta flows show`" + ` or ` + "`breyta flows pull`" + ` should become candidates
+- after creating or updating a derived flow, persist curated provenance with:
+  - ` + "`breyta flows provenance set <slug> --from-consulted`" + `
+  - ` + "`breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`" + `
+  - ` + "`breyta flows provenance set <slug> --template <template-slug>`" + `
+- only clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `
+- when several source flows were consulted, keep only the flows that actually mattered to the final implementation`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -211,6 +226,20 @@ func ensureReliabilitySection(body string) string {
 		return body[:headingPos] + reliabilitySection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + reliabilitySection + "\n"
+}
+
+func ensureProvenanceSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Provenance for derived flows (Required when reusing existing flows)") >= 0 {
+		return body
+	}
+	namingPos := h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)")
+	if namingPos >= 0 {
+		return body[:namingPos] + provenanceSection + "\n\n" + body[namingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + provenanceSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + provenanceSection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {

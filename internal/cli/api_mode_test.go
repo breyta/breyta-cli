@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,10 @@ import (
 )
 
 func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
+	return runCLIArgsWithContext(t, context.Background(), args...)
+}
+
+func runCLIArgsWithContext(t *testing.T, ctx context.Context, args ...string) (string, string, error) {
 	t.Helper()
 	cmd := cli.NewRootCmd()
 	out := new(bytes.Buffer)
@@ -21,7 +26,10 @@ func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
 	cmd.SetArgs(args)
-	err := cmd.Execute()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := cmd.ExecuteContext(ctx)
 	return out.String(), errOut.String(), err
 }
 
