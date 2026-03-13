@@ -270,6 +270,51 @@ func TestFlowsPromoteHelpDescribesLivePromotion(t *testing.T) {
 	}
 }
 
+func TestFlowsReleaseHelpDescribesLatestPushedVersion(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "release", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows release help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "latest version from workspace current") {
+		t.Fatalf("flows release help missing latest-pushed-version description:\n%s", help)
+	}
+	if !strings.Contains(help, "Released version to activate") {
+		t.Fatalf("flows release help missing version flag description:\n%s", help)
+	}
+}
+
+func TestFlowsHelpDistinguishesPushReleasePromote(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "push -> updates working copy") {
+		t.Fatalf("flows help missing push guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "release -> activates the latest pushed version") {
+		t.Fatalf("flows help missing corrected release guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "promote -> updates live target and installations to a released version") {
+		t.Fatalf("flows help missing promote guidance:\n%s", help)
+	}
+}
+
 func TestWriteErrIncludesGuidance(t *testing.T) {
 	root := NewRootCmd()
 	out := new(bytes.Buffer)

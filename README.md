@@ -67,7 +67,7 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
-When the draft behavior is correct, publish once:
+When the draft behavior is correct, release the latest pushed version once:
 
 ```bash
 breyta flows release <slug>
