@@ -463,6 +463,311 @@ func scalarString(v any) string {
 	}
 }
 
+func mapStringAny(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}
+
+func sliceAny(v any) []any {
+	items, _ := v.([]any)
+	return items
+}
+
+func firstNonBlankString(values ...any) string {
+	for _, value := range values {
+		if s := scalarString(value); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func defaultRecoveryActionLabel(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "billing":
+		return "Billing"
+	case "draft-bindings":
+		return "Draft bindings"
+	case "flow-activation":
+		return "Flow activation"
+	case "installation":
+		return "Installation"
+	case "connection-edit":
+		return "Edit connection"
+	default:
+		return "Open page"
+	}
+}
+
+func normalizeRecoveryAction(app *App, action map[string]any) map[string]any {
+	if action == nil {
+		return nil
+	}
+	kind := firstNonBlankString(action["kind"])
+	url := firstNonBlankString(action["url"])
+	if strings.TrimSpace(url) == "" {
+		return nil
+	}
+	baseRoot := ""
+	if app != nil {
+		baseRoot = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+	}
+	url = absolutizeWebURL(baseRoot, url)
+	label := firstNonBlankString(action["label"])
+	if label == "" {
+		label = defaultRecoveryActionLabel(kind)
+	}
+	out := map[string]any{
+		"kind":  kind,
+		"label": label,
+		"url":   url,
+	}
+	if slot := firstNonBlankString(action["slot"]); slot != "" {
+		out["slot"] = slot
+	}
+	if connectionID := firstNonBlankString(action["connectionId"], action["connection-id"]); connectionID != "" {
+		out["connectionId"] = connectionID
+	}
+	if profileID := firstNonBlankString(action["profileId"], action["profile-id"]); profileID != "" {
+		out["profileId"] = profileID
+	}
+	return out
+}
+
+func appendRecoveryAction(actions []map[string]any, seen map[string]struct{}, action map[string]any) []map[string]any {
+	if action == nil {
+		return actions
+	}
+	url := strings.TrimSpace(firstNonBlankString(action["url"]))
+	if url == "" {
+		return actions
+	}
+	key := url
+	if _, exists := seen[key]; exists {
+		return actions
+	}
+	seen[key] = struct{}{}
+	return append(actions, action)
+}
+
+func newRecoveryAction(app *App, kind, label, url string, extra map[string]any) map[string]any {
+	action := map[string]any{
+		"kind":  strings.TrimSpace(kind),
+		"label": strings.TrimSpace(label),
+		"url":   strings.TrimSpace(url),
+	}
+	for key, value := range extra {
+		action[key] = value
+	}
+	return normalizeRecoveryAction(app, action)
+}
+
+func connectionRecoveryActions(app *App, bindings []any) []map[string]any {
+	base := workspaceWebBaseURL(app)
+	if base == "" || len(bindings) == 0 {
+		return nil
+	}
+	actions := make([]map[string]any, 0, len(bindings))
+	seen := map[string]struct{}{}
+	for _, item := range bindings {
+		binding := mapStringAny(item)
+		if binding == nil {
+			continue
+		}
+		connectionID := firstNonBlankString(binding["connectionId"], binding["connection-id"])
+		if connectionID == "" {
+			continue
+		}
+		extra := map[string]any{"connectionId": connectionID}
+		if slot := firstNonBlankString(binding["slot"]); slot != "" {
+			extra["slot"] = slot
+		}
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "connection-edit", "Edit connection", connectionEditWebURL(base, connectionID), extra))
+	}
+	return actions
+}
+
+func serverRecoveryActions(app *App, out map[string]any) []map[string]any {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return nil
+	}
+	var actions []map[string]any
+	seen := map[string]struct{}{}
+	for _, item := range sliceAny(errMap["actions"]) {
+		action := mapStringAny(item)
+		if action == nil {
+			continue
+		}
+		normalized := normalizeRecoveryAction(app, action)
+		if normalized == nil {
+			continue
+		}
+		actions = appendRecoveryAction(actions, seen, normalized)
+	}
+	return actions
+}
+
+func legacyRecoveryActions(app *App, out map[string]any) []map[string]any {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return nil
+	}
+	details := mapStringAny(errMap["details"])
+	meta := mapStringAny(out["meta"])
+	base := workspaceWebBaseURL(app)
+	code := strings.ToLower(firstNonBlankString(errMap["code"]))
+	message := strings.ToLower(firstNonBlankString(errMap["message"], out["hint"]))
+	flowSlug := firstNonBlankString(details["flowSlug"], details["flow-slug"])
+	profileID := firstNonBlankString(details["profileId"], details["profile-id"])
+
+	actions := []map[string]any{}
+	seen := map[string]struct{}{}
+	if billingURL := firstNonBlankString(details["billingUrl"], mapStringAny(details["billing"])["billingUrl"]); billingURL != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "billing", "Billing", billingURL, nil))
+	}
+
+	for _, key := range []string{"invalidConnectionBindings", "unhealthyConnectionBindings", "errors"} {
+		for _, action := range connectionRecoveryActions(app, sliceAny(details[key])) {
+			actions = appendRecoveryAction(actions, seen, action)
+		}
+	}
+
+	if base != "" && flowSlug != "" {
+		switch code {
+		case "installation_disabled", "profile_disabled", "profile_activation_inputs_incomplete", "profile_bindings_incomplete", "profile_version_not_found":
+			if profileID != "" {
+				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "installation", "Installation", installationWebURL(base, flowSlug, profileID), map[string]any{"profileId": profileID}))
+			}
+		case "profile_missing":
+			if strings.Contains(message, "draft profile") {
+				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftBindingsURL(app, flowSlug), nil))
+			} else {
+				actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activationURL(app, flowSlug), nil))
+			}
+		case "installation_not_found", "live_config_incomplete":
+			actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activationURL(app, flowSlug), nil))
+		}
+	}
+
+	if draftURL := firstNonBlankString(meta["draftBindingsUrl"]); draftURL != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "draft-bindings", "Draft bindings", draftURL, nil))
+	}
+	if activation := firstNonBlankString(meta["activationUrl"]); activation != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "flow-activation", "Flow activation", activation, nil))
+	}
+	if webURL := firstNonBlankString(meta["webUrl"]); webURL != "" {
+		actions = appendRecoveryAction(actions, seen, newRecoveryAction(app, "open", "Open page", webURL, nil))
+	}
+	return actions
+}
+
+func ensureErrorRecoveryActions(app *App, out map[string]any) []map[string]any {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return nil
+	}
+
+	actions := serverRecoveryActions(app, out)
+	if len(actions) == 0 {
+		actions = legacyRecoveryActions(app, out)
+	}
+	if len(actions) == 0 {
+		return nil
+	}
+
+	serialized := make([]any, 0, len(actions))
+	for _, action := range actions {
+		serialized = append(serialized, action)
+	}
+	errMap["actions"] = serialized
+
+	meta := ensureMeta(out)
+	if meta != nil {
+		if _, exists := meta["webUrl"]; !exists {
+			meta["webUrl"] = firstNonBlankString(actions[0]["url"])
+		} else if first := firstNonBlankString(actions[0]["url"]); first != "" {
+			meta["webUrl"] = first
+		}
+	}
+	return actions
+}
+
+func errorRecoveryActions(out map[string]any) []map[string]any {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return nil
+	}
+	items := sliceAny(errMap["actions"])
+	if len(items) == 0 {
+		return nil
+	}
+	actions := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		action := mapStringAny(item)
+		if action == nil {
+			continue
+		}
+		actions = append(actions, action)
+	}
+	return actions
+}
+
+func recoveryActionDisplayLabel(action map[string]any) string {
+	label := firstNonBlankString(action["label"])
+	if label == "" {
+		label = defaultRecoveryActionLabel(firstNonBlankString(action["kind"]))
+	}
+	if slot := firstNonBlankString(action["slot"]); slot != "" && firstNonBlankString(action["kind"]) == "connection-edit" {
+		return label + " (" + slot + ")"
+	}
+	return label
+}
+
+func errorRecoveryActionLines(out map[string]any) []string {
+	actions := errorRecoveryActions(out)
+	if len(actions) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(actions))
+	for _, action := range actions {
+		url := firstNonBlankString(action["url"])
+		if url == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("Open %s: %s", recoveryActionDisplayLabel(action), url))
+	}
+	return lines
+}
+
+func guidedCLIErrorForCommand(cmd *cobra.Command, message string, lines []string) error {
+	parts := []string{strings.TrimSpace(message)}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts = append(parts, line)
+	}
+	parts = append(parts, fmt.Sprintf("Hint: run `%s` for usage or `%s` for docs.", helpHintForCommand(cmd), docsHintForCommand(cmd)))
+	return &guidedCLIError{message: strings.Join(parts, "\n")}
+}
+
+func writeErrorRecoveryActions(cmd *cobra.Command, out map[string]any) {
+	for _, action := range errorRecoveryActions(out) {
+		url := firstNonBlankString(action["url"])
+		if url == "" {
+			continue
+		}
+		line := fmt.Sprintf("Open %s: %s", recoveryActionDisplayLabel(action), url)
+		if cmd != nil {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
+		} else {
+			_, _ = fmt.Fprintln(os.Stderr, line)
+		}
+	}
+}
+
 func errorDocsHintLines(out map[string]any) []string {
 	if out == nil {
 		return nil
@@ -577,26 +882,27 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		}
 	}
 	enrichEnvelopeWebLinks(app, v)
+	ensureErrorRecoveryActions(app, v)
 
 	_ = writeOut(cmd, app, v)
 
 	// Determine exit code: non-2xx OR ok=false => exit non-zero.
 	if status >= 400 {
-		writeErrorDocsHints(cmd, v)
-		return fmt.Errorf("api error (status=%d): %s", status, formatAPIError(v))
+		lines := append(errorRecoveryActionLines(v), errorDocsHintLines(v)...)
+		return guidedCLIErrorForCommand(cmd, fmt.Sprintf("api error (status=%d): %s", status, formatAPIError(v)), lines)
 	}
 	if okAny, ok := v["ok"]; ok {
 		if okb, ok := okAny.(bool); ok && !okb {
-			writeErrorDocsHints(cmd, v)
 			// Surface the server-provided message if present.
+			lines := append(errorRecoveryActionLines(v), errorDocsHintLines(v)...)
 			if errAny, ok := v["error"]; ok {
 				if em, ok := errAny.(map[string]any); ok {
 					if msg, _ := em["message"].(string); strings.TrimSpace(msg) != "" {
-						return errors.New(msg)
+						return guidedCLIErrorForCommand(cmd, msg, lines)
 					}
 				}
 			}
-			return fmt.Errorf("command failed: %s", formatAPIError(v))
+			return guidedCLIErrorForCommand(cmd, fmt.Sprintf("command failed: %s", formatAPIError(v)), lines)
 		}
 	}
 	return nil

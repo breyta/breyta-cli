@@ -36,6 +36,10 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			"- Quality gate is the first step",
 			"- Planning gate is the first step",
 		},
+		{
+			"- Include web links from CLI JSON when available (`meta.webUrl` / `data.*.webUrl`) so users can inspect in Breyta web.",
+			"- Prefer exact recovery URLs from failures when available: `error.actions[].url` first, then `meta.webUrl`.\n- For successful reads/runs, include web links from CLI JSON (`meta.webUrl` / `data.*.webUrl`) so users can inspect in Breyta web.\n- Only derive canonical recovery URLs when the needed ids are already known: billing, activate, draft-bindings, installation, or connection edit.\n- When blocked, include the exact recovery URL in `Runtime proof`, not just generic \"go to billing/setup\" text.",
+		},
 	}
 
 	for _, pair := range replacements {

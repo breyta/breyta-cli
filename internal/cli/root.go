@@ -36,6 +36,14 @@ type App struct {
 	updateReminderShown bool
 }
 
+type guidedCLIError struct {
+	message string
+}
+
+func (e *guidedCLIError) Error() string {
+	return strings.TrimSpace(e.message)
+}
+
 func NewRootCmd() *cobra.Command {
 	app := &App{}
 
@@ -312,6 +320,15 @@ func writeOut(cmd *cobra.Command, app *App, v any) error {
 }
 
 func writeErr(cmd *cobra.Command, err error) error {
+	var guided *guidedCLIError
+	if errors.As(err, &guided) {
+		if cmd == nil {
+			fmt.Fprintln(os.Stderr, guided.Error())
+			return err
+		}
+		fmt.Fprintln(cmd.ErrOrStderr(), guided.Error())
+		return err
+	}
 	if cmd == nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		fmt.Fprintf(os.Stderr, "Hint: run `%s` for usage or `%s` for docs.\n", helpHintForCommand(nil), docsHintForCommand(nil))
