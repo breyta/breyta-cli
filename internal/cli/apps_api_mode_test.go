@@ -99,6 +99,55 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
+func TestRunsStart_AllowsExplicitSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.start" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "my-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["source"] != "draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing source=draft"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"started":    true,
+				"workflowId": "wf-source-1",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--source", "draft",
+	)
+	if err != nil {
+		t.Fatalf("runs start with --source failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestRunsStart_EmitsRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
@@ -2209,6 +2258,55 @@ func TestFlowsValidate_TargetLive_UsesResolvedVersion(t *testing.T) {
 	}
 	if step != 2 {
 		t.Fatalf("expected profile resolve + validate command, got %d", step)
+	}
+}
+
+func TestFlowsCompile_UsesActiveSourceInAPIMode(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		calls++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.compile" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-compile" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["source"] != "active" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing source=active"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-compile", "source": "active", "compiled": true},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "compile", "flow-compile",
+	)
+	if err != nil {
+		t.Fatalf("flows compile failed: %v\n%s", err, stdout)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one flows.compile command call, got %d", calls)
 	}
 }
 

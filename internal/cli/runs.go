@@ -210,6 +210,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	var flow string
 	var installationID string
 	var profileID string
+	var source string
 	var version int
 	var inputJSON string
 	var wait bool
@@ -232,6 +233,9 @@ Use runs start only when integrating with older scripts.
 					return writeErr(cmd, err)
 				}
 				payload := map[string]any{"flowSlug": flow}
+				if strings.TrimSpace(source) != "" {
+					payload["source"] = strings.TrimSpace(source)
+				}
 				if version > 0 {
 					payload["version"] = version
 				}
@@ -353,6 +357,8 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to run under (API mode only)")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
+	cmd.Flags().StringVar(&source, "source", "", "Deprecated source selector (API mode only)")
+	_ = cmd.Flags().MarkHidden("source")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
