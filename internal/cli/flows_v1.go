@@ -231,6 +231,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsArchiveCmd(app))
 	cmd.AddCommand(newFlowsDeleteCmd(app))
 	cmd.AddCommand(newFlowsSpineCmd(app))
+	cmd.AddCommand(newFlowsCompileCmd(app))
 
 	steps := &cobra.Command{Use: "steps", Short: "Manage flow steps"}
 	steps.AddCommand(newFlowsStepsListCmd(app))
@@ -1803,7 +1804,7 @@ func newFlowsCompileCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			source := "current"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0], "source": source}
+				payload := map[string]any{"flowSlug": args[0], "source": "active"}
 				return doAPICommand(cmd, app, "flows.compile", payload)
 			}
 			st, store, err := appStore(app)
