@@ -35,9 +35,14 @@ func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.
 				"message": "Run blocked by billing policy: significant overage reached.",
 				"actions": []map[string]any{
 					{
-						"kind":  "billing",
-						"label": "Billing",
-						"url":   "https://flows.breyta.ai/ws-acme/billing",
+						"kind":         "billing",
+						"label":        "Billing",
+						"url":          "https://flows.breyta.ai/ws-acme/billing",
+						"description":  "Upgrade plan to continue runs.",
+						"requiresAuth": true,
+						"tracking": map[string]any{
+							"surface": "billing-block",
+						},
 					},
 				},
 			},
@@ -69,6 +74,16 @@ func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.
 	first, _ := actions[0].(map[string]any)
 	if got, _ := first["url"].(string); got != "https://flows.breyta.ai/ws-acme/billing" {
 		t.Fatalf("unexpected first action url: %q", got)
+	}
+	if got, _ := first["description"].(string); got != "Upgrade plan to continue runs." {
+		t.Fatalf("expected action description preserved, got %#v", first["description"])
+	}
+	if got, _ := first["requiresAuth"].(bool); !got {
+		t.Fatalf("expected custom action boolean preserved, got %#v", first["requiresAuth"])
+	}
+	tracking, _ := first["tracking"].(map[string]any)
+	if got, _ := tracking["surface"].(string); got != "billing-block" {
+		t.Fatalf("expected nested custom action metadata preserved, got %#v", first["tracking"])
 	}
 
 	openPos := strings.Index(stderr, "Open Billing: https://flows.breyta.ai/ws-acme/billing")

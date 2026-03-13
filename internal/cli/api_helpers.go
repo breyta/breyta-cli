@@ -632,11 +632,13 @@ func normalizeRecoveryAction(app *App, action map[string]any) map[string]any {
 	if label == "" {
 		label = defaultRecoveryActionLabel(kind)
 	}
-	out := map[string]any{
-		"kind":  kind,
-		"label": label,
-		"url":   url,
+	out := make(map[string]any, len(action)+3)
+	for key, value := range action {
+		out[key] = value
 	}
+	out["kind"] = kind
+	out["label"] = label
+	out["url"] = url
 	if slot := firstNonBlankString(action["slot"]); slot != "" {
 		out["slot"] = slot
 	}
