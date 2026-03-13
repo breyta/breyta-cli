@@ -353,6 +353,47 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
+func runFailureShouldUseDraftBindings(command string, args map[string]any) bool {
+	switch command {
+	case "runs.start":
+		source, _ := args["source"].(string)
+		return strings.EqualFold(strings.TrimSpace(source), "draft")
+	case "flows.run":
+		if _, ok := args["profileId"]; ok {
+			return false
+		}
+		if version, ok := args["version"]; ok {
+			switch v := version.(type) {
+			case int:
+				if v > 0 {
+					return false
+				}
+			case int32:
+				if v > 0 {
+					return false
+				}
+			case int64:
+				if v > 0 {
+					return false
+				}
+			case float64:
+				if v > 0 {
+					return false
+				}
+			case float32:
+				if v > 0 {
+					return false
+				}
+			}
+		}
+		target, _ := args["target"].(string)
+		target = strings.TrimSpace(target)
+		return target == "" || strings.EqualFold(target, "draft")
+	default:
+		return false
+	}
+}
+
 func enrichCommandHints(app *App, command string, args map[string]any, status int, out map[string]any) {
 	slug, _ := args["flowSlug"].(string)
 	if strings.TrimSpace(slug) == "" {
@@ -364,9 +405,9 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
-	case "runs.start":
+	case "runs.start", "flows.run":
 		if status >= 400 || !isOK(out) {
-			if source, _ := args["source"].(string); strings.EqualFold(strings.TrimSpace(source), "draft") {
+			if runFailureShouldUseDraftBindings(command, args) {
 				addDraftBindingsHint(app, out, slug)
 			} else {
 				addActivationHint(app, out, slug)
