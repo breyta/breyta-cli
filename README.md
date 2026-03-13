@@ -85,6 +85,16 @@ breyta flows run <slug> --target live --wait
 - Command usage:
   - `breyta help <command...>`
 
+## Recovery URLs
+
+When Breyta already knows the manual fix page, open the exact URL from the CLI
+response instead of reconstructing it:
+
+- Failures: `error.actions[].url` first, then `meta.webUrl`
+- Successful reads/runs: `meta.webUrl` / `data.*.webUrl`
+- Only derive canonical URLs when the required ids are already known: billing,
+  activate, draft-bindings, installation, or connection edit
+
 ## Updates
 
 Check for a newer release:

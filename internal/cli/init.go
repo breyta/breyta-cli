@@ -295,6 +295,12 @@ Suggested line to paste into your agent's persistent project instructions:
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
+
+## Recovery URLs (when commands fail)
+- Prefer exact recovery URLs from failures: ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
+- For successful reads/runs, include web links from CLI JSON (` + "`meta.webUrl`" + ` / ` + "`data.*.webUrl`" + `) when handing proof back to users.
+- Only derive canonical recovery URLs when the needed ids are already known: billing, activate, draft-bindings, installation, or connection edit.
+- When blocked, include the exact recovery URL in runtime proof instead of generic "go to billing/setup" text.
 `)
 }
 
@@ -315,6 +321,11 @@ Suggested workflow:
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run/validate
 - Release once to live after draft is verified and approved
+
+Recovery URLs:
+- When a command fails, prefer the exact page from ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
+- For successful reads/runs, carry forward ` + "`meta.webUrl`" + ` / ` + "`data.*.webUrl`" + ` when sharing proof.
+- Only derive canonical URLs when the required ids are already known: billing, activate, draft-bindings, installation, or connection edit.
 
 Docs:
 - Product docs: ` + "`breyta docs`" + `
