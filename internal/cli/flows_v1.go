@@ -201,7 +201,7 @@ Notes:
 
 Advanced install lifecycle:
 - Release with default live + installations promotion: breyta flows release <slug>
-- Release without auto promotion: breyta flows release <slug> --no-install
+- Release without promoting end-user installations: breyta flows release <slug> --skip-promote-installations
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List installation triggers: breyta flows installations triggers <installation-id>

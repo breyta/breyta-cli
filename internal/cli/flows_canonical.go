@@ -225,33 +225,17 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 }
 
 func newFlowsReleaseCmd(app *App) *cobra.Command {
-	var install bool
-	var noInstall bool
-	var promoteScope string
+	var skipPromoteInstallations bool
 	var version string
 	var deployKey string
 
 	cmd := &cobra.Command{
 		Use:   "release <flow-slug>",
-		Short: "Create a release and promote live + all installations in the current workspace",
+		Short: "Create a release, promote live, and promote track-latest installations by default",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "release requires --api/BREYTA_API_URL")
-			}
-
-			if cmd.Flags().Changed("install") && cmd.Flags().Changed("no-install") {
-				return writeErr(cmd, errors.New("choose only one of --install or --no-install"))
-			}
-			if noInstall {
-				install = false
-			}
-			if !install && cmd.Flags().Changed("promote-scope") {
-				return writeErr(cmd, errors.New("--promote-scope cannot be used with --no-install"))
-			}
-			resolvedPromoteScope, err := normalizePromoteScope(promoteScope)
-			if err != nil {
-				return writeErr(cmd, err)
 			}
 
 			payload := map[string]any{"flowSlug": args[0]}
@@ -270,10 +254,6 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			}
 			if resolvedDeployKey != "" {
 				payload["deployKey"] = resolvedDeployKey
-			}
-
-			if !install {
-				return doAPICommand(cmd, app, "flows.release", payload)
 			}
 
 			if err := requireAPI(app); err != nil {
@@ -295,8 +275,8 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 			}
 
 			promotePayload := map[string]any{"flowSlug": args[0], "target": "live"}
-			if resolvedPromoteScope != "" {
-				promotePayload["scope"] = resolvedPromoteScope
+			if skipPromoteInstallations {
+				promotePayload["scope"] = "live"
 			}
 			releaseData, _ := releaseOut["data"].(map[string]any)
 			if activeVersion := asInt(releaseData["activeVersion"]); activeVersion > 0 {
@@ -328,12 +308,12 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 				}(),
 				"meta": map[string]any{
 					"released":   true,
-					"installed":  true,
+					"installed":  !skipPromoteInstallations,
 					"target":     "live",
 					"verifyHint": "Live runtime can differ from flow activeVersion. Verify with `breyta flows show <slug> --target live` and `breyta flows run <slug> --target live --wait`.",
 					"scope": func() string {
-						if resolvedPromoteScope != "" {
-							return resolvedPromoteScope
+						if skipPromoteInstallations {
+							return "live"
 						}
 						return "all"
 					}(),
@@ -354,9 +334,7 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&install, "install", true, "Promote this release to live installation target in the current workspace (default true)")
-	cmd.Flags().BoolVar(&noInstall, "no-install", false, "Skip automatic live installation promotion for this release")
-	cmd.Flags().StringVar(&promoteScope, "promote-scope", "", "Advanced: promotion scope for install step (all|live). Default all")
+	cmd.Flags().BoolVar(&skipPromoteInstallations, "skip-promote-installations", false, "Release and promote live, but skip promoting end-user installations")
 	cmd.Flags().StringVar(&version, "version", "", "Release version to publish (default latest from workspace current)")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd

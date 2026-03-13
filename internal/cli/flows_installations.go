@@ -145,19 +145,6 @@ func normalizeInstallTarget(target string) (string, error) {
 	}
 }
 
-func normalizeInstallPolicy(policy string) (string, error) {
-	p := strings.ToLower(strings.TrimSpace(policy))
-	if p == "" {
-		return "", nil
-	}
-	switch p {
-	case "pinned", "track-latest":
-		return p, nil
-	default:
-		return "", errors.New("invalid --policy (expected pinned or track-latest)")
-	}
-}
-
 func normalizePromoteScope(scope string) (string, error) {
 	s := strings.ToLower(strings.TrimSpace(scope))
 	if s == "" {
@@ -173,14 +160,13 @@ func normalizePromoteScope(scope string) (string, error) {
 
 func newFlowsPromoteCmd(app *App) *cobra.Command {
 	var version string
-	var policy string
 	var scope string
 	cmd := &cobra.Command{
 		Use:   "promote <flow-slug>",
-		Short: "Promote a released version to live and all installations in this workspace",
+		Short: "Promote a released version to live and all track-latest installations in this workspace",
 		Long: strings.TrimSpace(`
 Promote a released version to the live target in the current workspace.
-By default, this also updates all end-user installations for the flow.
+By default, this also updates all track-latest end-user installations for the flow.
 
 Most users run workspace-draft by default with:
 - breyta flows run <flow-slug>
@@ -190,15 +176,11 @@ After promote, verify the live runtime explicitly with flows show and a live smo
 		Example: strings.TrimSpace(`
 breyta flows promote order-ingest
 breyta flows promote order-ingest --version 42
-`),
+		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows promote requires API mode"))
-			}
-			resolvedPolicy, err := normalizeInstallPolicy(policy)
-			if err != nil {
-				return writeErr(cmd, err)
 			}
 			resolvedScope, err := normalizePromoteScope(scope)
 			if err != nil {
@@ -215,9 +197,6 @@ breyta flows promote order-ingest --version 42
 				}
 				payload["version"] = v
 			}
-			if resolvedPolicy != "" {
-				payload["policy"] = resolvedPolicy
-			}
 			if resolvedScope != "" {
 				payload["scope"] = resolvedScope
 			}
@@ -225,7 +204,6 @@ breyta flows promote order-ingest --version 42
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "latest", "Release version to promote (or latest)")
-	cmd.Flags().StringVar(&policy, "policy", "", "Advanced: install policy override (pinned|track-latest)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Advanced: promotion scope override (all|live). Default all")
 	return cmd
 }
