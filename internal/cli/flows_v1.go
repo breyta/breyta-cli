@@ -1224,6 +1224,7 @@ func newFlowsProvenanceCmd(app *App) *cobra.Command {
 
 func newFlowsProvenanceSetCmd(app *App) *cobra.Command {
 	var sources []string
+	var templates []string
 	var fromConsulted bool
 	var clear bool
 
@@ -1234,15 +1235,16 @@ func newFlowsProvenanceSetCmd(app *App) *cobra.Command {
 Replace the full set of source-flow provenance refs for a flow.
 
 Use --from-consulted to persist the flows previously opened with ` + "`breyta flows show`" + `
-or ` + "`breyta flows pull`" + ` in this agent workspace. Use --clear to explicitly remove all provenance.
+or ` + "`breyta flows pull`" + ` in this agent workspace. Use --source for workspace flows,
+--template for public templates, and --clear to explicitly remove all provenance.
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows provenance set requires API mode"))
 			}
-			if clear && (fromConsulted || len(sources) > 0) {
-				return writeErr(cmd, errors.New("--clear cannot be combined with --source or --from-consulted"))
+			if clear && (fromConsulted || len(sources) > 0 || len(templates) > 0) {
+				return writeErr(cmd, errors.New("--clear cannot be combined with --source, --template, or --from-consulted"))
 			}
 
 			flowSlug := strings.TrimSpace(args[0])
@@ -1256,9 +1258,16 @@ or ` + "`breyta flows pull`" + ` in this agent workspace. Use --clear to explici
 				return doAPICommand(cmd, app, "flows.provenance.set", payload)
 			}
 
-			refs := make([]provenanceSourceRef, 0, len(sources))
+			refs := make([]provenanceSourceRef, 0, len(sources)+len(templates))
 			for _, raw := range sources {
 				ref, err := parseProvenanceSourceRef(raw, app.WorkspaceID)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				refs = append(refs, ref)
+			}
+			for _, raw := range templates {
+				ref, err := parseProvenanceTemplateRef(raw)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
@@ -1276,7 +1285,7 @@ or ` + "`breyta flows pull`" + ` in this agent workspace. Use --clear to explici
 			}
 			refs = dedupeProvenanceSourceRefs(refs)
 			if len(refs) == 0 {
-				return writeErr(cmd, errors.New("provide --source, --from-consulted, or --clear"))
+				return writeErr(cmd, errors.New("provide --source, --template, --from-consulted, or --clear"))
 			}
 
 			payload["sourceFlows"] = provenanceSourceFlowPayloadItems(refs)
@@ -1288,6 +1297,7 @@ or ` + "`breyta flows pull`" + ` in this agent workspace. Use --clear to explici
 	}
 
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "Source flow ref (<flow-slug> or <workspace-id>/<flow-slug>); repeatable")
+	cmd.Flags().StringArrayVar(&templates, "template", nil, "Public template source slug (<template-slug>); repeatable")
 	cmd.Flags().BoolVar(&fromConsulted, "from-consulted", false, "Use consulted flows tracked in this agent workspace")
 	cmd.Flags().BoolVar(&clear, "clear", false, "Clear all provenance for this flow")
 	return cmd

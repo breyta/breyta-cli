@@ -85,6 +85,7 @@ instead of overloading `created-by`.
 - Persist curated source refs with:
   - `breyta flows provenance set <slug> --from-consulted`
   - `breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`
+  - `breyta flows provenance set <slug> --template <template-slug>`
 - Remove provenance intentionally with:
   - `breyta flows provenance set <slug> --clear`
 

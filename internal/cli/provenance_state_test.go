@@ -158,3 +158,32 @@ func TestParseProvenanceSourceRef_UsesCurrentWorkspaceWhenOmitted(t *testing.T) 
 		t.Fatalf("unexpected ref: %#v", ref)
 	}
 }
+
+func TestParseProvenanceTemplateRef_ParsesTemplateSlug(t *testing.T) {
+	ref, err := parseProvenanceTemplateRef("autonomous-code-improvement-agent-codex-cli-vm")
+	if err != nil {
+		t.Fatalf("parse template ref: %v", err)
+	}
+	if ref.TemplateSlug != "autonomous-code-improvement-agent-codex-cli-vm" {
+		t.Fatalf("unexpected template ref: %#v", ref)
+	}
+	if ref.WorkspaceID != "" || ref.FlowSlug != "" {
+		t.Fatalf("expected template ref without workspace flow fields: %#v", ref)
+	}
+}
+
+func TestProvenanceSourceFlowPayloadItems_SupportsTemplateRefs(t *testing.T) {
+	items := provenanceSourceFlowPayloadItems([]provenanceSourceRef{
+		{TemplateSlug: "autonomous-code-improvement-agent-codex-cli-vm"},
+		{WorkspaceID: "ws-1", FlowSlug: "source-flow"},
+	})
+	if len(items) != 2 {
+		t.Fatalf("expected 2 payload items, got %#v", items)
+	}
+	if items[0]["templateSlug"] != "autonomous-code-improvement-agent-codex-cli-vm" {
+		t.Fatalf("unexpected template payload item: %#v", items[0])
+	}
+	if items[1]["workspaceId"] != "ws-1" || items[1]["flowSlug"] != "source-flow" {
+		t.Fatalf("unexpected workspace payload item: %#v", items[1])
+	}
+}

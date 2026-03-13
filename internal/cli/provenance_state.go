@@ -17,9 +17,10 @@ const (
 var consultedFlowsStateRelativePath = filepath.Join("tmp", "consulted-flows.json")
 
 type provenanceSourceRef struct {
-	WorkspaceID string `json:"workspaceId"`
-	FlowSlug    string `json:"flowSlug"`
-	ConsultedAt string `json:"consultedAt,omitempty"`
+	WorkspaceID  string `json:"workspaceId,omitempty"`
+	FlowSlug     string `json:"flowSlug,omitempty"`
+	TemplateSlug string `json:"templateSlug,omitempty"`
+	ConsultedAt  string `json:"consultedAt,omitempty"`
 }
 
 type consultedFlowsState struct {
@@ -30,15 +31,32 @@ type consultedFlowsState struct {
 func normalizeProvenanceSourceRef(ref provenanceSourceRef) (provenanceSourceRef, bool) {
 	ref.WorkspaceID = strings.TrimSpace(ref.WorkspaceID)
 	ref.FlowSlug = strings.TrimSpace(ref.FlowSlug)
+	ref.TemplateSlug = strings.TrimSpace(ref.TemplateSlug)
 	ref.ConsultedAt = strings.TrimSpace(ref.ConsultedAt)
+	if ref.TemplateSlug != "" {
+		if ref.WorkspaceID != "" || ref.FlowSlug != "" {
+			return provenanceSourceRef{}, false
+		}
+		return provenanceSourceRef{
+			TemplateSlug: ref.TemplateSlug,
+			ConsultedAt:  ref.ConsultedAt,
+		}, true
+	}
 	if ref.WorkspaceID == "" || ref.FlowSlug == "" {
 		return provenanceSourceRef{}, false
 	}
-	return ref, true
+	return provenanceSourceRef{
+		WorkspaceID: ref.WorkspaceID,
+		FlowSlug:    ref.FlowSlug,
+		ConsultedAt: ref.ConsultedAt,
+	}, true
 }
 
 func provenanceSourceRefKey(ref provenanceSourceRef) string {
-	return ref.WorkspaceID + "\x00" + ref.FlowSlug
+	if ref.TemplateSlug != "" {
+		return "template\x00" + ref.TemplateSlug
+	}
+	return "flow\x00" + ref.WorkspaceID + "\x00" + ref.FlowSlug
 }
 
 func dedupeProvenanceSourceRefs(refs []provenanceSourceRef) []provenanceSourceRef {
@@ -265,9 +283,12 @@ func provenanceCandidatesMetaItems(refs []provenanceSourceRef) []map[string]any 
 		if !ok {
 			continue
 		}
-		item := map[string]any{
-			"workspaceId": normalized.WorkspaceID,
-			"flowSlug":    normalized.FlowSlug,
+		item := map[string]any{}
+		if normalized.TemplateSlug != "" {
+			item["templateSlug"] = normalized.TemplateSlug
+		} else {
+			item["workspaceId"] = normalized.WorkspaceID
+			item["flowSlug"] = normalized.FlowSlug
 		}
 		if normalized.ConsultedAt != "" {
 			item["consultedAt"] = normalized.ConsultedAt
@@ -370,6 +391,17 @@ func parseProvenanceSourceRef(raw string, defaultWorkspaceID string) (provenance
 	return provenanceSourceRef{WorkspaceID: workspaceID, FlowSlug: flowSlug}, nil
 }
 
+func parseProvenanceTemplateRef(raw string) (provenanceSourceRef, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return provenanceSourceRef{}, fmt.Errorf("empty template slug")
+	}
+	if !isAPIValidFlowSlug(raw) {
+		return provenanceSourceRef{}, fmt.Errorf("invalid template slug %q", raw)
+	}
+	return provenanceSourceRef{TemplateSlug: raw}, nil
+}
+
 func provenanceSourceFlowPayloadItems(refs []provenanceSourceRef) []map[string]any {
 	if len(refs) == 0 {
 		return []map[string]any{}
@@ -378,6 +410,12 @@ func provenanceSourceFlowPayloadItems(refs []provenanceSourceRef) []map[string]a
 	for _, ref := range refs {
 		normalized, ok := normalizeProvenanceSourceRef(ref)
 		if !ok {
+			continue
+		}
+		if normalized.TemplateSlug != "" {
+			items = append(items, map[string]any{
+				"templateSlug": normalized.TemplateSlug,
+			})
 			continue
 		}
 		items = append(items, map[string]any{

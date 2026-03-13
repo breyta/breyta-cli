@@ -88,6 +88,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "breyta flows provenance set <slug> --from-consulted") {
 		t.Fatalf("expected provenance command guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows provenance set <slug> --template <template-slug>") {
+		t.Fatalf("expected template provenance guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "name the idempotency or duplicate-protection key") {
 		t.Fatalf("expected idempotency guidance, got:\n%s", body)
 	}
