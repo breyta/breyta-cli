@@ -353,6 +353,56 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
+func enrichCommandHints(app *App, command string, args map[string]any, status int, out map[string]any) {
+	slug, _ := args["flowSlug"].(string)
+	if strings.TrimSpace(slug) == "" {
+		return
+	}
+
+	switch command {
+	case "flows.get":
+		if flowLiteralDeclaresRequires(out) {
+			addActivationHint(app, out, slug)
+		}
+	case "runs.start":
+		if status >= 400 || !isOK(out) {
+			if source, _ := args["source"].(string); strings.EqualFold(strings.TrimSpace(source), "draft") {
+				addDraftBindingsHint(app, out, slug)
+			} else {
+				addActivationHint(app, out, slug)
+			}
+		}
+	case "flows.deploy":
+		if status >= 400 || !isOK(out) {
+			addActivationHint(app, out, slug)
+		} else {
+			client := apiClient(app)
+			getOut, getStatus, getErr := client.DoCommand(
+				context.Background(),
+				"flows.get",
+				map[string]any{"flowSlug": slug},
+			)
+			if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
+				addActivationHint(app, out, slug)
+			}
+		}
+	case "flows.release":
+		if status >= 400 || !isOK(out) {
+			addActivationHint(app, out, slug)
+		} else {
+			client := apiClient(app)
+			getOut, getStatus, getErr := client.DoCommand(
+				context.Background(),
+				"flows.get",
+				map[string]any{"flowSlug": slug},
+			)
+			if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
+				addActivationHint(app, out, slug)
+			}
+		}
+	}
+}
+
 func isOK(out map[string]any) bool {
 	if out == nil {
 		return false
@@ -923,59 +973,7 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 	}
 	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
 
-	// Progressive disclosure: only add installation/configuration hints when relevant.
-	//
-	// Avoid always emitting install/configure hints on successful releases for flows that have no :requires
-	// (this was confusing and produced false hints).
-	if slug, _ := args["flowSlug"].(string); strings.TrimSpace(slug) != "" {
-		switch command {
-		case "flows.get":
-			if flowLiteralDeclaresRequires(out) {
-				addActivationHint(app, out, slug)
-			}
-		case "runs.start":
-			// Only add when runs.start failed (common when missing installation config).
-			if status >= 400 || !isOK(out) {
-				if source, _ := args["source"].(string); strings.EqualFold(strings.TrimSpace(source), "draft") {
-					addDraftBindingsHint(app, out, slug)
-				} else {
-					addActivationHint(app, out, slug)
-				}
-			}
-		case "flows.deploy":
-			// If release/deploy failed, installation promotion may still be relevant.
-			if status >= 400 || !isOK(out) {
-				addActivationHint(app, out, slug)
-			} else {
-				// On success, best-effort check whether the released flow declares :requires
-				// before adding installation hints (avoids false positives).
-				getOut, getStatus, getErr := client.DoCommand(
-					context.Background(),
-					"flows.get",
-					map[string]any{"flowSlug": slug},
-				)
-				if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
-					addActivationHint(app, out, slug)
-				}
-			}
-		case "flows.release":
-			// If release failed, installation configuration may still be relevant.
-			if status >= 400 || !isOK(out) {
-				addActivationHint(app, out, slug)
-			} else {
-				// On success, best-effort check whether the released flow declares :requires
-				// before adding installation hints (avoids false positives).
-				getOut, getStatus, getErr := client.DoCommand(
-					context.Background(),
-					"flows.get",
-					map[string]any{"flowSlug": slug},
-				)
-				if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
-					addActivationHint(app, out, slug)
-				}
-			}
-		}
-	}
+	enrichCommandHints(app, command, args, status, out)
 
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)

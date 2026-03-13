@@ -78,6 +78,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			trackCommandTelemetry(app, "runs.start", payload, status, status < 400 && isOK(startResp))
+			enrichCommandHints(app, "runs.start", payload, status, startResp)
 			if !wait || status >= 400 {
 				return writeAPIResult(cmd, app, startResp, status)
 			}
