@@ -182,6 +182,7 @@ Goal: preserve clear lineage to source flows without changing the meaning of ` +
 - after creating or updating a derived flow, persist curated provenance with:
   - ` + "`breyta flows provenance set <slug> --from-consulted`" + `
   - ` + "`breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`" + `
+  - ` + "`breyta flows provenance set <slug> --template <template-slug>`" + `
 - only clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `
 - when several source flows were consulted, keep only the flows that actually mattered to the final implementation`
 

@@ -276,3 +276,44 @@ func TestFlowsProvenanceSet_ClearBuildsEmptyPayload(t *testing.T) {
 		t.Fatalf("expected clear payload to send empty sourceFlows, got %#v", sources)
 	}
 }
+
+func TestFlowsProvenanceSet_TemplateBuildsPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		if method != "flows.provenance.set" {
+			t.Fatalf("expected flows.provenance.set, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-1", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsProvenanceSetCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"target-flow", "--template", "autonomous-code-improvement-agent-codex-cli-vm"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	sources, ok := gotPayload["sourceFlows"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected sourceFlows payload, got %#v", gotPayload["sourceFlows"])
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected one template source flow, got %#v", sources)
+	}
+	if sources[0]["templateSlug"] != "autonomous-code-improvement-agent-codex-cli-vm" {
+		t.Fatalf("unexpected template source payload: %#v", sources[0])
+	}
+}
