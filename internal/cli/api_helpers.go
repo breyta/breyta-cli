@@ -602,17 +602,10 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 	return nil
 }
 
-func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
-	if err := requireAPI(app); err != nil {
-		return writeErr(cmd, err)
+func enrichAPICommandResult(app *App, client api.Client, command string, args map[string]any, out map[string]any, status int) {
+	if out == nil {
+		return
 	}
-	client := apiClient(app)
-	out, status, err := client.DoCommand(context.Background(), command, args)
-	if err != nil {
-		return writeErr(cmd, err)
-	}
-	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
-
 	// Progressive disclosure: only add installation/configuration hints when relevant.
 	//
 	// Avoid always emitting install/configure hints on successful releases for flows that have no :requires
@@ -666,7 +659,34 @@ func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]
 			}
 		}
 	}
+}
 
+func runAPICommandWithContext(ctx context.Context, app *App, command string, args map[string]any) (map[string]any, int, error) {
+	if err := requireAPI(app); err != nil {
+		return nil, 0, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client := apiClient(app)
+	out, status, err := client.DoCommand(ctx, command, args)
+	if err != nil {
+		return nil, 0, err
+	}
+	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
+	enrichAPICommandResult(app, client, command, args, out, status)
+	return out, status, nil
+}
+
+func runAPICommand(app *App, command string, args map[string]any) (map[string]any, int, error) {
+	return runAPICommandWithContext(context.Background(), app, command, args)
+}
+
+func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
+	out, status, err := runAPICommand(app, command, args)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)
 	}

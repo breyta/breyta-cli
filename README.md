@@ -75,6 +75,19 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+## Provenance
+
+If a new flow was derived from existing flows, keep that lineage in flow metadata
+instead of overloading `created-by`.
+
+- `breyta flows show <slug>` and `breyta flows pull <slug>` record consulted flows
+  inside an initialized agent workspace.
+- Persist curated source refs with:
+  - `breyta flows provenance set <slug> --from-consulted`
+  - `breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`
+- Remove provenance intentionally with:
+  - `breyta flows provenance set <slug> --clear`
+
 ## Docs And Help
 
 - Product docs:

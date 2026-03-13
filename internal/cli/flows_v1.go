@@ -228,6 +228,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsParenCheckCmd(app))
 	cmd.AddCommand(newFlowsDeployCmd(app))
 	cmd.AddCommand(newFlowsUpdateCmd(app))
+	cmd.AddCommand(newFlowsProvenanceCmd(app))
 	cmd.AddCommand(newFlowsArchiveCmd(app))
 	cmd.AddCommand(newFlowsDeleteCmd(app))
 	cmd.AddCommand(newFlowsSpineCmd(app))
@@ -655,7 +656,10 @@ breyta flows show order-ingest --target live
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetChanged := cmd.Flags().Changed("target")
-			resolvedTarget := "draft"
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"source":   "draft",
+			}
 			if targetChanged {
 				if !isAPIMode(app) {
 					return writeErr(cmd, errors.New("--target requires API mode"))
@@ -664,33 +668,42 @@ breyta flows show order-ingest --target live
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				resolvedTarget = s
-				if resolvedTarget == "live" && version > 0 {
+				if s == "live" && version > 0 {
 					return writeErr(cmd, errors.New("--target cannot be combined with --version"))
 				}
-				if resolvedTarget == "live" {
+				if s == "live" {
 					target, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], true)
 					if err != nil {
 						return writeErr(cmd, err)
 					}
-					payload := map[string]any{
-						"flowSlug": args[0],
-						"source":   "active",
-					}
+					payload["source"] = "active"
 					if target.Version > 0 {
 						payload["version"] = target.Version
 					}
-					return doAPICommand(cmd, app, "flows.get", payload)
 				}
 			}
 
-			source := "draft"
 			if isAPIMode(app) {
-				payload := map[string]any{"flowSlug": args[0], "source": source}
 				if version > 0 {
 					payload["version"] = version
 				}
-				return doAPICommand(cmd, app, "flows.get", payload)
+				if useDoAPICommandFn {
+					return doAPICommandFn(cmd, app, "flows.get", payload)
+				}
+				out, status, err := runAPICommand(app, "flows.get", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if status < 400 && isOK(out) {
+					_ = recordConsultedFlow(provenanceSourceRef{
+						WorkspaceID: workspaceIDFromEnvelope(out, app.WorkspaceID),
+						FlowSlug:    args[0],
+					})
+				}
+				if err := writeAPIResult(cmd, app, out, status); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
 			}
 			st, _, err := appStore(app)
 			if err != nil {
@@ -777,7 +790,21 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 				// Create a minimal draft (version) on the server.
 				// Users/agents can then pull/edit/push and deploy explicitly.
 				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency {:type :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :flow '(let [input (flow/input)]\n          input)}\n", slug, name, description)
-				return doAPICommand(cmd, app, "flows.put_draft", map[string]any{"flowLiteral": flowLiteral})
+				payload := map[string]any{"flowLiteral": flowLiteral}
+				if useDoAPICommandFn {
+					return doAPICommandFn(cmd, app, "flows.put_draft", payload)
+				}
+				out, status, err := runAPICommand(app, "flows.put_draft", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if status < 400 && isOK(out) {
+					_ = appendProvenanceHints(out, workspaceIDFromEnvelope(out, app.WorkspaceID), slug)
+				}
+				if err := writeAPIResult(cmd, app, out, status); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -861,16 +888,11 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				}
 			}
 
-			client := apiClient(app)
-			reqCtx := cmd.Context()
-			if reqCtx == nil {
-				reqCtx = context.Background()
-			}
-			resp, status, err := client.DoCommand(reqCtx, "flows.get", payload)
+			resp, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if status >= 400 {
+			if status >= 400 || !isOK(resp) {
 				return writeAPIResult(cmd, app, resp, status)
 			}
 
@@ -893,6 +915,10 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
 				return writeErr(cmd, err)
 			}
+			_ = recordConsultedFlow(provenanceSourceRef{
+				WorkspaceID: workspaceIDFromEnvelope(resp, app.WorkspaceID),
+				FlowSlug:    slug,
+			})
 			result := map[string]any{"saved": true, "path": path, "flowSlug": slug}
 			if targetChanged {
 				result["target"] = resolvedTarget
@@ -980,7 +1006,6 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
-			client := apiClient(app)
 			payload := map[string]any{"flowLiteral": flowLiteral}
 			resolvedDeployKey := strings.TrimSpace(deployKey)
 			if resolvedDeployKey == "" {
@@ -989,11 +1014,11 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if resolvedDeployKey != "" {
 				payload["deploy-key"] = resolvedDeployKey
 			}
-			out, status, err := client.DoCommand(context.Background(), "flows.put_draft", payload)
+			out, status, err := runAPICommand(app, "flows.put_draft", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if status >= 400 {
+			if status >= 400 || !isOK(out) {
 				return writeAPIResult(cmd, app, out, status)
 			}
 			flowSlug := ""
@@ -1005,6 +1030,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				}
 			}
 			if !validate {
+				if flowSlug != "" {
+					_ = appendProvenanceHints(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
+				}
 				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 					"product":   "flows",
 					"channel":   "cli",
@@ -1028,6 +1056,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeAPIResult(cmd, app, out, status)
 			}
 
+			client := apiClient(app)
 			validateOut, validateStatus, err := client.DoCommand(context.Background(), "flows.validate", map[string]any{
 				"flowSlug": flowSlug,
 				"source":   "draft",
@@ -1036,6 +1065,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
+				_ = appendProvenanceHints(validateOut, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
 				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 					"product":         "flows",
 					"channel":         "cli",
@@ -1051,6 +1081,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				meta["validated"] = true
 				meta["validateSource"] = "draft"
 			}
+			_ = appendProvenanceHints(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
 			trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 				"product":         "flows",
 				"channel":         "cli",
@@ -1179,6 +1210,86 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")
 	cmd.Flags().StringVar(&groupDescription, "group-description", "", "Group description")
+	return cmd
+}
+
+func newFlowsProvenanceCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "provenance",
+		Short: "Manage flow provenance metadata",
+	}
+	cmd.AddCommand(newFlowsProvenanceSetCmd(app))
+	return cmd
+}
+
+func newFlowsProvenanceSetCmd(app *App) *cobra.Command {
+	var sources []string
+	var fromConsulted bool
+	var clear bool
+
+	cmd := &cobra.Command{
+		Use:   "set <flow-slug>",
+		Short: "Replace flow provenance metadata",
+		Long: strings.TrimSpace(`
+Replace the full set of source-flow provenance refs for a flow.
+
+Use --from-consulted to persist the flows previously opened with ` + "`breyta flows show`" + `
+or ` + "`breyta flows pull`" + ` in this agent workspace. Use --clear to explicitly remove all provenance.
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows provenance set requires API mode"))
+			}
+			if clear && (fromConsulted || len(sources) > 0) {
+				return writeErr(cmd, errors.New("--clear cannot be combined with --source or --from-consulted"))
+			}
+
+			flowSlug := strings.TrimSpace(args[0])
+			payload := map[string]any{"flowSlug": flowSlug}
+
+			if clear {
+				payload["sourceFlows"] = []map[string]any{}
+				if useDoAPICommandFn {
+					return doAPICommandFn(cmd, app, "flows.provenance.set", payload)
+				}
+				return doAPICommand(cmd, app, "flows.provenance.set", payload)
+			}
+
+			refs := make([]provenanceSourceRef, 0, len(sources))
+			for _, raw := range sources {
+				ref, err := parseProvenanceSourceRef(raw, app.WorkspaceID)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				refs = append(refs, ref)
+			}
+			if fromConsulted {
+				consulted, err := currentProvenanceCandidates(app.WorkspaceID, flowSlug)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if len(consulted) == 0 && len(refs) == 0 {
+					return writeErr(cmd, errors.New("no consulted flows found; use `breyta flows show` or `breyta flows pull` first, or pass --source"))
+				}
+				refs = append(refs, consulted...)
+			}
+			refs = dedupeProvenanceSourceRefs(refs)
+			if len(refs) == 0 {
+				return writeErr(cmd, errors.New("provide --source, --from-consulted, or --clear"))
+			}
+
+			payload["sourceFlows"] = provenanceSourceFlowPayloadItems(refs)
+			if useDoAPICommandFn {
+				return doAPICommandFn(cmd, app, "flows.provenance.set", payload)
+			}
+			return doAPICommand(cmd, app, "flows.provenance.set", payload)
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&sources, "source", nil, "Source flow ref (<flow-slug> or <workspace-id>/<flow-slug>); repeatable")
+	cmd.Flags().BoolVar(&fromConsulted, "from-consulted", false, "Use consulted flows tracked in this agent workspace")
+	cmd.Flags().BoolVar(&clear, "clear", false, "Clear all provenance for this flow")
 	return cmd
 }
 
