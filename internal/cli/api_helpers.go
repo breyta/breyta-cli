@@ -251,7 +251,11 @@ func activationURL(app *App, slug string) string {
 	if slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/flows/%s/activate", baseURL(app), app.WorkspaceID, slug)
+	base := workspaceWebBaseURL(app)
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/flows/%s/activate", base, slug)
 }
 
 func draftBindingsURL(app *App, slug string) string {
@@ -259,7 +263,11 @@ func draftBindingsURL(app *App, slug string) string {
 	if slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/flows/%s/draft-bindings", baseURL(app), app.WorkspaceID, slug)
+	base := workspaceWebBaseURL(app)
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/flows/%s/draft-bindings", base, slug)
 }
 
 func getErrorMessage(out map[string]any) string {
