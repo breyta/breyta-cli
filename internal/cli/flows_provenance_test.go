@@ -15,15 +15,7 @@ import (
 func withAgentWorkspaceCwd(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o755); err != nil {
-		t.Fatalf("mkdir tmp: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "flows"), 0o755); err != nil {
-		t.Fatalf("mkdir flows: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
-		t.Fatalf("write AGENTS.md: %v", err)
-	}
+	writeBreytaAgentWorkspace(t, root)
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)

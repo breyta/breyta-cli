@@ -6,15 +6,26 @@ import (
 	"testing"
 )
 
+func writeBreytaAgentWorkspace(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "flows"), 0o755); err != nil {
+		t.Fatalf("mkdir flows: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tmp", "flows"), 0o755); err != nil {
+		t.Fatalf("mkdir tmp/flows: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+}
+
 func TestFindAgentWorkspaceRoot_FindsNearestAgentsFile(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "flows", "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
-		t.Fatalf("write AGENTS.md: %v", err)
-	}
+	writeBreytaAgentWorkspace(t, root)
 
 	got, found, err := findAgentWorkspaceRoot(nested)
 	if err != nil {
@@ -28,14 +39,52 @@ func TestFindAgentWorkspaceRoot_FindsNearestAgentsFile(t *testing.T) {
 	}
 }
 
-func TestRecordConsultedFlowFromStart_PersistsRecencyWithoutDuplicates(t *testing.T) {
+func TestFindAgentWorkspaceRoot_IgnoresGenericAgentsFile(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o755); err != nil {
-		t.Fatalf("mkdir tmp: %v", err)
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# generic\n"), 0o644); err != nil {
 		t.Fatalf("write AGENTS.md: %v", err)
 	}
+
+	got, found, err := findAgentWorkspaceRoot(nested)
+	if err != nil {
+		t.Fatalf("find root: %v", err)
+	}
+	if found {
+		t.Fatalf("expected no workspace root, got %q", got)
+	}
+}
+
+func TestFindAgentWorkspaceRoot_PrefersNearestValidWorkspace(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# generic\n"), 0o644); err != nil {
+		t.Fatalf("write parent AGENTS.md: %v", err)
+	}
+	workspaceRoot := filepath.Join(root, "breyta-workspace")
+	writeBreytaAgentWorkspace(t, workspaceRoot)
+	nested := filepath.Join(workspaceRoot, "flows", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	got, found, err := findAgentWorkspaceRoot(nested)
+	if err != nil {
+		t.Fatalf("find root: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected workspace root to be found")
+	}
+	if got != workspaceRoot {
+		t.Fatalf("expected root %q, got %q", workspaceRoot, got)
+	}
+}
+
+func TestRecordConsultedFlowFromStart_PersistsRecencyWithoutDuplicates(t *testing.T) {
+	root := t.TempDir()
+	writeBreytaAgentWorkspace(t, root)
 
 	if err := recordConsultedFlowFromStart(root, provenanceSourceRef{WorkspaceID: "ws-1", FlowSlug: "alpha"}); err != nil {
 		t.Fatalf("record alpha: %v", err)
@@ -68,12 +117,7 @@ func TestCurrentProvenanceCandidates_FiltersCurrentFlow(t *testing.T) {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		t.Fatalf("mkdir workdir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o755); err != nil {
-		t.Fatalf("mkdir tmp: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
-		t.Fatalf("write AGENTS.md: %v", err)
-	}
+	writeBreytaAgentWorkspace(t, root)
 	if err := saveConsultedFlowRefsFromStart(root, []provenanceSourceRef{
 		{WorkspaceID: "ws-1", FlowSlug: "source-a"},
 		{WorkspaceID: "ws-1", FlowSlug: "target-flow"},

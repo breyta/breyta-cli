@@ -65,6 +65,37 @@ func dedupeProvenanceSourceRefs(refs []provenanceSourceRef) []provenanceSourceRe
 	return out
 }
 
+func isBreytaAgentWorkspaceRoot(dir string) (bool, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return false, nil
+	}
+	requiredPaths := []string{
+		filepath.Join(dir, "AGENTS.md"),
+		filepath.Join(dir, "flows"),
+		filepath.Join(dir, "tmp", "flows"),
+	}
+	for _, path := range requiredPaths {
+		st, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if strings.HasSuffix(path, ".md") {
+			if st.IsDir() {
+				return false, nil
+			}
+			continue
+		}
+		if !st.IsDir() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func findAgentWorkspaceRoot(start string) (string, bool, error) {
 	start = strings.TrimSpace(start)
 	if start == "" {
@@ -83,11 +114,12 @@ func findAgentWorkspaceRoot(start string) (string, bool, error) {
 		dir = filepath.Dir(absStart)
 	}
 	for {
-		agentsPath := filepath.Join(dir, "AGENTS.md")
-		if st, err := os.Stat(agentsPath); err == nil && !st.IsDir() {
-			return dir, true, nil
-		} else if err != nil && !os.IsNotExist(err) {
+		valid, err := isBreytaAgentWorkspaceRoot(dir)
+		if err != nil {
 			return "", false, err
+		}
+		if valid {
+			return dir, true, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
