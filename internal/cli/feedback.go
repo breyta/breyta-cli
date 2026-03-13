@@ -105,7 +105,7 @@ func newFeedbackSendCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Submit product feedback, feature requests, or issue reports from CLI workflows.
 
-Reports are persisted server-side and forwarded to internal notification channels.
+Reports are stored server-side so the Breyta team can review and respond.
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typeNormalized, err := normalizeFeedbackType(feedbackType)

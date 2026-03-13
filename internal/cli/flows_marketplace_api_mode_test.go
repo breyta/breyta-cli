@@ -9,7 +9,11 @@ import (
 )
 
 func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
-	t.Parallel()
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -80,7 +84,11 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 }
 
 func TestFlowsMarketplaceUpdate_ForwardsVisibleFalse(t *testing.T) {
-	t.Parallel()
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 
 	var sawVisibleFalse atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

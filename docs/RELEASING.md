@@ -1,6 +1,9 @@
 # Releasing `breyta-cli`
 
-This is the maintainer runbook for cutting a new `breyta-cli` release.
+Maintainer-only runbook for cutting a new `breyta-cli` release.
+
+This repository is public, but this document is for Breyta maintainers operating
+the release pipeline.
 
 ## Versioning
 

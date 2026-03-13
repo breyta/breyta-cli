@@ -16,7 +16,7 @@ import (
 func newRevenueCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "revenue", Short: "Marketplace revenue (mock)"}
 	cmd.AddCommand(newRevenueShowCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newRevenueShowCmd(app *App) *cobra.Command {
@@ -73,7 +73,7 @@ func newDemandCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newDemandQueriesCmd(app))
 	cmd.AddCommand(newDemandClustersCmd(app))
 	cmd.AddCommand(newDemandClusterShowCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newDemandTopCmd(app *App) *cobra.Command {

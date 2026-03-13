@@ -159,7 +159,6 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintf(cmd.OutOrStdout(), "- Open this folder in your agent tool (or `cd %s` and start the agent) so it can read %s\n", absDir, agentsPath)
 			fmt.Fprintln(cmd.OutOrStdout(), "- Authenticate: breyta auth login")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Verify: breyta workspaces list && breyta flows list")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Optional: open the TUI with: breyta")
 			fmt.Fprintf(cmd.OutOrStdout(), "- Agent docs: breyta docs (or see %s)\n", agentsPath)
 			return nil
 		},
@@ -208,9 +207,10 @@ func renderInitAgentsMD(target skills.InstallTarget, skillNotInstalled bool) str
 This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code, Gemini CLI, etc.) to build and operate Breyta workflows ("flows") through the ` + "`breyta`" + ` CLI.
 
 ## First-time setup
-- Verify the CLI is installed: ` + "`breyta --version`" + `
+- Verify the CLI is installed: ` + "`breyta version`" + `
 - Authenticate (hosted Breyta): ` + "`breyta auth login`" + `
-- Verify you can talk to the API: ` + "`breyta workspaces list`" + ` and ` + "`breyta flows list`" + `
+- Choose a workspace: ` + "`breyta workspaces list`" + ` then ` + "`breyta workspaces use <workspace-id>`" + `
+- Verify you can talk to the API: ` + "`breyta flows list`" + `
 
 ## Where to keep flow files
 - ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)
@@ -295,26 +295,19 @@ Suggested line to paste into your agent's persistent project instructions:
 - Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
-
-## Local development (optional)
-For local ` + "`flows-api`" + ` development you typically use dev mode + env vars:
-
-` + "```bash\n" + `export BREYTA_API_URL="http://localhost:8090"
-export BREYTA_WORKSPACE="ws-acme"
-export BREYTA_TOKEN="dev-user-123"
-breyta --dev flows list
-` + "```\n" + `
 `)
 }
 
 func renderInitReadmeMD() string {
 	return strings.TrimSpace(`# Breyta workspace
 
-This directory was created by ` + "`breyta init`" + `.
+This directory was created by ` + "`breyta init`" + ` for coding-agent-driven Breyta work.
 
 Quick start:
 
 ` + "```bash\n" + `breyta auth login
+breyta workspaces list
+breyta workspaces use <workspace-id>
 breyta flows list
 ` + "```\n" + `
 
@@ -324,6 +317,7 @@ Suggested workflow:
 - Release once to live after draft is verified and approved
 
 Docs:
-- CLI docs: ` + "`breyta docs`" + `
+- Product docs: ` + "`breyta docs`" + `
+- Command help: ` + "`breyta help <command...>`" + `
 `)
 }

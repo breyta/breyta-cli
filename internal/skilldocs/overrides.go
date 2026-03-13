@@ -62,16 +62,16 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
 
 - :name
   - format: <primary outcome> for <channel/system>
-  - include high-intent keywords when relevant (for example autonomous, support, gmail, ai)
+  - include high-intent keywords when relevant (for example invoice, approval, webhook, ai)
 - :description
   - one sentence with trigger mode + core actions + final outcome
   - avoid vague wording like "process data"
 - :tags
   - include 4-8 searchable nouns/adjectives tied to intent and channel
-  - example set: ["autonomous" "support-agent" "support" "gmail" "llm"]
+  - example set: ["invoice" "approval" "webhook" "billing" "llm"]
 - trigger :label
   - make mode/source explicit: manual test vs webhook vs schedule cadence
-  - examples: Manual smoke test (support agent), Autonomous support reply (Gmail push webhook), Fallback autonomous support scan (every 5 minutes)
+  - examples: Manual smoke test (invoice approval), New invoice webhook, Fallback billing reconciliation (every 5 minutes)
 - step id in flow/step
   - use kebab-case verb-object names that reveal action and object
   - prefer read-selected-email, send-reply-email over generic/internal names like step1, normalize, finalize
@@ -87,13 +87,13 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
   - default to Should we ...? framing when possible
   - examples:
     - ^{:label "Should we send the reply now?" :yes "Send reply email" :no "Skip send and return skip reason"}
-    - ^{:label "Should we check Gmail for new support emails?" :yes "Check inbox for new emails" :no "Use provided support context only"}
+    - ^{:label "Should we process the webhook payload now?" :yes "Process payload and continue" :no "Skip processing and return skip reason"}
 - pre-push scan check
   - from :name, :description, :triggers, and first few step ids/titles, a new operator should infer flow behavior in ~10 seconds
 - CLI search clarity
   - breyta flows search <query> is for approved template discovery, not workspace flow lookup
   - for workspace lookup, use breyta flows list output with explicit keywords and grep/filter locally
-  - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example autonomous, support, gmail, reply)`
+  - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example invoice, approval, webhook, billing)`
 
 const workflowPlanningSection = `## Workflow architecture planning (Required before build)
 
@@ -111,14 +111,14 @@ Goal: design the flow architecture first so implementation follows a clear patte
   - failure policy (retry, fallback, fail-fast rules)
   - idempotency and duplicate protection strategy
   - observability plan (what run output proves success, what labels make triage fast)
-- pattern-first design (adapted from proven n8n workflow patterns)
+- pattern-first design
   - choose the dominant pattern up front: webhook processing, HTTP API integration, database operations, AI agent workflow, or scheduled task
   - if multiple patterns are needed, split by clear subpaths and name each subpath explicitly in steps/titles
   - enforce deterministic progression: trigger -> intake -> decide -> act -> summarize -> post-process
   - define edge cases before build (no items, partial data, external API failure, already-processed input)
-- support-agent pattern defaults
-  - path one: renew watch subscription
-  - path two: process support email and draft/send response
+- common multi-path default
+  - path one: receive or fetch the work item
+  - path two: validate, decide, and perform the side effect
   - keep shared preparation and final summary explicit, not hidden in generic finalize/normalize labels
 - anti-patterns to avoid
   - technical/internal step names that hide behavior

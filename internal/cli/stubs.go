@@ -1893,7 +1893,7 @@ func newRegistryCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newRegistryVersionsCmd(app))
 	cmd.AddCommand(newRegistryMatchCmd(app))
 	cmd.AddCommand(newRegistryInstallCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newRegistrySearchCmd(app *App) *cobra.Command {
@@ -2568,7 +2568,7 @@ func newPricingCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "pricing", Short: "Pricing for registry listings (mock)"}
 	cmd.AddCommand(newPricingShowCmd(app))
 	cmd.AddCommand(newPricingSetCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newPricingShowCmd(app *App) *cobra.Command {
@@ -2641,7 +2641,7 @@ func newPurchasesCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newPurchasesListCmd(app))
 	cmd.AddCommand(newPurchasesShowCmd(app))
 	cmd.AddCommand(newPurchasesCreateCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newPurchasesListCmd(app *App) *cobra.Command {
@@ -2730,7 +2730,7 @@ func newEntitlementsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "entitlements", Short: "Entitlements (mock)"}
 	cmd.AddCommand(newEntitlementsListCmd(app))
 	cmd.AddCommand(newEntitlementsShowCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newEntitlementsListCmd(app *App) *cobra.Command {
@@ -2775,7 +2775,7 @@ func newPayoutsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "payouts", Short: "Creator payouts (mock)"}
 	cmd.AddCommand(newPayoutsListCmd(app))
 	cmd.AddCommand(newPayoutsShowCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newPayoutsListCmd(app *App) *cobra.Command {
@@ -2819,7 +2819,7 @@ func newPayoutsShowCmd(app *App) *cobra.Command {
 func newCreatorCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "creator", Short: "Creator dashboard (mock)"}
 	cmd.AddCommand(newCreatorDashboardCmd(app))
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }
 
 func newCreatorDashboardCmd(app *App) *cobra.Command {
@@ -2893,5 +2893,5 @@ func newAnalyticsCmd(app *App) *cobra.Command {
 			"funnel": map[string]any{"views": views, "installs": installs, "active": active},
 		})
 	}})
-	return cmd
+	return hideDevOnlyCommandTree(cmd, app)
 }

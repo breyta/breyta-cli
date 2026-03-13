@@ -47,6 +47,8 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
+      - src: LICENSE
+      - src: THIRD_PARTY_NOTICES.md
       - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust
         dst: parinfer-rust
   - id: windows
@@ -56,6 +58,8 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
+      - src: LICENSE
+      - src: THIRD_PARTY_NOTICES.md
       - src: tools/parinfer-rust/windows/amd64/parinfer-rust.exe
         dst: parinfer-rust.exe
 
@@ -75,7 +79,8 @@ brews:
       branch: main
     directory: Formula
     homepage: https://flows.breyta.ai
-    description: "Breyta CLI + TUI for working with flows"
+    description: "Command-line interface for working with Breyta flows"
+    license: "MIT"
     install: |
       bin.install "breyta"
       bin.install "parinfer-rust"

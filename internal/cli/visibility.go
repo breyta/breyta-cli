@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,7 +17,6 @@ func configureVisibility(root *cobra.Command, app *App) {
 	app.visibilityConfigured = true
 
 	// Default: keep a minimal surface area for agents and humans.
-	// The larger mocked/future CLI surface stays available behind --dev.
 	if app.DevMode {
 		return
 	}
@@ -67,7 +67,6 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"promote":       true,
 		"run":           true,
 		"installations": true,
-		"marketplace":   true,
 	}
 	for _, sc := range flowsCmd.Commands() {
 		if !allowFlows[sc.Name()] {
@@ -78,4 +77,35 @@ func configureVisibility(root *cobra.Command, app *App) {
 			sc.Hidden = true
 		}
 	}
+}
+
+func hideDevOnlyCommandTree(cmd *cobra.Command, app *App) *cobra.Command {
+	if cmd == nil {
+		return nil
+	}
+	var wrap func(*cobra.Command)
+	wrap = func(current *cobra.Command) {
+		if current == nil {
+			return
+		}
+		current.Hidden = true
+
+		prev := current.PreRunE
+		current.PreRunE = func(cmd *cobra.Command, args []string) error {
+			if app == nil || (!app.DevMode && !devModeEnabled()) {
+				return writeErr(cmd, errors.New("this command is not part of the public CLI surface"))
+			}
+			if prev != nil {
+				return prev(cmd, args)
+			}
+			return nil
+		}
+
+		for _, child := range current.Commands() {
+			wrap(child)
+		}
+	}
+
+	wrap(cmd)
+	return cmd
 }

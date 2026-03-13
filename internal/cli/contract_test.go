@@ -21,6 +21,12 @@ type envelope struct {
 func runCLI(t *testing.T, statePath string, args ...string) (string, string, error) {
 	t.Helper()
 
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
