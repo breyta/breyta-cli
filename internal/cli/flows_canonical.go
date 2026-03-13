@@ -231,8 +231,17 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "release <flow-slug>",
-		Short: "Create a release, promote live, and promote track-latest installations by default",
-		Args:  cobra.ExactArgs(1),
+		Short: "Activate the latest pushed version, promote live, and promote track-latest installations by default",
+		Long: strings.TrimSpace(`
+Activate a released flow version for the current workspace.
+
+By default, release reuses the latest version from workspace current, promotes
+live, and promotes track-latest installations in the current workspace. Use
+--version to activate a specific released version instead. Use
+--skip-promote-installations when you want to update live without promoting
+end-user installations.
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "release requires --api/BREYTA_API_URL")
@@ -334,8 +343,8 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&skipPromoteInstallations, "skip-promote-installations", false, "Release and promote live, but skip promoting end-user installations")
-	cmd.Flags().StringVar(&version, "version", "", "Release version to publish (default latest from workspace current)")
+	cmd.Flags().BoolVar(&skipPromoteInstallations, "skip-promote-installations", false, "Activate the version and promote live, but skip promoting end-user installations")
+	cmd.Flags().StringVar(&version, "version", "", "Released version to activate (default latest from workspace current)")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd
 }

@@ -152,14 +152,14 @@ Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
 3) push -> updates working copy (and validates by default)
-4) release -> publishes an immutable version and promotes live + installations in current workspace
+4) release -> activates the latest pushed version and promotes live + installations in current workspace
 5) run -> verifies behavior in your workspace
 
 Optional explicit check:
 - validate -> read-only verification for CI, troubleshooting, or explicit target checks
 
 Advanced rollout workflow (optional):
-- release -> publishes immutable version + live/installations promotion in current workspace
+- release -> activates the latest pushed version + live/installations promotion in current workspace
 - promote -> updates live target and installations to a released version
 - installations ... -> installation-id scoped management
 
@@ -192,7 +192,7 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
-- activeVersion is a flow release counter. Live runtime can resolve to a different installation version
+- activeVersion is the currently activated released version. Live runtime can resolve to a different installation version
   - verify live with: breyta flows show <slug> --target live
   - smoke-run live with: breyta flows run <slug> --target live --wait
 - Concurrency guidance:
@@ -200,8 +200,8 @@ Notes:
   - Use :on-new-version :drain only when in-flight runs must finish on the old version
 
 Advanced install lifecycle:
-- Release with default live + installations promotion: breyta flows release <slug>
-- Release without promoting end-user installations: breyta flows release <slug> --skip-promote-installations
+- Release the latest pushed version with default live + installations promotion: breyta flows release <slug>
+- Release the latest pushed version while skipping end-user installation promotion: breyta flows release <slug> --skip-promote-installations
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List installation triggers: breyta flows installations triggers <installation-id>
