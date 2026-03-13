@@ -198,6 +198,55 @@ func TestFlowsProvenanceSet_FromConsultedBuildsPayload(t *testing.T) {
 	}
 }
 
+func TestFlowsProvenanceSet_FromConsultedFiltersSelfWithoutWorkspaceContext(t *testing.T) {
+	root := withAgentWorkspaceCwd(t)
+	if err := saveConsultedFlowRefsFromStart(root, []provenanceSourceRef{
+		{WorkspaceID: "ws-1", FlowSlug: "source-one"},
+		{WorkspaceID: "ws-1", FlowSlug: "target-flow"},
+	}); err != nil {
+		t.Fatalf("save consulted refs: %v", err)
+	}
+
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		if method != "flows.provenance.set" {
+			t.Fatalf("expected flows.provenance.set, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsProvenanceSetCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"target-flow", "--from-consulted"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	sources, ok := gotPayload["sourceFlows"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected sourceFlows payload, got %#v", gotPayload["sourceFlows"])
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source flow after self-filtering, got %#v", sources)
+	}
+	if sources[0]["workspaceId"] != "ws-1" || sources[0]["flowSlug"] != "source-one" {
+		t.Fatalf("unexpected source flow payload: %#v", sources[0])
+	}
+}
+
 func TestFlowsProvenanceSet_ClearBuildsEmptyPayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

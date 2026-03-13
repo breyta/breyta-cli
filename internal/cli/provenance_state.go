@@ -211,8 +211,8 @@ func currentProvenanceCandidates(targetWorkspaceID, targetFlowSlug string) ([]pr
 	}
 	filtered := make([]provenanceSourceRef, 0, len(refs))
 	for _, ref := range refs {
-		if targetWorkspaceID != "" && targetFlowSlug != "" &&
-			ref.WorkspaceID == targetWorkspaceID && ref.FlowSlug == targetFlowSlug {
+		if targetFlowSlug != "" && ref.FlowSlug == targetFlowSlug &&
+			(targetWorkspaceID == "" || ref.WorkspaceID == targetWorkspaceID) {
 			continue
 		}
 		filtered = append(filtered, ref)
