@@ -320,6 +320,11 @@ func writeOut(cmd *cobra.Command, app *App, v any) error {
 }
 
 func writeErr(cmd *cobra.Command, err error) error {
+	if cmd != nil {
+		// writeErr already renders the message to stderr for this execution path.
+		// Suppress Cobra's fallback error echo so guided and generic errors only print once.
+		cmd.SilenceErrors = true
+	}
 	var guided *guidedCLIError
 	if errors.As(err, &guided) {
 		if cmd == nil {
