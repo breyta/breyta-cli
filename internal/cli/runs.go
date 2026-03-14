@@ -270,6 +270,7 @@ Use runs start only when integrating with older scripts.
 					return writeErr(cmd, err)
 				}
 				trackCommandTelemetry(app, "runs.start", payload, status, status < 400 && isOK(startResp))
+				enrichCommandHints(app, "runs.start", payload, status, startResp)
 				if !wait {
 					return writeAPIResult(cmd, app, startResp, status)
 				}

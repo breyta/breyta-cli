@@ -46,6 +46,7 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 	}
 	startOK := status < 400 && isOK(startResp)
 	trackCommandTelemetry(app, command, payload, status, startOK)
+	enrichCommandHints(app, command, payload, status, startResp)
 	flowSlug, _ := payload["flowSlug"].(string)
 	if startOK {
 		trackCLIEvent(app, "cli_flow_run_started", nil, app.Token, map[string]any{

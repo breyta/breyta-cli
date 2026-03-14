@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -190,5 +191,38 @@ func TestRefreshTokenViaAPI_ToleratesSnakeCase(t *testing.T) {
 	}
 	if gotRefreshToken != "ref-1" || gotRefreshTokenSnake != "ref-1" {
 		t.Fatalf("expected refresh token sent in both fields, got refreshToken=%q refresh_token=%q", gotRefreshToken, gotRefreshTokenSnake)
+	}
+}
+
+func TestEnsureErrorRecoveryActions_NoWorkspaceSkipsSynthesizedRunURLs(t *testing.T) {
+	t.Parallel()
+
+	out := map[string]any{
+		"ok": false,
+		"error": map[string]any{
+			"code":    "profile_missing",
+			"message": "Flow requires a profile before running.",
+			"details": map[string]any{
+				"flowSlug": "demo-flow",
+			},
+		},
+	}
+
+	actions := ensureErrorRecoveryActions(&App{
+		APIURL: "https://flows.breyta.ai",
+	}, out)
+
+	if len(actions) != 0 {
+		t.Fatalf("did not expect synthesized actions without workspace, got %#v", actions)
+	}
+
+	errMap := mapStringAny(out["error"])
+	if got := sliceAny(errMap["actions"]); len(got) != 0 {
+		t.Fatalf("did not expect serialized actions without workspace, got %#v", got)
+	}
+
+	meta := mapStringAny(out["meta"])
+	if meta != nil && !reflect.DeepEqual(meta, map[string]any{}) {
+		t.Fatalf("did not expect metadata side effects without workspace, got %#v", meta)
 	}
 }

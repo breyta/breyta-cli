@@ -164,6 +164,19 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
 		t.Fatalf("unexpected agents content (missing live proof step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Prefer exact recovery URLs from failures: `error.actions[].url` first, then `meta.webUrl`.") {
+		t.Fatalf("unexpected agents content (missing recovery URL priority guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "include the exact recovery URL in runtime proof instead of generic \"go to billing/setup\" text") {
+		t.Fatalf("unexpected agents content (missing runtime proof recovery guidance): %s", string(agents))
+	}
+	readme, err := os.ReadFile(filepath.Join(wsDir, "README.md"))
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	if !strings.Contains(string(readme), "When a command fails, prefer the exact page from `error.actions[].url` first, then `meta.webUrl`.") {
+		t.Fatalf("unexpected readme content (missing recovery URL guidance): %s", string(readme))
+	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
 	b, err := os.ReadFile(skillPath)

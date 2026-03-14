@@ -395,6 +395,15 @@ func TestAPIErrorsIncludeGuidance(t *testing.T) {
 	if !strings.Contains(stderr, "Hint: run `breyta help flows show` for usage or `breyta docs find \"flows show\"` for docs.") {
 		t.Fatalf("stderr missing guidance hint:\n%s", stderr)
 	}
+	if count := strings.Count(stderr, "api error (status=400): flow not found"); count != 1 {
+		t.Fatalf("expected api error printed once, got %d copies:\n%s", count, stderr)
+	}
+	errorPos := strings.Index(stderr, "api error (status=400): flow not found")
+	docsPos := strings.Index(stderr, "Docs: breyta docs show reference-cli-commands")
+	hintPos := strings.Index(stderr, "Hint: run `breyta help flows show` for usage or `breyta docs find \"flows show\"` for docs.")
+	if errorPos == -1 || docsPos == -1 || hintPos == -1 || !(errorPos < docsPos && docsPos < hintPos) {
+		t.Fatalf("expected api error, then docs hints, then generic hint:\n%s", stderr)
+	}
 }
 
 func TestRootNoArgsShowsHelp(t *testing.T) {
