@@ -24,6 +24,7 @@ func newConnectionsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "connections", Short: "Manage connections"}
 	cmd.AddCommand(newConnectionsListCmd(app))
 	cmd.AddCommand(newConnectionsUsagesCmd(app))
+	cmd.AddCommand(newConnectionsCleanupUnusedCmd(app))
 	cmd.AddCommand(newConnectionsShowCmd(app))
 	cmd.AddCommand(newConnectionsCreateCmd(app))
 	cmd.AddCommand(newConnectionsUpdateCmd(app))
@@ -306,6 +307,29 @@ func newConnectionsUsagesCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&connectionID, "connection-id", "", "Filter to one connection ID")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Filter by flow slug")
 	cmd.Flags().BoolVar(&onlyConnected, "only-connected", false, "Show only connections currently used by flow profiles")
+	return cmd
+}
+
+func newConnectionsCleanupUnusedCmd(app *App) *cobra.Command {
+	var apply bool
+	cmd := &cobra.Command{
+		Use:   "cleanup-unused",
+		Short: "Preview or delete unused connections",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to clean up unused connections.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			payload := map[string]any{}
+			if apply {
+				payload["apply"] = true
+			}
+			return doAPICommand(cmd, app, "connections.unused.cleanup", payload)
+		},
+	}
+	cmd.Flags().BoolVar(&apply, "apply", false, "Delete the unused connections returned by the preview")
 	return cmd
 }
 
