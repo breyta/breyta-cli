@@ -81,6 +81,9 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	if strings.Contains(help, "marketplace") {
 		t.Fatalf("flows help leaked hidden marketplace surface:\n%s", help)
 	}
+	if !strings.Contains(help, "\n  discover") {
+		t.Fatalf("flows help missing discover command:\n%s", help)
+	}
 	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
 		t.Fatalf("flows help missing canonical lifecycle commands:\n%s", help)
 	}
@@ -101,6 +104,9 @@ func TestHelpFlowsHidesMarketplaceSurface(t *testing.T) {
 	help := out.String()
 	if strings.Contains(help, "marketplace") {
 		t.Fatalf("help flows leaked hidden marketplace surface:\n%s", help)
+	}
+	if !strings.Contains(help, "\n  discover") {
+		t.Fatalf("help flows missing discover command:\n%s", help)
 	}
 }
 

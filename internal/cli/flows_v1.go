@@ -217,6 +217,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsReleaseCmd(app))
 	cmd.AddCommand(newFlowsPromoteCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
+	cmd.AddCommand(newFlowsDiscoverCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
 	cmd.AddCommand(newFlowsMarketplaceCmd(app))
