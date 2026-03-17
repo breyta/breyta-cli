@@ -2469,6 +2469,7 @@ func newWorkspacesCmd(app *App) *cobra.Command {
 		}
 		return writeData(cmd, app, meta, map[string]any{"workspace": data})
 	}})
+	cmd.AddCommand(newWorkspaceMembersCmd(app))
 	cmd.AddCommand(&cobra.Command{Use: "use <workspace-id>", Short: "Set default workspace", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		workspaceID := strings.TrimSpace(args[0])
 		if workspaceID == "" {
