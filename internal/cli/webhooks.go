@@ -56,6 +56,31 @@ func newWebhooksCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func enrichWebhookSendResponse(data any) any {
+	m, ok := data.(map[string]any)
+	if !ok || m == nil {
+		return data
+	}
+	triggerID, _ := m["triggerId"].(string)
+	triggerID = strings.TrimSpace(triggerID)
+	if triggerID == "" {
+		return data
+	}
+	deliveryID, _ := m["deliveryId"].(string)
+	deliveryID = strings.TrimSpace(deliveryID)
+
+	hint := "breyta triggers logs " + triggerID
+	if deliveryID != "" {
+		hint += " --delivery " + deliveryID
+	}
+	hint = "Inspect delivery logs with `" + hint + "`."
+
+	if existing, _ := m["hint"].(string); strings.TrimSpace(existing) == "" {
+		m["hint"] = hint
+	}
+	return m
+}
+
 func newWebhooksSendCmd(app *App) *cobra.Command {
 	var eventPathRaw string
 	var baseURLOverride string
@@ -211,6 +236,7 @@ func newWebhooksSendCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeFailure(cmd, app, "webhook_send_failed", err, "Check connectivity and webhook path.", map[string]any{"url": fullURL})
 			}
+			out = enrichWebhookSendResponse(out)
 
 			if strings.TrimSpace(saveResponsePath) != "" {
 				if err := writeResponseFile(saveResponsePath, out, app.PrettyJSON); err != nil {

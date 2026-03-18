@@ -66,6 +66,33 @@ func TestWebhooksSend_DefaultEndpoint(t *testing.T) {
 	}
 }
 
+func TestWebhooksSend_AddsTriggerLogsHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accepted":   true,
+			"triggerId":  "trg-1",
+			"deliveryId": "del-1",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "tok-123",
+		"webhooks", "send",
+		"--path", "webhooks/orders",
+		"--json", `{"orderId":"o-1"}`,
+	)
+	if err != nil {
+		t.Fatalf("webhooks send failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "breyta triggers logs trg-1 --delivery del-1") {
+		t.Fatalf("expected trigger logs hint in stdout, got %s", stdout)
+	}
+}
+
 func TestWebhooksSend_ValidateOnly_DraftAddsDraftQuery(t *testing.T) {
 	var gotPath string
 	var gotDraft string

@@ -1256,6 +1256,7 @@ func newTriggersCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (API mode only)")
 	cmd.AddCommand(newTriggersListCmd(app))
 	cmd.AddCommand(newTriggersShowCmd(app))
+	cmd.AddCommand(newTriggersLogsCmd(app))
 	cmd.AddCommand(newTriggersWebhookURLCmd(app))
 	cmd.AddCommand(newTriggersWebhookSecretCmd(app))
 	cmd.AddCommand(newTriggersFireCmd(app))
@@ -1299,6 +1300,58 @@ func newTriggersShowCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"trigger": t})
 		},
 	}
+	return cmd
+}
+
+func newTriggersLogsCmd(app *App) *cobra.Command {
+	var limit int
+	var outcome string
+	var deliveryID string
+
+	cmd := &cobra.Command{
+		Use:     "logs <trigger-id>",
+		Aliases: []string{"deliveries"},
+		Short:   "Show recent safe webhook delivery logs for a trigger",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			triggerID := strings.TrimSpace(args[0])
+			if triggerID == "" {
+				return writeErr(cmd, errors.New("missing trigger id"))
+			}
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to inspect trigger logs.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+
+			q := url.Values{}
+			if limit > 0 {
+				q.Set("limit", strconv.Itoa(limit))
+			}
+			if strings.TrimSpace(outcome) != "" {
+				q.Set("outcome", strings.TrimSpace(outcome))
+			}
+			if strings.TrimSpace(deliveryID) != "" {
+				q.Set("delivery", strings.TrimSpace(deliveryID))
+			}
+
+			out, status, err := apiClient(app).DoREST(
+				context.Background(),
+				http.MethodGet,
+				"/api/triggers/"+url.PathEscape(triggerID)+"/logs",
+				q,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 20, "Max delivery log items to return")
+	cmd.Flags().StringVar(&outcome, "outcome", "", "Filter by outcome (accepted|deduped|rejected|error)")
+	cmd.Flags().StringVar(&deliveryID, "delivery", "", "Filter to a specific delivery id")
 	return cmd
 }
 
