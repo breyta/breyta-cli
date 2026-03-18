@@ -158,8 +158,14 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Only flows actually opened with `breyta flows show` or `breyta flows pull` become consulted provenance candidates") {
 		t.Fatalf("unexpected agents content (missing consulted-flow guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Release once (after explicit sign-off): `breyta flows release <slug>`") {
+	if !strings.Contains(string(agents), "Inspect draft vs live before release: `breyta flows diff <slug>`") {
+		t.Fatalf("unexpected agents content (missing diff-before-release step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Release once (after explicit sign-off) with a markdown note: `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Edit the note later if needed: `breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`") {
+		t.Fatalf("unexpected agents content (missing version note update step): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
 		t.Fatalf("unexpected agents content (missing live proof step): %s", string(agents))
@@ -176,6 +182,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "When a command fails, prefer the exact page from `error.actions[].url` first, then `meta.webUrl`.") {
 		t.Fatalf("unexpected readme content (missing recovery URL guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Release once to live after draft is verified and approved, using `breyta flows release <slug> --release-note-file ./release-note.md`") {
+		t.Fatalf("unexpected readme content (missing release-note workflow): %s", string(readme))
 	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")

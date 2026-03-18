@@ -235,8 +235,9 @@ Suggested line to paste into your agent's persistent project instructions:
 
 ## Release hygiene (required)
 - Iterate in ` + "`draft`" + ` while editing and debugging.
+- Inspect draft changes before release: ` + "`breyta flows diff <slug>`" + `
 - Do not repeatedly release to ` + "`live`" + ` during normal iteration.
-- Release to ` + "`live`" + ` once after draft behavior is verified and you have explicit sign-off.
+- Release to ` + "`live`" + ` once after draft behavior is verified, you have explicit sign-off, and you can attach a markdown release note.
 
 ## Authoring standard (required before editing)
 - Write the problem contract: trigger, inputs, outputs, side effects, failure behavior.
@@ -287,9 +288,11 @@ Suggested line to paste into your agent's persistent project instructions:
 7) Run at least one failure/no-op/replay check when feasible before release
 8) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
 9) Repeat steps 2-8 until behavior is correct and side effects are understood in draft
-10) Release once (after explicit sign-off): ` + "`breyta flows release <slug>`" + `
-11) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
-12) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
+10) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
+11) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
+12) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
+13) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+14) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
 
 ## Provenance for derived flows
 - Keep ` + "`created-by`" + ` as the creator of the current flow record.
@@ -329,9 +332,9 @@ breyta flows list
 
 Suggested workflow:
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Iterate in draft: pull, edit, push, configure check, run/validate
+- Iterate in draft: pull, edit, push, configure check, run/validate, diff against live
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
-- Release once to live after draft is verified and approved
+- Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 
 Recovery URLs:
 - When a command fails, prefer the exact page from ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.

@@ -67,12 +67,19 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
-When the draft behavior is correct, release the latest pushed version once:
+When the draft behavior is correct, inspect draft-vs-live changes and release once with a markdown note:
 
 ```bash
-breyta flows release <slug>
+breyta flows diff <slug>
+breyta flows release <slug> --release-note-file ./release-note.md
 breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
+```
+
+If you need to revise the note later:
+
+```bash
+breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md
 ```
 
 ## Provenance

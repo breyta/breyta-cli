@@ -1565,6 +1565,74 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsRelease_SendsReleaseNoteAndHints(t *testing.T) {
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			step++
+			if args["releaseNote"] != "## Summary\n\nFixed retries." {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing releaseNote"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "activeVersion": 7},
+			})
+		case "flows.promote":
+			step++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+		"--release-note", "## Summary\n\nFixed retries.",
+	)
+	if err != nil {
+		t.Fatalf("flows release with --release-note failed: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected release + promote commands, got %d", step)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	hints, _ := out["_hints"].([]any)
+	if len(hints) == 0 {
+		t.Fatalf("expected _hints in output, got %#v", out["_hints"])
+	}
+	if hints[0] != "breyta flows diff flow-release" {
+		t.Fatalf("unexpected first hint: %#v", hints[0])
+	}
+	if hints[2] != "breyta flows versions update flow-release --version 7 --release-note-file ./release-note.md" {
+		t.Fatalf("unexpected version update hint: %#v", hints[2])
+	}
+}
+
 func TestFlowsRelease_DefaultInstallEmitsTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
@@ -1717,6 +1785,45 @@ func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
 	}
 	if verifyCommands[1] != "breyta flows run flow-release --target live --wait" {
 		t.Fatalf("unexpected second verify command: %#v", verifyCommands[1])
+	}
+}
+
+func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.diff" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["from"] != "draft" || args["to"] != "live" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected diff args"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-release", "changed": true, "diff": "@@ -1 +1 @@\n-old\n+new"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "diff", "flow-release",
+	)
+	if err != nil {
+		t.Fatalf("flows diff failed: %v\n%s", err, stdout)
 	}
 }
 
