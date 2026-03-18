@@ -289,6 +289,9 @@ func TestFlowsReleaseHelpDescribesLatestPushedVersion(t *testing.T) {
 	if !strings.Contains(help, "Released version to activate") {
 		t.Fatalf("flows release help missing version flag description:\n%s", help)
 	}
+	if !strings.Contains(help, "--release-note-file") {
+		t.Fatalf("flows release help missing release note file flag:\n%s", help)
+	}
 }
 
 func TestFlowsHelpDistinguishesPushReleasePromote(t *testing.T) {
@@ -306,6 +309,9 @@ func TestFlowsHelpDistinguishesPushReleasePromote(t *testing.T) {
 	help := out.String()
 	if !strings.Contains(help, "push -> updates working copy") {
 		t.Fatalf("flows help missing push guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "diff -> inspect draft changes against live or a released version") {
+		t.Fatalf("flows help missing diff guidance:\n%s", help)
 	}
 	if !strings.Contains(help, "release -> activates the latest pushed version") {
 		t.Fatalf("flows help missing corrected release guidance:\n%s", help)

@@ -152,8 +152,9 @@ Flow authoring uses a file workflow:
 1) pull a flow to a local .clj file
 2) edit the file (Clojure map literal + DSL)
 3) push -> updates working copy (and validates by default)
-4) release -> activates the latest pushed version and promotes live + installations in current workspace
-5) run -> verifies behavior in your workspace
+4) diff -> inspect draft changes against live or a released version
+5) release -> activates the latest pushed version and promotes live + installations in current workspace
+6) run -> verifies behavior in your workspace
 
 Optional explicit check:
 - validate -> read-only verification for CI, troubleshooting, or explicit target checks
@@ -167,9 +168,10 @@ Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows diff <slug>
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows configure check <slug>
-- breyta flows release <slug>
+- breyta flows release <slug> --release-note-file ./release-note.md
 - breyta flows promote <slug> --version <n>
 - breyta flows show <slug> --target live
 - breyta flows run <slug> --target live --wait
@@ -192,6 +194,10 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- Release notes are markdown attached to published versions.
+  - draft vs live diff: breyta flows diff <slug>
+  - set on release: breyta flows release <slug> --release-note-file ./release-note.md
+  - edit later: breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md
 - activeVersion is the currently activated released version. Live runtime can resolve to a different installation version
   - verify live with: breyta flows show <slug> --target live
   - smoke-run live with: breyta flows run <slug> --target live --wait
@@ -211,6 +217,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsListCmd(app))
 	cmd.AddCommand(newFlowsSearchCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
+	cmd.AddCommand(newFlowsDiffCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
@@ -242,6 +249,7 @@ Advanced install lifecycle:
 	versions := &cobra.Command{Use: "versions", Short: "Manage flow versions"}
 	versions.AddCommand(newFlowsVersionsListCmd(app))
 	versions.AddCommand(newFlowsVersionsPublishCmd(app))
+	versions.AddCommand(newFlowsVersionsUpdateCmd(app))
 	versions.AddCommand(newFlowsVersionsActivateCmd(app))
 	versions.AddCommand(newFlowsVersionsDiffCmd(app))
 	cmd.AddCommand(versions)
@@ -1106,6 +1114,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 func newFlowsDeployCmd(app *App) *cobra.Command {
 	var version int
 	var deployKey string
+	var releaseNote string
+	var releaseNoteFile string
+	var legacyNote string
 	cmd := &cobra.Command{
 		Use:   "deploy <flow-slug>",
 		Short: "Deploy a flow version (make it active)",
@@ -1125,11 +1136,22 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 			if resolvedDeployKey != "" {
 				payload["deployKey"] = resolvedDeployKey
 			}
+			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(resolvedReleaseNote) != "" {
+				payload["releaseNote"] = resolvedReleaseNote
+			}
 			return doAPICommand(cmd, app, "flows.deploy", payload)
 		},
 	}
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = latest)")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key (default: BREYTA_FLOW_DEPLOY_KEY)")
+	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note to attach to the deployed version")
+	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
+	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
+	_ = cmd.Flags().MarkHidden("note")
 	return cmd
 }
 
@@ -1664,7 +1686,15 @@ func newFlowsVersionsListCmd(app *App) *cobra.Command {
 			}
 			items := make([]map[string]any, 0, len(f.Versions))
 			for _, v := range f.Versions {
-				items = append(items, map[string]any{"version": v.Version, "publishedAt": v.PublishedAt, "note": v.Note})
+				item := map[string]any{
+					"version":     v.Version,
+					"publishedAt": v.PublishedAt,
+					"note":        v.Note,
+				}
+				if strings.TrimSpace(v.Note) != "" {
+					item["releaseNote"] = v.Note
+				}
+				items = append(items, item)
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i]["version"].(int) > items[j]["version"].(int) })
 			meta := map[string]any{"activeVersion": f.ActiveVersion}
@@ -1675,16 +1705,29 @@ func newFlowsVersionsListCmd(app *App) *cobra.Command {
 }
 
 func newFlowsVersionsPublishCmd(app *App) *cobra.Command {
-	var note string
+	var releaseNote string
+	var releaseNoteFile string
+	var legacyNote string
 	cmd := &cobra.Command{
 		Use:   "publish <flow-slug>",
 		Short: "Publish a new immutable version",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Publish a new immutable version.
+
+Attach a markdown release note when you know what changed:
+- breyta flows versions publish my-flow --release-note 'Added retry guard'
+- breyta flows versions publish my-flow --release-note-file ./release-note.md
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0]}
-				if strings.TrimSpace(note) != "" {
-					payload["note"] = note
+				if strings.TrimSpace(resolvedReleaseNote) != "" {
+					payload["releaseNote"] = resolvedReleaseNote
 				}
 				return doAPICommand(cmd, app, "flows.versions.publish", payload)
 			}
@@ -1705,7 +1748,7 @@ func newFlowsVersionsPublishCmd(app *App) *cobra.Command {
 			fv := state.FlowVersion{
 				Version:     next,
 				PublishedAt: now,
-				Note:        note,
+				Note:        resolvedReleaseNote,
 				Flow: state.FlowRecord{
 					Name:        f.Name,
 					Description: f.Description,
@@ -1724,7 +1767,101 @@ func newFlowsVersionsPublishCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "publishedVersion": next})
 		},
 	}
-	cmd.Flags().StringVar(&note, "note", "", "Release note")
+	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note")
+	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
+	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
+	_ = cmd.Flags().MarkHidden("note")
+	return cmd
+}
+
+func newFlowsVersionsUpdateCmd(app *App) *cobra.Command {
+	var version int
+	var releaseNote string
+	var releaseNoteFile string
+	var legacyNote string
+	var clearReleaseNote bool
+
+	cmd := &cobra.Command{
+		Use:   "update <flow-slug>",
+		Short: "Update version metadata such as the release note",
+		Long: strings.TrimSpace(`
+Update version metadata without publishing a new version.
+
+Examples:
+- breyta flows versions update my-flow --version 7 --release-note-file ./release-note.md
+- breyta flows versions update my-flow --version 7 --clear-release-note
+		`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if version <= 0 {
+				return writeErr(cmd, errors.New("missing --version"))
+			}
+			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if !clearReleaseNote && strings.TrimSpace(resolvedReleaseNote) == "" {
+				return writeErr(cmd, errors.New("missing --release-note/--release-note-file or --clear-release-note"))
+			}
+
+			if isAPIMode(app) {
+				payload := map[string]any{
+					"flowSlug": args[0],
+					"version":  version,
+				}
+				if clearReleaseNote {
+					payload["clearReleaseNote"] = true
+				} else {
+					payload["releaseNote"] = resolvedReleaseNote
+				}
+				return doAPICommand(cmd, app, "flows.versions.update", payload)
+			}
+
+			st, store, err := appStore(app)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			ws, err := getWorkspace(st, app.WorkspaceID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			f := ws.Flows[args[0]]
+			if f == nil {
+				return writeErr(cmd, errors.New("flow not found"))
+			}
+			for i := range f.Versions {
+				if f.Versions[i].Version != version {
+					continue
+				}
+				if clearReleaseNote {
+					f.Versions[i].Note = ""
+				} else {
+					f.Versions[i].Note = resolvedReleaseNote
+				}
+				f.UpdatedAt = time.Now().UTC()
+				ws.UpdatedAt = f.UpdatedAt
+				if err := store.Save(st); err != nil {
+					return writeErr(cmd, err)
+				}
+				versionOut := map[string]any{
+					"version": version,
+					"note":    f.Versions[i].Note,
+				}
+				if strings.TrimSpace(f.Versions[i].Note) != "" {
+					versionOut["releaseNote"] = f.Versions[i].Note
+				}
+				return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "version": versionOut})
+			}
+			return writeErr(cmd, errors.New("version not found"))
+		},
+	}
+
+	cmd.Flags().IntVar(&version, "version", 0, "Version to update")
+	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note")
+	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
+	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
+	cmd.Flags().BoolVar(&clearReleaseNote, "clear-release-note", false, "Clear the release note for this version")
+	_ = cmd.Flags().MarkHidden("note")
 	return cmd
 }
 
@@ -1795,7 +1932,16 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Diff requires local store (API not implemented)")
+				if from == 0 || to == 0 {
+					return writeErr(cmd, errors.New("missing --from and/or --to"))
+				}
+				return doAPICommand(cmd, app, "flows.diff", map[string]any{
+					"flowSlug":    args[0],
+					"from":        "version",
+					"fromVersion": from,
+					"to":          "version",
+					"toVersion":   to,
+				})
 			}
 			if from == 0 || to == 0 {
 				return writeErr(cmd, errors.New("missing --from and/or --to"))
