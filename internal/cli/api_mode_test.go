@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -496,6 +497,27 @@ func TestFlowsVersionsUpdate_SendsReleaseNote(t *testing.T) {
 	}
 	if ok, _ := e["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsVersionsUpdate_RejectsConflictingReleaseNoteFlags(t *testing.T) {
+	t.Helper()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "versions", "update", "flow-guarded",
+		"--version", "2",
+		"--release-note", "Release note body",
+		"--clear-release-note",
+	)
+	if err == nil {
+		t.Fatalf("expected conflicting release note flags to fail, got success:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "--clear-release-note cannot be combined with --release-note/--release-note-file") {
+		t.Fatalf("expected conflicting flag error, got stderr:\n%s", stderr)
 	}
 }
 

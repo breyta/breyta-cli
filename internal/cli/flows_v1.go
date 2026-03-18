@@ -1796,6 +1796,12 @@ Examples:
 			if version <= 0 {
 				return writeErr(cmd, errors.New("missing --version"))
 			}
+			hasReleaseNoteInput := strings.TrimSpace(releaseNote) != "" ||
+				strings.TrimSpace(legacyNote) != "" ||
+				strings.TrimSpace(releaseNoteFile) != ""
+			if clearReleaseNote && hasReleaseNoteInput {
+				return writeErr(cmd, errors.New("--clear-release-note cannot be combined with --release-note/--release-note-file"))
+			}
 			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
 			if err != nil {
 				return writeErr(cmd, err)
