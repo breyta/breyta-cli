@@ -140,6 +140,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
 		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {
+		t.Fatalf("unexpected agents content (missing group ordering guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug> --pretty`") {
+		t.Fatalf("unexpected agents content (missing ordered siblings verification guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Run at least one failure/no-op/replay check when feasible before release") {
 		t.Fatalf("unexpected agents content (missing failure/no-op/replay step): %s", string(agents))
 	}
@@ -185,6 +191,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Release once to live after draft is verified and approved, using `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected readme content (missing release-note workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
+		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
 	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
