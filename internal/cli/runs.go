@@ -78,13 +78,13 @@ Supported query tokens:
 Legacy discrete flags remain available and override matching --query tokens.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && strings.TrimSpace(flow) == "" {
+				flow = args[0]
+			}
 			if isAPIMode(app) {
 				queryFilters, err := parseRunsListQuery(query)
 				if err != nil {
 					return writeErr(cmd, err)
-				}
-				if len(args) == 1 && strings.TrimSpace(flow) == "" && strings.TrimSpace(queryFilters.Flow) == "" {
-					flow = args[0]
 				}
 				effectiveFlow := normalizeRunsQueryFlowSlug(flow)
 				if effectiveFlow == "" {

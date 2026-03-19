@@ -16,10 +16,15 @@ type runsListFilters struct {
 }
 
 var supportedRunsQueryStatuses = map[string]struct{}{
-	"running":   {},
-	"completed": {},
-	"failed":    {},
-	"waiting":   {},
+	"running":    {},
+	"completed":  {},
+	"failed":     {},
+	"waiting":    {},
+	"cancelled":  {},
+	"canceled":   {},
+	"terminated": {},
+	"timed-out":  {},
+	"timed_out":  {},
 }
 
 func parseRunsListQuery(raw string) (runsListFilters, error) {
@@ -42,7 +47,7 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 		case "status":
 			status := strings.ToLower(value)
 			if _, ok := supportedRunsQueryStatuses[status]; !ok {
-				return runsListFilters{}, fmt.Errorf("invalid runs query status %q; use running, completed, failed, or waiting", value)
+				return runsListFilters{}, fmt.Errorf("invalid runs query status %q; use running, completed, failed, waiting, cancelled, canceled, terminated, timed-out, or timed_out", value)
 			}
 			if filters.Status != "" && filters.Status != status {
 				return runsListFilters{}, fmt.Errorf("multiple status: filters are not supported in CLI/API mode yet; got %q and %q", filters.Status, status)

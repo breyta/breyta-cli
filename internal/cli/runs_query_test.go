@@ -29,3 +29,15 @@ func TestParseRunsListQuery_MultipleStatusesRejected(t *testing.T) {
 		t.Fatalf("expected multiple statuses to be rejected")
 	}
 }
+
+func TestParseRunsListQuery_AllowsTerminalStatuses(t *testing.T) {
+	for _, status := range []string{"cancelled", "canceled", "terminated", "timed-out", "timed_out"} {
+		filters, err := parseRunsListQuery("status:" + status)
+		if err != nil {
+			t.Fatalf("expected status %q to parse, got error: %v", status, err)
+		}
+		if filters.Status != status {
+			t.Fatalf("expected status %q, got %q", status, filters.Status)
+		}
+	}
+}
