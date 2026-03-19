@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -428,6 +429,95 @@ func TestFlowsVersionsActivate_SendsDeployKeyFromEnv(t *testing.T) {
 	}
 	if ok, _ := e["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsVersionsUpdate_SendsReleaseNote(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.versions.update" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-guarded" || args["version"] != float64(2) || args["releaseNote"] != "Release note body" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected args",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowSlug": "flow-guarded",
+				"version": map[string]any{
+					"version":     2,
+					"releaseNote": "Release note body",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "versions", "update", "flow-guarded",
+		"--version", "2",
+		"--release-note", "Release note body",
+	)
+	if err != nil {
+		t.Fatalf("flows versions update failed: %v\n%s", err, stdout)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
+func TestFlowsVersionsUpdate_RejectsConflictingReleaseNoteFlags(t *testing.T) {
+	t.Helper()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "versions", "update", "flow-guarded",
+		"--version", "2",
+		"--release-note", "Release note body",
+		"--clear-release-note",
+	)
+	if err == nil {
+		t.Fatalf("expected conflicting release note flags to fail, got success:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "--clear-release-note cannot be combined with --release-note/--release-note-file") {
+		t.Fatalf("expected conflicting flag error, got stderr:\n%s", stderr)
 	}
 }
 

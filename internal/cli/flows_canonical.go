@@ -229,6 +229,9 @@ func newFlowsReleaseCmd(app *App) *cobra.Command {
 	var skipPromoteInstallations bool
 	var version string
 	var deployKey string
+	var releaseNote string
+	var releaseNoteFile string
+	var legacyNote string
 
 	cmd := &cobra.Command{
 		Use:   "release <flow-slug>",
@@ -241,6 +244,11 @@ live, and promotes track-latest installations in the current workspace. Use
 --version to activate a specific released version instead. Use
 --skip-promote-installations when you want to update live without promoting
 end-user installations.
+
+When you know what changed, attach a markdown release note so the activated
+version carries operator-facing context:
+- breyta flows release my-flow --release-note 'Updated retry policy and fixed idempotency'
+- breyta flows release my-flow --release-note-file ./release-note.md
 		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -264,6 +272,13 @@ end-user installations.
 			}
 			if resolvedDeployKey != "" {
 				payload["deployKey"] = resolvedDeployKey
+			}
+			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(resolvedReleaseNote) != "" {
+				payload["releaseNote"] = resolvedReleaseNote
 			}
 
 			if err := requireAPI(app); err != nil {
@@ -308,6 +323,7 @@ end-user installations.
 				return nil
 			}
 
+			activeVersion := asInt(releaseData["activeVersion"])
 			combined := map[string]any{
 				"ok": true,
 				"workspaceId": func() string {
@@ -337,6 +353,7 @@ end-user installations.
 					"install": promoteOut["data"],
 				},
 			}
+			appendEnvelopeHints(combined, releaseNoteHintCommands(args[0], activeVersion)...)
 			if err := writeAPIResult(cmd, app, combined, 200); err != nil {
 				return writeErr(cmd, err)
 			}
@@ -347,5 +364,56 @@ end-user installations.
 	cmd.Flags().BoolVar(&skipPromoteInstallations, "skip-promote-installations", false, "Activate the version and promote live, but skip promoting end-user installations")
 	cmd.Flags().StringVar(&version, "version", "", "Released version to activate (default latest from workspace current)")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
+	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note to attach to the activated version")
+	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
+	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
+	_ = cmd.Flags().MarkHidden("note")
+	return cmd
+}
+
+func newFlowsDiffCmd(app *App) *cobra.Command {
+	var from string
+	var to string
+	var fromVersion int
+	var toVersion int
+
+	cmd := &cobra.Command{
+		Use:   "diff <flow-slug>",
+		Short: "Show a source diff between draft, live, or released versions",
+		Long: strings.TrimSpace(`
+Show a unified diff for flow source.
+
+Defaults to draft versus live so you can inspect unpublished changes:
+- breyta flows diff my-flow
+- breyta flows diff my-flow --from draft --to version --to-version 7
+- breyta flows diff my-flow --from version --from-version 6 --to version --to-version 7
+		`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "diff requires --api/BREYTA_API_URL")
+			}
+
+			payload := map[string]any{"flowSlug": args[0]}
+			if strings.TrimSpace(from) != "" {
+				payload["from"] = strings.TrimSpace(from)
+			}
+			if strings.TrimSpace(to) != "" {
+				payload["to"] = strings.TrimSpace(to)
+			}
+			if fromVersion > 0 {
+				payload["fromVersion"] = fromVersion
+			}
+			if toVersion > 0 {
+				payload["toVersion"] = toVersion
+			}
+			return doAPICommand(cmd, app, "flows.diff", payload)
+		},
+	}
+
+	cmd.Flags().StringVar(&from, "from", "draft", "Diff source (draft|live|version)")
+	cmd.Flags().StringVar(&to, "to", "live", "Diff target (draft|live|version)")
+	cmd.Flags().IntVar(&fromVersion, "from-version", 0, "Version number when --from=version")
+	cmd.Flags().IntVar(&toVersion, "to-version", 0, "Version number when --to=version")
 	return cmd
 }

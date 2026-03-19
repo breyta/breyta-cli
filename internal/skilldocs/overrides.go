@@ -40,6 +40,14 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			"- Include web links from CLI JSON when available (`meta.webUrl` / `data.*.webUrl`) so users can inspect in Breyta web.",
 			"- Prefer exact recovery URLs from failures when available: `error.actions[].url` first, then `meta.webUrl`.\n- For successful reads/runs, include web links from CLI JSON (`meta.webUrl` / `data.*.webUrl`) so users can inspect in Breyta web.\n- Only derive canonical recovery URLs when the needed ids are already known: billing, activate, draft-bindings, installation, or connection edit.\n- When blocked, include the exact recovery URL in `Runtime proof`, not just generic \"go to billing/setup\" text.",
 		},
+		{
+			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, re-check grouping after metadata changes with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`",
+			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, re-check grouping after metadata changes with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
+		},
+		{
+			"- `breyta flows release <slug>`\n- `breyta flows promote <slug>`\n- `breyta flows installations configure <installation-id> --input '{...}'`",
+			"- `breyta flows release <slug> --release-note-file ./release-note.md`\n- `breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md` (edit the note later)\n- `breyta flows promote <slug>`\n- `breyta flows installations configure <installation-id> --input '{...}'`",
+		},
 	}
 
 	for _, pair := range replacements {
