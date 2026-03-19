@@ -82,6 +82,32 @@ If you need to revise the note later:
 breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md
 ```
 
+## Flow Groups
+
+Flow groups support explicit manual ordering. Use `groupOrder` when flows in the
+same group should appear in execution order in the UI or CLI.
+
+```bash
+breyta flows update invoice-start \
+  --group-key invoice-pipeline \
+  --group-name "Invoice Pipeline" \
+  --group-description "Flows that run in sequence for invoice processing" \
+  --group-order 10
+
+breyta flows update invoice-reconcile \
+  --group-key invoice-pipeline \
+  --group-name "Invoice Pipeline" \
+  --group-order 20
+```
+
+Notes:
+
+- Lower `groupOrder` values sort first.
+- Use spaced values like `10`, `20`, `30` so insertions stay easy.
+- `breyta flows show <slug> --pretty` includes `groupOrder` on the flow and ordered `groupFlows`.
+- Clear only the order with `breyta flows update <slug> --group-order ""`.
+- Clear the whole grouping with `breyta flows update <slug> --group-key ""`.
+
 ## Provenance
 
 If a new flow was derived from existing flows, keep that lineage in flow metadata

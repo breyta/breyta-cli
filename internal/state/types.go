@@ -45,6 +45,7 @@ type Flow struct {
 	GroupKey         string     `json:"groupKey,omitempty"`
 	GroupName        string     `json:"groupName,omitempty"`
 	GroupDescription string     `json:"groupDescription,omitempty"`
+	GroupOrder       *int       `json:"groupOrder,omitempty"`
 	ActiveVersion    int        `json:"activeVersion"`
 	UpdatedAt        time.Time  `json:"updatedAt"`
 	Spine            []string   `json:"spine"`
