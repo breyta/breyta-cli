@@ -54,10 +54,14 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 			}
 			filters.Status = status
 		case "flow":
-			filters.Flow = normalizeRunsQueryFlowSlug(value)
-			if filters.Flow == "" {
+			normalizedFlow := normalizeRunsQueryFlowSlug(value)
+			if normalizedFlow == "" {
 				return runsListFilters{}, fmt.Errorf("invalid flow: token %q", token)
 			}
+			if filters.Flow != "" && filters.Flow != normalizedFlow {
+				return runsListFilters{}, fmt.Errorf("multiple flow: filters are not supported; got %q and %q", filters.Flow, normalizedFlow)
+			}
+			filters.Flow = normalizedFlow
 		case "installation":
 			filters.InstallationID = value
 		case "version":

@@ -30,6 +30,12 @@ func TestParseRunsListQuery_MultipleStatusesRejected(t *testing.T) {
 	}
 }
 
+func TestParseRunsListQuery_MultipleFlowsRejected(t *testing.T) {
+	if _, err := parseRunsListQuery("flow:alpha flow:beta status:failed"); err == nil {
+		t.Fatalf("expected multiple flows to be rejected")
+	}
+}
+
 func TestParseRunsListQuery_AllowsTerminalStatuses(t *testing.T) {
 	for _, status := range []string{"cancelled", "canceled", "terminated", "timed-out", "timed_out"} {
 		filters, err := parseRunsListQuery("status:" + status)

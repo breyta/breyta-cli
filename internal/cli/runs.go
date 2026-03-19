@@ -86,7 +86,7 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				effectiveFlow := normalizeRunsQueryFlowSlug(flow)
+				effectiveFlow := strings.TrimSpace(flow)
 				if effectiveFlow == "" {
 					effectiveFlow = queryFilters.Flow
 				}
