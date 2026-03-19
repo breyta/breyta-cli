@@ -496,7 +496,7 @@ func flowWebURL(base, flowSlug string) string {
 }
 
 func flowRunsWebURL(base, flowSlug string) string {
-	return webURL(base, "flows", flowSlug, "runs")
+	return runsListWebURL(base, runsListFilters{Flow: flowSlug})
 }
 
 func flowInstallationsWebURL(base, flowSlug string) string {

@@ -76,6 +76,13 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+Inspect runs with the same structured filter syntax as the web runs list:
+
+```bash
+breyta runs list --query 'status:failed flow:<slug>'
+breyta runs list --installation-id <profile-id> --version 7
+```
+
 If you need to revise the note later:
 
 ```bash
