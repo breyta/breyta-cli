@@ -333,7 +333,7 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
 
 ## Recommended first session
 1. Verify the CLI install: ` + "`breyta version`" + `
-2. Open ` + "`breyta-workspace/`" + ` in your agent tool (or ` + "`cd`" + ` into this folder) and restart the agent if needed so ` + "`AGENTS.md`" + ` is loaded.
+2. Open this folder in your agent tool (or ` + "`cd`" + ` into it) and restart the agent if needed so ` + "`AGENTS.md`" + ` is loaded.
 3. Authenticate: ` + "`breyta auth login`" + `
    - If you need an account first, open ` + "`https://flows.breyta.ai/signup`" + `, finish sign-up/sign-in, then rerun login.
 4. Verify identity + workspace summary: ` + "`breyta auth whoami`" + `

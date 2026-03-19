@@ -293,6 +293,49 @@ func TestAuthWhoami_ContinuesWhenWorkspaceSummaryFails(t *testing.T) {
 	}
 }
 
+func TestAuthWhoami_DoesNotClaimAuthWorksWhenVerifyFails(t *testing.T) {
+	meCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "missing token"})
+		case "/api/me":
+			meCalled = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspaces": []map[string]any{
+					{"id": "ws-acme", "name": "Acme"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--token", "tok",
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+
+	out := decodeEnvelope(t, stdout)
+	hint, _ := out.Meta["hint"].(string)
+	if strings.Contains(hint, "Auth is working.") {
+		t.Fatalf("expected failed verify hint, got %q\n%s", hint, stdout)
+	}
+	if !strings.Contains(hint, "breyta auth login") {
+		t.Fatalf("expected relogin hint, got %q\n%s", hint, stdout)
+	}
+	if meCalled {
+		t.Fatalf("expected workspace summary fetch to be skipped when verify fails")
+	}
+}
+
 func TestAuthAPIConnection_UsesStoredRefreshToken(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

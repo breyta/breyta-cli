@@ -75,13 +75,13 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 			if email := authinfo.EmailFromToken(app.Token); email != "" {
 				data["email"] = email
 			}
-			enrichWhoamiWorkspaceSummary(cmd, app, data, meta)
+			enrichWhoamiWorkspaceSummary(cmd, app, data, meta, authVerifySucceeded(status, out))
 			return writeData(cmd, app, meta, data)
 		},
 	}
 }
 
-func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]any, meta map[string]any) {
+func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]any, meta map[string]any, verifyOK bool) {
 	if data == nil || app == nil {
 		return
 	}
@@ -94,6 +94,12 @@ func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]
 		"id":       workspaceID,
 		"source":   source,
 		"selected": workspaceID != "",
+	}
+	if !verifyOK {
+		if meta != nil {
+			meta["hint"] = authWhoamiVerifyFailedHint()
+		}
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
@@ -164,6 +170,20 @@ func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]
 	}
 }
 
+func authVerifySucceeded(status int, out any) bool {
+	if status >= http.StatusBadRequest {
+		return false
+	}
+	body := mapStringAny(out)
+	if body == nil {
+		return true
+	}
+	if success, ok := body["success"].(bool); ok {
+		return success
+	}
+	return true
+}
+
 func whoamiWorkspaceSelection(cmd *cobra.Command, app *App) (string, string) {
 	workspaceID := strings.TrimSpace(app.WorkspaceID)
 	source := "config"
@@ -205,6 +225,10 @@ func authWhoamiFallbackHint(workspaceID string) string {
 		return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need a different default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 	}
 	return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need to choose a default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+}
+
+func authWhoamiVerifyFailedHint() string {
+	return "Auth check failed. Re-run `breyta auth login`, then `breyta auth whoami`."
 }
 
 func newAuthLoginCmd(app *App) *cobra.Command {

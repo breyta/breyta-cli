@@ -192,6 +192,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "## Recommended first session") {
 		t.Fatalf("unexpected readme content (missing first-session section): %s", string(readme))
 	}
+	if strings.Contains(string(readme), "`breyta-workspace/`") {
+		t.Fatalf("unexpected readme content (should not hardcode workspace directory name): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "`breyta auth whoami`") {
 		t.Fatalf("unexpected readme content (missing whoami step): %s", string(readme))
 	}
