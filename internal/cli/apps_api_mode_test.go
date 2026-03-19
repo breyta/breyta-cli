@@ -57,6 +57,92 @@ func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 	}
 }
 
+func TestRunsList_SendsStructuredQueryFilters(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "my-flow" || args["profileId"] != "prof-1" || args["status"] != "failed" || args["version"] != float64(7) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing structured filters"}})
+			return
+		}
+		if args["query"] != "status:failed flow:my-flow installation:prof-1 version:7" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing canonical query"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"items": []any{}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "list",
+		"--query", "status:failed flow:my-flow installation:prof-1 version:7",
+	)
+	if err != nil {
+		t.Fatalf("runs list failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestRunsList_ExplicitFlagsOverrideQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "override-flow" || args["profileId"] != "prof-9" || args["status"] != "completed" || args["version"] != float64(11) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "explicit flags did not win"}})
+			return
+		}
+		if args["query"] != "status:completed flow:override-flow installation:prof-9 version:11" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected canonical override query"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"items": []any{}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "list",
+		"--query", "status:failed flow:my-flow installation:prof-1 version:7",
+		"--flow", "override-flow",
+		"--installation-id", "prof-9",
+		"--status", "completed",
+		"--version", "11",
+	)
+	if err != nil {
+		t.Fatalf("runs list failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestRunsStart_SendsProfileID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

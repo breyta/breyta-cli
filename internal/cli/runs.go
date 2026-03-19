@@ -55,33 +55,71 @@ func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
 	var installationID string
 	var profileID string
+	var query string
 	var status string
+	var version int
 	var limit int
 	var cursor string
 	var includeSteps bool
 	cmd := &cobra.Command{
 		Use:   "list [flow-slug]",
 		Short: "List runs",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `List runs.
+
+In API mode, prefer the structured query syntax used by the web runs list:
+  breyta runs list --query 'status:failed flow:my-flow installation:prof-1 version:7'
+
+Supported query tokens:
+  - status:<running|completed|failed|waiting>
+  - flow:<slug>
+  - installation:<profile-id>
+  - version:<n>
+
+Legacy discrete flags remain available and override matching --query tokens.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 1 && flow == "" {
-				flow = args[0]
-			}
 			if isAPIMode(app) {
-				payload := map[string]any{}
-				if strings.TrimSpace(flow) != "" {
-					payload["flowSlug"] = strings.TrimSpace(flow)
+				queryFilters, err := parseRunsListQuery(query)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if len(args) == 1 && strings.TrimSpace(flow) == "" && strings.TrimSpace(queryFilters.Flow) == "" {
+					flow = args[0]
+				}
+				effectiveFlow := normalizeRunsQueryFlowSlug(flow)
+				if effectiveFlow == "" {
+					effectiveFlow = queryFilters.Flow
 				}
 				effectiveInstallationID := strings.TrimSpace(installationID)
 				legacyProfileID := strings.TrimSpace(profileID)
 				if effectiveInstallationID == "" {
 					effectiveInstallationID = legacyProfileID
 				}
+				if effectiveInstallationID == "" {
+					effectiveInstallationID = strings.TrimSpace(queryFilters.InstallationID)
+				}
+				effectiveStatus := strings.TrimSpace(status)
+				if effectiveStatus == "" {
+					effectiveStatus = strings.TrimSpace(queryFilters.Status)
+				}
+				effectiveVersion := queryFilters.Version
+				hasVersion := queryFilters.HasVersion
+				if cmd.Flags().Changed("version") {
+					effectiveVersion = version
+					hasVersion = true
+				}
+				payload := map[string]any{}
+				if effectiveFlow != "" {
+					payload["flowSlug"] = effectiveFlow
+				}
 				if effectiveInstallationID != "" {
 					payload["profileId"] = effectiveInstallationID
 				}
-				if strings.TrimSpace(status) != "" {
-					payload["status"] = strings.TrimSpace(status)
+				if effectiveStatus != "" {
+					payload["status"] = effectiveStatus
+				}
+				if hasVersion {
+					payload["version"] = effectiveVersion
 				}
 				if strings.TrimSpace(cursor) != "" {
 					payload["cursor"] = strings.TrimSpace(cursor)
@@ -92,7 +130,22 @@ func newRunsListCmd(app *App) *cobra.Command {
 				if includeSteps {
 					return writeNotImplemented(cmd, app, "--include-steps is not supported in API mode yet (use `runs show <workflow-id>`)")
 				}
+				if structuredQuery := buildRunsListQuery(runsListFilters{
+					Flow:           effectiveFlow,
+					InstallationID: effectiveInstallationID,
+					Status:         effectiveStatus,
+					Version:        effectiveVersion,
+					HasVersion:     hasVersion,
+				}); structuredQuery != "" {
+					payload["query"] = structuredQuery
+				}
 				return doAPICommand(cmd, app, "runs.list", payload)
+			}
+			if strings.TrimSpace(query) != "" {
+				return writeNotImplemented(cmd, app, "--query is supported in API mode only")
+			}
+			if cmd.Flags().Changed("version") {
+				return writeNotImplemented(cmd, app, "--version filtering is supported in API mode only")
 			}
 
 			st, store, err := appStore(app)
@@ -149,11 +202,13 @@ func newRunsListCmd(app *App) *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&query, "query", "", "Structured runs filter query (API mode only), e.g. 'status:failed flow:my-flow'")
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Filter by installation id (API mode only)")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
+	cmd.Flags().IntVar(&version, "version", 0, "Filter by flow version active when the run started (API mode only)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in list results")

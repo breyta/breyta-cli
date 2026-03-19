@@ -1034,6 +1034,9 @@ func enrichAPICommandResult(app *App, client api.Client, command string, args ma
 		return
 	}
 	_ = client
+	if command == "runs.list" {
+		annotateRunsListResult(app, out, args)
+	}
 	enrichCommandHints(app, command, args, status, out)
 }
 
