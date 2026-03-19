@@ -313,6 +313,9 @@ func TestFlowsHelpDistinguishesPushReleasePromote(t *testing.T) {
 	if !strings.Contains(help, "diff -> inspect draft changes against live or a released version") {
 		t.Fatalf("flows help missing diff guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "\n  diff") {
+		t.Fatalf("flows help missing diff command listing:\n%s", help)
+	}
 	if !strings.Contains(help, "release -> activates the latest pushed version") {
 		t.Fatalf("flows help missing corrected release guidance:\n%s", help)
 	}

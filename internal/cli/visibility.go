@@ -60,6 +60,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"show":          true,
 		"create":        true,
 		"configure":     true,
+		"diff":          true,
 		"pull":          true,
 		"push":          true,
 		"validate":      true,
