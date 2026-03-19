@@ -157,9 +157,11 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout())
 			fmt.Fprintln(cmd.OutOrStdout(), "Next:")
 			fmt.Fprintf(cmd.OutOrStdout(), "- Open this folder in your agent tool (or `cd %s` and start the agent) so it can read %s\n", absDir, agentsPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "- First-session guide: %s\n", readmePath)
 			fmt.Fprintln(cmd.OutOrStdout(), "- Authenticate: breyta auth login")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Verify: breyta workspaces list && breyta flows list")
-			fmt.Fprintf(cmd.OutOrStdout(), "- Agent docs: breyta docs (or see %s)\n", agentsPath)
+			fmt.Fprintln(cmd.OutOrStdout(), "- Verify identity + workspace summary: breyta auth whoami")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<idea>\"")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			return nil
 		},
 	}
@@ -206,11 +208,13 @@ func renderInitAgentsMD(target skills.InstallTarget, skillNotInstalled bool) str
 
 This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code, Gemini CLI, etc.) to build and operate Breyta workflows ("flows") through the ` + "`breyta`" + ` CLI.
 
-## First-time setup
-- Verify the CLI is installed: ` + "`breyta version`" + `
-- Authenticate (hosted Breyta): ` + "`breyta auth login`" + `
-- Choose a workspace: ` + "`breyta workspaces list`" + ` then ` + "`breyta workspaces use <workspace-id>`" + `
-- Verify you can talk to the API: ` + "`breyta flows list`" + `
+If this is your first session in this workspace, start with ` + "`README.md`" + ` in this folder. Keep this file for durable workflow guidance.
+
+## Durable discovery defaults
+- Start new work with approved template discovery: ` + "`breyta flows search <query>`" + `
+- When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows list`" + ` then ` + "`breyta flows show <slug>`" + `
+- Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
+- Use ` + "`breyta docs`" + ` (then ` + "`breyta docs find <query>`" + ` / ` + "`breyta docs show <slug>`" + `) when the agent needs more Breyta detail
 
 ## Where to keep flow files
 - ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)
@@ -218,9 +222,6 @@ This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code,
 
 ## Always-available agent context (recommended)
 Many agent tools only read instructions from the active folder. This file (` + "`AGENTS.md`" + `) is the reliable source of truth.
-
-If the agent needs more detail about Breyta, use:
-` + "`breyta docs`" + ` (then ` + "`breyta docs find <query>`" + ` / ` + "`breyta docs show <slug>`" + `).
 
 ## Optional: installed skill bundle (nice-to-have)
 Some agent tools can ingest a global skill bundle automatically, but not all do.
@@ -318,30 +319,60 @@ Suggested line to paste into your agent's persistent project instructions:
 }
 
 func renderInitReadmeMD() string {
-	return strings.TrimSpace(`# Breyta workspace
+	return strings.TrimSpace(`# Breyta first session
 
-This directory was created by ` + "`breyta init`" + ` for coding-agent-driven Breyta work.
+This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI session with a coding agent.
 
-Quick start:
+## Execution rules
+- Assume sandboxed and network-restricted agent environments by default.
+- Use elevated permissions for internet, API, browser, auth, or download steps when needed.
+- Verify each step before moving on.
+- Never paste API keys or secrets into chat or CLI commands.
+- Route flow secrets and activation through Breyta UI draft-bindings and activate pages.
+- Stop after idea exploration by default, but you can intentionally skip ahead if you know what you are doing.
 
-` + "```bash\n" + `breyta auth login
-breyta workspaces list
-breyta workspaces use <workspace-id>
-breyta flows list
-` + "```\n" + `
+## Recommended first session
+1. Verify the CLI install: ` + "`breyta version`" + `
+2. Open ` + "`breyta-workspace/`" + ` in your agent tool (or ` + "`cd`" + ` into this folder) and restart the agent if needed so ` + "`AGENTS.md`" + ` is loaded.
+3. Authenticate: ` + "`breyta auth login`" + `
+   - If you need an account first, open ` + "`https://flows.breyta.ai/signup`" + `, finish sign-up/sign-in, then rerun login.
+4. Verify identity + workspace summary: ` + "`breyta auth whoami`" + `
+   - If ` + "`whoami`" + ` shows multiple workspaces or no default workspace selected, keep discovering first. Use ` + "`breyta workspaces list`" + ` and ` + "`breyta workspaces use <workspace-id>`" + ` later when you are ready to adopt or build.
+5. Discover approved templates:
+   - ` + "`breyta flows search`" + `
+   - ` + "`breyta flows search \"<idea>\"`" + `
+6. Pick one idea to explore next.
 
-Suggested workflow:
+Easy ideas:
+- Scheduled API digest that posts a summary to Slack or email
+- Webhook intake flow that classifies and routes inbound events
+- Manual enrichment flow for CSV rows, CRM records, or support tickets
+
+Advanced ideas:
+- Keyed-concurrency webhook processor with duplicate protection
+- Scheduled reconciliation flow with retries, checkpoints, and no-op handling
+- Multi-step research flow with persisted resources and a final summary artifact
+
+## Stop gate
+- Stop here by default after idea exploration.
+- Do not push, validate, release, or configure secrets until you have a chosen idea and explicit ` + "`continue`" + ` from the user.
+- If you intentionally want to skip the stop gate, do it knowingly.
+
+## After the stop gate
+- Start with approved template discovery and docs:
+  - ` + "`breyta flows search \"<chosen idea>\"`" + `
+  - ` + "`breyta docs find \"<chosen idea or primitive>\"`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Iterate in draft: pull, edit, push, configure check, run/validate, diff against live
+- Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 
-Recovery URLs:
+## Recovery URLs
 - When a command fails, prefer the exact page from ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
-- For successful reads/runs, carry forward ` + "`meta.webUrl`" + ` / ` + "`data.*.webUrl`" + ` when sharing proof.
+- For successful reads or runs, carry forward ` + "`meta.webUrl`" + ` / ` + "`data.*.webUrl`" + ` when sharing proof.
 - Only derive canonical URLs when the required ids are already known: billing, activate, draft-bindings, installation, or connection edit.
 
-Docs:
+## Docs
 - Product docs: ` + "`breyta docs`" + `
 - Command help: ` + "`breyta help <command...>`" + `
 `)

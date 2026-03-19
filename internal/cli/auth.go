@@ -70,13 +70,141 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			meta := map[string]any{"httpStatus": status}
 			data := map[string]any{"verify": out}
 			if email := authinfo.EmailFromToken(app.Token); email != "" {
 				data["email"] = email
 			}
-			return writeData(cmd, app, map[string]any{"httpStatus": status}, data)
+			enrichWhoamiWorkspaceSummary(cmd, app, data, meta)
+			return writeData(cmd, app, meta, data)
 		},
 	}
+}
+
+func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]any, meta map[string]any) {
+	if data == nil || app == nil {
+		return
+	}
+
+	workspaceID, source := whoamiWorkspaceSelection(cmd, app)
+	if meta != nil {
+		meta["workspaceIdSource"] = source
+	}
+	data["workspaceSelection"] = map[string]any{
+		"id":       workspaceID,
+		"source":   source,
+		"selected": workspaceID != "",
+	}
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+	defer cancel()
+
+	out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+	if err != nil {
+		if meta != nil {
+			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows search <query>`."
+			meta["hint"] = authWhoamiFallbackHint(workspaceID)
+		}
+		return
+	}
+	if status >= http.StatusBadRequest {
+		if meta != nil {
+			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows search <query>`."
+			meta["hint"] = authWhoamiFallbackHint(workspaceID)
+		}
+		return
+	}
+
+	body := mapStringAny(out)
+	if body == nil {
+		if meta != nil {
+			meta["workspaceHint"] = "Unexpected workspace summary response. You can still start with `breyta flows search <query>`."
+			meta["hint"] = authWhoamiFallbackHint(workspaceID)
+		}
+		return
+	}
+
+	rawItems := sliceAny(body["workspaces"])
+	items := make([]any, 0, len(rawItems))
+	var currentWorkspace map[string]any
+	for _, raw := range rawItems {
+		item := mapStringAny(raw)
+		if item == nil {
+			continue
+		}
+		cloned := make(map[string]any, len(item)+1)
+		for k, v := range item {
+			cloned[k] = v
+		}
+		id, _ := cloned["id"].(string)
+		cloned["current"] = workspaceID != "" && strings.TrimSpace(id) == workspaceID
+		if current, _ := cloned["current"].(bool); current {
+			currentWorkspace = cloned
+		}
+		items = append(items, cloned)
+	}
+
+	data["workspaces"] = items
+	if len(items) == 1 && workspaceID == "" {
+		if suggested, ok := items[0].(map[string]any); ok {
+			data["suggestedWorkspace"] = suggested
+		}
+	}
+	if currentWorkspace != nil {
+		data["currentWorkspace"] = currentWorkspace
+	}
+
+	if meta != nil {
+		meta["workspaceHTTPStatus"] = status
+		meta["workspaceCount"] = len(items)
+		if workspaceID != "" && currentWorkspace == nil {
+			meta["warning"] = "Configured workspace is not present in the accessible workspace list."
+		}
+		meta["hint"] = authWhoamiHint(workspaceID, len(items), currentWorkspace != nil)
+	}
+}
+
+func whoamiWorkspaceSelection(cmd *cobra.Command, app *App) (string, string) {
+	workspaceID := strings.TrimSpace(app.WorkspaceID)
+	source := "config"
+	workspaceFlagExplicit := false
+	if cmd != nil {
+		workspaceFlagExplicit = cmd.Flags().Changed("workspace") || cmd.InheritedFlags().Changed("workspace")
+		if root := cmd.Root(); root != nil {
+			workspaceFlagExplicit = workspaceFlagExplicit || root.PersistentFlags().Changed("workspace")
+		}
+	}
+	workspaceEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
+	if workspaceFlagExplicit {
+		source = "flag"
+	} else if workspaceEnvExplicit {
+		source = "env"
+	} else if workspaceID == "" {
+		source = "none"
+	}
+	return workspaceID, source
+}
+
+func authWhoamiHint(workspaceID string, workspaceCount int, hasCurrent bool) string {
+	switch {
+	case workspaceCount == 0:
+		return "Auth is working. Start by browsing approved templates with `breyta flows search <query>`. When you're ready to build or adopt one, create or join a workspace in Breyta."
+	case workspaceID != "" && hasCurrent:
+		return "Auth is working. Next: browse approved templates with `breyta flows search <query>`."
+	case workspaceID != "" && !hasCurrent:
+		return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need a different default workspace, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+	case workspaceCount == 1:
+		return "Auth is working. You have one workspace. Browse approved templates with `breyta flows search <query>`. Set a default later with `breyta workspaces use <workspace-id>` when you're ready to adopt or build."
+	default:
+		return "Auth is working. Browse approved templates with `breyta flows search <query>`. When you're ready to adopt or build, pick a default with `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+	}
+}
+
+func authWhoamiFallbackHint(workspaceID string) string {
+	if workspaceID != "" {
+		return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need a different default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+	}
+	return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need to choose a default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 }
 
 func newAuthLoginCmd(app *App) *cobra.Command {
@@ -222,9 +350,9 @@ via flows-api (/api/auth/token). Prefer browser login.
 					"source":     tokenSource,
 				}
 				if strings.TrimSpace(refreshToken) != "" {
-					meta["hint"] = "Token is stored locally with a refresh token; future commands will auto-refresh."
+					meta["hint"] = "Token is stored locally with a refresh token; future commands will auto-refresh. Next: run `breyta auth whoami`, then `breyta flows search <query>`."
 				} else {
-					meta["hint"] = "Token is stored locally for future commands."
+					meta["hint"] = "Token is stored locally for future commands. Next: run `breyta auth whoami`, then `breyta flows search <query>`."
 				}
 				if app.DevMode {
 					if line := shellExportTokenLine(token); line != "" {

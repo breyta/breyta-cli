@@ -36,19 +36,28 @@ The usual path is:
 1. Install the CLI
 2. Bootstrap a local agent workspace
 3. Authenticate
-4. Pick a workspace
-5. Start working with flows
+4. Verify your account and workspace summary
+5. Discover approved templates
+6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
 breyta init --provider <codex|cursor|claude|gemini>
+cd breyta-workspace
 breyta auth login
-breyta workspaces list
-breyta workspaces use <workspace-id>
-breyta flows list
+breyta auth whoami
+breyta flows search "<idea>"
 ```
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
+
+If `breyta auth whoami` shows multiple workspaces or no default workspace
+selected, use:
+
+```bash
+breyta workspaces list
+breyta workspaces use <workspace-id>
+```
 
 If you only want the skill bundle and not the workspace files:
 

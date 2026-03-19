@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/breyta/breyta-cli/internal/cli"
 	"github.com/breyta/breyta-cli/internal/authstore"
+	"github.com/breyta/breyta-cli/internal/cli"
 )
 
 func runCLIArgsWithIn(t *testing.T, stdin string, args ...string) (string, string, error) {
@@ -171,6 +171,125 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 	}
 	if data["email"] != "a@b.com" {
 		t.Fatalf("expected email a@b.com, got %#v\n%s", data["email"], stdout)
+	}
+}
+
+func TestAuthWhoami_IncludesWorkspaceSummary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
+		case "/api/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspaces": []map[string]any{
+					{"id": "ws-acme", "name": "Acme"},
+					{"id": "ws-labs", "name": "Labs"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--token", "tok",
+		"--workspace", "ws-acme",
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+
+	out := decodeEnvelope(t, stdout)
+	if out.Meta["workspaceCount"] != float64(2) {
+		t.Fatalf("expected workspaceCount=2, got %#v\n%s", out.Meta["workspaceCount"], stdout)
+	}
+	hint, _ := out.Meta["hint"].(string)
+	if !strings.Contains(hint, "breyta flows search <query>") {
+		t.Fatalf("expected search hint, got %q\n%s", hint, stdout)
+	}
+	selection, _ := out.Data["workspaceSelection"].(map[string]any)
+	if selection == nil || selection["source"] != "flag" {
+		t.Fatalf("expected workspaceSelection source=flag, got %#v\n%s", out.Data["workspaceSelection"], stdout)
+	}
+	current, _ := out.Data["currentWorkspace"].(map[string]any)
+	if current == nil || current["id"] != "ws-acme" {
+		t.Fatalf("expected currentWorkspace ws-acme, got %#v\n%s", out.Data["currentWorkspace"], stdout)
+	}
+}
+
+func TestAuthWhoami_SuggestsSingleWorkspaceWhenNoDefaultSet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
+		case "/api/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"workspaces": []map[string]any{
+					{"id": "ws-solo", "name": "Solo"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--token", "tok",
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+
+	out := decodeEnvelope(t, stdout)
+	suggested, _ := out.Data["suggestedWorkspace"].(map[string]any)
+	if suggested == nil || suggested["id"] != "ws-solo" {
+		t.Fatalf("expected suggestedWorkspace ws-solo, got %#v\n%s", out.Data["suggestedWorkspace"], stdout)
+	}
+	hint, _ := out.Meta["hint"].(string)
+	if !strings.Contains(hint, "breyta flows search <query>") || !strings.Contains(hint, "breyta workspaces use <workspace-id>") {
+		t.Fatalf("expected search + workspaces use hint, got %q\n%s", hint, stdout)
+	}
+}
+
+func TestAuthWhoami_ContinuesWhenWorkspaceSummaryFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
+		case "/api/me":
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "boom"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--token", "tok",
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+
+	out := decodeEnvelope(t, stdout)
+	if _, ok := out.Data["verify"].(map[string]any); !ok {
+		t.Fatalf("expected verify data to remain present, got %#v\n%s", out.Data["verify"], stdout)
+	}
+	workspaceHint, _ := out.Meta["workspaceHint"].(string)
+	if !strings.Contains(workspaceHint, "Could not load workspace summary") {
+		t.Fatalf("expected workspaceHint fallback, got %q\n%s", workspaceHint, stdout)
 	}
 }
 

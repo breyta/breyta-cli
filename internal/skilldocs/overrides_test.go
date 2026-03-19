@@ -21,11 +21,11 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 
 	got := ApplyCLIOverrides("breyta", input)
 	body := string(got["SKILL.md"])
-	if !strings.Contains(body, "inspect workspace flows first: `breyta flows list` then `breyta flows show <slug>`") {
-		t.Fatalf("expected workspace listing guidance in override, got:\n%s", body)
+	if !strings.Contains(body, "start with approved template discovery: `breyta flows search <query>`") {
+		t.Fatalf("expected search-first guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Approved template discovery: `breyta flows search <query>`") {
-		t.Fatalf("expected template discovery guidance in override, got:\n%s", body)
+	if !strings.Contains(body, "Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`") {
+		t.Fatalf("expected workspace flow guidance in override, got:\n%s", body)
 	}
 	if string(got["references/x.md"]) != "ref" {
 		t.Fatalf("expected non-skill files preserved")

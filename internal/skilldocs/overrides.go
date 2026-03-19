@@ -18,11 +18,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	replacements := [][2]string{
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating a new flow, inspect workspace flows first: `breyta flows list` then `breyta flows show <slug>`.\n- Use `breyta flows search <query>` only for approved template discovery/reuse.",
+			"- Before creating a new flow, start with approved template discovery: `breyta flows search <query>`.\n- When you already know the work belongs to an existing workspace flow, inspect it with `breyta flows list` then `breyta flows show <slug>`.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`\n   - Approved template discovery: `breyta flows search <query>`",
+			"3. Confirm reusable resources:\n   - Approved template discovery: `breyta flows search <query>`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`\n   - `breyta connections list`",
 		},
 		{
 			"- Schedule triggers require a prod profile before deploy and activate",
