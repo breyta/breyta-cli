@@ -76,6 +76,19 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+Archive or remove flows intentionally:
+
+```bash
+# Hide a flow from normal active use while preserving versions and metadata
+breyta flows archive <slug>
+
+# Permanently remove a flow definition
+breyta flows delete <slug> --yes
+
+# If the flow still has runs/installations to clean up, force the delete
+breyta flows delete <slug> --yes --force
+```
+
 Inspect runs with the same structured filter syntax as the web runs list:
 
 ```bash
