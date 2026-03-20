@@ -61,7 +61,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
+	stdout, _, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -88,6 +88,15 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if strings.Contains(string(agents), "(Not installed)") {
 		t.Fatalf("unexpected agents content (expected installed): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "start with `README.md` in this folder") {
+		t.Fatalf("unexpected agents content (missing README pointer): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Start new work with approved template discovery: `breyta flows search <query>`") {
+		t.Fatalf("unexpected agents content (missing search-first guidance): %s", string(agents))
+	}
+	if strings.Contains(string(agents), "## Stop gate") {
+		t.Fatalf("unexpected agents content (AGENTS.md should stay evergreen): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "Verify live install target: `breyta flows show <slug> --target live`") {
 		t.Fatalf("unexpected agents content (missing live verify show step): %s", string(agents))
@@ -186,6 +195,24 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
 	}
+	if !strings.Contains(string(readme), "## Recommended first session") {
+		t.Fatalf("unexpected readme content (missing first-session section): %s", string(readme))
+	}
+	if strings.Contains(string(readme), "`breyta-workspace/`") {
+		t.Fatalf("unexpected readme content (should not hardcode workspace directory name): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta auth whoami`") {
+		t.Fatalf("unexpected readme content (missing whoami step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows search \"<idea>\"`") {
+		t.Fatalf("unexpected readme content (missing flows search step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "## Stop gate") {
+		t.Fatalf("unexpected readme content (missing stop gate): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "https://flows.breyta.ai/signup") {
+		t.Fatalf("unexpected readme content (missing signup fallback): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "When a command fails, prefer the exact page from `error.actions[].url` first, then `meta.webUrl`.") {
 		t.Fatalf("unexpected readme content (missing recovery URL guidance): %s", string(readme))
 	}
@@ -194,6 +221,15 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
+	}
+	if !strings.Contains(stdout, "Verify identity + workspace summary: breyta auth whoami") {
+		t.Fatalf("unexpected init stdout (missing whoami next step): %s", stdout)
+	}
+	if !strings.Contains(stdout, "Discover approved templates: breyta flows search \"<idea>\"") {
+		t.Fatalf("unexpected init stdout (missing flows search next step): %s", stdout)
+	}
+	if !strings.Contains(stdout, "Stop after idea exploration unless you intentionally want to continue now") {
+		t.Fatalf("unexpected init stdout (missing stop gate): %s", stdout)
 	}
 	// Skill install (Codex)
 	skillPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "SKILL.md")
