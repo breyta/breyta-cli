@@ -125,6 +125,21 @@ Notes:
 - Clear only the order with `breyta flows update <slug> --group-order ""`.
 - Clear the whole grouping with `breyta flows update <slug> --group-key ""`.
 
+## Display Icons
+
+Choose which connection/provider icon represents a flow in list-style surfaces.
+
+```bash
+breyta flows update customer-support \
+  --primary-display-connection-slot crm
+```
+
+Notes:
+
+- `breyta flows show <slug> --pretty` includes `primaryDisplayConnectionSlot` when set.
+- Clear it with `breyta flows update <slug> --primary-display-connection-slot ""`.
+- This is workspace metadata and does not round-trip through `breyta flows pull` / `breyta flows push`.
+
 ## Provenance
 
 If a new flow was derived from existing flows, keep that lineage in flow metadata

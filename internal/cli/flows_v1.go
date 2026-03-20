@@ -21,19 +21,26 @@ import (
 
 var apiValidFlowSlugRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
 
-func isAPIValidFlowSlug(s string) bool {
+func isAPISafeIdentifier(s string) bool {
 	return apiValidFlowSlugRe.MatchString(strings.TrimSpace(s))
+}
+
+func isAPIValidFlowSlug(s string) bool {
+	return isAPISafeIdentifier(s)
 }
 
 func normalizeOptionalText(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func appendFlowGroupMetadata(out map[string]any, flow *state.Flow) {
+func appendFlowMutableMetadata(out map[string]any, flow *state.Flow) {
 	if flow == nil {
 		return
 	}
 	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription, flow.GroupOrder)
+	if selector := normalizeOptionalText(flow.PrimaryDisplayConnectionSlot); selector != "" {
+		out["primaryDisplayConnectionSlot"] = selector
+	}
 }
 
 func appendGroupMetadata(out map[string]any, groupKey, groupName, groupDescription string, groupOrder *int) {
@@ -64,6 +71,17 @@ func parseOptionalGroupOrder(raw string) (*int, error) {
 		return nil, fmt.Errorf("invalid --group-order %q (must be a non-negative integer or empty string to clear it)", raw)
 	}
 	return &n, nil
+}
+
+func parseOptionalDisplayConnectionSlot(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	if !isAPISafeIdentifier(value) {
+		return "", fmt.Errorf("invalid --primary-display-connection-slot %q (must start with a letter; allowed: letters, digits, hyphen (-), underscore (_); max 128 chars)", raw)
+	}
+	return value, nil
 }
 
 func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[string]any {
@@ -119,7 +137,7 @@ func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[st
 			"name":        member.Name,
 			"description": member.Description,
 		}
-		appendFlowGroupMetadata(item, member)
+		appendFlowMutableMetadata(item, member)
 		items = append(items, item)
 	}
 	return items
@@ -678,7 +696,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 					"lastStatus":     lastStatus[f.Slug],
 					"lastWorkflowId": lastWorkflow[f.Slug],
 				}
-				appendFlowGroupMetadata(item, f)
+				appendFlowMutableMetadata(item, f)
 				items = append(items, item)
 			}
 
@@ -790,7 +808,7 @@ breyta flows show order-ingest --target live
 				"activeVersion": f.ActiveVersion,
 				"updatedAt":     f.UpdatedAt,
 			}
-			appendFlowGroupMetadata(out, f)
+			appendFlowMutableMetadata(out, f)
 
 			// Default: lightweight step list.
 			steps := make([]map[string]any, 0, len(f.Steps))
@@ -1211,21 +1229,25 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 }
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
-	var name, description, tags string
+	var name, description, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
-		Short: "Update flow metadata and grouping",
+		Short: "Update flow metadata",
 		Long: strings.TrimSpace(`
-Update mutable flow metadata such as name, description, tags, and grouping.
+Update mutable flow metadata such as name, description, tags, grouping, and display icon selection.
 
-Grouping metadata is workspace metadata. It does not round-trip through
+Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
 
 Common grouped-flow loop:
 - inspect current grouping with ` + "`breyta flows list --pretty`" + ` or ` + "`breyta flows show <slug> --pretty`" + `
 - set or change grouping with ` + "`breyta flows update <slug> --group-key ... --group-name ... --group-order ...`" + `
 - verify sibling order again with ` + "`breyta flows show <slug> --pretty`" + `
+
+Display icon loop:
+- inspect current display icon selector with ` + "`breyta flows show <slug> --pretty`" + `
+- set or clear it with ` + "`breyta flows update <slug> --primary-display-connection-slot <selector>`" + `
 		`),
 		Example: strings.TrimSpace(`
 breyta flows update invoice-start \
@@ -1240,6 +1262,9 @@ breyta flows show invoice-start --pretty
 
 breyta flows update invoice-reconcile --group-order ""
 breyta flows update invoice-start --group-key ""
+
+breyta flows update customer-support --primary-display-connection-slot crm
+breyta flows update customer-support --primary-display-connection-slot ""
 		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1273,6 +1298,13 @@ breyta flows update invoice-start --group-key ""
 					} else {
 						payload["groupOrder"] = *resolvedGroupOrder
 					}
+				}
+				if cmd.Flags().Changed("primary-display-connection-slot") {
+					resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload["primaryDisplayConnectionSlot"] = resolvedSelector
 				}
 				if useDoAPICommandFn {
 					return doAPICommandFn(cmd, app, "flows.update", payload)
@@ -1310,6 +1342,13 @@ breyta flows update invoice-start --group-key ""
 				f.GroupDescription = resolvedGroupDescription
 				f.GroupOrder = resolvedGroupOrder
 			}
+			if cmd.Flags().Changed("primary-display-connection-slot") {
+				resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				f.PrimaryDisplayConnectionSlot = resolvedSelector
+			}
 			f.UpdatedAt = time.Now().UTC()
 			ws.UpdatedAt = f.UpdatedAt
 			if err := store.Save(st); err != nil {
@@ -1325,6 +1364,7 @@ breyta flows update invoice-start --group-key ""
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")
 	cmd.Flags().StringVar(&groupDescription, "group-description", "", "Group description")
 	cmd.Flags().StringVar(&groupOrder, "group-order", "", "Group order (lower numbers sort first; empty string clears it)")
+	cmd.Flags().StringVar(&primaryDisplayConnectionSlot, "primary-display-connection-slot", "", "Display icon selector (empty string clears it)")
 	return cmd
 }
 

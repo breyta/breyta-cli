@@ -142,3 +142,83 @@ func TestFlowsUpdate_BuildsGroupOrderClearPayload(t *testing.T) {
 		t.Fatalf("expected groupOrder to be empty string for explicit clear, got %#v", value)
 	}
 }
+
+func TestFlowsUpdate_BuildsPrimaryDisplayConnectionSlotPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--primary-display-connection-slot", "crm_main"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["primaryDisplayConnectionSlot"]
+	if !ok {
+		t.Fatalf("expected primaryDisplayConnectionSlot to be present in payload")
+	}
+	if value != "crm_main" {
+		t.Fatalf("expected primaryDisplayConnectionSlot=crm_main, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_BuildsPrimaryDisplayConnectionSlotClearPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--primary-display-connection-slot", ""})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["primaryDisplayConnectionSlot"]
+	if !ok {
+		t.Fatalf("expected primaryDisplayConnectionSlot to be present in payload")
+	}
+	if value != "" {
+		t.Fatalf("expected primaryDisplayConnectionSlot to be empty string for explicit clear, got %#v", value)
+	}
+}

@@ -122,6 +122,7 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		"--group-name", "Contract Bundle",
 		"--group-description", "Flows that should be installed together",
 		"--group-order", "20",
+		"--primary-display-connection-slot", "slack",
 		"--pretty")
 	if err != nil {
 		t.Fatalf("flows update failed: %v\n%s", err, stdout)
@@ -146,6 +147,9 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	}
 	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
 		t.Fatalf("expected update response groupOrder=20, got %v", got)
+	}
+	if got, _ := flowMap["primaryDisplayConnectionSlot"].(string); got != "slack" {
+		t.Fatalf("expected update response primaryDisplayConnectionSlot=slack, got %q", got)
 	}
 
 	stdout, _, err = runCLI(t, statePath, "flows", "update", "contract-flow-peer",
@@ -213,6 +217,9 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	}
 	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
 		t.Fatalf("expected show response groupOrder=20, got %v", got)
+	}
+	if got, _ := flowMap["primaryDisplayConnectionSlot"].(string); got != "slack" {
+		t.Fatalf("expected show response primaryDisplayConnectionSlot=slack, got %q", got)
 	}
 	groupFlowsAny, ok := flowMap["groupFlows"]
 	if !ok {
@@ -284,6 +291,9 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		if slug == "contract-flow" {
 			if got, _ := item["groupOrder"].(float64); got != 20 {
 				t.Fatalf("expected list item %s groupOrder=20, got %v", slug, got)
+			}
+			if got, _ := item["primaryDisplayConnectionSlot"].(string); got != "slack" {
+				t.Fatalf("expected list item %s primaryDisplayConnectionSlot=slack, got %q", slug, got)
 			}
 		}
 		if slug == "contract-flow-peer" {
