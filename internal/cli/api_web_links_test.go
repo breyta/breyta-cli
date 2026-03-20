@@ -100,6 +100,53 @@ func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
 	}
 }
 
+func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"items": []any{
+					map[string]any{
+						"flowSlug":   "daily-sales-report",
+						"workflowId": "wf-123",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "list",
+		"--query", "flow:daily-sales-report version:7",
+	)
+	if err != nil {
+		t.Fatalf("runs list failed: %v\n%s", err, stdout)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs?query=flow%3Adaily-sales-report+version%3A7" {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+	data, _ := out["data"].(map[string]any)
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs?query=flow%3Adaily-sales-report+version%3A7" {
+		t.Fatalf("unexpected data.webUrl: %q", got)
+	}
+}
+
 func TestWebLinks_ConnectionRESTAddsWebURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/connections/conn-123" {

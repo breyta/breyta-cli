@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
@@ -104,12 +105,23 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		t.Fatalf("create peer expected ok=true")
 	}
 
+	// Create a third flow so ordered sibling output is observable.
+	stdout, _, err = runCLI(t, statePath, "flows", "create", "--slug", "contract-flow-first", "--name", "Contract Flow First", "--pretty")
+	if err != nil {
+		t.Fatalf("create first failed: %v\n%s", err, stdout)
+	}
+	e = decodeEnvelope(t, stdout)
+	if !e.OK {
+		t.Fatalf("create first expected ok=true")
+	}
+
 	// Edit flow metadata (steps editing is managed via push/pull in API mode)
 	stdout, _, err = runCLI(t, statePath, "flows", "update", "contract-flow",
 		"--name", "Contract Flow Updated",
 		"--group-key", "contract-bundle",
 		"--group-name", "Contract Bundle",
 		"--group-description", "Flows that should be installed together",
+		"--group-order", "20",
 		"--pretty")
 	if err != nil {
 		t.Fatalf("flows update failed: %v\n%s", err, stdout)
@@ -132,11 +144,15 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	if got, _ := flowMap["groupName"].(string); got != "Contract Bundle" {
 		t.Fatalf("expected update response groupName=Contract Bundle, got %q", got)
 	}
+	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
+		t.Fatalf("expected update response groupOrder=20, got %v", got)
+	}
 
 	stdout, _, err = runCLI(t, statePath, "flows", "update", "contract-flow-peer",
 		"--group-key", "contract-bundle",
 		"--group-name", "Contract Bundle",
 		"--group-description", "Flows that should be installed together",
+		"--group-order", "30",
 		"--pretty")
 	if err != nil {
 		t.Fatalf("flows update peer failed: %v\n%s", err, stdout)
@@ -144,6 +160,20 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	e = decodeEnvelope(t, stdout)
 	if !e.OK {
 		t.Fatalf("flows update peer expected ok=true")
+	}
+
+	stdout, _, err = runCLI(t, statePath, "flows", "update", "contract-flow-first",
+		"--group-key", "contract-bundle",
+		"--group-name", "Contract Bundle",
+		"--group-description", "Flows that should be installed together",
+		"--group-order", "10",
+		"--pretty")
+	if err != nil {
+		t.Fatalf("flows update first failed: %v\n%s", err, stdout)
+	}
+	e = decodeEnvelope(t, stdout)
+	if !e.OK {
+		t.Fatalf("flows update first expected ok=true")
 	}
 
 	// Validate
@@ -181,29 +211,41 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	if got, _ := flowMap["groupDescription"].(string); got != "Flows that should be installed together" {
 		t.Fatalf("expected show response groupDescription, got %q", got)
 	}
+	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
+		t.Fatalf("expected show response groupOrder=20, got %v", got)
+	}
 	groupFlowsAny, ok := flowMap["groupFlows"]
 	if !ok {
 		t.Fatalf("flows show expected flow.groupFlows")
 	}
 	groupFlows, ok := groupFlowsAny.([]any)
-	if !ok || len(groupFlows) == 0 {
+	if !ok || len(groupFlows) != 2 {
 		t.Fatalf("flows show expected non-empty flow.groupFlows, got %T %#v", groupFlowsAny, groupFlowsAny)
 	}
-	foundPeer := false
+	orderedSlugs := make([]string, 0, len(groupFlows))
 	for _, raw := range groupFlows {
 		item, ok := raw.(map[string]any)
 		if !ok {
-			continue
+			t.Fatalf("expected groupFlows entries to be objects, got %T", raw)
 		}
-		if slug, _ := item["flowSlug"].(string); slug == "contract-flow-peer" {
-			foundPeer = true
-			if got, _ := item["groupName"].(string); got != "Contract Bundle" {
-				t.Fatalf("expected peer groupName=Contract Bundle, got %q", got)
+		slug, _ := item["flowSlug"].(string)
+		orderedSlugs = append(orderedSlugs, slug)
+		if got, _ := item["groupName"].(string); got != "Contract Bundle" {
+			t.Fatalf("expected peer groupName=Contract Bundle, got %q", got)
+		}
+		if slug == "contract-flow-first" {
+			if got, _ := item["groupOrder"].(float64); got != 10 {
+				t.Fatalf("expected first sibling groupOrder=10, got %v", got)
+			}
+		}
+		if slug == "contract-flow-peer" {
+			if got, _ := item["groupOrder"].(float64); got != 30 {
+				t.Fatalf("expected peer groupOrder=30, got %v", got)
 			}
 		}
 	}
-	if !foundPeer {
-		t.Fatalf("expected groupFlows to include contract-flow-peer, got %#v", groupFlows)
+	if got := strings.Join(orderedSlugs, ","); got != "contract-flow-first,contract-flow-peer" {
+		t.Fatalf("expected ordered groupFlows, got %q", got)
 	}
 
 	stdout, _, err = runCLI(t, statePath, "flows", "list", "--pretty")
@@ -230,7 +272,7 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 			continue
 		}
 		slug, _ := item["flowSlug"].(string)
-		if slug != "contract-flow" && slug != "contract-flow-peer" {
+		if slug != "contract-flow" && slug != "contract-flow-peer" && slug != "contract-flow-first" {
 			continue
 		}
 		if got, _ := item["groupKey"].(string); got != "contract-bundle" {
@@ -238,6 +280,21 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		}
 		if got, _ := item["groupName"].(string); got != "Contract Bundle" {
 			t.Fatalf("expected list item %s groupName=Contract Bundle, got %q", slug, got)
+		}
+		if slug == "contract-flow" {
+			if got, _ := item["groupOrder"].(float64); got != 20 {
+				t.Fatalf("expected list item %s groupOrder=20, got %v", slug, got)
+			}
+		}
+		if slug == "contract-flow-peer" {
+			if got, _ := item["groupOrder"].(float64); got != 30 {
+				t.Fatalf("expected list item %s groupOrder=30, got %v", slug, got)
+			}
+		}
+		if slug == "contract-flow-first" {
+			if got, _ := item["groupOrder"].(float64); got != 10 {
+				t.Fatalf("expected list item %s groupOrder=10, got %v", slug, got)
+			}
 		}
 		if slug == "contract-flow" {
 			foundGroupedFlow = true

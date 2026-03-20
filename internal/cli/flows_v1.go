@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,10 +33,10 @@ func appendFlowGroupMetadata(out map[string]any, flow *state.Flow) {
 	if flow == nil {
 		return
 	}
-	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription)
+	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription, flow.GroupOrder)
 }
 
-func appendGroupMetadata(out map[string]any, groupKey, groupName, groupDescription string) {
+func appendGroupMetadata(out map[string]any, groupKey, groupName, groupDescription string, groupOrder *int) {
 	if out == nil {
 		return
 	}
@@ -48,6 +49,21 @@ func appendGroupMetadata(out map[string]any, groupKey, groupName, groupDescripti
 	if groupDescription = normalizeOptionalText(groupDescription); groupDescription != "" {
 		out["groupDescription"] = groupDescription
 	}
+	if groupOrder != nil {
+		out["groupOrder"] = *groupOrder
+	}
+}
+
+func parseOptionalGroupOrder(raw string) (*int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("invalid --group-order %q (must be a non-negative integer or empty string to clear it)", raw)
+	}
+	return &n, nil
 }
 
 func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[string]any {
@@ -66,13 +82,34 @@ func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[st
 		}
 	}
 
+	ordered := false
+	for _, member := range members {
+		if member != nil && member.GroupOrder != nil {
+			ordered = true
+			break
+		}
+	}
+
 	sort.Slice(members, func(i, j int) bool {
+		if ordered {
+			leftOrder := int(^uint(0) >> 1)
+			rightOrder := int(^uint(0) >> 1)
+			if members[i].GroupOrder != nil {
+				leftOrder = *members[i].GroupOrder
+			}
+			if members[j].GroupOrder != nil {
+				rightOrder = *members[j].GroupOrder
+			}
+			if leftOrder != rightOrder {
+				return leftOrder < rightOrder
+			}
+		}
 		leftName := strings.ToLower(normalizeOptionalText(members[i].Name))
 		rightName := strings.ToLower(normalizeOptionalText(members[j].Name))
-		if leftName == rightName {
-			return members[i].Slug < members[j].Slug
+		if leftName != rightName {
+			return leftName < rightName
 		}
-		return leftName < rightName
+		return members[i].Slug < members[j].Slug
 	})
 
 	items := make([]map[string]any, 0, len(members))
@@ -88,20 +125,26 @@ func localGroupFlows(ws *state.Workspace, currentSlug, groupKey string) []map[st
 	return items
 }
 
-func resolveLocalFlowGroupUpdate(cmd *cobra.Command, flow *state.Flow, groupKey, groupName, groupDescription string) (string, string, string, bool, error) {
+func resolveLocalFlowGroupUpdate(cmd *cobra.Command, flow *state.Flow, groupKey, groupName, groupDescription, groupOrder string) (string, string, string, *int, bool, error) {
 	groupKeyProvided := cmd.Flags().Changed("group-key")
 	groupNameProvided := cmd.Flags().Changed("group-name")
 	groupDescriptionProvided := cmd.Flags().Changed("group-description")
-	if !groupKeyProvided && !groupNameProvided && !groupDescriptionProvided {
-		return "", "", "", false, nil
+	groupOrderProvided := cmd.Flags().Changed("group-order")
+	if !groupKeyProvided && !groupNameProvided && !groupDescriptionProvided && !groupOrderProvided {
+		return "", "", "", nil, false, nil
 	}
 
 	currentGroupKey := normalizeOptionalText(flow.GroupKey)
 	currentGroupName := normalizeOptionalText(flow.GroupName)
 	currentGroupDescription := normalizeOptionalText(flow.GroupDescription)
+	currentGroupOrder := flow.GroupOrder
 	requestedGroupKey := normalizeOptionalText(groupKey)
 	requestedGroupName := normalizeOptionalText(groupName)
 	requestedGroupDescription := normalizeOptionalText(groupDescription)
+	requestedGroupOrder, err := parseOptionalGroupOrder(groupOrder)
+	if err != nil {
+		return "", "", "", nil, false, err
+	}
 	clearGroup := groupKeyProvided && requestedGroupKey == ""
 
 	finalGroupKey := currentGroupKey
@@ -125,17 +168,24 @@ func resolveLocalFlowGroupUpdate(cmd *cobra.Command, flow *state.Flow, groupKey,
 		finalGroupDescription = requestedGroupDescription
 	}
 
-	if groupKeyProvided && requestedGroupKey != "" && !isAPIValidFlowSlug(requestedGroupKey) {
-		return "", "", "", false, fmt.Errorf("invalid --group-key %q (must start with a letter; allowed: letters, digits, hyphen (-), underscore (_); max 128 chars)", requestedGroupKey)
-	}
-	if (groupNameProvided || groupDescriptionProvided) && finalGroupKey == "" {
-		return "", "", "", false, errors.New("groupKey is required")
-	}
-	if finalGroupKey != "" && finalGroupName == "" {
-		return "", "", "", false, errors.New("groupName is required")
+	finalGroupOrder := currentGroupOrder
+	if clearGroup {
+		finalGroupOrder = nil
+	} else if groupOrderProvided {
+		finalGroupOrder = requestedGroupOrder
 	}
 
-	return finalGroupKey, finalGroupName, finalGroupDescription, true, nil
+	if groupKeyProvided && requestedGroupKey != "" && !isAPIValidFlowSlug(requestedGroupKey) {
+		return "", "", "", nil, false, fmt.Errorf("invalid --group-key %q (must start with a letter; allowed: letters, digits, hyphen (-), underscore (_); max 128 chars)", requestedGroupKey)
+	}
+	if (groupNameProvided || groupDescriptionProvided || groupOrderProvided) && finalGroupKey == "" {
+		return "", "", "", nil, false, errors.New("groupKey is required")
+	}
+	if finalGroupKey != "" && finalGroupName == "" {
+		return "", "", "", nil, false, errors.New("groupName is required")
+	}
+
+	return finalGroupKey, finalGroupName, finalGroupDescription, finalGroupOrder, true, nil
 }
 
 // doAPICommandFn is a test hook to stub API calls in command unit tests.
@@ -168,6 +218,7 @@ Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows update <slug> --group-order 10
 - breyta flows diff <slug>
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows configure check <slug>
@@ -194,6 +245,10 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
+  - inspect grouped flows: breyta flows list --pretty
+  - verify ordered siblings: breyta flows show <slug> --pretty
+  - clear only ordering: breyta flows update <slug> --group-order ""
 - Release notes are markdown attached to published versions.
   - draft vs live diff: breyta flows diff <slug>
   - set on release: breyta flows release <slug> --release-note-file ./release-note.md
@@ -1157,11 +1212,36 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
 	var name, description, tags string
-	var groupKey, groupName, groupDescription string
+	var groupKey, groupName, groupDescription, groupOrder string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
-		Short: "Update flow metadata",
-		Args:  cobra.ExactArgs(1),
+		Short: "Update flow metadata and grouping",
+		Long: strings.TrimSpace(`
+Update mutable flow metadata such as name, description, tags, and grouping.
+
+Grouping metadata is workspace metadata. It does not round-trip through
+` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
+
+Common grouped-flow loop:
+- inspect current grouping with ` + "`breyta flows list --pretty`" + ` or ` + "`breyta flows show <slug> --pretty`" + `
+- set or change grouping with ` + "`breyta flows update <slug> --group-key ... --group-name ... --group-order ...`" + `
+- verify sibling order again with ` + "`breyta flows show <slug> --pretty`" + `
+		`),
+		Example: strings.TrimSpace(`
+breyta flows update invoice-start \
+  --group-key invoice-pipeline \
+  --group-name "Invoice Pipeline" \
+  --group-description "Flows that run in sequence for invoice processing" \
+  --group-order 10
+
+breyta flows update invoice-reconcile --group-order 20
+
+breyta flows show invoice-start --pretty
+
+breyta flows update invoice-reconcile --group-order ""
+breyta flows update invoice-start --group-key ""
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0]}
@@ -1182,6 +1262,17 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 				}
 				if cmd.Flags().Changed("group-description") {
 					payload["groupDescription"] = normalizeOptionalText(groupDescription)
+				}
+				if cmd.Flags().Changed("group-order") {
+					resolvedGroupOrder, err := parseOptionalGroupOrder(groupOrder)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if resolvedGroupOrder == nil {
+						payload["groupOrder"] = ""
+					} else {
+						payload["groupOrder"] = *resolvedGroupOrder
+					}
 				}
 				if useDoAPICommandFn {
 					return doAPICommandFn(cmd, app, "flows.update", payload)
@@ -1209,7 +1300,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
 			}
-			resolvedGroupKey, resolvedGroupName, resolvedGroupDescription, groupChanged, err := resolveLocalFlowGroupUpdate(cmd, f, groupKey, groupName, groupDescription)
+			resolvedGroupKey, resolvedGroupName, resolvedGroupDescription, resolvedGroupOrder, groupChanged, err := resolveLocalFlowGroupUpdate(cmd, f, groupKey, groupName, groupDescription, groupOrder)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1217,6 +1308,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 				f.GroupKey = resolvedGroupKey
 				f.GroupName = resolvedGroupName
 				f.GroupDescription = resolvedGroupDescription
+				f.GroupOrder = resolvedGroupOrder
 			}
 			f.UpdatedAt = time.Now().UTC()
 			ws.UpdatedAt = f.UpdatedAt
@@ -1232,6 +1324,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")
 	cmd.Flags().StringVar(&groupDescription, "group-description", "", "Group description")
+	cmd.Flags().StringVar(&groupOrder, "group-order", "", "Group order (lower numbers sort first; empty string clears it)")
 	return cmd
 }
 

@@ -84,6 +84,12 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
 		t.Fatalf("flows help missing canonical lifecycle commands:\n%s", help)
 	}
+	if !strings.Contains(help, "\n  update") {
+		t.Fatalf("flows help missing update command:\n%s", help)
+	}
+	if !strings.Contains(help, "breyta flows update <slug> --group-order 10") {
+		t.Fatalf("flows help missing grouped-flow quick command:\n%s", help)
+	}
 }
 
 func TestHelpFlowsHidesMarketplaceSurface(t *testing.T) {
@@ -124,6 +130,33 @@ func TestFlowsHelpHidesLegacyLifecycleCommandsInDevMode(t *testing.T) {
 	}
 	if !strings.Contains(help, "\n  release") || !strings.Contains(help, "\n  promote") || !strings.Contains(help, "\n  installations") {
 		t.Fatalf("flows help missing canonical lifecycle commands in dev mode:\n%s", help)
+	}
+	if !strings.Contains(help, "\n  update") {
+		t.Fatalf("flows help missing update command in dev mode:\n%s", help)
+	}
+}
+
+func TestFlowsUpdateHelpIncludesGroupingExamples(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "update", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows update help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if !strings.Contains(help, "Grouping metadata is workspace metadata.") {
+		t.Fatalf("flows update help missing grouping metadata note:\n%s", help)
+	}
+	if !strings.Contains(help, "breyta flows update invoice-start \\") {
+		t.Fatalf("flows update help missing grouped-flow example:\n%s", help)
+	}
+	if !strings.Contains(help, "breyta flows update invoice-start --group-key \"\"") {
+		t.Fatalf("flows update help missing grouping clear example:\n%s", help)
 	}
 }
 
