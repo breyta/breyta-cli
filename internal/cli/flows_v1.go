@@ -218,6 +218,7 @@ Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
+- breyta flows update <slug> --group-order 10
 - breyta flows diff <slug>
 - breyta flows configure <slug> --set api.conn=conn-...
 - breyta flows configure check <slug>
@@ -244,6 +245,10 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
+  - inspect grouped flows: breyta flows list --pretty
+  - verify ordered siblings: breyta flows show <slug> --pretty
+  - clear only ordering: breyta flows update <slug> --group-order ""
 - Release notes are markdown attached to published versions.
   - draft vs live diff: breyta flows diff <slug>
   - set on release: breyta flows release <slug> --release-note-file ./release-note.md
@@ -1210,8 +1215,33 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 	var groupKey, groupName, groupDescription, groupOrder string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
-		Short: "Update flow metadata",
-		Args:  cobra.ExactArgs(1),
+		Short: "Update flow metadata and grouping",
+		Long: strings.TrimSpace(`
+Update mutable flow metadata such as name, description, tags, and grouping.
+
+Grouping metadata is workspace metadata. It does not round-trip through
+` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
+
+Common grouped-flow loop:
+- inspect current grouping with ` + "`breyta flows list --pretty`" + ` or ` + "`breyta flows show <slug> --pretty`" + `
+- set or change grouping with ` + "`breyta flows update <slug> --group-key ... --group-name ... --group-order ...`" + `
+- verify sibling order again with ` + "`breyta flows show <slug> --pretty`" + `
+		`),
+		Example: strings.TrimSpace(`
+breyta flows update invoice-start \
+  --group-key invoice-pipeline \
+  --group-name "Invoice Pipeline" \
+  --group-description "Flows that run in sequence for invoice processing" \
+  --group-order 10
+
+breyta flows update invoice-reconcile --group-order 20
+
+breyta flows show invoice-start --pretty
+
+breyta flows update invoice-reconcile --group-order ""
+breyta flows update invoice-start --group-key ""
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0]}
