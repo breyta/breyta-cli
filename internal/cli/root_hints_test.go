@@ -78,10 +78,13 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 			t.Fatalf("flows help leaked legacy command %q:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
 	}
-	for _, hiddenCmd := range []string{"\n  archive", "marketplace"} {
+	for _, hiddenCmd := range []string{"marketplace"} {
 		if strings.Contains(help, hiddenCmd) {
 			t.Fatalf("flows help leaked hidden surface %q:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
+	}
+	if !strings.Contains(help, "\n  archive") {
+		t.Fatalf("flows help missing archive command:\n%s", help)
 	}
 	if !strings.Contains(help, "\n  delete") {
 		t.Fatalf("flows help missing delete command:\n%s", help)
@@ -127,8 +130,8 @@ func TestFlowsHelpHidesLegacyLifecycleCommandsInDevMode(t *testing.T) {
 			t.Fatalf("flows help leaked legacy command %q in dev mode:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
 	}
-	if strings.Contains(help, "\n  archive") {
-		t.Fatalf("flows help leaked hidden archive command in dev mode:\n%s", help)
+	if !strings.Contains(help, "\n  archive") {
+		t.Fatalf("flows help missing archive command in dev mode:\n%s", help)
 	}
 	if !strings.Contains(help, "\n  delete") {
 		t.Fatalf("flows help missing delete command in dev mode:\n%s", help)

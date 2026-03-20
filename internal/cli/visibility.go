@@ -67,6 +67,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"release":       true,
 		"promote":       true,
 		"run":           true,
+		"archive":       true,
 		"delete":        true,
 		"installations": true,
 	}
