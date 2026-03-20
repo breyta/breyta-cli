@@ -111,6 +111,7 @@ Notes:
 
 - Lower `groupOrder` values sort first.
 - Use spaced values like `10`, `20`, `30` so insertions stay easy.
+- `breyta flows --help` includes `update`, and `breyta help flows update` shows the exact grouping flags and clear syntax.
 - `breyta flows show <slug> --pretty` includes `groupOrder` on the flow and ordered `groupFlows`.
 - Clear only the order with `breyta flows update <slug> --group-order ""`.
 - Clear the whole grouping with `breyta flows update <slug> --group-key ""`.
