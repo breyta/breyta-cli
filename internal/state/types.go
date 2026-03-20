@@ -38,18 +38,19 @@ type Workspace struct {
 }
 
 type Flow struct {
-	Slug             string     `json:"slug"`
-	Name             string     `json:"name"`
-	Description      string     `json:"description"`
-	Tags             []string   `json:"tags"`
-	GroupKey         string     `json:"groupKey,omitempty"`
-	GroupName        string     `json:"groupName,omitempty"`
-	GroupDescription string     `json:"groupDescription,omitempty"`
-	GroupOrder       *int       `json:"groupOrder,omitempty"`
-	ActiveVersion    int        `json:"activeVersion"`
-	UpdatedAt        time.Time  `json:"updatedAt"`
-	Spine            []string   `json:"spine"`
-	Steps            []FlowStep `json:"steps"`
+	Slug                         string     `json:"slug"`
+	Name                         string     `json:"name"`
+	Description                  string     `json:"description"`
+	Tags                         []string   `json:"tags"`
+	GroupKey                     string     `json:"groupKey,omitempty"`
+	GroupName                    string     `json:"groupName,omitempty"`
+	GroupDescription             string     `json:"groupDescription,omitempty"`
+	GroupOrder                   *int       `json:"groupOrder,omitempty"`
+	PrimaryDisplayConnectionSlot string     `json:"primaryDisplayConnectionSlot,omitempty"`
+	ActiveVersion                int        `json:"activeVersion"`
+	UpdatedAt                    time.Time  `json:"updatedAt"`
+	Spine                        []string   `json:"spine"`
+	Steps                        []FlowStep `json:"steps"`
 
 	// Published, immutable versions (mock). Draft is the current Flow record.
 	Versions []FlowVersion `json:"versions,omitempty"`

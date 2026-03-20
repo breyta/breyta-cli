@@ -136,7 +136,7 @@ func TestFlowsHelpHidesLegacyLifecycleCommandsInDevMode(t *testing.T) {
 	}
 }
 
-func TestFlowsUpdateHelpIncludesGroupingExamples(t *testing.T) {
+func TestFlowsUpdateHelpIncludesMetadataExamples(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
@@ -149,14 +149,20 @@ func TestFlowsUpdateHelpIncludesGroupingExamples(t *testing.T) {
 	}
 
 	help := out.String()
-	if !strings.Contains(help, "Grouping metadata is workspace metadata.") {
-		t.Fatalf("flows update help missing grouping metadata note:\n%s", help)
+	if !strings.Contains(help, "Grouping and display icon metadata are workspace metadata.") {
+		t.Fatalf("flows update help missing metadata note:\n%s", help)
+	}
+	if !strings.Contains(help, "Display icon loop:") {
+		t.Fatalf("flows update help missing display icon guidance:\n%s", help)
 	}
 	if !strings.Contains(help, "breyta flows update invoice-start \\") {
 		t.Fatalf("flows update help missing grouped-flow example:\n%s", help)
 	}
 	if !strings.Contains(help, "breyta flows update invoice-start --group-key \"\"") {
 		t.Fatalf("flows update help missing grouping clear example:\n%s", help)
+	}
+	if !strings.Contains(help, "--primary-display-connection-slot") {
+		t.Fatalf("flows update help missing display icon flag:\n%s", help)
 	}
 }
 
