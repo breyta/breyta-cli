@@ -179,6 +179,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Release once (after explicit sign-off) with a markdown note: `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Use `breyta flows archive <slug>` when the flow should stop appearing in the normal active surface") {
+		t.Fatalf("unexpected agents content (missing archive guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Use `breyta flows delete <slug> --yes` only for permanent removal; add `--force` when runs/installations must also be cleaned up.") {
+		t.Fatalf("unexpected agents content (missing delete guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Edit the note later if needed: `breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected agents content (missing version note update step): %s", string(agents))
 	}
@@ -218,6 +224,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Release once to live after draft is verified and approved, using `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected readme content (missing release-note workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Archive flows you want to retire without removing their history: `breyta flows archive <slug>`") {
+		t.Fatalf("unexpected readme content (missing archive workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Delete flows only for permanent cleanup: `breyta flows delete <slug> --yes`") {
+		t.Fatalf("unexpected readme content (missing delete workflow): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))

@@ -56,6 +56,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)
 	updated = ensureProvenanceSection(updated)
+	updated = ensureFlowLifecycleSection(updated)
 	updated = ensureNamingConventionsSection(updated)
 	if updated == original {
 		return files
@@ -198,6 +199,19 @@ Goal: preserve clear lineage to source flows without changing the meaning of ` +
 - only clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `
 - when several source flows were consulted, keep only the flows that actually mattered to the final implementation`
 
+const flowLifecycleSection = `## Flow lifecycle cleanup (Public CLI surface)
+
+Goal: use the public lifecycle commands intentionally when a flow should stop being used or be removed entirely.
+
+- archive keeps the flow record and versions but removes it from the normal active surface:
+  - ` + "`breyta flows archive <slug>`" + `
+- delete is permanent removal of the flow definition:
+  - ` + "`breyta flows delete <slug> --yes`" + `
+- use force delete only when you intentionally want the backend to cancel runs and remove installations as part of cleanup:
+  - ` + "`breyta flows delete <slug> --yes --force`" + `
+- prefer archive when you want to retire a flow safely and preserve history for inspection
+- prefer delete only for disposable or fully decommissioned flows`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -248,6 +262,20 @@ func ensureProvenanceSection(body string) string {
 		return body[:headingPos] + provenanceSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + provenanceSection + "\n"
+}
+
+func ensureFlowLifecycleSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Flow lifecycle cleanup (Public CLI surface)") >= 0 {
+		return body
+	}
+	namingPos := h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)")
+	if namingPos >= 0 {
+		return body[:namingPos] + flowLifecycleSection + "\n\n" + body[namingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + flowLifecycleSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + flowLifecycleSection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {
