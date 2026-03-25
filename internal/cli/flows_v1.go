@@ -38,6 +38,9 @@ func appendFlowMutableMetadata(out map[string]any, flow *state.Flow) {
 		return
 	}
 	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription, flow.GroupOrder)
+	if publishDescription := normalizeOptionalText(flow.PublishDescription); publishDescription != "" {
+		out["publishDescription"] = publishDescription
+	}
 	if selector := normalizeOptionalText(flow.PrimaryDisplayConnectionSlot); selector != "" {
 		out["primaryDisplayConnectionSlot"] = selector
 	}
@@ -1229,13 +1232,13 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 }
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
-	var name, description, tags, primaryDisplayConnectionSlot string
+	var name, description, publishDescription, publishDescriptionFile, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
 		Short: "Update flow metadata",
 		Long: strings.TrimSpace(`
-Update mutable flow metadata such as name, description, tags, grouping, and display icon selection.
+Update mutable flow metadata such as name, description, publish description, tags, grouping, and display icon selection.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
@@ -1263,6 +1266,8 @@ breyta flows show invoice-start --pretty
 breyta flows update invoice-reconcile --group-order ""
 breyta flows update invoice-start --group-key ""
 
+breyta flows update customer-support --publish-description-file ./marketplace.md
+
 breyta flows update customer-support --primary-display-connection-slot crm
 breyta flows update customer-support --primary-display-connection-slot ""
 		`),
@@ -1275,6 +1280,13 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				}
 				if strings.TrimSpace(description) != "" {
 					payload["description"] = description
+				}
+				if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
+					resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload["publishDescription"] = normalizeOptionalText(resolvedPublishDescription)
 				}
 				if strings.TrimSpace(tags) != "" {
 					payload["tags"] = tags
@@ -1329,6 +1341,13 @@ breyta flows update customer-support --primary-display-connection-slot ""
 			if description != "" {
 				f.Description = description
 			}
+			if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
+				resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				f.PublishDescription = normalizeOptionalText(resolvedPublishDescription)
+			}
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
 			}
@@ -1359,6 +1378,8 @@ breyta flows update customer-support --primary-display-connection-slot ""
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Name")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
+	cmd.Flags().StringVar(&publishDescription, "publish-description", "", "Markdown publish description shown in discover/install dialogs (empty string clears it)")
+	cmd.Flags().StringVar(&publishDescriptionFile, "publish-description-file", "", "Read markdown publish description from file")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")

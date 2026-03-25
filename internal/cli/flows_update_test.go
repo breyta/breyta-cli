@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -140,6 +142,132 @@ func TestFlowsUpdate_BuildsGroupOrderClearPayload(t *testing.T) {
 	}
 	if value != "" {
 		t.Fatalf("expected groupOrder to be empty string for explicit clear, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishDescriptionPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--publish-description", "## Install\n\nUse this flow."})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishDescription"]
+	if !ok {
+		t.Fatalf("expected publishDescription to be present in payload")
+	}
+	if value != "## Install\n\nUse this flow." {
+		t.Fatalf("expected publishDescription markdown, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishDescriptionClearPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--publish-description", ""})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishDescription"]
+	if !ok {
+		t.Fatalf("expected publishDescription to be present in payload")
+	}
+	if value != "" {
+		t.Fatalf("expected publishDescription to be empty string for explicit clear, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishDescriptionFromFilePayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "publish-description.md")
+	if err := os.WriteFile(path, []byte("## Install\n\nFrom file."), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--publish-description-file", path})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishDescription"]
+	if !ok {
+		t.Fatalf("expected publishDescription to be present in payload")
+	}
+	if value != "## Install\n\nFrom file." {
+		t.Fatalf("expected publishDescription markdown from file, got %#v", value)
 	}
 }
 
