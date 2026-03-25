@@ -185,6 +185,48 @@ func TestFlowsUpdate_BuildsPublishDescriptionPayload(t *testing.T) {
 	}
 }
 
+func TestFlowsUpdate_PreservesPublishDescriptionMarkdownWhitespace(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	rawMarkdown := "    code block\nline with hard break  "
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--publish-description", rawMarkdown})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishDescription"]
+	if !ok {
+		t.Fatalf("expected publishDescription to be present in payload")
+	}
+	if value != rawMarkdown {
+		t.Fatalf("expected publishDescription markdown to preserve whitespace, got %#v", value)
+	}
+}
+
 func TestFlowsUpdate_BuildsPublishDescriptionClearPayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn
@@ -268,6 +310,53 @@ func TestFlowsUpdate_BuildsPublishDescriptionFromFilePayload(t *testing.T) {
 	}
 	if value != "## Install\n\nFrom file." {
 		t.Fatalf("expected publishDescription markdown from file, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_PreservesPublishDescriptionFileWhitespace(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	rawMarkdown := "    code block\nline with hard break  \n"
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "publish-description.md")
+	if err := os.WriteFile(path, []byte(rawMarkdown), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--publish-description-file", path})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishDescription"]
+	if !ok {
+		t.Fatalf("expected publishDescription to be present in payload")
+	}
+	if value != rawMarkdown {
+		t.Fatalf("expected publishDescription file markdown to preserve whitespace, got %#v", value)
 	}
 }
 

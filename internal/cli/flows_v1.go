@@ -33,12 +33,19 @@ func normalizeOptionalText(s string) string {
 	return strings.TrimSpace(s)
 }
 
+func normalizeOptionalMarkdown(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
+}
+
 func appendFlowMutableMetadata(out map[string]any, flow *state.Flow) {
 	if flow == nil {
 		return
 	}
 	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription, flow.GroupOrder)
-	if publishDescription := normalizeOptionalText(flow.PublishDescription); publishDescription != "" {
+	if publishDescription := normalizeOptionalMarkdown(flow.PublishDescription); publishDescription != "" {
 		out["publishDescription"] = publishDescription
 	}
 	if selector := normalizeOptionalText(flow.PrimaryDisplayConnectionSlot); selector != "" {
@@ -1286,7 +1293,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 					if err != nil {
 						return writeErr(cmd, err)
 					}
-					payload["publishDescription"] = normalizeOptionalText(resolvedPublishDescription)
+					payload["publishDescription"] = normalizeOptionalMarkdown(resolvedPublishDescription)
 				}
 				if strings.TrimSpace(tags) != "" {
 					payload["tags"] = tags
@@ -1346,7 +1353,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				f.PublishDescription = normalizeOptionalText(resolvedPublishDescription)
+				f.PublishDescription = normalizeOptionalMarkdown(resolvedPublishDescription)
 			}
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
