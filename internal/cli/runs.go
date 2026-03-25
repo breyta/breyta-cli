@@ -51,6 +51,19 @@ func workflowIDFromRunData(data map[string]any) string {
 	return ""
 }
 
+func installationIDFromRunData(data map[string]any) string {
+	if data == nil {
+		return ""
+	}
+	if installationID := firstNonBlankString(data["installationId"], data["installation-id"], data["profileId"], data["profile-id"]); installationID != "" {
+		return installationID
+	}
+	if runData, _ := data["run"].(map[string]any); runData != nil {
+		return firstNonBlankString(runData["installationId"], runData["installation-id"], runData["profileId"], runData["profile-id"])
+	}
+	return ""
+}
+
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
 	var installationID string
@@ -217,6 +230,8 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 
 func newRunsShowCmd(app *App) *cobra.Command {
 	var steps int
+	var installationID string
+	var profileID string
 	cmd := &cobra.Command{
 		Use:   "show <workflow-id>",
 		Short: "Show run detail",
@@ -229,7 +244,15 @@ To access run resources, use the resources command:
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return doAPICommand(cmd, app, "runs.get", map[string]any{"workflowId": args[0]})
+				payload := map[string]any{"workflowId": args[0]}
+				effectiveInstallationID := strings.TrimSpace(installationID)
+				if effectiveInstallationID == "" {
+					effectiveInstallationID = strings.TrimSpace(profileID)
+				}
+				if effectiveInstallationID != "" {
+					payload["installationId"] = effectiveInstallationID
+				}
+				return doAPICommand(cmd, app, "runs.get", payload)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -258,6 +281,9 @@ To access run resources, use the resources command:
 		},
 	}
 	cmd.Flags().IntVar(&steps, "steps", 20, "Number of steps to include (0 = all)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: lookup run using a specific installation id (API mode only)")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	return cmd
 }
 

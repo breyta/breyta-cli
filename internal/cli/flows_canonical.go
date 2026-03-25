@@ -70,10 +70,15 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 	if strings.TrimSpace(workflowID) == "" {
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
+	installationID := installationIDFromRunData(data)
 
 	deadline := time.Now().Add(timeout)
 	for {
-		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": workflowID})
+		payload := map[string]any{"workflowId": workflowID}
+		if installationID != "" {
+			payload["installationId"] = installationID
+		}
+		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", payload)
 		if err != nil {
 			return writeErr(cmd, err)
 		}
