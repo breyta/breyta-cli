@@ -37,7 +37,7 @@ The usual path is:
 2. Bootstrap a local agent workspace
 3. Authenticate
 4. Verify your account and workspace summary
-5. Discover approved templates
+5. Discover approved examples to copy from
 6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
@@ -46,6 +46,14 @@ cd breyta-workspace
 breyta auth login
 breyta auth whoami
 breyta flows search "<idea>"
+```
+
+To browse public installable end-user flows for your current workspace instead,
+use:
+
+```bash
+breyta flows discover list
+breyta flows discover search "<idea>"
 ```
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
@@ -84,6 +92,24 @@ breyta flows release <slug> --release-note-file ./release-note.md
 breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
+
+If the flow should appear in public discover/install surfaces, make that explicit:
+
+```bash
+# Tag it as end-user installable
+breyta flows update <slug> --tags 'end-user,...'
+
+# Either author this in the flow file:
+# :discover {:public true}
+#
+# Or set it explicitly after push/release:
+breyta flows discover update <slug> --public=true
+```
+
+Public discover visibility is stored flow metadata. A released version and the
+`end-user` tag are both required before the flow can be exposed in discover.
+This discover catalog is separate from `breyta flows search`, which is only for
+approved example flows to inspect and copy from.
 
 Archive or remove flows intentionally:
 

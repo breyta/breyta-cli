@@ -292,8 +292,17 @@ Advanced install lifecycle:
 - Release the latest pushed version with default live + installations promotion: breyta flows release <slug>
 - Release the latest pushed version while skipping end-user installation promotion: breyta flows release <slug> --skip-promote-installations
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
+- Browse public installables for this workspace: breyta flows discover list
+- Search public installables for this workspace: breyta flows discover search <query>
+- Update public discover visibility explicitly: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List installation triggers: breyta flows installations triggers <installation-id>
+
+Public discover notes:
+- :discover {:public true} authored in a flow file persists as stored metadata on push.
+- Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
+- Public discover requires the end-user tag and a released/installable flow.
+- breyta flows search <query> is different: it is for approved example flows to inspect and copy from, not public installables.
 		`),
 	}
 
@@ -309,6 +318,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
+	cmd.AddCommand(newFlowsDiscoverCmd(app))
 	cmd.AddCommand(newFlowsMarketplaceCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
@@ -1246,6 +1256,9 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 		Short: "Update flow metadata",
 		Long: strings.TrimSpace(`
 Update mutable flow metadata such as name, description, publish description, tags, grouping, and display icon selection.
+
+Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true|false`" + `.
+Use ` + "`tags`" + ` here to mark a flow as ` + "`end-user`" + ` before turning on public discover.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
