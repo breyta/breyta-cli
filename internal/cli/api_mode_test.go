@@ -797,6 +797,15 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("content-sources"); got != "result,file" {
 			t.Fatalf("expected content-sources=result,file, got %q", got)
 		}
+		if got := r.URL.Query().Get("storage-backend"); got != "platform" {
+			t.Fatalf("expected storage-backend=platform, got %q", got)
+		}
+		if got := r.URL.Query().Get("storage-root"); got != "reports/acme" {
+			t.Fatalf("expected storage-root=reports/acme, got %q", got)
+		}
+		if got := r.URL.Query().Get("path-prefix"); got != "exports/2026" {
+			t.Fatalf("expected path-prefix=exports/2026, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "30" {
 			t.Fatalf("expected limit=30, got %q", got)
 		}
@@ -823,6 +832,9 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		"resources", "search", "transcript summary",
 		"--type", "result",
 		"--content-sources", "result,file",
+		"--storage-backend", "platform",
+		"--storage-root", "reports/acme",
+		"--path-prefix", "exports/2026",
 		"--limit", "30",
 		"--offset", "10",
 	)
@@ -860,6 +872,15 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("exclude-tier"); got != "ephemeral" {
 			t.Fatalf("expected exclude-tier=ephemeral, got %q", got)
 		}
+		if got := r.URL.Query().Get("storage-backend"); got != "platform" {
+			t.Fatalf("expected storage-backend=platform, got %q", got)
+		}
+		if got := r.URL.Query().Get("storage-root"); got != "reports/acme" {
+			t.Fatalf("expected storage-root=reports/acme, got %q", got)
+		}
+		if got := r.URL.Query().Get("path-prefix"); got != "exports/2026" {
+			t.Fatalf("expected path-prefix=exports/2026, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "1000" {
 			t.Fatalf("expected limit=1000, got %q", got)
 		}
@@ -884,6 +905,9 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 		"--types", "file,result",
 		"--accept", "text/*,application/json",
 		"--exclude-tier", "ephemeral",
+		"--storage-backend", "platform",
+		"--storage-root", "reports/acme",
+		"--path-prefix", "exports/2026",
 		"--limit", "1000",
 	)
 	if err != nil {
