@@ -2242,6 +2242,134 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
+	var runsGetPayloads []map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId":     "wf-linked",
+					"installationId": "prof-consumer",
+					"status":         "running",
+				},
+			})
+		case "runs.get":
+			runsGetPayloads = append(runsGetPayloads, args)
+			if args["workflowId"] != "wf-linked" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["installationId"] != "prof-consumer" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":     "wf-linked",
+						"installationId": "prof-consumer",
+						"status":         "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-consumer",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "public-install-proof",
+		"--installation-id", "prof-consumer",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run --wait failed: %v\n%s", err, stdout)
+	}
+	if len(runsGetPayloads) == 0 {
+		t.Fatalf("expected at least one runs.get payload")
+	}
+	for _, payload := range runsGetPayloads {
+		if payload["installationId"] != "prof-consumer" {
+			t.Fatalf("expected runs.get payload to include installationId, got %#v", payload)
+		}
+	}
+}
+
+func TestRunsShow_ForwardsInstallationIDInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		if command != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs = args
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId":     "wf-linked",
+					"installationId": "prof-consumer",
+					"status":         "completed",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-consumer",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "show", "wf-linked",
+		"--installation-id", "prof-consumer",
+	)
+	if err != nil {
+		t.Fatalf("runs show failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs == nil {
+		t.Fatalf("expected runs.get request")
+	}
+	if capturedArgs["workflowId"] != "wf-linked" {
+		t.Fatalf("expected workflowId wf-linked, got %#v", capturedArgs["workflowId"])
+	}
+	if capturedArgs["installationId"] != "prof-consumer" {
+		t.Fatalf("expected installationId prof-consumer, got %#v", capturedArgs["installationId"])
+	}
+}
+
 func TestFlowsRun_RejectsPreviewTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",

@@ -16,14 +16,17 @@ func newFlowsSearchCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search [query]",
-		Short: "Search/browse approved flows for reuse patterns",
+		Short: "Search approved example flows to copy from",
 		Long: strings.TrimSpace(`
-Search across approved flows to find reusable examples.
+Search across approved example flows to find reusable patterns to copy from.
 
 By default the search is global (across all workspaces). Use --catalog-scope workspace to
 restrict results to the current workspace.
 
-NOTE: Only flows explicitly approved for reuse are indexed/searchable.
+NOTE: Only flows explicitly approved by Breyta for reuse are indexed/searchable here.
+These are example definitions to inspect and copy from, not the same thing as public
+installable flows in the discover surface. To browse public installables, use
+` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `.
 
 Omit the query to browse recent approved flows (optionally filtered by --provider
 and/or --catalog-scope).

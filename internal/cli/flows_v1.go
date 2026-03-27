@@ -33,11 +33,21 @@ func normalizeOptionalText(s string) string {
 	return strings.TrimSpace(s)
 }
 
+func normalizeOptionalMarkdown(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
+}
+
 func appendFlowMutableMetadata(out map[string]any, flow *state.Flow) {
 	if flow == nil {
 		return
 	}
 	appendGroupMetadata(out, flow.GroupKey, flow.GroupName, flow.GroupDescription, flow.GroupOrder)
+	if publishDescription := normalizeOptionalMarkdown(flow.PublishDescription); publishDescription != "" {
+		out["publishDescription"] = publishDescription
+	}
 	if selector := normalizeOptionalText(flow.PrimaryDisplayConnectionSlot); selector != "" {
 		out["primaryDisplayConnectionSlot"] = selector
 	}
@@ -282,8 +292,17 @@ Advanced install lifecycle:
 - Release the latest pushed version with default live + installations promotion: breyta flows release <slug>
 - Release the latest pushed version while skipping end-user installation promotion: breyta flows release <slug> --skip-promote-installations
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
+- Browse public installables for this workspace: breyta flows discover list
+- Search public installables for this workspace: breyta flows discover search <query>
+- Update public discover visibility explicitly: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List installation triggers: breyta flows installations triggers <installation-id>
+
+Public discover notes:
+- :discover {:public true} authored in a flow file persists as stored metadata on push.
+- Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
+- Public discover requires the end-user tag and a released/installable flow.
+- breyta flows search <query> is different: it is for approved example flows to inspect and copy from, not public installables.
 		`),
 	}
 
@@ -299,6 +318,7 @@ Advanced install lifecycle:
 	cmd.AddCommand(newFlowsRunCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
+	cmd.AddCommand(newFlowsDiscoverCmd(app))
 	cmd.AddCommand(newFlowsMarketplaceCmd(app))
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
@@ -1229,13 +1249,16 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 }
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
-	var name, description, tags, primaryDisplayConnectionSlot string
+	var name, description, publishDescription, publishDescriptionFile, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
 		Short: "Update flow metadata",
 		Long: strings.TrimSpace(`
-Update mutable flow metadata such as name, description, tags, grouping, and display icon selection.
+Update mutable flow metadata such as name, description, publish description, tags, grouping, and display icon selection.
+
+Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true|false`" + `.
+Use ` + "`tags`" + ` here to mark a flow as ` + "`end-user`" + ` before turning on public discover.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
@@ -1263,6 +1286,8 @@ breyta flows show invoice-start --pretty
 breyta flows update invoice-reconcile --group-order ""
 breyta flows update invoice-start --group-key ""
 
+breyta flows update customer-support --publish-description-file ./marketplace.md
+
 breyta flows update customer-support --primary-display-connection-slot crm
 breyta flows update customer-support --primary-display-connection-slot ""
 		`),
@@ -1275,6 +1300,13 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				}
 				if strings.TrimSpace(description) != "" {
 					payload["description"] = description
+				}
+				if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
+					resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					payload["publishDescription"] = normalizeOptionalMarkdown(resolvedPublishDescription)
 				}
 				if strings.TrimSpace(tags) != "" {
 					payload["tags"] = tags
@@ -1329,6 +1361,13 @@ breyta flows update customer-support --primary-display-connection-slot ""
 			if description != "" {
 				f.Description = description
 			}
+			if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
+				resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				f.PublishDescription = normalizeOptionalMarkdown(resolvedPublishDescription)
+			}
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
 			}
@@ -1359,6 +1398,8 @@ breyta flows update customer-support --primary-display-connection-slot ""
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Name")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
+	cmd.Flags().StringVar(&publishDescription, "publish-description", "", "Markdown publish description shown in discover/install dialogs (empty string clears it)")
+	cmd.Flags().StringVar(&publishDescriptionFile, "publish-description-file", "", "Read markdown publish description from file")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")

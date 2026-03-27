@@ -41,6 +41,7 @@ type Flow struct {
 	Slug                         string     `json:"slug"`
 	Name                         string     `json:"name"`
 	Description                  string     `json:"description"`
+	PublishDescription           string     `json:"publishDescription,omitempty"`
 	Tags                         []string   `json:"tags"`
 	GroupKey                     string     `json:"groupKey,omitempty"`
 	GroupName                    string     `json:"groupName,omitempty"`

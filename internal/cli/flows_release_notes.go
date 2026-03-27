@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+func resolvePublishDescriptionInput(publishDescription string, publishDescriptionFile string) (string, error) {
+	description := publishDescription
+	if path := strings.TrimSpace(publishDescriptionFile); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read --publish-description-file: %w", err)
+		}
+		description = string(b)
+	}
+	return description, nil
+}
+
 func resolveReleaseNoteInput(releaseNote string, legacyNote string, releaseNoteFile string) (string, error) {
 	note := strings.TrimSpace(releaseNote)
 	if note == "" {
