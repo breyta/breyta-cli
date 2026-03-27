@@ -70,6 +70,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	var accept string
 	var excludeTier string
 	var tags string
+	var storageBackend string
+	var storageRoot string
+	var pathPrefix string
 	var limit int
 
 	cmd := &cobra.Command{
@@ -101,6 +104,15 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if tags != "" {
 				q.Set("tags", tags)
 			}
+			if strings.TrimSpace(storageBackend) != "" {
+				q.Set("storage-backend", strings.TrimSpace(storageBackend))
+			}
+			if strings.TrimSpace(storageRoot) != "" {
+				q.Set("storage-root", strings.TrimSpace(storageRoot))
+			}
+			if strings.TrimSpace(pathPrefix) != "" {
+				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
+			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			}
@@ -127,6 +139,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&excludeTier, "exclude-tier", "", "Exclude storage tiers (comma-separated; e.g. ephemeral)")
 	cmd.Flags().StringVar(&prefix, "prefix", "", "Filter by URI prefix")
 	cmd.Flags().StringVar(&tags, "tags", "", "Filter by tags (comma-separated)")
+	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
+	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
+	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-1000)")
 	return cmd
 }
@@ -134,6 +149,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 func newResourcesSearchCmd(app *App) *cobra.Command {
 	var typeFilter string
 	var contentSources string
+	var storageBackend string
+	var storageRoot string
+	var pathPrefix string
 	var limit int
 	var offset int
 
@@ -157,6 +175,15 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 			}
 			if strings.TrimSpace(contentSources) != "" {
 				q.Set("content-sources", strings.TrimSpace(contentSources))
+			}
+			if strings.TrimSpace(storageBackend) != "" {
+				q.Set("storage-backend", strings.TrimSpace(storageBackend))
+			}
+			if strings.TrimSpace(storageRoot) != "" {
+				q.Set("storage-root", strings.TrimSpace(storageRoot))
+			}
+			if strings.TrimSpace(pathPrefix) != "" {
+				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
 			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
@@ -182,6 +209,9 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&typeFilter, "type", "", "Filter by resource type (result, import, file, bundle, external-dir)")
 	cmd.Flags().StringVar(&contentSources, "content-sources", "file,result", "Comma-separated resource source types to search")
+	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
+	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
+	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset (>=0)")
 	return cmd
