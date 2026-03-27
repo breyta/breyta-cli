@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"olympos.io/encoding/edn"
@@ -302,13 +303,13 @@ func inferLLMBackendFromBaseURL(baseURL string) string {
 }
 
 func compatibleLLMBackend(conn connectionSummary) string {
-	backend := normalizeConnectionType(conn.Backend)
-	if _, ok := llmBackends[backend]; ok {
-		return backend
-	}
 	connType := normalizeConnectionType(conn.Type)
 	if connType != "http-api" && connType != "llm-provider" {
 		return ""
+	}
+	backend := normalizeConnectionType(conn.Backend)
+	if _, ok := llmBackends[backend]; ok {
+		return backend
 	}
 	return inferLLMBackendFromBaseURL(conn.BaseURL)
 }
@@ -358,35 +359,35 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 		return nil, nil
 	}
 
-	queryTypes := map[string]struct{}{}
-	for typ := range requiredTypes {
-		queryTypes[typ] = struct{}{}
-	}
-	if _, ok := requiredTypes["llm-provider"]; ok {
-		queryTypes["http-api"] = struct{}{}
-	}
-
 	out := map[string][]connectionSummary{}
 	seen := map[string]map[string]struct{}{}
-	for typ := range queryTypes {
+	fetched := map[string]struct{}{}
+	inventoryUnavailable := false
+	fetchType := func(typ string) error {
+		if _, ok := fetched[typ]; ok {
+			return nil
+		}
+		fetched[typ] = struct{}{}
+
 		q := url.Values{}
 		q.Set("type", typ)
 		q.Set("limit", "200")
 		respAny, status, err := client.DoREST(context.Background(), http.MethodGet, "/api/connections", q, nil)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		// Older/local mock surfaces may not implement the REST connections endpoints.
 		// Treat 404 as "no connection inventory available" and fall back to the old template behavior.
 		if status == http.StatusNotFound {
-			return nil, nil
+			inventoryUnavailable = true
+			return nil
 		}
 		if status >= 400 {
-			return nil, fmt.Errorf("failed to list connections (type=%s): status=%d", typ, status)
+			return fmt.Errorf("failed to list connections (type=%s): status=%d", typ, status)
 		}
 		resp, ok := respAny.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("connections list response not an object (type=%s)", typ)
+			return fmt.Errorf("connections list response not an object (type=%s)", typ)
 		}
 		itemsAny, _ := resp["items"].([]any)
 		for _, raw := range itemsAny {
@@ -419,6 +420,42 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 				seen[bucket][summary.ID] = struct{}{}
 				out[bucket] = append(out[bucket], summary)
 			}
+		}
+		return nil
+	}
+
+	if _, ok := requiredTypes["llm-provider"]; ok {
+		if err := fetchType("llm-provider"); err != nil {
+			return nil, err
+		}
+		if inventoryUnavailable {
+			return nil, nil
+		}
+	}
+
+	otherTypes := make([]string, 0, len(requiredTypes))
+	for typ := range requiredTypes {
+		if typ == "llm-provider" {
+			continue
+		}
+		otherTypes = append(otherTypes, typ)
+	}
+	sort.Strings(otherTypes)
+	for _, typ := range otherTypes {
+		if err := fetchType(typ); err != nil {
+			return nil, err
+		}
+		if inventoryUnavailable {
+			return nil, nil
+		}
+	}
+
+	if _, ok := requiredTypes["llm-provider"]; ok && len(out["llm-provider"]) == 0 {
+		if err := fetchType("http-api"); err != nil {
+			return nil, err
+		}
+		if inventoryUnavailable {
+			return nil, nil
 		}
 	}
 	return out, nil

@@ -1,6 +1,13 @@
 package cli
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/breyta/breyta-cli/internal/api"
+)
 
 func TestCompatibleLLMBackend(t *testing.T) {
 	t.Run("infers LLM backend from compatible HTTP base URL", func(t *testing.T) {
@@ -26,6 +33,19 @@ func TestCompatibleLLMBackend(t *testing.T) {
 		}
 		if got := compatibleLLMBackend(conn); got != "" {
 			t.Fatalf("expected no compatible backend, got %q", got)
+		}
+	})
+
+	t.Run("rejects unrelated connection types even with llm-like backend", func(t *testing.T) {
+		conn := connectionSummary{
+			ID:      "conn-db-openai",
+			Name:    "OpenAI Warehouse",
+			Type:    "postgres",
+			Backend: "openai",
+			BaseURL: "https://api.openai.com/v1",
+		}
+		if got := compatibleLLMBackend(conn); got != "" {
+			t.Fatalf("expected non-http/non-llm connection to be rejected, got %q", got)
 		}
 	})
 }
@@ -118,5 +138,94 @@ func TestBuildConfigureSuggestionsAllowsCompatibleHTTPConnectionForLLM(t *testin
 	}
 	if len(unresolved) != 0 {
 		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Query().Get("type"))
+		if r.URL.Query().Get("type") != "llm-provider" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "unexpected type"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"connection-id": "conn-llm-openai",
+					"name":          "OpenAI LLM",
+					"type":          "llm-provider",
+					"backend":       "openai",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	connectionsByType, err := listConnectionsByType(api.Client{
+		BaseURL:     srv.URL,
+		WorkspaceID: "ws-test",
+		HTTP:        srv.Client(),
+	}, []any{
+		map[string]any{"slot": "llm", "type": "llm-provider"},
+	})
+	if err != nil {
+		t.Fatalf("listConnectionsByType returned error: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != "llm-provider" {
+		t.Fatalf("expected only llm-provider query, got %#v", calls)
+	}
+	if got := len(connectionsByType["llm-provider"]); got != 1 {
+		t.Fatalf("expected one llm-provider candidate, got %d", got)
+	}
+}
+
+func TestListConnectionsByTypeFallsBackToHTTPForLLMProvider(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		typ := r.URL.Query().Get("type")
+		calls = append(calls, typ)
+		switch typ {
+		case "llm-provider":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		case "http-api":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{
+						"connection-id": "conn-http-openai",
+						"name":          "OpenAI HTTP",
+						"type":          "http-api",
+						"config": map[string]any{
+							"base-url": "https://api.openai.com/v1",
+						},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "unexpected type"}})
+		}
+	}))
+	defer srv.Close()
+
+	connectionsByType, err := listConnectionsByType(api.Client{
+		BaseURL:     srv.URL,
+		WorkspaceID: "ws-test",
+		HTTP:        srv.Client(),
+	}, []any{
+		map[string]any{"slot": "llm", "type": "llm-provider"},
+	})
+	if err != nil {
+		t.Fatalf("listConnectionsByType returned error: %v", err)
+	}
+	if len(calls) != 2 || calls[0] != "llm-provider" || calls[1] != "http-api" {
+		t.Fatalf("expected llm-provider then http-api fallback, got %#v", calls)
+	}
+	if got := len(connectionsByType["llm-provider"]); got != 1 {
+		t.Fatalf("expected one llm-provider candidate from HTTP fallback, got %d", got)
+	}
+	if connectionsByType["llm-provider"][0].ID != "conn-http-openai" {
+		t.Fatalf("expected HTTP fallback candidate, got %#v", connectionsByType["llm-provider"][0])
 	}
 }
