@@ -199,9 +199,44 @@ func normalizeBindingValues(values map[string]any) map[string]any {
 }
 
 type connectionSummary struct {
-	ID   string
-	Name string
-	Type string
+	ID      string
+	Name    string
+	Type    string
+	Backend string
+	BaseURL string
+}
+
+var llmBaseURLHints = []struct {
+	needle  string
+	backend string
+}{
+	{needle: "api.openai.com", backend: "openai"},
+	{needle: "openai.com", backend: "openai"},
+	{needle: ".openai.azure.com", backend: "azure-openai"},
+	{needle: "api.anthropic.com", backend: "anthropic"},
+	{needle: "anthropic.com", backend: "anthropic"},
+	{needle: "generativelanguage.googleapis.com", backend: "google"},
+	{needle: "gemini.google.com", backend: "google"},
+	{needle: "api.groq.com", backend: "groq"},
+	{needle: "api.together.xyz", backend: "together"},
+	{needle: "api.fireworks.ai", backend: "fireworks"},
+	{needle: "fireworks.ai/inference", backend: "fireworks"},
+	{needle: "localhost:11434", backend: "ollama"},
+	{needle: "127.0.0.1:11434", backend: "ollama"},
+}
+
+var llmBackends = map[string]struct{}{
+	"openai":            {},
+	"anthropic":         {},
+	"azure-openai":      {},
+	"bedrock":           {},
+	"ollama":            {},
+	"google":            {},
+	"google-ai":         {},
+	"groq":              {},
+	"together":          {},
+	"openai-compatible": {},
+	"fireworks":         {},
 }
 
 func normalizeConnectionType(v any) string {
@@ -229,8 +264,81 @@ func getConnectionName(item map[string]any) string {
 	return ""
 }
 
+func getConnectionBackend(item map[string]any) string {
+	return normalizeConnectionType(item["backend"])
+}
+
+func connectionConfig(item map[string]any) map[string]any {
+	cfg, _ := item["config"].(map[string]any)
+	return cfg
+}
+
+func getConnectionBaseURL(item map[string]any) string {
+	cfg := connectionConfig(item)
+	for _, candidate := range []string{
+		toString(cfg["base-url"]),
+		toString(cfg["baseUrl"]),
+		toString(item["base-url"]),
+		toString(item["baseUrl"]),
+	} {
+		if s := strings.TrimSpace(candidate); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func inferLLMBackendFromBaseURL(baseURL string) string {
+	base := strings.ToLower(strings.TrimSpace(baseURL))
+	if base == "" {
+		return ""
+	}
+	for _, hint := range llmBaseURLHints {
+		if strings.Contains(base, hint.needle) {
+			return hint.backend
+		}
+	}
+	return ""
+}
+
+func compatibleLLMBackend(conn connectionSummary) string {
+	backend := normalizeConnectionType(conn.Backend)
+	if _, ok := llmBackends[backend]; ok {
+		return backend
+	}
+	connType := normalizeConnectionType(conn.Type)
+	if connType != "http-api" && connType != "llm-provider" {
+		return ""
+	}
+	return inferLLMBackendFromBaseURL(conn.BaseURL)
+}
+
+func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[string]struct{}) []string {
+	buckets := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	add := func(bucket string) {
+		if bucket == "" {
+			return
+		}
+		if _, exists := seen[bucket]; exists {
+			return
+		}
+		seen[bucket] = struct{}{}
+		buckets = append(buckets, bucket)
+	}
+
+	actualType := normalizeConnectionType(conn.Type)
+	if _, ok := requiredTypes[actualType]; ok {
+		add(actualType)
+	}
+	if _, ok := requiredTypes["llm-provider"]; ok && compatibleLLMBackend(conn) != "" {
+		add("llm-provider")
+	}
+	return buckets
+}
+
 func listConnectionsByType(client api.Client, requirements []any) (map[string][]connectionSummary, error) {
-	types := map[string]struct{}{}
+	requiredTypes := map[string]struct{}{}
 	for _, raw := range requirements {
 		req, ok := raw.(map[string]any)
 		if !ok {
@@ -244,14 +352,23 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 		if t == "" || t == "secret" {
 			continue
 		}
-		types[t] = struct{}{}
+		requiredTypes[t] = struct{}{}
 	}
-	if len(types) == 0 {
+	if len(requiredTypes) == 0 {
 		return nil, nil
 	}
 
+	queryTypes := map[string]struct{}{}
+	for typ := range requiredTypes {
+		queryTypes[typ] = struct{}{}
+	}
+	if _, ok := requiredTypes["llm-provider"]; ok {
+		queryTypes["http-api"] = struct{}{}
+	}
+
 	out := map[string][]connectionSummary{}
-	for typ := range types {
+	seen := map[string]map[string]struct{}{}
+	for typ := range queryTypes {
 		q := url.Values{}
 		q.Set("type", typ)
 		q.Set("limit", "200")
@@ -281,11 +398,27 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 			if id == "" {
 				continue
 			}
-			out[typ] = append(out[typ], connectionSummary{
-				ID:   id,
-				Name: getConnectionName(item),
-				Type: typ,
-			})
+			actualType := normalizeConnectionType(item["type"])
+			if actualType == "" {
+				actualType = typ
+			}
+			summary := connectionSummary{
+				ID:      id,
+				Name:    getConnectionName(item),
+				Type:    actualType,
+				Backend: getConnectionBackend(item),
+				BaseURL: getConnectionBaseURL(item),
+			}
+			for _, bucket := range connectionBucketsForRequirements(summary, requiredTypes) {
+				if seen[bucket] == nil {
+					seen[bucket] = map[string]struct{}{}
+				}
+				if _, exists := seen[bucket][summary.ID]; exists {
+					continue
+				}
+				seen[bucket][summary.ID] = struct{}{}
+				out[bucket] = append(out[bucket], summary)
+			}
 		}
 	}
 	return out, nil
@@ -295,8 +428,21 @@ func pickPreferredLLMConnection(conns []connectionSummary) (connectionSummary, b
 	if len(conns) == 0 {
 		return connectionSummary{}, false
 	}
-	openai := []connectionSummary{}
+	preferredPool := conns
+	exactLLM := make([]connectionSummary, 0, len(conns))
 	for _, c := range conns {
+		if normalizeConnectionType(c.Type) == "llm-provider" {
+			exactLLM = append(exactLLM, c)
+		}
+	}
+	if len(exactLLM) == 1 {
+		return exactLLM[0], true
+	}
+	if len(exactLLM) > 1 {
+		preferredPool = exactLLM
+	}
+	openai := []connectionSummary{}
+	for _, c := range preferredPool {
 		if strings.Contains(strings.ToLower(c.Name), "openai") {
 			openai = append(openai, c)
 		}
@@ -304,8 +450,8 @@ func pickPreferredLLMConnection(conns []connectionSummary) (connectionSummary, b
 	if len(openai) == 1 {
 		return openai[0], true
 	}
-	if len(conns) == 1 {
-		return conns[0], true
+	if len(preferredPool) == 1 {
+		return preferredPool[0], true
 	}
 	return connectionSummary{}, false
 }
