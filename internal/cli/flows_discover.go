@@ -17,6 +17,13 @@ Use ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search
 Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` to control whether your own end-user flow
 appears there.
 
+Checklist to make your flow show up in Discover:
+1. Add ` + "`:discover {:public true}`" + ` to the flow definition (or run ` + "`breyta flows discover update <slug> --public=true`" + ` after push)
+2. Tag the flow with ` + "`end-user`" + `
+3. Push the flow
+4. Release/promote it so there is an installable live version
+5. Verify from another workspace with ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
+
 This is different from ` + "`breyta flows search`" + `, which only searches approved Breyta-curated examples to
 copy from. Approved examples are not the same thing as public installables.`,
 	}
@@ -108,6 +115,13 @@ func newFlowsDiscoverUpdateCmd(app *App) *cobra.Command {
 Requirements for ` + "`--public=true`" + `:
 - the flow must be tagged ` + "`end-user`" + `
 - the flow must be installable/released for discover surfaces to use it
+
+Typical authoring flow:
+1. add ` + "`:discover {:public true}`" + ` in the source file
+2. add the ` + "`end-user`" + ` tag
+3. ` + "`breyta flows push --file ...`" + `
+4. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
+5. ` + "`breyta flows discover list`" + ` from another workspace to verify visibility
 
 Use ` + "`breyta flows show <slug> --pretty`" + ` after updating to confirm stored metadata includes
 ` + "`discover.public`" + `.
