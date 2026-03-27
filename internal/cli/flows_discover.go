@@ -22,7 +22,7 @@ Checklist to make your flow show up in Discover:
 2. Tag the flow with ` + "`end-user`" + `
 3. Push the flow
 4. Release/promote it so there is an installable live version
-5. Verify from another workspace with ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
+5. Verify it in the web Discover UI; if you have another workspace, you can also confirm with ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
 
 This is different from ` + "`breyta flows search`" + `, which only searches approved Breyta-curated examples to
 copy from. Approved examples are not the same thing as public installables.`,
@@ -121,7 +121,7 @@ Typical authoring flow:
 2. add the ` + "`end-user`" + ` tag
 3. ` + "`breyta flows push --file ...`" + `
 4. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
-5. ` + "`breyta flows discover list`" + ` from another workspace to verify visibility
+5. verify it in the web Discover UI; if you have another workspace, you can also use ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
 
 Use ` + "`breyta flows show <slug> --pretty`" + ` after updating to confirm stored metadata includes
 ` + "`discover.public`" + `.

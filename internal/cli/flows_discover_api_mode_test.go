@@ -266,7 +266,7 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 		":discover {:public true}",
 		"end-user",
 		"Release/promote it",
-		"from another workspace",
+		"web Discover UI",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected flows discover help to include %q, got:\n%s", want, stdout)
