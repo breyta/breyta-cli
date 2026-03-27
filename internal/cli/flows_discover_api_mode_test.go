@@ -249,3 +249,27 @@ func TestFlowsSearchHelp_ClarifiesApprovedExamples(t *testing.T) {
 		t.Fatalf("expected flows search help to distinguish approved examples, got:\n%s", stdout)
 	}
 }
+
+func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	stdout, _, err := runCLIArgs(t, "flows", "discover", "--help")
+	if err != nil {
+		t.Fatalf("flows discover --help failed: %v\n%s", err, stdout)
+	}
+	for _, want := range []string{
+		"show up in Discover",
+		":discover {:public true}",
+		"end-user",
+		"Release/promote it",
+		"from another workspace",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected flows discover help to include %q, got:\n%s", want, stdout)
+		}
+	}
+}
