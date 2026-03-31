@@ -407,12 +407,13 @@ func parseInstallationSetAssignments(items []string) (*installationSetPayload, e
 		if slot == "" || field == "" {
 			return nil, fmt.Errorf("invalid --set %q (empty slot or field)", raw)
 		}
+		normalizedField := strings.ToLower(field)
 		slotBinding, _ := payload.Bindings[slot].(map[string]any)
 		if slotBinding == nil {
 			slotBinding = map[string]any{}
 			payload.Bindings[slot] = slotBinding
 		}
-		switch strings.ToLower(field) {
+		switch normalizedField {
 		case "conn", "connection", "connection-id", "connectionid", "id":
 			slotBinding["connectionId"] = val
 		case "root", "prefix":
@@ -421,7 +422,7 @@ func parseInstallationSetAssignments(items []string) (*installationSetPayload, e
 				config = map[string]any{}
 				slotBinding["config"] = config
 			}
-			if field == "prefix" {
+			if normalizedField == "prefix" {
 				config["prefix"] = val
 			} else {
 				config["root"] = val

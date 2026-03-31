@@ -625,6 +625,50 @@ func TestFlowsInstallations_Configure_SupportsBindingAndActivationSetFlags(t *te
 	}
 }
 
+func TestFlowsInstallations_Configure_SetFlagsTreatBindingFieldsCaseInsensitively(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.set_inputs" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		bindings, _ := args["bindings"].(map[string]any)
+		archive, _ := bindings["archive"].(map[string]any)
+		config, _ := archive["config"].(map[string]any)
+		if config["prefix"] != "customer-a/archive" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing bindings.archive.config.prefix"}})
+			return
+		}
+		if _, ok := config["root"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected bindings.archive.config.root"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-blob"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "configure", "prof-blob",
+		"--set", "archive.PREFIX=customer-a/archive",
+	)
+	if err != nil {
+		t.Fatalf("flows installations configure with mixed-case prefix failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsConfigure_UsesCanonicalCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
