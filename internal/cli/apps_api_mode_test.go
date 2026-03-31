@@ -444,6 +444,53 @@ func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testin
 	}
 }
 
+func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.create" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "my-app" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["sourceWorkspaceId"] != "ws-source" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceWorkspaceId"}})
+			return
+		}
+		if args["sourceFlowSlug"] != "public-source-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-public"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "create", "my-app",
+		"--source-workspace-id", "ws-source",
+		"--source-flow-slug", "public-source-flow",
+	)
+	if err != nil {
+		t.Fatalf("flows installations create with source refs failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -518,6 +565,107 @@ func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *
 	)
 	if err != nil {
 		t.Fatalf("flows installations set-inputs failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_Configure_SupportsBindingAndActivationSetFlags(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.set_inputs" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["profileId"] != "prof-blob" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+			return
+		}
+		inputs, _ := args["inputs"].(map[string]any)
+		if inputs["folder"] != "https://drive.google.com/drive/folders/demo" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing inputs.folder"}})
+			return
+		}
+		bindings, _ := args["bindings"].(map[string]any)
+		archive, _ := bindings["archive"].(map[string]any)
+		if archive["connectionId"] != "conn-storage" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing bindings.archive.connectionId"}})
+			return
+		}
+		config, _ := archive["config"].(map[string]any)
+		if config["root"] != "customer-a/archive" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing bindings.archive.config.root"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-blob"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "configure", "prof-blob",
+		"--set", "activation.folder=https://drive.google.com/drive/folders/demo",
+		"--set", "archive.conn=conn-storage",
+		"--set", "archive.root=customer-a/archive",
+	)
+	if err != nil {
+		t.Fatalf("flows installations configure with --set failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_Configure_SetFlagsTreatBindingFieldsCaseInsensitively(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.set_inputs" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		bindings, _ := args["bindings"].(map[string]any)
+		archive, _ := bindings["archive"].(map[string]any)
+		config, _ := archive["config"].(map[string]any)
+		if config["prefix"] != "customer-a/archive" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing bindings.archive.config.prefix"}})
+			return
+		}
+		if _, ok := config["root"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected bindings.archive.config.root"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-blob"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "configure", "prof-blob",
+		"--set", "archive.PREFIX=customer-a/archive",
+	)
+	if err != nil {
+		t.Fatalf("flows installations configure with mixed-case prefix failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -1581,6 +1729,57 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows installations list --all failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["sourceWorkspaceId"] != "ws-public" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceWorkspaceId"}})
+			return
+		}
+		if args["sourceFlowSlug"] != "public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-consumer",
+			"data":        map[string]any{"flowSlug": "public-flow", "items": []any{}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-consumer",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "list", "public-flow",
+		"--source-workspace-id", "ws-public",
+		"--source-flow-slug", "public-flow",
+	)
+	if err != nil {
+		t.Fatalf("flows installations list with source refs failed: %v\n%s", err, stdout)
 	}
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,8 @@ config/triggers, or controlled promotion.
 
 func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 	var all bool
+	var sourceWorkspaceID string
+	var sourceFlowSlug string
 	cmd := &cobra.Command{
 		Use:   "list <flow-slug>",
 		Short: "List installations for a flow",
@@ -51,15 +54,25 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 			if all {
 				payload["all"] = true
 			}
+			if strings.TrimSpace(sourceWorkspaceID) != "" {
+				payload["sourceWorkspaceId"] = strings.TrimSpace(sourceWorkspaceID)
+			}
+			if strings.TrimSpace(sourceFlowSlug) != "" {
+				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
+			}
 			return doAPICommand(cmd, app, "flows.installations.list", payload)
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "List all installations for the flow (creator-only)")
+	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id for cross-workspace listing")
+	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override")
 	return cmd
 }
 
 func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var name string
+	var sourceWorkspaceID string
+	var sourceFlowSlug string
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
 		Short: "Create a new installation (disabled until enabled)",
@@ -72,10 +85,18 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(name) != "" {
 				payload["name"] = strings.TrimSpace(name)
 			}
+			if strings.TrimSpace(sourceWorkspaceID) != "" {
+				payload["sourceWorkspaceId"] = strings.TrimSpace(sourceWorkspaceID)
+			}
+			if strings.TrimSpace(sourceFlowSlug) != "" {
+				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
+			}
 			return doAPICommand(cmd, app, "flows.installations.create", payload)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Installation name (optional)")
+	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id (advanced)")
+	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override (advanced)")
 	return cmd
 }
 
@@ -105,30 +126,45 @@ func newFlowsInstallationsRenameCmd(app *App) *cobra.Command {
 
 func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 	var inputJSON string
+	var bindingsJSON string
+	var setItems []string
 	cmd := &cobra.Command{
-		Use:     "configure <installation-id> --input '{...}'",
+		Use:     "configure <installation-id> [--input '{...}'] [--bindings '{...}'] [--set activation.<field>=... --set <slot>.conn=... --set <slot>.root=...]",
 		Aliases: []string{"set-inputs"},
-		Short:   "Configure installation inputs",
+		Short:   "Configure installation setup inputs and installer-owned bindings",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations configure requires API mode"))
 			}
-			if strings.TrimSpace(inputJSON) == "" {
-				return writeErr(cmd, errors.New("missing --input"))
+			if strings.TrimSpace(inputJSON) == "" && strings.TrimSpace(bindingsJSON) == "" && len(setItems) == 0 {
+				return writeErr(cmd, errors.New("missing configuration updates (use --input, --bindings, or --set)"))
 			}
-			m, err := parseJSONObjectFlag(inputJSON)
+			inputs, err := parseJSONObjectFlag(inputJSON)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return doAPICommand(cmd, app, "flows.installations.set_inputs", map[string]any{
+			bindings, err := parseJSONObjectFlag(bindingsJSON)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			setPayload, err := parseInstallationSetAssignments(setItems)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			payload := map[string]any{
 				"profileId": args[0],
-				"inputs":    m,
-			})
+				"inputs":    mergeJSONObjectFlags(inputs, setPayload.Inputs),
+			}
+			if mergedBindings := mergeJSONObjectFlags(bindings, setPayload.Bindings); len(mergedBindings) > 0 {
+				payload["bindings"] = mergedBindings
+			}
+			return doAPICommand(cmd, app, "flows.installations.set_inputs", payload)
 		},
 	}
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object of activation inputs")
-	_ = cmd.MarkFlagRequired("input")
+	cmd.Flags().StringVar(&bindingsJSON, "bindings", "", "JSON object of installer-owned binding updates")
+	cmd.Flags().StringArrayVar(&setItems, "set", nil, "Set installation setup values, e.g. activation.folder=https://... or archive.root=customer-a")
 	return cmd
 }
 
@@ -303,6 +339,99 @@ func parseJSONObjectFlag(raw string) (map[string]any, error) {
 		return nil, errors.New("input must be a JSON object")
 	}
 	return m, nil
+}
+
+func mergeJSONObjectFlags(base map[string]any, overlay map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range overlay {
+		existing, hasExisting := out[key]
+		existingMap, existingOK := existing.(map[string]any)
+		incomingMap, incomingOK := value.(map[string]any)
+		if hasExisting && existingOK && incomingOK {
+			out[key] = mergeJSONObjectFlags(existingMap, incomingMap)
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+type installationSetPayload struct {
+	Inputs   map[string]any
+	Bindings map[string]any
+}
+
+func parseInstallationSetAssignments(items []string) (*installationSetPayload, error) {
+	payload := &installationSetPayload{
+		Inputs:   map[string]any{},
+		Bindings: map[string]any{},
+	}
+	for _, item := range items {
+		raw := strings.TrimSpace(item)
+		if raw == "" {
+			continue
+		}
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid --set %q (expected key=value)", raw)
+		}
+		key := strings.TrimSpace(parts[0])
+		valRaw := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("invalid --set %q (empty key)", raw)
+		}
+		val, err := parseSetValue(valRaw)
+		if err != nil {
+			return nil, err
+		}
+		if isPlaceholder(val) {
+			continue
+		}
+		if strings.HasPrefix(key, "activation.") {
+			field := strings.TrimSpace(strings.TrimPrefix(key, "activation."))
+			if field == "" {
+				return nil, fmt.Errorf("invalid --set %q (missing activation field)", raw)
+			}
+			payload.Inputs[field] = val
+			continue
+		}
+		slot, field, ok := strings.Cut(key, ".")
+		if !ok {
+			return nil, fmt.Errorf("invalid --set %q (use activation.<field> or <slot>.<field>)", raw)
+		}
+		slot = strings.TrimSpace(slot)
+		field = strings.TrimSpace(field)
+		if slot == "" || field == "" {
+			return nil, fmt.Errorf("invalid --set %q (empty slot or field)", raw)
+		}
+		normalizedField := strings.ToLower(field)
+		slotBinding, _ := payload.Bindings[slot].(map[string]any)
+		if slotBinding == nil {
+			slotBinding = map[string]any{}
+			payload.Bindings[slot] = slotBinding
+		}
+		switch normalizedField {
+		case "conn", "connection", "connection-id", "connectionid", "id":
+			slotBinding["connectionId"] = val
+		case "root", "prefix":
+			config, _ := slotBinding["config"].(map[string]any)
+			if config == nil {
+				config = map[string]any{}
+				slotBinding["config"] = config
+			}
+			if normalizedField == "prefix" {
+				config["prefix"] = val
+			} else {
+				config["root"] = val
+			}
+		default:
+			return nil, fmt.Errorf("invalid --set %q (unsupported installation binding field %q; use conn, root, or prefix)", raw, field)
+		}
+	}
+	return payload, nil
 }
 
 func parsePositiveIntFlag(raw string) (int, error) {
