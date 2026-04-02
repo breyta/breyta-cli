@@ -214,7 +214,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(pathPrefix) != "" {
 				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
 			}
-			if limit > 0 {
+			if cmd.Flags().Changed("limit") {
 				q.Set("limit", strconv.Itoa(limit))
 			}
 
@@ -395,7 +395,7 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			return writeREST(cmd, app, status, out)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 100, "Table preview page size when reading table resources (1-1000)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (1-1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Table preview offset when reading table resources")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")

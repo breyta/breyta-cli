@@ -65,6 +65,40 @@ func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
 	}
 }
 
+func TestResourcesRead_DoesNotForcePreviewPagingWhenLimitIsUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/content" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("uri"); got != "res://v1/ws/ws-acme/result/table/tbl_1" {
+			t.Fatalf("expected uri query param, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "" {
+			t.Fatalf("expected limit to be omitted when unset, got %q", got)
+		}
+		if got := r.URL.Query().Get("offset"); got != "" {
+			t.Fatalf("expected offset to be omitted by default, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceUri": "res://v1/ws/ws-acme/result/table/tbl_1",
+			"tableName":   "orders",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", "res://v1/ws/ws-acme/result/table/tbl_1",
+	)
+	if err != nil {
+		t.Fatalf("resources read failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/query" {
