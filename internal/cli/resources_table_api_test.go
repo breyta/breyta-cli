@@ -256,6 +256,45 @@ func TestResourcesTableExport_WritesCSVToStdout(t *testing.T) {
 	}
 }
 
+func TestResourcesTableGetRow_UsesGetRowEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/get-row" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if got, _ := body["uri"].(string); got != "res://v1/ws/ws-acme/result/table/tbl_1" {
+			t.Fatalf("expected uri in body, got %#v", body["uri"])
+		}
+		key, _ := body["key"].(map[string]any)
+		if got, _ := key["event-id"].(string); got != "evt-1" {
+			t.Fatalf("expected keyed get-row payload, got %#v", body["key"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"row": map[string]any{"event-id": "evt-1", "active": true},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "get-row", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--key", "event-id=evt-1",
+	)
+	if err != nil {
+		t.Fatalf("resources table get-row failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "\"event-id\":\"evt-1\"") {
+		t.Fatalf("expected row payload in output, got:\n%s", stdout)
+	}
+}
+
 func TestResourcesTableImport_UsesImportEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/import-csv" {
@@ -494,6 +533,11 @@ func TestResourcesTableSetColumn_UsesSetColumnEndpoint(t *testing.T) {
 		if got, _ := definition["semantic-type"].(string); got != "text" {
 			t.Fatalf("expected semantic-type=text, got %#v", definition["semantic-type"])
 		}
+		enumDef, _ := definition["enum"].(map[string]any)
+		options, _ := enumDef["options"].([]any)
+		if len(options) != 1 {
+			t.Fatalf("expected enum options payload, got %#v", definition["enum"])
+		}
 		computed, _ := definition["computed"].(map[string]any)
 		if got, _ := computed["type"].(string); got != "lookup" {
 			t.Fatalf("expected computed lookup payload, got %#v", definition["computed"])
@@ -524,6 +568,7 @@ func TestResourcesTableSetColumn_UsesSetColumnEndpoint(t *testing.T) {
 		"resources", "table", "set-column", "res://v1/ws/ws-acme/result/table/tbl_1",
 		"--column", "customer-name",
 		"--semantic-type", "text",
+		"--enum-json", `{"options":[{"id":"open","name":"Open"}]}`,
 		"--computed-json", `{"type":"lookup","reference-column":"customer-id","field":"name"}`,
 		"--partition-keys", "month-2026-03,month-2026-04",
 	)
@@ -578,5 +623,71 @@ func TestResourcesTableRecompute_UsesRecomputeEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "\"rowsUpdated\":200") {
 		t.Fatalf("expected recompute summary in output, got:\n%s", stdout)
+	}
+}
+
+func TestResourcesTableMaterializeJoin_UsesMaterializeJoinEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/materialize-join" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if got, _ := body["join-type"].(string); got != "inner" {
+			t.Fatalf("expected join-type=inner, got %#v", body["join-type"])
+		}
+		left, _ := body["left"].(map[string]any)
+		leftTable, _ := left["table"].(map[string]any)
+		if got, _ := leftTable["ref"].(string); got != "res://v1/ws/ws-acme/result/table/tbl_left" {
+			t.Fatalf("expected left table ref, got %#v", left["table"])
+		}
+		right, _ := body["right"].(map[string]any)
+		rightRows, _ := right["rows"].([]any)
+		if len(rightRows) != 1 {
+			t.Fatalf("expected one inline right row, got %#v", right["rows"])
+		}
+		on, _ := body["on"].([]any)
+		if len(on) != 1 {
+			t.Fatalf("expected one join key mapping, got %#v", body["on"])
+		}
+		into, _ := body["into"].(map[string]any)
+		if got, _ := into["table"].(string); got != "joined-orders" {
+			t.Fatalf("expected destination table name, got %#v", into["table"])
+		}
+		if got, _ := body["op-id"].(string); got != "join-op-1" {
+			t.Fatalf("expected op-id=join-op-1, got %#v", body["op-id"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceUri": "res://v1/ws/ws-acme/result/table/tbl_joined",
+			"rowsWritten": 3,
+			"join": map[string]any{
+				"matchedRows": 3,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "materialize-join",
+		"--left-json", `{"table":{"ref":"res://v1/ws/ws-acme/result/table/tbl_left"},"select":["order-id","customer-id"]}`,
+		"--right-json", `{"rows":[{"customer-id":"cust-1","name":"Acme"}]}`,
+		"--on-json", `[{"left-field":"customer-id","right-field":"customer-id"}]`,
+		"--project-json", `{"keep-left":"all","right-fields":[{"field":"name","as":"customer-name"}]}`,
+		"--into-json", `{"table":"joined-orders","write-mode":"upsert","key-fields":["order-id"]}`,
+		"--join-type", "inner",
+		"--op-id", "join-op-1",
+	)
+	if err != nil {
+		t.Fatalf("resources table materialize-join failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "\"rowsWritten\":3") {
+		t.Fatalf("expected materialize-join summary in output, got:\n%s", stdout)
 	}
 }

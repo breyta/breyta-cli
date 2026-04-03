@@ -120,6 +120,7 @@ breyta resources read <res://table-uri> --limit 25 --offset 0 --partition-key mo
 breyta resources table query <res://table-uri> --page-mode offset --limit 25 --offset 0 --partition-keys month-2026-03,month-2026-04
 breyta resources table schema <res://table-uri> --partition-key month-2026-03
 breyta resources table set-column <res://table-uri> --column customer-name --computed-json '{"type":"lookup","reference-column":"customer-id","field":"name"}' --partition-keys month-2026-03,month-2026-04
+breyta resources table set-column <res://table-uri> --column status --enum-json '{"options":[{"id":"open","name":"Open","aliases":["OPEN","Open"]},{"id":"in-progress","name":"In progress","aliases":["IN_PROGRESS","In Progress"]}]}' --partition-keys month-2026-03,month-2026-04
 breyta resources table recompute <res://table-uri> --limit 1000 --partition-key month-2026-03
 ```
 
@@ -191,6 +192,7 @@ breyta resources table export <res://table-uri> --out orders.csv
 breyta resources table import <res://table-uri> --file orders.csv --write-mode append
 breyta resources table update-cell <res://table-uri> --key order-id=ord-1 --column status --value closed
 breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1 --column amount --format-json '{"display":"currency","currency":"USD"}'
+breyta resources table materialize-join --left-json '{"table":{"ref":"res://...orders"}}' --right-json '{"table":{"ref":"res://...customers"}}' --on-json '[{"left-field":"customer-id","right-field":"customer-id"}]' --project-json '[{"field":"name","as":"customer-name"}]' --into-json '{"table":"joined-orders","write-mode":"upsert","key-fields":["order-id"]}'
 ```
 
 `breyta resources table query` now uses the same explicit paging contract as flow `:table` queries:
@@ -199,7 +201,11 @@ breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1
 - `--page-mode cursor` also requires `--sort-json`
 - the first cursor page omits `--cursor`
 
-The flow runtime mirrors this with the native `:table` step for `:query`, `:get-row`, `:aggregate`, `:schema`, `:export`, `:update-cell`, and `:update-cell-format`.
+CSV import onto an existing table uses the live schema to coerce `boolean`, `number`, `date`, and `timestamp` columns before write. Text and mixed columns stay string-backed unless you write native JSON values.
+
+Dynamic enum columns are authored with `set-column --enum-json`. Writes, CSV import, `update-cell`, and `recompute` normalize incoming ids, names, and aliases to stable stored ids. Unknown values grow the enum definition dynamically. CLI/API query and export surfaces keep those stored ids, while the web table preview renders the configured display names.
+
+The flow/runtime surface is mirrored here through the native `:table` step and the CLI for `:query`, `:get-row`, `:aggregate`, `:schema`, `:export`, `:update-cell`, `:update-cell-format`, `:set-column`, `:recompute`, and `:materialize-join`.
 
 ## Docs And Help
 

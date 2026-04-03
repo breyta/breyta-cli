@@ -556,6 +556,7 @@ func newResourcesTableCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newResourcesTableUpdateCellFormatCmd(app))
 	cmd.AddCommand(newResourcesTableSetColumnCmd(app))
 	cmd.AddCommand(newResourcesTableRecomputeCmd(app))
+	cmd.AddCommand(newResourcesTableMaterializeJoinCmd(app))
 	return cmd
 }
 
@@ -1109,6 +1110,7 @@ func newResourcesTableSetColumnCmd(app *App) *cobra.Command {
 	var displayName string
 	var typeHint string
 	var semanticType string
+	var enumJSON string
 	var computedJSON string
 	var referenceJSON string
 	var formatJSON string
@@ -1138,6 +1140,13 @@ func newResourcesTableSetColumnCmd(app *App) *cobra.Command {
 			}
 			if cmd.Flags().Changed("semantic-type") {
 				definition["semantic-type"] = strings.TrimSpace(semanticType)
+			}
+			if cmd.Flags().Changed("enum-json") {
+				parsed, err := parseJSONFlag(enumJSON)
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --enum-json: %w", err))
+				}
+				definition["enum"] = parsed
 			}
 			if cmd.Flags().Changed("computed-json") {
 				parsed, err := parseJSONFlag(computedJSON)
@@ -1187,6 +1196,7 @@ func newResourcesTableSetColumnCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&displayName, "display-name", "", "Optional display label")
 	cmd.Flags().StringVar(&typeHint, "type-hint", "", "Optional storage/query type hint")
 	cmd.Flags().StringVar(&semanticType, "semantic-type", "", "Optional semantic type, e.g. currency, url, reference")
+	cmd.Flags().StringVar(&enumJSON, "enum-json", "", "Raw JSON dynamic enum definition, e.g. {\"options\":[{\"id\":\"open\",\"name\":\"Open\"}]}")
 	cmd.Flags().StringVar(&computedJSON, "computed-json", "", "Raw JSON computed-column definition")
 	cmd.Flags().StringVar(&referenceJSON, "reference-json", "", "Raw JSON same-workspace reference definition")
 	cmd.Flags().StringVar(&formatJSON, "format-json", "", "Raw JSON default formatting metadata")
@@ -1240,5 +1250,87 @@ func newResourcesTableRecomputeCmd(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&offset, "offset", 0, "Row offset for recompute windows")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Recompute a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Recompute a comma-separated subset of table partitions")
+	return cmd
+}
+
+func newResourcesTableMaterializeJoinCmd(app *App) *cobra.Command {
+	var leftJSON string
+	var rightJSON string
+	var onJSON string
+	var projectJSON string
+	var intoJSON string
+	var joinType string
+	var opID string
+
+	cmd := &cobra.Command{
+		Use:   "materialize-join",
+		Short: "Materialize a bounded join into a destination table resource",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			left, err := parseJSONFlag(leftJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --left-json: %w", err))
+			}
+			right, err := parseJSONFlag(rightJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --right-json: %w", err))
+			}
+			on, err := parseJSONFlag(onJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --on-json: %w", err))
+			}
+			project, err := parseJSONFlag(projectJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --project-json: %w", err))
+			}
+			into, err := parseJSONFlag(intoJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --into-json: %w", err))
+			}
+			if left == nil {
+				return writeErr(cmd, errors.New("materialize-join requires --left-json"))
+			}
+			if right == nil {
+				return writeErr(cmd, errors.New("materialize-join requires --right-json"))
+			}
+			if on == nil {
+				return writeErr(cmd, errors.New("materialize-join requires --on-json"))
+			}
+			if into == nil {
+				return writeErr(cmd, errors.New("materialize-join requires --into-json"))
+			}
+			body := map[string]any{
+				"left":  left,
+				"right": right,
+				"on":    on,
+				"into":  into,
+			}
+			if project != nil {
+				body["project"] = project
+			}
+			if strings.TrimSpace(joinType) != "" {
+				body["join-type"] = strings.TrimSpace(joinType)
+			}
+			if strings.TrimSpace(opID) != "" {
+				body["op-id"] = strings.TrimSpace(opID)
+			}
+			out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/resources/table/materialize-join", nil, body)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+
+	cmd.Flags().StringVar(&leftJSON, "left-json", "", "Raw JSON left-source definition, e.g. {\"table\":{\"ref\":\"res://...\"}} or {\"rows\":[...]}")
+	cmd.Flags().StringVar(&rightJSON, "right-json", "", "Raw JSON right-source definition, e.g. {\"table\":{\"ref\":\"res://...\"},\"select\":[...]}")
+	cmd.Flags().StringVar(&onJSON, "on-json", "", "Raw JSON join key vector, e.g. [{\"left-field\":\"customer-id\",\"right-field\":\"customer-id\"}]")
+	cmd.Flags().StringVar(&projectJSON, "project-json", "", "Raw JSON projection config, e.g. {\"keep-left\":\"all\",\"right-fields\":[...]}")
+	cmd.Flags().StringVar(&intoJSON, "into-json", "", "Raw JSON destination config, e.g. {\"table\":\"joined-orders\",\"write-mode\":\"upsert\",\"key-fields\":[\"order-id\"]}")
+	cmd.Flags().StringVar(&joinType, "join-type", "left", "Join type: left or inner")
+	cmd.Flags().StringVar(&opID, "op-id", "", "Optional idempotency key for the materialized join write")
 	return cmd
 }
