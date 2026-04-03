@@ -205,6 +205,8 @@ CSV import onto an existing table uses the live schema to coerce `boolean`, `num
 
 Dynamic enum columns are authored with `set-column --enum-json`. Writes, CSV import, `update-cell`, and `recompute` normalize incoming ids, names, and aliases to stable stored ids. Unknown values grow the enum definition dynamically. CLI/API query and export surfaces keep those stored ids, while the web table preview renders the configured display names.
 
+Display formatting is render-only. Column `:format` metadata and sparse `update-cell-format` overrides can render `relative-time`, `date`, `timestamp` / `date-time`, and `currency` in the web preview and `Copy Markdown`, while CLI/API query and export surfaces keep canonical raw values.
+
 The flow/runtime surface is mirrored here through the native `:table` step and the CLI for `:query`, `:get-row`, `:aggregate`, `:schema`, `:export`, `:update-cell`, `:update-cell-format`, `:set-column`, `:recompute`, and `:materialize-join`.
 
 ## Docs And Help
