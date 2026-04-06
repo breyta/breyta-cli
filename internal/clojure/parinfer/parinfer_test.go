@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func buildFakeParinfer(t *testing.T, output string, exitCode int) string {
@@ -71,7 +72,7 @@ func TestRunner_NotAvailable(t *testing.T) {
 
 func TestRunner_SuccessJSON(t *testing.T) {
 	fake := buildFakeParinfer(t, `{"text":"(ok)","success":true,"error":null}`, 0)
-	out, ans, err := (Runner{BinaryPath: fake}).RepairIndent("(broken")
+	out, ans, err := (Runner{BinaryPath: fake, Timeout: 15 * time.Second}).RepairIndent("(broken")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
