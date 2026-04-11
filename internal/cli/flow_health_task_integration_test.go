@@ -145,6 +145,60 @@ func TestFlowHealth_TaskRuntimeIntegration(t *testing.T) {
 	if unread, _ := firstDeliveryAfterRead["unread"].(bool); unread {
 		t.Fatalf("expected unread=false after mark-read")
 	}
+
+	cadenceBefore := runTaskCLI(t, apiURL, fixture.UserID,
+		"--workspace", fixture.WorkspaceID,
+		"digests", "cadence")
+	if !cadenceBefore.OK {
+		t.Fatalf("digest cadence failed: %+v", cadenceBefore)
+	}
+	preferencesBefore, _ := cadenceBefore.Data["preferences"].(map[string]any)
+	originalCadence, _ := preferencesBefore["digest-cadence"].(string)
+	if originalCadence == "" {
+		t.Fatalf("expected digest cadence in preferences, got %+v", preferencesBefore)
+	}
+	settingsWebURL, _ := cadenceBefore.Data["settings-web-url"].(string)
+	if !strings.Contains(settingsWebURL, "/settings#flow-health-updates") {
+		t.Fatalf("expected settings-web-url deep link, got %q", settingsWebURL)
+	}
+
+	nextCadence := map[string]string{
+		"daily":   "weekly",
+		"weekly":  "monthly",
+		"monthly": "daily",
+	}[originalCadence]
+	if nextCadence == "" {
+		t.Fatalf("unexpected original cadence %q", originalCadence)
+	}
+
+	setCadence := runTaskCLI(t, apiURL, fixture.UserID,
+		"--workspace", fixture.WorkspaceID,
+		"digests", "cadence", "set", nextCadence)
+	if !setCadence.OK {
+		t.Fatalf("digest cadence set failed: %+v", setCadence)
+	}
+	preferencesAfterSet, _ := setCadence.Data["preferences"].(map[string]any)
+	if got, _ := preferencesAfterSet["digest-cadence"].(string); got != nextCadence {
+		t.Fatalf("expected digest cadence=%q after set, got %q", nextCadence, got)
+	}
+
+	cadenceAfter := runTaskCLI(t, apiURL, fixture.UserID,
+		"--workspace", fixture.WorkspaceID,
+		"digests", "cadence")
+	if !cadenceAfter.OK {
+		t.Fatalf("digest cadence re-read failed: %+v", cadenceAfter)
+	}
+	preferencesAfter, _ := cadenceAfter.Data["preferences"].(map[string]any)
+	if got, _ := preferencesAfter["digest-cadence"].(string); got != nextCadence {
+		t.Fatalf("expected digest cadence=%q after re-read, got %q", nextCadence, got)
+	}
+
+	restoreCadence := runTaskCLI(t, apiURL, fixture.UserID,
+		"--workspace", fixture.WorkspaceID,
+		"digests", "cadence", "set", originalCadence)
+	if !restoreCadence.OK {
+		t.Fatalf("digest cadence restore failed: %+v", restoreCadence)
+	}
 }
 
 func runTaskCLI(t *testing.T, apiURL, token string, args ...string) envelope {

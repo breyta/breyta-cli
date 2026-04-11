@@ -25,6 +25,16 @@ func normalizeSnoozeDuration(raw string) (string, bool) {
 	return matches[1] + strings.ToLower(matches[2]), true
 }
 
+func normalizeDigestCadence(raw string) (string, bool) {
+	normalized := strings.TrimSpace(strings.ToLower(raw))
+	switch normalized {
+	case "daily", "weekly", "monthly":
+		return normalized, true
+	default:
+		return "", false
+	}
+}
+
 func runFlowHealthREST(cmd *cobra.Command, app *App, unavailableMessage, method, path string, query url.Values) error {
 	if !isAPIMode(app) {
 		return writeNotImplemented(cmd, app, unavailableMessage)
@@ -39,6 +49,18 @@ func runFlowHealthREST(cmd *cobra.Command, app *App, unavailableMessage, method,
 	return writeREST(cmd, app, httpStatus, out)
 }
 
+func setTrimmedQuery(q url.Values, key, value string) {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		q.Set(key, trimmed)
+	}
+}
+
+func setPositiveIntQuery(q url.Values, key string, value int) {
+	if value > 0 {
+		q.Set(key, strconv.Itoa(value))
+	}
+}
+
 func newIncidentsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "incidents",
@@ -49,6 +71,7 @@ func newIncidentsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newIncidentsLanesCmd(app))
 	cmd.AddCommand(newIncidentsAcknowledgeCmd(app))
 	cmd.AddCommand(newIncidentsSnoozeCmd(app))
+	cmd.AddCommand(newIncidentsSuppressCmd(app))
 	return cmd
 }
 
@@ -61,16 +84,12 @@ func newIncidentsListCmd(app *App) *cobra.Command {
 		Short:   "List incidents",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q := url.Values{}
-			if strings.TrimSpace(status) != "" {
-				q.Set("status", strings.TrimSpace(status))
-			}
-			if limit > 0 {
-				q.Set("limit", strconv.Itoa(limit))
-			}
+			setTrimmedQuery(q, "status", status)
+			setPositiveIntQuery(q, "limit", limit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents", q)
 		},
 	}
-	cmd.Flags().StringVar(&status, "status", "", "Filter incidents by status")
+	cmd.Flags().StringVar(&status, "status", "", "Filter incidents by lifecycle or operator disposition")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Max incidents to return")
 	return cmd
 }
@@ -84,9 +103,7 @@ func newIncidentsShowCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			incidentID := strings.TrimSpace(args[0])
 			q := url.Values{}
-			if failureLimit > 0 {
-				q.Set("limit", strconv.Itoa(failureLimit))
-			}
+			setPositiveIntQuery(q, "limit", failureLimit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents/"+url.PathEscape(incidentID), q)
 		},
 	}
@@ -103,9 +120,7 @@ func newIncidentsLanesCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			incidentID := strings.TrimSpace(args[0])
 			q := url.Values{}
-			if limit > 0 {
-				q.Set("limit", strconv.Itoa(limit))
-			}
+			setPositiveIntQuery(q, "limit", limit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incident lanes.", http.MethodGet, "/api/incidents/"+url.PathEscape(incidentID)+"/lanes", q)
 		},
 	}
@@ -148,11 +163,25 @@ func newIncidentsSnoozeCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newIncidentsSuppressCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "suppress <incident-id>",
+		Short: "Suppress an incident until it recovers",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			incidentID := strings.TrimSpace(args[0])
+			return runFlowHealthREST(cmd, app, "Use API mode to suppress incidents.", http.MethodPost, "/api/incidents/"+url.PathEscape(incidentID)+"/suppress", nil)
+		},
+	}
+	return cmd
+}
+
 func newDigestsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "digests",
 		Short: "Inspect flow-health digests",
 	}
+	cmd.AddCommand(newDigestsCadenceCmd(app))
 	cmd.AddCommand(newDigestsListCmd(app))
 	cmd.AddCommand(newDigestsShowCmd(app))
 	cmd.AddCommand(newDigestsDeliveriesCmd(app))
@@ -160,9 +189,40 @@ func newDigestsCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newDigestsCadenceCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cadence",
+		Short: "Show or update the scheduled digest cadence",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFlowHealthREST(cmd, app, "Use API mode to inspect digest preferences.", http.MethodGet, "/api/digests/preferences", nil)
+		},
+	}
+	cmd.AddCommand(newDigestsCadenceSetCmd(app))
+	return cmd
+}
+
+func newDigestsCadenceSetCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set <daily|weekly|monthly>",
+		Short: "Set the scheduled digest cadence",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cadence, ok := normalizeDigestCadence(args[0])
+			if !ok {
+				return writeErr(cmd, &guidedCLIError{message: "cadence must be daily, weekly, or monthly"})
+			}
+			q := url.Values{}
+			q.Set("cadence", cadence)
+			return runFlowHealthREST(cmd, app, "Use API mode to update digest preferences.", http.MethodPost, "/api/digests/preferences/cadence", q)
+		},
+	}
+	return cmd
+}
+
 func newDigestsListCmd(app *App) *cobra.Command {
 	var kind string
 	var status string
+	var cadence string
 	var limit int
 	cmd := &cobra.Command{
 		Use:     "list",
@@ -170,20 +230,22 @@ func newDigestsListCmd(app *App) *cobra.Command {
 		Short:   "List digests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q := url.Values{}
-			if strings.TrimSpace(kind) != "" {
-				q.Set("kind", strings.TrimSpace(kind))
+			setTrimmedQuery(q, "kind", kind)
+			setTrimmedQuery(q, "status", status)
+			if strings.TrimSpace(cadence) != "" {
+				normalizedCadence, ok := normalizeDigestCadence(cadence)
+				if !ok {
+					return writeErr(cmd, &guidedCLIError{message: "cadence must be daily, weekly, or monthly"})
+				}
+				q.Set("cadence", normalizedCadence)
 			}
-			if strings.TrimSpace(status) != "" {
-				q.Set("status", strings.TrimSpace(status))
-			}
-			if limit > 0 {
-				q.Set("limit", strconv.Itoa(limit))
-			}
+			setPositiveIntQuery(q, "limit", limit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect digests.", http.MethodGet, "/api/digests", q)
 		},
 	}
 	cmd.Flags().StringVar(&kind, "kind", "", "Filter digests by kind")
 	cmd.Flags().StringVar(&status, "status", "", "Filter digests by status")
+	cmd.Flags().StringVar(&cadence, "cadence", "", "Filter scheduled digests by cadence")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Max digests to return")
 	return cmd
 }
@@ -211,12 +273,8 @@ func newDigestsDeliveriesCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			digestID := strings.TrimSpace(args[0])
 			q := url.Values{}
-			if strings.TrimSpace(channel) != "" {
-				q.Set("channel", strings.TrimSpace(channel))
-			}
-			if limit > 0 {
-				q.Set("limit", strconv.Itoa(limit))
-			}
+			setTrimmedQuery(q, "channel", channel)
+			setPositiveIntQuery(q, "limit", limit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect digest deliveries.", http.MethodGet, "/api/digests/"+url.PathEscape(digestID)+"/deliveries", q)
 		},
 	}
