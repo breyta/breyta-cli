@@ -30,6 +30,7 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 		"--token", "tok-1",
 		"incidents", "list",
 		"--status", "open",
+		"--mine",
 		"--limit", "15",
 	)
 	if err != nil {
@@ -40,6 +41,9 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 	}
 	if gotQuery.Get("status") != "open" {
 		t.Fatalf("expected status=open, got %q", gotQuery.Get("status"))
+	}
+	if gotQuery.Get("scope") != "mine" {
+		t.Fatalf("expected scope=mine, got %q", gotQuery.Get("scope"))
 	}
 	if gotQuery.Get("limit") != "15" {
 		t.Fatalf("expected limit=15, got %q", gotQuery.Get("limit"))
@@ -205,7 +209,7 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 		case "/api/digests/preferences":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"preferences":      map[string]any{"digest-cadence": "monthly"},
-				"settings-web-url": "https://flows.breyta.ai/ws-breyta/settings#flow-health-updates",
+				"settings-web-url": "https://flows.breyta.ai/ws-breyta/settings/my-updates",
 			})
 		case "/api/digests/preferences/cadence":
 			_ = json.NewEncoder(w).Encode(map[string]any{

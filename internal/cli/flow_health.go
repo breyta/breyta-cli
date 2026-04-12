@@ -78,6 +78,7 @@ func newIncidentsCmd(app *App) *cobra.Command {
 func newIncidentsListCmd(app *App) *cobra.Command {
 	var status string
 	var limit int
+	var mine bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -85,11 +86,15 @@ func newIncidentsListCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q := url.Values{}
 			setTrimmedQuery(q, "status", status)
+			if mine {
+				q.Set("scope", "mine")
+			}
 			setPositiveIntQuery(q, "limit", limit)
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents", q)
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "Filter incidents by lifecycle or operator disposition")
+	cmd.Flags().BoolVar(&mine, "mine", false, "Limit incidents to flows you created in the current workspace")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Max incidents to return")
 	return cmd
 }

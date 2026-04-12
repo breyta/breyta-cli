@@ -158,7 +158,7 @@ func TestFlowHealth_TaskRuntimeIntegration(t *testing.T) {
 		t.Fatalf("expected digest cadence in preferences, got %+v", preferencesBefore)
 	}
 	settingsWebURL, _ := cadenceBefore.Data["settings-web-url"].(string)
-	if !strings.Contains(settingsWebURL, "/settings#flow-health-updates") {
+	if !strings.Contains(settingsWebURL, "/settings/my-updates") {
 		t.Fatalf("expected settings-web-url deep link, got %q", settingsWebURL)
 	}
 
