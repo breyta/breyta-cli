@@ -65,55 +65,21 @@ func (c Client) DoRootREST(ctx context.Context, method string, path string, quer
 	if err != nil {
 		return nil, 0, err
 	}
-	if c.HTTP == nil {
-		c.HTTP = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	if len(query) > 0 {
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			return nil, 0, err
-		}
-		u.RawQuery = query.Encode()
-		endpoint = u.String()
-	}
-
-	var r io.Reader
+	var (
+		r             io.Reader
+		contentType   string
+		contentLength int64 = -1
+	)
 	if body != nil {
 		var buf bytes.Buffer
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {
 			return nil, 0, err
 		}
 		r = &buf
+		contentType = "application/json"
+		contentLength = int64(buf.Len())
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
-	if err != nil {
-		return nil, 0, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if strings.TrimSpace(c.Token) != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-	// Allow non-JSON (HTML 404 pages etc) to surface as a raw string so callers can wrap.
-	var out any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return string(b), resp.StatusCode, nil
-	}
-	return out, resp.StatusCode, nil
+	return c.doRESTWithReader(ctx, endpoint, method, query, r, contentType, contentLength, false, nil)
 }
 
 // DoRootRESTBytes is like DoRootREST, but sends a pre-encoded request body and optional headers.
@@ -123,6 +89,48 @@ func (c Client) DoRootRESTBytes(ctx context.Context, method string, path string,
 	if err != nil {
 		return nil, 0, err
 	}
+	var (
+		r             io.Reader
+		contentLength int64 = -1
+	)
+	if body != nil {
+		r = bytes.NewReader(body)
+		contentLength = int64(len(body))
+	}
+	return c.doRESTWithReader(ctx, endpoint, method, query, r, "application/json", contentLength, true, headers)
+}
+
+func (c Client) DoREST(ctx context.Context, method string, path string, query url.Values, body any) (any, int, error) {
+	endpoint, err := c.endpointFor(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	var (
+		r             io.Reader
+		contentType   string
+		contentLength int64 = -1
+	)
+	if body != nil {
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return nil, 0, err
+		}
+		r = &buf
+		contentType = "application/json"
+		contentLength = int64(buf.Len())
+	}
+	return c.doRESTWithReader(ctx, endpoint, method, query, r, contentType, contentLength, true, nil)
+}
+
+func (c Client) DoRootRESTReader(ctx context.Context, method string, path string, query url.Values, body io.Reader, contentType string, contentLength int64, headers map[string]string) (any, int, error) {
+	endpoint, err := c.baseEndpointFor(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	return c.doRESTWithReader(ctx, endpoint, method, query, body, contentType, contentLength, true, headers)
+}
+
+func (c Client) doRESTWithReader(ctx context.Context, endpoint string, method string, query url.Values, body io.Reader, contentType string, contentLength int64, includeWorkspace bool, headers map[string]string) (any, int, error) {
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -136,22 +144,20 @@ func (c Client) DoRootRESTBytes(ctx context.Context, method string, path string,
 		endpoint = u.String()
 	}
 
-	var r io.Reader
-	if body != nil {
-		r = bytes.NewReader(body)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, 0, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if body != nil && strings.TrimSpace(contentType) != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
 	}
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	if strings.TrimSpace(c.WorkspaceID) != "" {
+	if includeWorkspace && strings.TrimSpace(c.WorkspaceID) != "" {
 		req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
 	}
 	for k, v := range headers {
@@ -160,63 +166,6 @@ func (c Client) DoRootRESTBytes(ctx context.Context, method string, path string,
 		}
 		req.Header.Set(k, v)
 	}
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-	// Allow non-JSON (HTML 404 pages etc) to surface as a raw string so callers can wrap.
-	var out any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return string(b), resp.StatusCode, nil
-	}
-	return out, resp.StatusCode, nil
-}
-
-func (c Client) DoREST(ctx context.Context, method string, path string, query url.Values, body any) (any, int, error) {
-	endpoint, err := c.endpointFor(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	if c.HTTP == nil {
-		c.HTTP = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	if len(query) > 0 {
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			return nil, 0, err
-		}
-		u.RawQuery = query.Encode()
-		endpoint = u.String()
-	}
-
-	var r io.Reader
-	if body != nil {
-		var buf bytes.Buffer
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			return nil, 0, err
-		}
-		r = &buf
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
-	if err != nil {
-		return nil, 0, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if strings.TrimSpace(c.Token) != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	req.Header.Set("X-Breyta-Workspace", c.WorkspaceID)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

@@ -651,7 +651,7 @@ func writeJobsWorkerJSONFile(path string, value any) error {
 		return err
 	}
 	bytes = append(bytes, '\n')
-	return os.WriteFile(path, bytes, 0644)
+	return os.WriteFile(path, bytes, 0600)
 }
 
 func readJobsWorkerResult(path string) (*jobsWorkerResult, error) {

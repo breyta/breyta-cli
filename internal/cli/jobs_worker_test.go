@@ -1234,6 +1234,7 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	resultFile := filepath.Join(tmpDir, "result.json")
+	expectedKey := "job:job-1:review-summary"
 
 	t.Setenv("BREYTA_JOB_ID", "job-1")
 	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
@@ -1267,7 +1268,7 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 					"kind":        "kv",
 					"contentType": "application/json",
 					"resourceUri": "res://v1/ws/ws-acme/result/kv/review-summary",
-					"key":         "review:summary",
+					"key":         expectedKey,
 					"sizeBytes":   32,
 				},
 			},
@@ -1330,7 +1331,7 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 	if got, _ := artifact["resourceUri"].(string); got != "res://v1/ws/ws-acme/result/kv/review-summary" {
 		t.Fatalf("expected resource uri on artifact, got %#v", artifact["resourceUri"])
 	}
-	if got, _ := artifact["key"].(string); got != "review:summary" {
+	if got, _ := artifact["key"].(string); got != expectedKey {
 		t.Fatalf("expected key on artifact, got %#v", artifact["key"])
 	}
 }
@@ -1341,6 +1342,7 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 
 	tmpDir := t.TempDir()
 	resultFile := filepath.Join(tmpDir, "result.json")
+	expectedTableName := "job-job-1-security-findings"
 
 	t.Setenv("BREYTA_JOB_ID", "job-1")
 	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
@@ -1375,7 +1377,7 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 					"contentType": "application/vnd.breyta.table+json",
 					"resourceUri": "res://v1/ws/ws-acme/result/table/findings",
 					"tableId":     "tbl_123",
-					"tableName":   "security-findings",
+					"tableName":   expectedTableName,
 					"rowsWritten": 2,
 					"rowCount":    2,
 					"keyFields":   []any{"finding_id"},
@@ -1450,7 +1452,7 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 		t.Fatalf("expected one artifact, got %d", len(artifacts))
 	}
 	artifact, _ := artifacts[0].(map[string]any)
-	if got, _ := artifact["tableName"].(string); got != "security-findings" {
+	if got, _ := artifact["tableName"].(string); got != expectedTableName {
 		t.Fatalf("expected tableName on artifact, got %#v", artifact["tableName"])
 	}
 	if got, _ := artifact["writeMode"].(string); got != "upsert" {

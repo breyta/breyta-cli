@@ -289,6 +289,7 @@ Structured resource helpers:
 ```bash
 summary_uri="$(breyta jobs worker attach-kv \
   --label review-summary \
+  --key review-summary \
   --field finding-count=1 \
   --field severity=high \
   --print-uri)"
@@ -304,7 +305,9 @@ findings_uri="$(breyta jobs worker attach-table \
 ```
 
 `attach-table` creates the table resource and its schema on write from the
-provided row objects.
+provided row objects. `--key` and `--table` are logical job-local suffixes; the
+API persists the actual KV key or table name under a job-scoped namespace and
+returns that effective name on the artifact.
 
 Minimum contract:
 

@@ -247,7 +247,7 @@ func newJobsWorkerAttachKVCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&label, "label", "", "Artifact label stored on the job")
 	cmd.Flags().StringVar(&kind, "kind", "", "Artifact kind; defaults to kv")
-	cmd.Flags().StringVar(&key, "key", "", "KV key to persist; derived from job and label when omitted")
+	cmd.Flags().StringVar(&key, "key", "", "Logical KV key suffix inside the job namespace; derived from label when omitted")
 	cmd.Flags().StringVar(&contentType, "content-type", "", "Stored resource content type; defaults to application/json")
 	cmd.Flags().StringVar(&valueJSON, "value", "", "KV value as JSON")
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Path to a JSON file containing the KV value")
@@ -334,7 +334,7 @@ func newJobsWorkerAttachTableCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&label, "label", "", "Artifact label stored on the job")
 	cmd.Flags().StringVar(&kind, "kind", "", "Artifact kind; defaults to table")
-	cmd.Flags().StringVar(&tableName, "table", "", "Logical table name; derived from job and label when omitted")
+	cmd.Flags().StringVar(&tableName, "table", "", "Logical table name suffix inside the job namespace; derived from label when omitted")
 	cmd.Flags().StringVar(&rowsJSON, "rows", "", "Rows as a JSON object or array of JSON objects")
 	cmd.Flags().StringVar(&rowsFile, "rows-file", "", "Path to a JSON file containing row objects")
 	cmd.Flags().StringVar(&writeMode, "write-mode", "", "Table write mode (append|upsert)")
@@ -989,11 +989,10 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 			return nil, err
 		}
 	} else {
-		fileBytes, err := io.ReadAll(file)
-		if err != nil {
-			return nil, fmt.Errorf("read upload file: %w", err)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return nil, fmt.Errorf("reset upload file for direct upload: %w", err)
 		}
-		if err := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, fileBytes); err != nil {
+		if err := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, file, fileInfo.Size()); err != nil {
 			return nil, err
 		}
 	}
@@ -1079,12 +1078,10 @@ func jobsWorkerUploadWithSignedURL(ctx context.Context, uploadURL string, conten
 	return nil
 }
 
-func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, contentType string, body []byte) error {
+func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, contentType string, body io.Reader, contentLength int64) error {
 	query := url.Values{}
 	query.Set("uri", resourceURI)
-	out, status, err := apiClient(app).DoRootRESTBytes(ctx, http.MethodPut, "/api/files/uploads/direct", query, body, map[string]string{
-		"Content-Type": contentType,
-	})
+	out, status, err := apiClient(app).DoRootRESTReader(ctx, http.MethodPut, "/api/files/uploads/direct", query, body, contentType, contentLength, nil)
 	if err != nil {
 		return err
 	}
