@@ -160,8 +160,8 @@ breyta flows versions update <slug> --version <n> --release-note-file ./release-
 
 ## Jobs workers
 
-Use the jobs surface when Breyta should orchestrate external work on any machine
-without relying on SSH as the transport.
+Use the jobs surface when Breyta should orchestrate external work on any
+machine.
 
 Recommended shape:
 
@@ -175,14 +175,18 @@ Create or inspect jobs directly:
 
 ```bash
 breyta jobs create --type codex-review --payload '{"surface":"flows-api"}'
+breyta jobs list --type codex-review --limit 20
+breyta jobs show job-123
 breyta jobs batches create --type codex-review --job '{"payload":{"surface":"flows-api"}}' --job '{"payload":{"surface":"runtime"}}'
+breyta jobs batches show batch-123
 breyta jobs claim --type codex-review --worker-id worker-1 --lease-duration 2m
+breyta jobs heartbeat job-123 --lease-token lease-123
 ```
 
 Run a polling worker loop for one job type:
 
 ```bash
-breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh
+breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh --keep-job-dirs
 ```
 
 Example local worker command:
@@ -191,9 +195,17 @@ Example local worker command:
 breyta jobs worker run --type agent-review --handler ./run-agent-review.sh
 ```
 
+Use `breyta jobs show <job-id>` for durable control-plane state. Use
+`breyta jobs worker state` inside a handler, or against a kept directory with
+`--job-dir <dir>`, to inspect the local `job.json`, `payload.json`, and
+`result.json` assembly state. Preserve those directories with
+`breyta jobs worker run --keep-job-dirs` when you want to inspect them after
+the handler exits.
+
 The worker materializes a temp directory for each claimed job and sets
 environment such as:
 
+- `BREYTA_JOB_DIR`
 - `BREYTA_JOB_FILE`
 - `BREYTA_JOB_PAYLOAD_FILE`
 - `BREYTA_JOB_RESULT_FILE`
@@ -201,28 +213,35 @@ environment such as:
 - `BREYTA_JOB_TYPE`
 - `BREYTA_JOB_LEASE_TOKEN`
 - `BREYTA_JOB_WORKSPACE_ID`
+- `BREYTA_API_URL`
+- `BREYTA_WORKSPACE`
+- `BREYTA_TOKEN`
 
 Additional internal trace env vars may be present, but they are not required
 for normal worker implementations.
+The helper subcommands reuse the injected worker API/workspace/token env, so
+handlers do not need to pass those flags again.
 
-Handler result contract:
+Preferred handler helpers:
 
-- success: exit `0`, optionally write `result.json` with `status`, `summary`, `outputs`, `metrics`, `artifacts`, and `workerInfo`
-- failure: exit non-zero, optionally write `result.json` with `message`, `code`, `details`, and `artifacts`
+- `breyta jobs worker progress` updates lease-scoped progress using the active
+  worker env
+- `breyta jobs worker state` prints the local worker state snapshot for the
+  active job or a kept job directory
+- `breyta jobs worker attach-file` uploads a file resource and appends an
+  artifact to the local worker result state
+- `breyta jobs worker attach-kv` persists structured JSON as a KV-backed
+  resource and appends an artifact to the local worker result state
+- `breyta jobs worker attach-table` creates or updates a table resource from
+  JSON row objects, including schema on write, and appends an artifact to the
+  local worker result state
+- `breyta jobs worker finish` writes success or no-op result state for the
+  parent worker loop to submit
+- `breyta jobs worker fail` writes failed result state for the parent worker
+  loop to submit
 
-Handlers can also use the same CLI surface to stream lease-scoped progress back
-to Breyta while they run:
-
-```bash
-breyta jobs progress "$BREYTA_JOB_ID" \
-  --lease-token "$BREYTA_JOB_LEASE_TOKEN" \
-  --status running \
-  --message "Writing review report"
-```
-
-A handler like `./run-agent-review.sh` does exactly that: it reads
-`payload.json`, emits progress with `breyta jobs progress`, then writes
-`result.json` for `succeeded`, `no_changes`, or `failed`.
+Raw `BREYTA_JOB_RESULT_FILE` writes remain supported for advanced handlers, but
+the normal path is to let the CLI build that file.
 
 Minimal handler implementation:
 
@@ -241,25 +260,61 @@ print(payload.get("surface", "flows-api"))
 PY
 )"
 
-breyta --api "$BREYTA_API_URL" \
-  --workspace "$BREYTA_WORKSPACE" \
-  --token "$BREYTA_TOKEN" \
-  jobs progress "$BREYTA_JOB_ID" \
-  --lease-token "$BREYTA_JOB_LEASE_TOKEN" \
+report_path="$BREYTA_JOB_DIR/review-report.md"
+cat >"$report_path" <<EOF
+# Review
+
+Surface: $surface
+EOF
+
+breyta jobs worker progress \
   --status running \
   --message "Reviewing $surface"
 
-cat >"$BREYTA_JOB_RESULT_FILE" <<JSON
-{"status":"succeeded","summary":"Reviewed $surface","outputs":{"surface":"$surface"}}
-JSON
+report_uri="$(breyta jobs worker attach-file \
+  --file "$report_path" \
+  --label review-report \
+  --kind report \
+  --print-uri)"
+
+breyta jobs worker finish \
+  --summary "Reviewed $surface" \
+  --output "surface=$surface" \
+  --output finding-count=1 \
+  --output "report-resource-uri=$report_uri"
 ```
+
+Structured resource helpers:
+
+```bash
+summary_uri="$(breyta jobs worker attach-kv \
+  --label review-summary \
+  --field finding-count=1 \
+  --field severity=high \
+  --print-uri)"
+
+findings_uri="$(breyta jobs worker attach-table \
+  --label findings \
+  --table security-findings \
+  --rows-file "$BREYTA_JOB_DIR/findings.json" \
+  --write-mode upsert \
+  --key-field finding_id \
+  --index-field severity \
+  --print-uri)"
+```
+
+`attach-table` creates the table resource and its schema on write from the
+provided row objects.
 
 Minimum contract:
 
 - read input from `BREYTA_JOB_PAYLOAD_FILE`
-- optionally stream progress with `BREYTA_JOB_ID` and `BREYTA_JOB_LEASE_TOKEN`
-- write final JSON to `BREYTA_JOB_RESULT_FILE`
-- exit non-zero when the handler wants the job to fail
+- optionally stream progress with `breyta jobs worker progress`
+- optionally persist report/log artifacts with `breyta jobs worker attach-file`
+- optionally persist structured summaries with `breyta jobs worker attach-kv`
+- optionally persist row-shaped outputs with `breyta jobs worker attach-table`
+- mark terminal success or failure with `breyta jobs worker finish` or `breyta jobs worker fail`
+- raw `BREYTA_JOB_RESULT_FILE` writes are optional fallback behavior
 
 ## Table Resources
 

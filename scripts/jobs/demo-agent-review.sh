@@ -3,9 +3,6 @@ set -euo pipefail
 
 job_dir="${BREYTA_JOB_DIR:?missing BREYTA_JOB_DIR}"
 payload_file="${BREYTA_JOB_PAYLOAD_FILE:?missing BREYTA_JOB_PAYLOAD_FILE}"
-result_file="${BREYTA_JOB_RESULT_FILE:?missing BREYTA_JOB_RESULT_FILE}"
-job_id="${BREYTA_JOB_ID:?missing BREYTA_JOB_ID}"
-lease_token="${BREYTA_JOB_LEASE_TOKEN:?missing BREYTA_JOB_LEASE_TOKEN}"
 
 read_payload_field() {
   local field="$1"
@@ -26,51 +23,21 @@ sys.stdout.write(value)
 PY
 }
 
-write_json_file() {
-  local output_path="$1"
-  local json_payload="$2"
-  python3 - "$output_path" "$json_payload" <<'PY'
-import json
-import sys
-
-output_path, raw_payload = sys.argv[1:]
-with open(output_path, "w", encoding="utf-8") as handle:
-    json.dump(json.loads(raw_payload), handle)
-    handle.write("\n")
-PY
-}
-
 emit_progress() {
   local status="$1"
   local message="$2"
   local phase="$3"
   local findings="$4"
-  local details_file="$job_dir/progress-details-${phase}.json"
-  local metrics_file="$job_dir/progress-metrics-${phase}.json"
-  local artifacts_file="$job_dir/progress-artifacts-${phase}.json"
 
-  write_json_file "$details_file" "$(printf '{"surface":%s,"mode":%s,"phase":%s}' \
-    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$surface")" \
-    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$mode")" \
-    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$phase")")"
-  write_json_file "$metrics_file" "$(printf '{"filesScanned":4,"findings":%s}' "$findings")"
-  write_json_file "$artifacts_file" "$(printf '[{"kind":"report","label":"review-%s","contentType":"text/markdown","path":%s}]' \
-    "$phase" \
-    "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$report_path")")"
-
-  if command -v breyta >/dev/null 2>&1 && [[ -n "${BREYTA_API_URL:-}" ]] && [[ -n "${BREYTA_WORKSPACE:-}" ]] && [[ -n "${BREYTA_TOKEN:-}" ]]; then
-    breyta --api "$BREYTA_API_URL" \
-      --workspace "$BREYTA_WORKSPACE" \
-      --token "$BREYTA_TOKEN" \
-      jobs progress "$job_id" \
-      --lease-token "$lease_token" \
-      --status "$status" \
-      --message "$message" \
-      --details-file "$details_file" \
-      --metrics-file "$metrics_file" \
-      --artifacts-file "$artifacts_file" \
-      >/dev/null
-  fi
+  breyta jobs worker progress \
+    --status "$status" \
+    --message "$message" \
+    --detail "surface=$surface" \
+    --detail "mode=$mode" \
+    --detail "phase=$phase" \
+    --metric filesScanned=4 \
+    --metric "findings=$findings" \
+    >/dev/null
 }
 
 surface="$(read_payload_field "surface")"
@@ -80,40 +47,116 @@ mode="${mode:-succeeded}"
 
 mkdir -p "$job_dir/artifacts"
 report_path="$job_dir/artifacts/review-report.md"
+findings_path="$job_dir/artifacts/findings.json"
 
-python3 - "$report_path" "$surface" "$mode" <<'PY'
-import sys
+cat >"$report_path" <<EOF
+# Demo agent review
 
-report_path, surface, mode = sys.argv[1:]
-with open(report_path, "w", encoding="utf-8") as handle:
-    handle.write("# Demo agent review\n\n")
-    handle.write(f"- Surface: {surface}\n")
-    handle.write(f"- Mode: {mode}\n")
-    handle.write("- Transport: Breyta jobs worker + CLI progress updates\n")
-PY
+- Surface: $surface
+- Mode: $mode
+- Contract: breyta jobs worker helper commands
+EOF
 
 emit_progress "started" "Inspecting exposed surface" "inspect" 0
 sleep 1
 emit_progress "running" "Writing review report" "report" "$( [[ "$mode" == "succeeded" ]] && printf '1' || printf '0' )"
 
+report_uri="$(breyta jobs worker attach-file \
+  --file "$report_path" \
+  --label review-report \
+  --kind report \
+  --print-uri)"
+
+finding_count=1
+severity=high
+recommendation="add auth guard"
+finding_id="auth-guard"
+review_status="open"
+
 case "$mode" in
   failed)
-    write_json_file "$result_file" "$(printf '{"message":"demo review failed while parsing inputs","code":"demo_review_failed","details":{"surface":%s,"mode":%s,"phase":"report"},"artifacts":[{"kind":"report","label":"review-report","contentType":"text/markdown","path":%s}]}' \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$surface")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$mode")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$report_path")")"
-    exit 7
+    finding_count=0
+    severity=error
+    recommendation="review failed before producing actionable findings"
+    finding_id="review-error"
+    review_status="failed"
     ;;
   no_changes)
-    write_json_file "$result_file" "$(printf '{"status":"no_changes","summary":"No actionable issues found","outputs":{"surface":%s,"findingCount":0},"metrics":{"filesScanned":4,"findings":0},"artifacts":[{"kind":"report","label":"review-report","contentType":"text/markdown","path":%s}],"workerInfo":{"runner":"demo-agent-review-script","mode":%s}}' \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$surface")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$report_path")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$mode")")"
+    finding_count=0
+    severity=info
+    recommendation="no actionable issues found"
+    finding_id="review-summary"
+    review_status="none"
+    ;;
+esac
+
+cat >"$findings_path" <<EOF
+[
+  {
+    "finding_id": "$finding_id",
+    "surface": "$surface",
+    "mode": "$mode",
+    "severity": "$severity",
+    "status": "$review_status",
+    "recommendation": "$recommendation",
+    "finding_count": $finding_count
+  }
+]
+EOF
+
+summary_uri="$(breyta jobs worker attach-kv \
+  --label review-summary \
+  --field "surface=$surface" \
+  --field "mode=$mode" \
+  --field "findingCount=$finding_count" \
+  --field "severity=$severity" \
+  --field "recommendation=$recommendation" \
+  --field "reportResourceUri=$report_uri" \
+  --print-uri)"
+
+findings_uri="$(breyta jobs worker attach-table \
+  --label findings \
+  --table security-findings \
+  --rows-file "$findings_path" \
+  --write-mode upsert \
+  --key-field finding_id \
+  --index-field severity \
+  --print-uri)"
+
+case "$mode" in
+  failed)
+    breyta jobs worker fail \
+      --message "demo review failed while parsing inputs" \
+      --code demo_review_failed \
+      --detail "surface=$surface" \
+      --detail "mode=$mode" \
+      --detail phase=report \
+      >/dev/null
+    ;;
+  no_changes)
+    breyta jobs worker finish \
+      --status no_changes \
+      --summary "No actionable issues found" \
+      --output "surface=$surface" \
+      --output "findingCount=$finding_count" \
+      --output "reportResourceUri=$report_uri" \
+      --output "summaryResourceUri=$summary_uri" \
+      --output "findingsTableUri=$findings_uri" \
+      --metric filesScanned=4 \
+      --metric findings=0 \
+      >/dev/null
     ;;
   *)
-    write_json_file "$result_file" "$(printf '{"status":"succeeded","summary":"Found one actionable issue","outputs":{"surface":%s,"findingCount":1,"recommendation":"add auth guard"},"metrics":{"filesScanned":4,"findings":1},"artifacts":[{"kind":"report","label":"review-report","contentType":"text/markdown","path":%s}],"workerInfo":{"runner":"demo-agent-review-script","mode":%s}}' \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$surface")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$report_path")" \
-      "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$mode")")"
+    breyta jobs worker finish \
+      --summary "Found one actionable issue" \
+      --output "surface=$surface" \
+      --output "findingCount=$finding_count" \
+      --output "recommendation=add auth guard" \
+      --output "reportResourceUri=$report_uri" \
+      --output "summaryResourceUri=$summary_uri" \
+      --output "findingsTableUri=$findings_uri" \
+      --metric filesScanned=4 \
+      --metric findings=1 \
+      >/dev/null
     ;;
 esac

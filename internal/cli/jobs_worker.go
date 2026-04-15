@@ -69,6 +69,13 @@ func newJobsWorkerCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newJobsWorkerRunCmd(app))
+	cmd.AddCommand(newJobsWorkerStateCmd(app))
+	cmd.AddCommand(newJobsWorkerProgressCmd(app))
+	cmd.AddCommand(newJobsWorkerAttachFileCmd(app))
+	cmd.AddCommand(newJobsWorkerAttachKVCmd(app))
+	cmd.AddCommand(newJobsWorkerAttachTableCmd(app))
+	cmd.AddCommand(newJobsWorkerFinishCmd(app))
+	cmd.AddCommand(newJobsWorkerFailCmd(app))
 	return cmd
 }
 
@@ -346,6 +353,10 @@ func jobsWorkerExecuteClaimedJob(ctx context.Context, stderr io.Writer, app *App
 				"details": map[string]any{"resultFile": resultFile},
 			}, jobDir))
 		}
+		if jobsWorkerResultRequiresFailure(result) {
+			failJob, err := jobsWorkerFailWithPayload(stderr, app, jobID, leaseToken, jobsWorkerFailurePayload(nil, result), jobDir)
+			return finalize(failJob, err)
+		}
 		payload, err := jobsWorkerCompletionPayload(result, defaultWorkerInfo)
 		if err != nil {
 			return finalize(jobsWorkerFailWithPayload(stderr, app, jobID, leaseToken, map[string]any{
@@ -398,6 +409,18 @@ func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir st
 		}
 		env = append(env, key+"="+value)
 	}
+	prependPath := func(dir string) {
+		trimmed := strings.TrimSpace(dir)
+		if trimmed == "" {
+			return
+		}
+		current := os.Getenv("PATH")
+		if current == "" {
+			env = append(env, "PATH="+trimmed)
+			return
+		}
+		env = append(env, "PATH="+trimmed+string(os.PathListSeparator)+current)
+	}
 
 	setEnv("BREYTA_WORKER_ID", cfg.workerID)
 	setEnv("BREYTA_JOB_DIR", jobDir)
@@ -414,6 +437,13 @@ func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir st
 	setEnv("BREYTA_JOB_PARENT_STEP_ID", toString(job["parentStepId"]))
 	setEnv("BREYTA_JOB_FANOUT_PARENT_STEP_ID", toString(job["fanoutParentStepId"]))
 	setEnv("BREYTA_JOB_FANOUT_MAX_CONCURRENCY", toString(job["fanoutMaxConcurrency"]))
+	if exe, err := os.Executable(); err == nil {
+		exe = strings.TrimSpace(exe)
+		if exe != "" {
+			setEnv("BREYTA_CLI_BIN", exe)
+			prependPath(filepath.Dir(exe))
+		}
+	}
 
 	if strings.TrimSpace(app.APIURL) != "" {
 		setEnv("BREYTA_API_URL", strings.TrimSpace(app.APIURL))
@@ -521,6 +551,18 @@ func jobsWorkerFailurePayload(waitErr error, result *jobsWorkerResult) map[strin
 	return payload
 }
 
+func jobsWorkerResultRequiresFailure(result *jobsWorkerResult) bool {
+	if result == nil {
+		return false
+	}
+	switch strings.TrimSpace(result.Status) {
+	case "failed", "timed_out":
+		return true
+	default:
+		return false
+	}
+}
+
 func jobsWorkerCompleteWithPayload(stderr io.Writer, app *App, jobID string, leaseToken string, payload map[string]any, jobDir string) (*jobsWorkerExecutionResult, error) {
 	body := mergeJSONObjectFlags(payload, map[string]any{
 		"jobId":      jobID,
@@ -593,8 +635,8 @@ func prepareJobsWorkerFiles(job map[string]any) (string, string, string, string,
 	if err := writeJobsWorkerJSONFile(jobFile, job); err != nil {
 		return "", "", "", "", err
 	}
-	payload := map[string]any{}
-	if rawPayload, ok := job["payload"].(map[string]any); ok && rawPayload != nil {
+	payload := any(map[string]any{})
+	if rawPayload, ok := job["payload"]; ok {
 		payload = rawPayload
 	}
 	if err := writeJobsWorkerJSONFile(payloadFile, payload); err != nil {
