@@ -268,6 +268,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newResourcesCmd(app))
 	cmd.AddCommand(newDebugCmd(app))
 	cmd.AddCommand(newWaitsCmd(app))
+	cmd.AddCommand(newJobsCmd(app))
 	cmd.AddCommand(newIncidentsCmd(app))
 	cmd.AddCommand(newDigestsCmd(app))
 	cmd.AddCommand(newWatchCmd(app))

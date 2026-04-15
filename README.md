@@ -158,6 +158,113 @@ If you need to revise the note later:
 breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md
 ```
 
+## Jobs workers
+
+Use the jobs surface when Breyta should orchestrate external work on any machine
+without relying on SSH as the transport.
+
+Recommended shape:
+
+- flow creates one job or a small explicit batch
+- `breyta jobs worker run` claims and executes that work externally
+- flow awaits the normalized job or batch result
+- when installability depends on those workers, declare that in the flow
+  definition with `{:kind :worker ...}` inside `:requires`
+
+Use fanout or child workflows only when you also need internal Breyta
+orchestration. They are not required for the external worker model itself.
+
+Create or inspect jobs directly:
+
+```bash
+breyta jobs create --type codex-review --payload '{"surface":"flows-api"}'
+breyta jobs batches create --type codex-review --job '{"payload":{"surface":"flows-api"}}' --job '{"payload":{"surface":"runtime"}}'
+breyta jobs claim --type codex-review --worker-id worker-1 --lease-duration 2m
+```
+
+Run a polling worker loop for one job type:
+
+```bash
+breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh
+```
+
+Reference demo worker for the `demo.agent-review` job type:
+
+```bash
+breyta jobs worker run --type demo.agent-review --handler ./scripts/jobs/demo-agent-review.sh
+```
+
+The worker materializes a temp directory for each claimed job and sets
+environment such as:
+
+- `BREYTA_JOB_FILE`
+- `BREYTA_JOB_PAYLOAD_FILE`
+- `BREYTA_JOB_RESULT_FILE`
+- `BREYTA_JOB_ID`
+- `BREYTA_JOB_TYPE`
+- `BREYTA_JOB_LEASE_TOKEN`
+- `BREYTA_JOB_WORKSPACE_ID`
+- `BREYTA_JOB_ROOT_WORKFLOW_ID`
+- `BREYTA_JOB_PARENT_STEP_ID`
+- `BREYTA_JOB_FANOUT_PARENT_STEP_ID`
+- `BREYTA_JOB_FANOUT_MAX_CONCURRENCY`
+
+Handler result contract:
+
+- success: exit `0`, optionally write `result.json` with `status`, `summary`, `outputs`, `metrics`, `artifacts`, and `workerInfo`
+- failure: exit non-zero, optionally write `result.json` with `message`, `code`, `details`, and `artifacts`
+
+Handlers can also use the same CLI surface to stream lease-scoped progress back
+to Breyta while they run:
+
+```bash
+breyta jobs progress "$BREYTA_JOB_ID" \
+  --lease-token "$BREYTA_JOB_LEASE_TOKEN" \
+  --status running \
+  --message "Writing review report"
+```
+
+The shipped `./scripts/jobs/demo-agent-review.sh` example does exactly that:
+it reads `payload.json`, emits progress with `breyta jobs progress`, then writes
+`result.json` for `succeeded`, `no_changes`, or `failed`.
+
+Minimal handler implementation:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+surface="$(python3 - "$BREYTA_JOB_PAYLOAD_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+print(payload.get("surface", "flows-api"))
+PY
+)"
+
+breyta --api "$BREYTA_API_URL" \
+  --workspace "$BREYTA_WORKSPACE" \
+  --token "$BREYTA_TOKEN" \
+  jobs progress "$BREYTA_JOB_ID" \
+  --lease-token "$BREYTA_JOB_LEASE_TOKEN" \
+  --status running \
+  --message "Reviewing $surface"
+
+cat >"$BREYTA_JOB_RESULT_FILE" <<JSON
+{"status":"succeeded","summary":"Reviewed $surface","outputs":{"surface":"$surface"}}
+JSON
+```
+
+Minimum contract:
+
+- read input from `BREYTA_JOB_PAYLOAD_FILE`
+- optionally stream progress with `BREYTA_JOB_ID` and `BREYTA_JOB_LEASE_TOKEN`
+- write final JSON to `BREYTA_JOB_RESULT_FILE`
+- exit non-zero when the handler wants the job to fail
+
 ## Table Resources
 
 Flows can now persist row-shaped outputs directly into table resources:
