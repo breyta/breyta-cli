@@ -171,9 +171,6 @@ Recommended shape:
 - when installability depends on those workers, declare that in the flow
   definition with `{:kind :worker ...}` inside `:requires`
 
-Use fanout or child workflows only when you also need internal Breyta
-orchestration. They are not required for the external worker model itself.
-
 Create or inspect jobs directly:
 
 ```bash
@@ -204,10 +201,9 @@ environment such as:
 - `BREYTA_JOB_TYPE`
 - `BREYTA_JOB_LEASE_TOKEN`
 - `BREYTA_JOB_WORKSPACE_ID`
-- `BREYTA_JOB_ROOT_WORKFLOW_ID`
-- `BREYTA_JOB_PARENT_STEP_ID`
-- `BREYTA_JOB_FANOUT_PARENT_STEP_ID`
-- `BREYTA_JOB_FANOUT_MAX_CONCURRENCY`
+
+Additional internal trace env vars may be present, but they are not required
+for normal worker implementations.
 
 Handler result contract:
 
