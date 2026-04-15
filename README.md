@@ -185,10 +185,10 @@ Run a polling worker loop for one job type:
 breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh
 ```
 
-Reference demo worker for the `demo.agent-review` job type:
+Example local worker command:
 
 ```bash
-breyta jobs worker run --type demo.agent-review --handler ./scripts/jobs/demo-agent-review.sh
+breyta jobs worker run --type agent-review --handler ./run-agent-review.sh
 ```
 
 The worker materializes a temp directory for each claimed job and sets
@@ -220,8 +220,8 @@ breyta jobs progress "$BREYTA_JOB_ID" \
   --message "Writing review report"
 ```
 
-The shipped `./scripts/jobs/demo-agent-review.sh` example does exactly that:
-it reads `payload.json`, emits progress with `breyta jobs progress`, then writes
+A handler like `./run-agent-review.sh` does exactly that: it reads
+`payload.json`, emits progress with `breyta jobs progress`, then writes
 `result.json` for `succeeded`, `no_changes`, or `failed`.
 
 Minimal handler implementation:
