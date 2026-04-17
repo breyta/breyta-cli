@@ -142,3 +142,43 @@ func TestAPIKeyEnvAllowedOutsideDevMode(t *testing.T) {
 		t.Fatalf("flows list with BREYTA_API_KEY failed: %v", err)
 	}
 }
+
+func TestExplicitTokenFlagWinsOverAPIKeyEnvInDevMode(t *testing.T) {
+	t.Setenv("BREYTA_API_KEY", "bsa_sak-999_secret")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := configstore.DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if err := configstore.SaveAtomic(path, &configstore.Store{DevMode: true}); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-flag" {
+			t.Fatalf("expected Authorization header to use explicit --token, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"items": []any{},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	_, _, err = runCLIArgs(t,
+		"--api", srv.URL,
+		"--workspace", "ws-acme",
+		"--token", "token-flag",
+		"flows", "list",
+	)
+	if err != nil {
+		t.Fatalf("flows list with explicit --token failed: %v", err)
+	}
+}

@@ -163,7 +163,7 @@ func NewRootCmd() *cobra.Command {
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		machineCredentialExplicit := apiKeyFlagExplicit || apiKeyEnvExplicit
+		machineCredentialExplicit := apiKeyFlagExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
 		if isSubcommand {
 			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
 			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
@@ -239,13 +239,13 @@ func NewRootCmd() *cobra.Command {
 				}
 			}
 		}
-		if apiKeyEnvExplicit && strings.TrimSpace(app.APIKey) == "" {
+		if apiKeyEnvExplicit && !tokenFlagExplicit && strings.TrimSpace(app.APIKey) == "" {
 			app.APIKey = apiKeyEnvValue
 		}
 		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
 			app.Token = tokenEnvValue
 		}
-		if strings.TrimSpace(app.APIKey) != "" {
+		if strings.TrimSpace(app.APIKey) != "" && !tokenFlagExplicit {
 			app.Token = strings.TrimSpace(app.APIKey)
 		}
 		app.APIKeyExplicit = machineCredentialExplicit
