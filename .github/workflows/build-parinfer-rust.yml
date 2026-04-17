@@ -8,6 +8,9 @@ on:
         required: true
         default: "v0.4.3"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   linux:
     name: Linux (amd64 + arm64)

@@ -30,17 +30,32 @@ func isAPIMode(app *App) bool {
 	return strings.TrimSpace(app.APIURL) != ""
 }
 
-func apiFlagExplicit(cmd *cobra.Command) bool {
+func flagExplicit(cmd *cobra.Command, name string) bool {
 	if cmd == nil {
 		return false
 	}
-	if cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api") {
+	if cmd.Flags().Changed(name) || cmd.InheritedFlags().Changed(name) {
 		return true
 	}
-	if root := cmd.Root(); root != nil && root.PersistentFlags().Changed("api") {
+	if root := cmd.Root(); root != nil && root.PersistentFlags().Changed(name) {
 		return true
 	}
 	return false
+}
+
+func rootPersistentFlagExplicit(cmd *cobra.Command, name string) bool {
+	if cmd == nil {
+		return false
+	}
+	root := cmd.Root()
+	if root == nil {
+		return false
+	}
+	return root.PersistentFlags().Changed(name)
+}
+
+func apiFlagExplicit(cmd *cobra.Command) bool {
+	return flagExplicit(cmd, "api")
 }
 
 func ensureAPIURL(app *App) {
@@ -66,9 +81,9 @@ func requireAPI(app *App) error {
 	}
 	if strings.TrimSpace(app.Token) == "" {
 		if app.DevMode {
-			return errors.New("missing --token or BREYTA_TOKEN")
+			return errors.New("missing token (--token, BREYTA_TOKEN, --api-key, or BREYTA_API_KEY)")
 		}
-		return errors.New("missing token (run `breyta auth login`)")
+		return errors.New("missing token (run `breyta auth login` or provide --api-key / BREYTA_API_KEY)")
 	}
 	return nil
 }

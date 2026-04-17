@@ -158,6 +158,211 @@ If you need to revise the note later:
 breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md
 ```
 
+## Jobs workers
+
+Use the jobs surface when Breyta should orchestrate external work on any
+machine.
+
+Recommended shape:
+
+- flow creates one job or a small explicit batch
+- `breyta jobs worker run` claims and executes that work externally
+- flow awaits the normalized job or batch result
+- when installability depends on those workers, declare that in the flow
+  definition with `{:kind :worker ...}` inside `:requires`
+
+Create or inspect jobs directly:
+
+```bash
+breyta jobs create --type codex-review --payload '{"surface":"flows-api"}'
+breyta jobs list --type codex-review --limit 20
+breyta jobs show job-123
+breyta jobs batches create --type codex-review --job '{"payload":{"surface":"flows-api"}}' --job '{"payload":{"surface":"runtime"}}'
+breyta jobs batches show batch-123
+breyta jobs claim --type codex-review --worker-id worker-1 --lease-duration 2m
+```
+
+Run a polling worker loop for one job type:
+
+```bash
+export BREYTA_API_URL="https://flows.breyta.ai"
+export BREYTA_WORKSPACE="ws-acme"
+export BREYTA_API_KEY="<service-account-api-key>"
+
+breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh --keep-job-dirs
+```
+
+Create that worker identity from an interactive operator session:
+
+```bash
+breyta service-accounts create \
+  --name codex-review-worker \
+  --scope jobs.worker \
+  --job-type codex-review
+
+breyta service-accounts keys create <service-account-id> --name ci-runner
+```
+
+`--scope` accepts repeated flags or comma-separated values. `--capability`
+remains accepted as a compatibility alias.
+
+For a broader unattended agent, add explicit API scopes or use the broad
+catch-all for the known service-account scope matrix:
+
+```bash
+breyta service-accounts create \
+  --name automation-agent \
+  --scope flows.read \
+  --scope flows.manage \
+  --scope flows.run \
+  --scope resources.read \
+  --scope resources.write
+
+breyta service-accounts create \
+  --name full-agent \
+  --scope workspace.full
+```
+
+`workspace.full` opens the known service-account command and direct-API matrix
+for that workspace, but it does not make service-account management or human UI
+surfaces machine-accessible.
+
+The key is shown once. Store it in the worker environment or your secret
+manager before starting the worker process.
+
+Example local worker command:
+
+```bash
+BREYTA_API_KEY="<service-account-api-key>" \
+breyta jobs worker run --type agent-review --handler ./run-agent-review.sh
+```
+
+Use `breyta jobs show <job-id>` for durable control-plane state. Use
+`breyta jobs worker state` inside a handler, or against a kept directory with
+`--job-dir <dir>`, to inspect the local `job.json`, `payload.json`, and
+`result.json` assembly state. Preserve those directories with
+`breyta jobs worker run --keep-job-dirs` when you want to inspect them after
+the handler exits.
+
+The worker materializes a temp directory for each claimed job and sets
+environment such as:
+
+- `BREYTA_JOB_DIR`
+- `BREYTA_JOB_CONTEXT_FILE`
+- `BREYTA_JOB_FILE`
+- `BREYTA_JOB_PAYLOAD_FILE`
+- `BREYTA_JOB_RESULT_FILE`
+- `BREYTA_JOB_ID`
+- `BREYTA_JOB_TYPE`
+- `BREYTA_JOB_WORKSPACE_ID`
+- `BREYTA_API_URL`
+- `BREYTA_WORKSPACE`
+- `BREYTA_API_KEY` or `BREYTA_TOKEN`
+
+Additional internal trace env vars may be present, but they are not required
+for normal worker implementations.
+The helper subcommands reuse the injected worker context plus the worker
+API/workspace/auth env, so handlers do not need to pass those flags again.
+`BREYTA_JOB_CONTEXT_FILE` is opaque worker context for those helper commands;
+handlers typically do not need to parse it directly.
+
+Preferred handler helpers:
+
+- `breyta jobs worker progress` updates lease-scoped progress using the active
+  worker env
+- `breyta jobs worker state` prints the local worker state snapshot for the
+  active job or a kept job directory
+- `breyta jobs worker attach-file` uploads a file resource and appends an
+  artifact to the local worker result state
+- `breyta jobs worker attach-kv` persists structured JSON as a KV-backed
+  resource and appends an artifact to the local worker result state
+- `breyta jobs worker attach-table` creates or updates a table resource from
+  JSON row objects, including schema on write, and appends an artifact to the
+  local worker result state
+- `breyta jobs worker finish` writes success or no-op result state for the
+  parent worker loop to submit
+- `breyta jobs worker fail` writes failed result state for the parent worker
+  loop to submit
+
+Raw `BREYTA_JOB_RESULT_FILE` writes remain supported for advanced handlers, but
+the normal path is to let the CLI build that file.
+
+Minimal handler implementation:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+surface="$(python3 - "$BREYTA_JOB_PAYLOAD_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+print(payload.get("surface", "flows-api"))
+PY
+)"
+
+report_path="$BREYTA_JOB_DIR/review-report.md"
+cat >"$report_path" <<EOF
+# Review
+
+Surface: $surface
+EOF
+
+breyta jobs worker progress \
+  --status running \
+  --message "Reviewing $surface"
+
+report_uri="$(breyta jobs worker attach-file \
+  --file "$report_path" \
+  --label review-report \
+  --kind report \
+  --print-uri)"
+
+breyta jobs worker finish \
+  --summary "Reviewed $surface" \
+  --output "surface=$surface" \
+  --output finding-count=1 \
+  --output "report-resource-uri=$report_uri"
+```
+
+Structured resource helpers:
+
+```bash
+summary_uri="$(breyta jobs worker attach-kv \
+  --label review-summary \
+  --key review-summary \
+  --field finding-count=1 \
+  --field severity=high \
+  --print-uri)"
+
+findings_uri="$(breyta jobs worker attach-table \
+  --label findings \
+  --table security-findings \
+  --rows-file "$BREYTA_JOB_DIR/findings.json" \
+  --write-mode upsert \
+  --key-field finding_id \
+  --index-field severity \
+  --print-uri)"
+```
+
+`attach-table` creates the table resource and its schema on write from the
+provided row objects. `--key` and `--table` are logical job-local suffixes; the
+API persists the actual KV key or table name under a job-scoped namespace and
+returns that effective name on the artifact.
+
+Minimum contract:
+
+- read input from `BREYTA_JOB_PAYLOAD_FILE`
+- optionally stream progress with `breyta jobs worker progress`
+- optionally persist report/log artifacts with `breyta jobs worker attach-file`
+- optionally persist structured summaries with `breyta jobs worker attach-kv`
+- optionally persist row-shaped outputs with `breyta jobs worker attach-table`
+- mark terminal success or failure with `breyta jobs worker finish` or `breyta jobs worker fail`
+- raw `BREYTA_JOB_RESULT_FILE` writes are optional fallback behavior
+
 ## Table Resources
 
 Flows can now persist row-shaped outputs directly into table resources:
