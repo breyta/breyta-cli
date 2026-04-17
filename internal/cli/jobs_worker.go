@@ -62,6 +62,9 @@ func newJobsWorkerCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worker",
 		Short: "Run worker loops for claimable job types",
+		Annotations: map[string]string{
+			allowAPIEnvOverrideAnnotation: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

@@ -42,8 +42,19 @@ type guidedCLIError struct {
 	message string
 }
 
+const allowAPIEnvOverrideAnnotation = "allow_api_env_override"
+
 func (e *guidedCLIError) Error() string {
 	return strings.TrimSpace(e.message)
+}
+
+func commandAllowsAPIEnvOverride(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Annotations != nil && strings.EqualFold(strings.TrimSpace(current.Annotations[allowAPIEnvOverrideAnnotation]), "true") {
+			return true
+		}
+	}
+	return false
 }
 
 func NewRootCmd() *cobra.Command {
@@ -154,7 +165,8 @@ func NewRootCmd() *cobra.Command {
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
 		machineCredentialExplicit := apiKeyFlagExplicit || apiKeyEnvExplicit
 		if isSubcommand {
-			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit {
+			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
+			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
 				return writeErr(cmd, errors.New("--api override is disabled unless you provide a service-account API key"))
 			}
 			if ((app.DevMode && !apiFlagExplicit) || (!app.DevMode && !apiFlagExplicit && !apiEnvExplicit)) && strings.TrimSpace(app.APIURL) == "" {
