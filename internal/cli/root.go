@@ -185,7 +185,7 @@ func NewRootCmd() *cobra.Command {
 					}
 				}
 			}
-			if strings.TrimSpace(app.APIURL) == "" && apiEnvExplicit && machineCredentialExplicit {
+			if strings.TrimSpace(app.APIURL) == "" && apiEnvExplicit && (machineCredentialExplicit || allowAPIEnvOverride) {
 				app.APIURL = apiURLFromEnv
 			}
 			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
