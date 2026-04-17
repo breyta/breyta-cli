@@ -51,8 +51,8 @@ func TestServiceAccountsCreate_UsesAPICommand(t *testing.T) {
 		"--token", "user-dev",
 		"service-accounts", "create",
 		"--name", "Jobs worker",
-		"--capability", "jobs.worker,flows.read",
-		"--capability", "resources.read",
+		"--scope", "jobs.worker,flows.read",
+		"--scope", "resources.read",
 		"--job-type", "demo.agent-review",
 		"--metadata", `{"owner":"it"}`,
 	)
@@ -82,7 +82,7 @@ func TestServiceAccountsCreate_UsesAPICommand(t *testing.T) {
 	}
 }
 
-func TestServiceAccountsUpdate_UsesCommaSeparatedCapabilities(t *testing.T) {
+func TestServiceAccountsUpdate_UsesCommaSeparatedScopes(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
@@ -125,8 +125,8 @@ func TestServiceAccountsUpdate_UsesCommaSeparatedCapabilities(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"service-accounts", "update", "sa-1",
-		"--capability", "flows.read,flows.manage",
-		"--capability", "resources.write",
+		"--scope", "flows.read,flows.manage",
+		"--scope", "resources.write",
 	)
 	if err != nil {
 		t.Fatalf("service-accounts update failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)

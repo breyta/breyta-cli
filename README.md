@@ -197,29 +197,30 @@ Create that worker identity from an interactive operator session:
 ```bash
 breyta service-accounts create \
   --name codex-review-worker \
-  --capability jobs.worker \
+  --scope jobs.worker \
   --job-type codex-review
 
 breyta service-accounts keys create <service-account-id> --name ci-runner
 ```
 
-`--capability` accepts repeated flags or comma-separated values.
+`--scope` accepts repeated flags or comma-separated values. `--capability`
+remains accepted as a compatibility alias.
 
-For a broader unattended agent, add explicit API capabilities or use the broad
-catch-all for the known service-account matrix:
+For a broader unattended agent, add explicit API scopes or use the broad
+catch-all for the known service-account scope matrix:
 
 ```bash
 breyta service-accounts create \
   --name automation-agent \
-  --capability flows.read \
-  --capability flows.manage \
-  --capability flows.run \
-  --capability resources.read \
-  --capability resources.write
+  --scope flows.read \
+  --scope flows.manage \
+  --scope flows.run \
+  --scope resources.read \
+  --scope resources.write
 
 breyta service-accounts create \
   --name full-agent \
-  --capability workspace.full
+  --scope workspace.full
 ```
 
 `workspace.full` opens the known service-account command and direct-API matrix

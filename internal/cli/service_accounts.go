@@ -16,14 +16,14 @@ func newServiceAccountsCmd(app *App) *cobra.Command {
 Use service accounts to provision non-interactive machine workers.
 
 - create a workspace-owned service account
-- scope it by capability and optional allowed job types
+- scope it by explicit scopes and optional allowed job types
 - mint or revoke API keys on that principal
 - use the API key with breyta jobs worker run or broader agent automation
 
 Common patterns:
 - jobs.worker for dedicated leased job workers
-- explicit domain capabilities such as flows.read or resources.write
-- workspace.full for the full known service-account matrix
+- explicit domain scopes such as flows.read or resources.write
+- workspace.full for the full known service-account scope matrix
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -81,7 +81,7 @@ func newServiceAccountsShowCmd(app *App) *cobra.Command {
 func newServiceAccountsCreateCmd(app *App) *cobra.Command {
 	var name string
 	var status string
-	var capabilities []string
+	var scopes []string
 	var jobTypes []string
 	var metadataJSON string
 	var metadataFile string
@@ -107,8 +107,8 @@ func newServiceAccountsCreateCmd(app *App) *cobra.Command {
 				}
 				payload["status"] = normalized
 			}
-			if len(capabilities) > 0 {
-				payload["capabilities"] = trimStringList(capabilities)
+			if len(scopes) > 0 {
+				payload["capabilities"] = trimStringList(scopes)
 			}
 			if len(jobTypes) > 0 {
 				payload["allowedJobTypes"] = trimStringList(jobTypes)
@@ -121,7 +121,9 @@ func newServiceAccountsCreateCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Display name for the service account")
 	cmd.Flags().StringVar(&status, "status", "", "Initial status (active|disabled)")
-	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "Capability to grant (repeatable or comma-separated)")
+	cmd.Flags().StringArrayVar(&scopes, "scope", nil, "Scope to grant (repeatable or comma-separated)")
+	cmd.Flags().StringArrayVar(&scopes, "capability", nil, "Compatibility alias for --scope")
+	_ = cmd.Flags().MarkHidden("capability")
 	cmd.Flags().StringArrayVar(&jobTypes, "job-type", nil, "Allowed job type (repeatable)")
 	cmd.Flags().StringVar(&metadataJSON, "metadata", "", "Metadata JSON object")
 	cmd.Flags().StringVar(&metadataFile, "metadata-file", "", "Path to a JSON file containing metadata")
@@ -131,7 +133,7 @@ func newServiceAccountsCreateCmd(app *App) *cobra.Command {
 func newServiceAccountsUpdateCmd(app *App) *cobra.Command {
 	var name string
 	var status string
-	var capabilities []string
+	var scopes []string
 	var jobTypes []string
 	var metadataJSON string
 	var metadataFile string
@@ -163,8 +165,8 @@ func newServiceAccountsUpdateCmd(app *App) *cobra.Command {
 				payload["status"] = normalized
 				mutated = true
 			}
-			if cmd.Flags().Changed("capability") {
-				payload["capabilities"] = trimStringList(capabilities)
+			if cmd.Flags().Changed("scope") || cmd.Flags().Changed("capability") {
+				payload["capabilities"] = trimStringList(scopes)
 				mutated = true
 			}
 			if cmd.Flags().Changed("job-type") {
@@ -183,7 +185,9 @@ func newServiceAccountsUpdateCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Updated display name")
 	cmd.Flags().StringVar(&status, "status", "", "Updated status (active|disabled)")
-	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "Replace capabilities with the provided values (repeatable or comma-separated)")
+	cmd.Flags().StringArrayVar(&scopes, "scope", nil, "Replace scopes with the provided values (repeatable or comma-separated)")
+	cmd.Flags().StringArrayVar(&scopes, "capability", nil, "Compatibility alias for --scope")
+	_ = cmd.Flags().MarkHidden("capability")
 	cmd.Flags().StringArrayVar(&jobTypes, "job-type", nil, "Replace allowed job types with the provided values (repeatable)")
 	cmd.Flags().StringVar(&metadataJSON, "metadata", "", "Replacement metadata JSON object")
 	cmd.Flags().StringVar(&metadataFile, "metadata-file", "", "Path to a JSON file containing replacement metadata")
