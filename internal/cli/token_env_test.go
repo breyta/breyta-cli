@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/breyta/breyta-cli/internal/authstore"
 	"github.com/breyta/breyta-cli/internal/configstore"
 )
 
@@ -180,5 +181,52 @@ func TestExplicitTokenFlagWinsOverAPIKeyEnvInDevMode(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows list with explicit --token failed: %v", err)
+	}
+}
+
+func TestLocalAPIKeyFlagDoesNotSuppressAuthStoreTokenLoading(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	storePath := filepath.Join(tmp, "auth.json")
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/events/draft/webhooks/orders" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer authstore-token" {
+			t.Fatalf("expected Authorization header to use auth store token, got %q", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "payload-key" {
+			t.Fatalf("expected local webhook api-key header, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+		})
+	}))
+	defer srv.Close()
+
+	st := &authstore.Store{}
+	st.Set(srv.URL, "authstore-token")
+	if err := authstore.SaveAtomic(storePath, st); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+
+	_, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--workspace", "ws-acme",
+		"webhooks", "send",
+		"--draft",
+		"--path", "webhooks/orders",
+		"--json", `{"ok":true}`,
+		"--api-key", "payload-key",
+	)
+	if err != nil {
+		t.Fatalf("webhooks send with local --api-key failed: %v", err)
 	}
 }

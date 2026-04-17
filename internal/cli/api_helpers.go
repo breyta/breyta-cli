@@ -43,6 +43,17 @@ func flagExplicit(cmd *cobra.Command, name string) bool {
 	return false
 }
 
+func rootPersistentFlagExplicit(cmd *cobra.Command, name string) bool {
+	if cmd == nil {
+		return false
+	}
+	root := cmd.Root()
+	if root == nil {
+		return false
+	}
+	return root.PersistentFlags().Changed(name)
+}
+
 func apiFlagExplicit(cmd *cobra.Command) bool {
 	return flagExplicit(cmd, "api")
 }
