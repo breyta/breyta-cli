@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestPrepareJobsWorkerFiles_PersistsPrivateStateFiles(t *testing.T) {
@@ -40,5 +41,31 @@ func TestPrepareJobsWorkerFiles_PersistsPrivateStateFiles(t *testing.T) {
 		if got := info.Mode().Perm(); got != 0o600 {
 			t.Fatalf("expected %s perms 0600, got %o", path, got)
 		}
+	}
+}
+
+func TestJobsWorkerHeartbeatInterval_BoundsToLeaseDuration(t *testing.T) {
+	tests := []struct {
+		name          string
+		leaseDuration time.Duration
+		want          time.Duration
+	}{
+		{name: "zero", leaseDuration: 0, want: 0},
+		{name: "short lease", leaseDuration: 3 * time.Second, want: 1500 * time.Millisecond},
+		{name: "medium lease", leaseDuration: 6 * time.Second, want: 3 * time.Second},
+		{name: "ten second lease", leaseDuration: 10 * time.Second, want: 5 * time.Second},
+		{name: "long lease", leaseDuration: 12 * time.Second, want: 6 * time.Second},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := jobsWorkerHeartbeatInterval(tc.leaseDuration)
+			if got != tc.want {
+				t.Fatalf("jobsWorkerHeartbeatInterval(%s) = %s, want %s", tc.leaseDuration, got, tc.want)
+			}
+			if tc.leaseDuration > 0 && got > 0 && got >= tc.leaseDuration {
+				t.Fatalf("heartbeat interval %s must be < lease duration %s", got, tc.leaseDuration)
+			}
+		})
 	}
 }

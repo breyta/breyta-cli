@@ -717,12 +717,9 @@ func readJobsWorkerResult(path string) (*jobsWorkerResult, error) {
 }
 
 func startJobsWorkerHeartbeatLoop(ctx context.Context, stderr io.Writer, app *App, cfg jobsWorkerConfig, jobID string, leaseToken string) func() {
-	interval := cfg.leaseDuration / 2
+	interval := jobsWorkerHeartbeatInterval(cfg.leaseDuration)
 	if interval <= 0 {
 		return func() {}
-	}
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
 	}
 
 	heartbeatCtx, cancel := context.WithCancel(context.Background())
@@ -748,6 +745,17 @@ func startJobsWorkerHeartbeatLoop(ctx context.Context, stderr io.Writer, app *Ap
 		}
 	}()
 	return cancel
+}
+
+func jobsWorkerHeartbeatInterval(leaseDuration time.Duration) time.Duration {
+	if leaseDuration <= 0 {
+		return 0
+	}
+	interval := leaseDuration / 2
+	if interval <= 0 || interval >= leaseDuration {
+		return leaseDuration - time.Nanosecond
+	}
+	return interval
 }
 
 func sanitizeJobsWorkerPathToken(raw string) string {
