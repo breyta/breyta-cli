@@ -180,18 +180,59 @@ breyta jobs show job-123
 breyta jobs batches create --type codex-review --job '{"payload":{"surface":"flows-api"}}' --job '{"payload":{"surface":"runtime"}}'
 breyta jobs batches show batch-123
 breyta jobs claim --type codex-review --worker-id worker-1 --lease-duration 2m
-breyta jobs heartbeat job-123 --lease-token lease-123
 ```
 
 Run a polling worker loop for one job type:
 
 ```bash
+export BREYTA_API_URL="https://flows.breyta.ai"
+export BREYTA_WORKSPACE="ws-acme"
+export BREYTA_API_KEY="<service-account-api-key>"
+
 breyta jobs worker run --type codex-review --handler ./scripts/run-review.sh --keep-job-dirs
 ```
+
+Create that worker identity from an interactive operator session:
+
+```bash
+breyta service-accounts create \
+  --name codex-review-worker \
+  --capability jobs.worker \
+  --job-type codex-review
+
+breyta service-accounts keys create <service-account-id> --name ci-runner
+```
+
+`--capability` accepts repeated flags or comma-separated values.
+
+For a broader unattended agent, add explicit API capabilities or use the broad
+catch-all for the known service-account matrix:
+
+```bash
+breyta service-accounts create \
+  --name automation-agent \
+  --capability flows.read \
+  --capability flows.manage \
+  --capability flows.run \
+  --capability resources.read \
+  --capability resources.write
+
+breyta service-accounts create \
+  --name full-agent \
+  --capability workspace.full
+```
+
+`workspace.full` opens the known service-account command and direct-API matrix
+for that workspace, but it does not make service-account management or human UI
+surfaces machine-accessible.
+
+The key is shown once. Store it in the worker environment or your secret
+manager before starting the worker process.
 
 Example local worker command:
 
 ```bash
+BREYTA_API_KEY="<service-account-api-key>" \
 breyta jobs worker run --type agent-review --handler ./run-agent-review.sh
 ```
 
@@ -206,21 +247,23 @@ The worker materializes a temp directory for each claimed job and sets
 environment such as:
 
 - `BREYTA_JOB_DIR`
+- `BREYTA_JOB_CONTEXT_FILE`
 - `BREYTA_JOB_FILE`
 - `BREYTA_JOB_PAYLOAD_FILE`
 - `BREYTA_JOB_RESULT_FILE`
 - `BREYTA_JOB_ID`
 - `BREYTA_JOB_TYPE`
-- `BREYTA_JOB_LEASE_TOKEN`
 - `BREYTA_JOB_WORKSPACE_ID`
 - `BREYTA_API_URL`
 - `BREYTA_WORKSPACE`
-- `BREYTA_TOKEN`
+- `BREYTA_API_KEY` or `BREYTA_TOKEN`
 
 Additional internal trace env vars may be present, but they are not required
 for normal worker implementations.
-The helper subcommands reuse the injected worker API/workspace/token env, so
-handlers do not need to pass those flags again.
+The helper subcommands reuse the injected worker context plus the worker
+API/workspace/auth env, so handlers do not need to pass those flags again.
+`BREYTA_JOB_CONTEXT_FILE` is opaque worker context for those helper commands;
+handlers typically do not need to parse it directly.
 
 Preferred handler helpers:
 

@@ -24,7 +24,9 @@ type App struct {
 	PrettyJSON           bool
 	APIURL               string
 	Token                string
+	APIKey               string
 	TokenExplicit        bool
+	APIKeyExplicit       bool
 	Profile              string
 	DevMode              bool
 	DevFlag              string
@@ -61,6 +63,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
 	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. https://flows.breyta.ai)")
 	cmd.PersistentFlags().StringVar(&app.Token, "token", "", "API token")
+	cmd.PersistentFlags().StringVar(&app.APIKey, "api-key", "", "Service account API key")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
 	cmd.PersistentFlags().StringVar(&app.DevFlag, "dev", "", "Enable dev-only commands (optional profile name)")
 	if f := cmd.PersistentFlags().Lookup("dev"); f != nil {
@@ -133,23 +136,28 @@ func NewRootCmd() *cobra.Command {
 		// - otherwise fall back to prod (https://flows.breyta.ai)
 		//
 		// IMPORTANT: We only default when a subcommand is invoked.
-		apiFlagExplicit := false
-		if cmd != nil {
-			// Respect an explicitly passed `--api` even if it's empty (tests and mock mode).
-			apiFlagExplicit = cmd.Flags().Changed("api") || cmd.InheritedFlags().Changed("api")
-			if root := cmd.Root(); root != nil {
-				apiFlagExplicit = apiFlagExplicit || root.PersistentFlags().Changed("api")
-			}
+		apiFlagExplicit := flagExplicit(cmd, "api")
+		apiKeyFlagExplicit := flagExplicit(cmd, "api-key")
+		tokenFlagExplicit := flagExplicit(cmd, "token")
+		apiURLFromEnv := strings.TrimSpace(os.Getenv("BREYTA_API_URL"))
+		apiEnvExplicit := apiURLFromEnv != ""
+		apiKeyEnvValue := strings.TrimSpace(os.Getenv("BREYTA_API_KEY"))
+		apiKeyEnvExplicit := apiKeyEnvValue != ""
+		tokenEnvValue := strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
+		tokenEnvExplicit := app.DevMode && tokenEnvValue != ""
+		if apiKeyFlagExplicit && tokenFlagExplicit {
+			return writeErr(cmd, errors.New("cannot use --token and --api-key together"))
 		}
 		// NOTE: `args` here are the positional args to the *invoked* command, not a signal
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
+		machineCredentialExplicit := apiKeyFlagExplicit || apiKeyEnvExplicit
 		if isSubcommand {
-			if !app.DevMode && apiFlagExplicit {
-				return writeErr(cmd, errors.New("--api override is disabled"))
+			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit {
+				return writeErr(cmd, errors.New("--api override is disabled unless you provide a service-account API key"))
 			}
-			if app.DevMode && !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
+			if ((app.DevMode && !apiFlagExplicit) || (!app.DevMode && !apiFlagExplicit && !apiEnvExplicit)) && strings.TrimSpace(app.APIURL) == "" {
 				if st, ok := loadDevConfig(app); ok {
 					_, prof, err := resolveDevProfile(app, st)
 					if err != nil {
@@ -159,11 +167,14 @@ func NewRootCmd() *cobra.Command {
 						app.APIURL = strings.TrimSpace(prof.APIURL)
 					}
 				}
-				if strings.TrimSpace(app.APIURL) == "" {
-					if envURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); envURL != "" {
-						app.APIURL = envURL
+				if strings.TrimSpace(app.APIURL) == "" && app.DevMode {
+					if apiURLFromEnv != "" {
+						app.APIURL = apiURLFromEnv
 					}
 				}
+			}
+			if strings.TrimSpace(app.APIURL) == "" && apiEnvExplicit && machineCredentialExplicit {
+				app.APIURL = apiURLFromEnv
 			}
 			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
 				if p, err := configstore.DefaultPath(); err == nil && p != "" {
@@ -201,19 +212,11 @@ func NewRootCmd() *cobra.Command {
 			}
 		}
 
-		tokenFlagExplicit := false
-		if cmd != nil {
-			tokenFlagExplicit = cmd.Flags().Changed("token") || cmd.InheritedFlags().Changed("token")
-			if root := cmd.Root(); root != nil {
-				tokenFlagExplicit = tokenFlagExplicit || root.PersistentFlags().Changed("token")
-			}
-		}
-		tokenEnvExplicit := app.DevMode && strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != ""
-		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
 		if !app.DevMode && tokenFlagExplicit {
 			return writeErr(cmd, errors.New("--token override is disabled; use `breyta auth login` instead"))
 		}
-		if app.DevMode && !tokenFlagExplicit && strings.TrimSpace(app.Token) == "" {
+		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
+		if app.DevMode && !tokenFlagExplicit && !apiKeyFlagExplicit && strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIKey) == "" {
 			if st, ok := loadDevConfig(app); ok {
 				_, prof, err := resolveDevProfile(app, st)
 				if err != nil {
@@ -224,14 +227,21 @@ func NewRootCmd() *cobra.Command {
 				}
 			}
 		}
-		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
-			app.Token = strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
+		if apiKeyEnvExplicit && strings.TrimSpace(app.APIKey) == "" {
+			app.APIKey = apiKeyEnvValue
 		}
-		app.TokenExplicit = tokenExplicit
+		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
+			app.Token = tokenEnvValue
+		}
+		if strings.TrimSpace(app.APIKey) != "" {
+			app.Token = strings.TrimSpace(app.APIKey)
+		}
+		app.APIKeyExplicit = machineCredentialExplicit
+		app.TokenExplicit = tokenExplicit || machineCredentialExplicit
 
 		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
 		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
-		if !tokenExplicit && strings.TrimSpace(app.APIURL) != "" {
+		if !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
 			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
@@ -266,6 +276,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newTriggersCmd(app))
 	cmd.AddCommand(newWebhooksCmd(app))
 	cmd.AddCommand(newResourcesCmd(app))
+	cmd.AddCommand(newServiceAccountsCmd(app))
 	cmd.AddCommand(newDebugCmd(app))
 	cmd.AddCommand(newWaitsCmd(app))
 	cmd.AddCommand(newJobsCmd(app))

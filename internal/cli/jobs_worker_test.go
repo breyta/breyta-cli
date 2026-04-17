@@ -193,7 +193,6 @@ func TestJobsWorkerRun_ClaimsAndCompletesJob(t *testing.T) {
 		"--type", "demo.echo",
 		"--worker-id", "worker-1",
 		"--once",
-		"--heartbeat-interval", "0s",
 		"--handler", helperPath,
 	}
 	for _, arg := range helperArgs {
@@ -317,7 +316,6 @@ func TestJobsWorkerRun_PreservesNonObjectPayloadFile(t *testing.T) {
 		"--type", "demo.echo",
 		"--worker-id", "worker-1",
 		"--once",
-		"--heartbeat-interval", "0s",
 		"--handler", helperPath,
 	}
 	for _, arg := range helperArgs {
@@ -439,7 +437,6 @@ func TestJobsWorkerRun_FailsJobWhenHandlerFails(t *testing.T) {
 		"--type", "demo.echo",
 		"--worker-id", "worker-1",
 		"--once",
-		"--heartbeat-interval", "0s",
 		"--handler", helperPath,
 	}
 	for _, arg := range helperArgs {
@@ -571,7 +568,6 @@ func TestJobsWorkerRun_FailsJobWhenHandlerRequestsFailure(t *testing.T) {
 		"--type", "demo.echo",
 		"--worker-id", "worker-1",
 		"--once",
-		"--heartbeat-interval", "0s",
 		"--handler", helperPath,
 	}
 	for _, arg := range helperArgs {
@@ -706,7 +702,6 @@ func TestJobsWorkerRun_InjectsCLIPathIntoHandlerEnv(t *testing.T) {
 		"--type", "demo.echo",
 		"--worker-id", "worker-1",
 		"--once",
-		"--heartbeat-interval", "0s",
 		"--handler", "python3",
 		"--handler-arg", "-c",
 		"--handler-arg", handlerScript,
@@ -734,7 +729,6 @@ func TestJobsWorkerFinish_WritesResultFileFromFlags(t *testing.T) {
 
 	resultFile := filepath.Join(t.TempDir(), "result.json")
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	stdout, stderr, err := runCLIArgs(t,
@@ -817,10 +811,11 @@ func TestJobsWorkerFail_WritesFailedResultFileFromFlags(t *testing.T) {
 	}
 }
 
-func TestJobsWorkerState_UsesJobDirAndRedactsLeaseToken(t *testing.T) {
+func TestJobsWorkerState_UsesJobDirAndRedactsWorkerContext(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 	t.Setenv("BREYTA_JOB_DIR", "")
+	t.Setenv("BREYTA_JOB_CONTEXT_FILE", "")
 	t.Setenv("BREYTA_JOB_FILE", "")
 	t.Setenv("BREYTA_JOB_PAYLOAD_FILE", "")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", "")
@@ -829,14 +824,19 @@ func TestJobsWorkerState_UsesJobDirAndRedactsLeaseToken(t *testing.T) {
 	t.Setenv("BREYTA_JOB_BATCH_ID", "")
 	t.Setenv("BREYTA_JOB_ATTEMPT", "")
 	t.Setenv("BREYTA_JOB_WORKSPACE_ID", "")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "")
 	t.Setenv("BREYTA_TOKEN", "")
 
 	jobDir := t.TempDir()
+	contextFile := filepath.Join(jobDir, "worker-context.json")
 	jobFile := filepath.Join(jobDir, "job.json")
 	payloadFile := filepath.Join(jobDir, "payload.json")
 	resultFile := filepath.Join(jobDir, "result.json")
 
+	writeJSONFile(t, contextFile, map[string]any{
+		"jobId":      "job-42",
+		"leaseToken": "lease-secret",
+		"resultFile": resultFile,
+	})
 	writeJSONFile(t, jobFile, map[string]any{
 		"jobId":       "job-42",
 		"jobType":     "agent-review",
@@ -876,10 +876,14 @@ func TestJobsWorkerState_UsesJobDirAndRedactsLeaseToken(t *testing.T) {
 	if got, _ := env.Data["jobDir"].(string); got != jobDir {
 		t.Fatalf("expected jobDir=%s, got %#v", jobDir, env.Data["jobDir"])
 	}
-	if got, _ := env.Data["leaseTokenPresent"].(bool); got {
-		t.Fatalf("expected leaseTokenPresent=false without env lease token")
+	if got, _ := env.Data["workerContextPresent"].(bool); !got {
+		t.Fatalf("expected workerContextPresent=true")
 	}
 
+	context, _ := env.Data["context"].(map[string]any)
+	if got, _ := context["leaseToken"].(string); got != "[redacted]" {
+		t.Fatalf("expected redacted context leaseToken, got %#v", context["leaseToken"])
+	}
 	job, _ := env.Data["job"].(map[string]any)
 	if got, _ := job["leaseToken"].(string); got != "[redacted]" {
 		t.Fatalf("expected redacted leaseToken, got %#v", job["leaseToken"])
@@ -890,6 +894,10 @@ func TestJobsWorkerState_UsesJobDirAndRedactsLeaseToken(t *testing.T) {
 	}
 
 	files, _ := env.Data["files"].(map[string]any)
+	contextSnapshot, _ := files["context"].(map[string]any)
+	if got, _ := contextSnapshot["path"].(string); got != contextFile {
+		t.Fatalf("expected context snapshot path=%s, got %#v", contextFile, contextSnapshot["path"])
+	}
 	resultSnapshot, _ := files["result"].(map[string]any)
 	if got, _ := resultSnapshot["path"].(string); got != resultFile {
 		t.Fatalf("expected result snapshot path=%s, got %#v", resultFile, resultSnapshot["path"])
@@ -901,10 +909,16 @@ func TestJobsWorkerState_UsesEnvAndReportsInvalidResultJSON(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	jobDir := t.TempDir()
+	contextFile := filepath.Join(jobDir, "worker-context.json")
 	jobFile := filepath.Join(jobDir, "job.json")
 	payloadFile := filepath.Join(jobDir, "payload.json")
 	resultFile := filepath.Join(jobDir, "result.json")
 
+	writeJSONFile(t, contextFile, map[string]any{
+		"jobId":      "job-7",
+		"leaseToken": "lease-7",
+		"resultFile": resultFile,
+	})
 	writeJSONFile(t, jobFile, map[string]any{
 		"jobId":       "job-7",
 		"jobType":     "demo.echo",
@@ -920,6 +934,7 @@ func TestJobsWorkerState_UsesEnvAndReportsInvalidResultJSON(t *testing.T) {
 
 	t.Setenv("BREYTA_WORKER_ID", "worker-7")
 	t.Setenv("BREYTA_JOB_DIR", jobDir)
+	t.Setenv("BREYTA_JOB_CONTEXT_FILE", contextFile)
 	t.Setenv("BREYTA_JOB_FILE", jobFile)
 	t.Setenv("BREYTA_JOB_PAYLOAD_FILE", payloadFile)
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
@@ -927,7 +942,6 @@ func TestJobsWorkerState_UsesEnvAndReportsInvalidResultJSON(t *testing.T) {
 	t.Setenv("BREYTA_JOB_TYPE", "demo.echo")
 	t.Setenv("BREYTA_JOB_ATTEMPT", "3")
 	t.Setenv("BREYTA_JOB_WORKSPACE_ID", "ws-acme")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-7")
 	t.Setenv("BREYTA_API_URL", "http://127.0.0.1:9999")
 	t.Setenv("BREYTA_WORKSPACE", "ws-acme")
 	t.Setenv("BREYTA_TOKEN", "user-dev")
@@ -947,8 +961,8 @@ func TestJobsWorkerState_UsesEnvAndReportsInvalidResultJSON(t *testing.T) {
 	if got, _ := env.Data["attempt"].(float64); got != 3 {
 		t.Fatalf("expected attempt=3, got %#v", env.Data["attempt"])
 	}
-	if got, _ := env.Data["leaseTokenPresent"].(bool); !got {
-		t.Fatalf("expected leaseTokenPresent=true")
+	if got, _ := env.Data["workerContextPresent"].(bool); !got {
+		t.Fatalf("expected workerContextPresent=true")
 	}
 	if got, _ := env.Data["tokenPresent"].(bool); !got {
 		t.Fatalf("expected tokenPresent=true")
@@ -970,14 +984,18 @@ func TestJobsWorkerState_UsesEnvAndReportsInvalidResultJSON(t *testing.T) {
 func TestJobsWorkerProgress_UsesEnvContext(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	contextFile := writeJobsWorkerContextFile(t, t.TempDir(), "job-1", "lease-1", "")
+	t.Setenv("BREYTA_JOB_CONTEXT_FILE", contextFile)
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 
 	var gotArgs map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer bsa_sak-123_secret" {
+			t.Fatalf("expected Authorization header to use BREYTA_API_KEY, got %q", got)
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -1007,7 +1025,7 @@ func TestJobsWorkerProgress_UsesEnvContext(t *testing.T) {
 
 	t.Setenv("BREYTA_API_URL", srv.URL)
 	t.Setenv("BREYTA_WORKSPACE", "ws-acme")
-	t.Setenv("BREYTA_TOKEN", "user-dev")
+	t.Setenv("BREYTA_API_KEY", "bsa_sak-123_secret")
 
 	stdout, stderr, err := runCLIArgs(t,
 		"jobs", "worker", "progress",
@@ -1052,7 +1070,6 @@ func TestJobsWorkerAttachFile_UploadsResourceAndAppendsArtifact(t *testing.T) {
 	}
 
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var uploadedBody string
@@ -1149,7 +1166,6 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 	}
 
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var directUploadBody string
@@ -1236,8 +1252,9 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 	resultFile := filepath.Join(tmpDir, "result.json")
 	expectedKey := "job:job-1:review-summary"
 
+	contextFile := writeJobsWorkerContextFile(t, tmpDir, "job-1", "lease-1", resultFile)
+	t.Setenv("BREYTA_JOB_CONTEXT_FILE", contextFile)
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var gotArgs map[string]any
@@ -1344,8 +1361,9 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 	resultFile := filepath.Join(tmpDir, "result.json")
 	expectedTableName := "job-job-1-security-findings"
 
+	contextFile := writeJobsWorkerContextFile(t, tmpDir, "job-1", "lease-1", resultFile)
+	t.Setenv("BREYTA_JOB_CONTEXT_FILE", contextFile)
 	t.Setenv("BREYTA_JOB_ID", "job-1")
-	t.Setenv("BREYTA_JOB_LEASE_TOKEN", "lease-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var gotArgs map[string]any
@@ -1469,6 +1487,17 @@ func writeJSONFile(t *testing.T, path string, value any) {
 	if err := os.WriteFile(path, append(bytes, '\n'), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func writeJobsWorkerContextFile(t *testing.T, dir string, jobID string, leaseToken string, resultFile string) string {
+	t.Helper()
+	path := filepath.Join(dir, "worker-context.json")
+	writeJSONFile(t, path, map[string]any{
+		"jobId":      jobID,
+		"leaseToken": leaseToken,
+		"resultFile": resultFile,
+	})
+	return path
 }
 
 func jobsWorkerHelperCommand(t *testing.T) (string, []string) {

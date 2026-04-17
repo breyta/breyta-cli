@@ -18,12 +18,14 @@ import (
 )
 
 type jobsWorkerHelperContext struct {
-	JobID      string
-	LeaseToken string
-	ResultFile string
+	JobID       string
+	LeaseToken  string
+	ResultFile  string
+	ContextFile string
 }
 
 type jobsWorkerStatePaths struct {
+	ContextFile string
 	JobDir      string
 	JobFile     string
 	PayloadFile string
@@ -487,19 +489,24 @@ func jobsWorkerBuildStateSnapshot(jobDir string) (map[string]any, map[string]any
 		return nil, nil, err
 	}
 
+	contextSnapshot := jobsWorkerReadStateFile(paths.ContextFile)
 	jobSnapshot := jobsWorkerReadStateFile(paths.JobFile)
 	payloadSnapshot := jobsWorkerReadStateFile(paths.PayloadFile)
 	resultSnapshot := jobsWorkerReadStateFile(paths.ResultFile)
+	contextMap, _ := jobsWorkerSnapshotJSON(contextSnapshot).(map[string]any)
 	jobMap, _ := jobsWorkerSnapshotJSON(jobSnapshot).(map[string]any)
 
 	data := map[string]any{
-		"jobDir":            paths.JobDir,
-		"jobFile":           paths.JobFile,
-		"payloadFile":       paths.PayloadFile,
-		"resultFile":        paths.ResultFile,
-		"leaseTokenPresent": strings.TrimSpace(os.Getenv("BREYTA_JOB_LEASE_TOKEN")) != "",
-		"tokenPresent":      strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != "",
+		"jobDir":               paths.JobDir,
+		"contextFile":          paths.ContextFile,
+		"jobFile":              paths.JobFile,
+		"payloadFile":          paths.PayloadFile,
+		"resultFile":           paths.ResultFile,
+		"workerContextPresent": jobsWorkerSnapshotExists(contextSnapshot),
+		"tokenPresent":         strings.TrimSpace(firstNonBlankString(os.Getenv("BREYTA_API_KEY"), os.Getenv("BREYTA_TOKEN"))) != "",
+		"apiKeyPresent":        strings.TrimSpace(os.Getenv("BREYTA_API_KEY")) != "",
 		"files": map[string]any{
+			"context": contextSnapshot,
 			"job":     jobSnapshot,
 			"payload": payloadSnapshot,
 			"result":  resultSnapshot,
@@ -507,7 +514,7 @@ func jobsWorkerBuildStateSnapshot(jobDir string) (map[string]any, map[string]any
 	}
 
 	jobsWorkerMaybeSetValue(data, "workerId", jobsWorkerStateEnvValue("BREYTA_WORKER_ID", nil))
-	jobsWorkerMaybeSetValue(data, "jobId", jobsWorkerStateEnvValue("BREYTA_JOB_ID", jobMap["jobId"]))
+	jobsWorkerMaybeSetValue(data, "jobId", jobsWorkerStateEnvValue("BREYTA_JOB_ID", firstNonBlankString(contextMap["jobId"], jobMap["jobId"])))
 	jobsWorkerMaybeSetValue(data, "jobType", jobsWorkerStateEnvValue("BREYTA_JOB_TYPE", jobMap["jobType"]))
 	jobsWorkerMaybeSetValue(data, "batchId", jobsWorkerStateEnvValue("BREYTA_JOB_BATCH_ID", jobMap["batchId"]))
 	jobsWorkerMaybeSetValue(data, "attempt", jobsWorkerStateEnvValue("BREYTA_JOB_ATTEMPT", jobMap["attempt"]))
@@ -517,6 +524,9 @@ func jobsWorkerBuildStateSnapshot(jobDir string) (map[string]any, map[string]any
 
 	if jsonValue := jobsWorkerSnapshotJSON(jobSnapshot); jsonValue != nil {
 		data["job"] = jsonValue
+	}
+	if jsonValue := jobsWorkerSnapshotJSON(contextSnapshot); jsonValue != nil {
+		data["context"] = jsonValue
 	}
 	if jsonValue := jobsWorkerSnapshotJSON(payloadSnapshot); jsonValue != nil {
 		data["payload"] = jsonValue
@@ -588,6 +598,7 @@ func jobsWorkerResolveStatePaths(jobDir string) (jobsWorkerStatePaths, error) {
 	trimmedJobDir := strings.TrimSpace(jobDir)
 	if trimmedJobDir != "" {
 		return jobsWorkerStatePaths{
+			ContextFile: filepath.Join(trimmedJobDir, "worker-context.json"),
 			JobDir:      trimmedJobDir,
 			JobFile:     filepath.Join(trimmedJobDir, "job.json"),
 			PayloadFile: filepath.Join(trimmedJobDir, "payload.json"),
@@ -596,12 +607,16 @@ func jobsWorkerResolveStatePaths(jobDir string) (jobsWorkerStatePaths, error) {
 	}
 
 	paths := jobsWorkerStatePaths{
+		ContextFile: strings.TrimSpace(os.Getenv("BREYTA_JOB_CONTEXT_FILE")),
 		JobDir:      strings.TrimSpace(os.Getenv("BREYTA_JOB_DIR")),
 		JobFile:     strings.TrimSpace(os.Getenv("BREYTA_JOB_FILE")),
 		PayloadFile: strings.TrimSpace(os.Getenv("BREYTA_JOB_PAYLOAD_FILE")),
 		ResultFile:  strings.TrimSpace(os.Getenv("BREYTA_JOB_RESULT_FILE")),
 	}
 	if paths.JobDir != "" {
+		if paths.ContextFile == "" {
+			paths.ContextFile = filepath.Join(paths.JobDir, "worker-context.json")
+		}
 		if paths.JobFile == "" {
 			paths.JobFile = filepath.Join(paths.JobDir, "job.json")
 		}
@@ -619,6 +634,9 @@ func jobsWorkerResolveStatePaths(jobDir string) (jobsWorkerStatePaths, error) {
 		jobDir := filepath.Dir(paths.JobFile)
 		if jobDir == filepath.Dir(paths.PayloadFile) && jobDir == filepath.Dir(paths.ResultFile) {
 			paths.JobDir = jobDir
+			if paths.ContextFile == "" {
+				paths.ContextFile = filepath.Join(jobDir, "worker-context.json")
+			}
 		}
 	}
 	return paths, nil
@@ -665,6 +683,14 @@ func jobsWorkerSnapshotJSON(snapshot map[string]any) any {
 		return nil
 	}
 	return snapshot["json"]
+}
+
+func jobsWorkerSnapshotExists(snapshot map[string]any) bool {
+	if snapshot == nil {
+		return false
+	}
+	exists, _ := snapshot["exists"].(bool)
+	return exists
 }
 
 func jobsWorkerSanitizeStateValue(value any) any {
@@ -722,23 +748,68 @@ type jobsWorkerHelperEnvOptions struct {
 }
 
 func jobsWorkerHelperEnvContext(opts jobsWorkerHelperEnvOptions) (*jobsWorkerHelperContext, error) {
-	jobID := strings.TrimSpace(os.Getenv("BREYTA_JOB_ID"))
+	contextFile := strings.TrimSpace(os.Getenv("BREYTA_JOB_CONTEXT_FILE"))
+	if contextFile == "" {
+		if jobDir := strings.TrimSpace(os.Getenv("BREYTA_JOB_DIR")); jobDir != "" {
+			contextFile = filepath.Join(jobDir, "worker-context.json")
+		}
+	}
+	contextMap, err := jobsWorkerReadContextFile(contextFile)
+	if err != nil {
+		return nil, err
+	}
+	jobID := firstNonBlankString(
+		strings.TrimSpace(toString(contextMap["jobId"])),
+		strings.TrimSpace(os.Getenv("BREYTA_JOB_ID")),
+	)
 	if jobID == "" {
-		return nil, errors.New("BREYTA_JOB_ID is required")
+		return nil, errors.New("worker job context is required")
 	}
-	leaseToken := strings.TrimSpace(os.Getenv("BREYTA_JOB_LEASE_TOKEN"))
+	leaseToken := firstNonBlankString(
+		strings.TrimSpace(toString(contextMap["leaseToken"])),
+		strings.TrimSpace(os.Getenv("BREYTA_JOB_LEASE_TOKEN")),
+	)
 	if opts.requireLeaseToken && leaseToken == "" {
-		return nil, errors.New("BREYTA_JOB_LEASE_TOKEN is required")
+		return nil, errors.New("worker lease context is required")
 	}
-	resultFile := strings.TrimSpace(os.Getenv("BREYTA_JOB_RESULT_FILE"))
+	resultFile := firstNonBlankString(
+		strings.TrimSpace(toString(contextMap["resultFile"])),
+		strings.TrimSpace(os.Getenv("BREYTA_JOB_RESULT_FILE")),
+	)
 	if opts.requireResultFile && resultFile == "" {
-		return nil, errors.New("BREYTA_JOB_RESULT_FILE is required")
+		return nil, errors.New("worker result context is required")
 	}
 	return &jobsWorkerHelperContext{
-		JobID:      jobID,
-		LeaseToken: leaseToken,
-		ResultFile: resultFile,
+		JobID:       jobID,
+		LeaseToken:  leaseToken,
+		ResultFile:  resultFile,
+		ContextFile: contextFile,
 	}, nil
+}
+
+func jobsWorkerReadContextFile(path string) (map[string]any, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read worker context file: %w", err)
+	}
+	if strings.TrimSpace(string(bytes)) == "" {
+		return nil, nil
+	}
+	var raw any
+	if err := json.Unmarshal(bytes, &raw); err != nil {
+		return nil, fmt.Errorf("invalid worker context json: %w", err)
+	}
+	contextMap, _ := raw.(map[string]any)
+	if contextMap == nil {
+		return nil, errors.New("worker context file must contain a JSON object")
+	}
+	return contextMap, nil
 }
 
 func jobsWorkerRequireAPIContext(app *App, opts jobsWorkerHelperEnvOptions) (*jobsWorkerHelperContext, error) {
@@ -765,6 +836,14 @@ func hydrateJobsWorkerHelperAppFromEnv(app *App) {
 	if strings.TrimSpace(app.WorkspaceID) == "" {
 		if workspaceID := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")); workspaceID != "" {
 			app.WorkspaceID = workspaceID
+		}
+	}
+	if strings.TrimSpace(app.APIKey) == "" {
+		if apiKey := strings.TrimSpace(os.Getenv("BREYTA_API_KEY")); apiKey != "" {
+			app.APIKey = apiKey
+			app.APIKeyExplicit = true
+			app.Token = apiKey
+			app.TokenExplicit = true
 		}
 	}
 	if strings.TrimSpace(app.Token) == "" {

@@ -44,7 +44,7 @@ Use jobs as the control-plane surface for external work.
 
 - flows or operators create jobs and batches
 - workers claim leases by job type
-- workers heartbeat, report progress, and complete or fail jobs
+- worker daemons renew leases, report progress, and complete or fail jobs
 
 Worker execution stays outside the flow runtime. Breyta owns the durable job state.
 `),
@@ -56,7 +56,6 @@ Worker execution stays outside the flow runtime. Breyta owns the durable job sta
 	cmd.AddCommand(newJobsListCmd(app))
 	cmd.AddCommand(newJobsShowCmd(app))
 	cmd.AddCommand(newJobsClaimCmd(app))
-	cmd.AddCommand(newJobsHeartbeatCmd(app))
 	cmd.AddCommand(newJobsProgressCmd(app))
 	cmd.AddCommand(newJobsCompleteCmd(app))
 	cmd.AddCommand(newJobsFailCmd(app))
@@ -243,41 +242,6 @@ func newJobsClaimCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "Logical worker id")
 	cmd.Flags().StringVar(&batchID, "batch-id", "", "Optional batch id to constrain claims")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "Worker label assignment in key=value form (repeatable)")
-	cmd.Flags().DurationVar(&leaseDuration, "lease-duration", 0, "Lease duration, e.g. 30s or 5m")
-	return cmd
-}
-
-func newJobsHeartbeatCmd(app *App) *cobra.Command {
-	var leaseToken string
-	var leaseDuration time.Duration
-
-	cmd := &cobra.Command{
-		Use:   "heartbeat <job-id>",
-		Short: "Extend the active lease for one job",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			jobID := strings.TrimSpace(args[0])
-			leaseToken = strings.TrimSpace(leaseToken)
-			if jobID == "" {
-				return writeErr(cmd, errors.New("missing job id"))
-			}
-			if leaseToken == "" {
-				return writeErr(cmd, errors.New("missing --lease-token"))
-			}
-			payload := map[string]any{
-				"jobId":      jobID,
-				"leaseToken": leaseToken,
-			}
-			if cmd.Flags().Changed("lease-duration") {
-				if leaseDuration <= 0 {
-					return writeErr(cmd, errors.New("--lease-duration must be > 0"))
-				}
-				payload["leaseDuration"] = leaseDuration.Milliseconds()
-			}
-			return doAPICommand(cmd, app, "jobs.heartbeat", payload)
-		},
-	}
-	cmd.Flags().StringVar(&leaseToken, "lease-token", "", "Active lease token for the job")
 	cmd.Flags().DurationVar(&leaseDuration, "lease-duration", 0, "Lease duration, e.g. 30s or 5m")
 	return cmd
 }

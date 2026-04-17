@@ -14,7 +14,7 @@ func TestPrepareJobsWorkerFiles_PersistsPrivateStateFiles(t *testing.T) {
 		},
 	}
 
-	jobDir, jobFile, payloadFile, resultFile, err := prepareJobsWorkerFiles(job)
+	jobDir, jobFile, payloadFile, resultFile, contextFile, err := prepareJobsWorkerFiles(job)
 	if err != nil {
 		t.Fatalf("prepareJobsWorkerFiles: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestPrepareJobsWorkerFiles_PersistsPrivateStateFiles(t *testing.T) {
 		t.Fatalf("expected jobDir perms 0700, got %o", got)
 	}
 
-	for _, path := range []string{jobFile, payloadFile, resultFile} {
+	for _, path := range []string{jobFile, payloadFile, resultFile, contextFile} {
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatalf("stat %s: %v", path, err)

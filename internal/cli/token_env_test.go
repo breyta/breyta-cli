@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/configstore"
@@ -55,5 +56,89 @@ func TestTokenFlagRejectedOutsideDevMode(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("expected error when using --token without --dev; stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestAPIFlagRejectedOutsideDevModeWithoutAPIKey(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--api", "https://example.invalid",
+		"flows", "list",
+	)
+	if err == nil {
+		t.Fatalf("expected error when using --api without machine auth; stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestAPIKeyFlagAllowedOutsideDevMode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer bsa_sak-123_secret" {
+			t.Fatalf("expected Authorization header to use --api-key, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"items": []any{},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	_, _, err := runCLIArgs(t,
+		"--api", srv.URL,
+		"--api-key", "bsa_sak-123_secret",
+		"--workspace", "ws-acme",
+		"flows", "list",
+	)
+	if err != nil {
+		t.Fatalf("flows list with --api-key failed: %v", err)
+	}
+}
+
+func TestAPIKeyEnvAllowedOutsideDevMode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
+	t.Setenv("BREYTA_API_KEY", "bsa_sak-456_secret")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer bsa_sak-456_secret" {
+			t.Fatalf("expected Authorization header to use BREYTA_API_KEY, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"items": []any{},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("BREYTA_API_URL", srv.URL)
+	_, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"flows", "list",
+	)
+	if err != nil {
+		t.Fatalf("flows list with BREYTA_API_KEY failed: %v", err)
 	}
 }

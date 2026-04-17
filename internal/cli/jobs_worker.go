@@ -17,18 +17,16 @@ import (
 )
 
 type jobsWorkerConfig struct {
-	jobType           string
-	workerID          string
-	batchID           string
-	workerLabels      map[string]any
-	handler           string
-	handlerArgs       []string
-	leaseDuration     time.Duration
-	heartbeatInterval time.Duration
-	heartbeatAuto     bool
-	pollInterval      time.Duration
-	once              bool
-	keepJobDirs       bool
+	jobType       string
+	workerID      string
+	batchID       string
+	workerLabels  map[string]any
+	handler       string
+	handlerArgs   []string
+	leaseDuration time.Duration
+	pollInterval  time.Duration
+	once          bool
+	keepJobDirs   bool
 }
 
 type jobsWorkerResult struct {
@@ -87,7 +85,6 @@ func newJobsWorkerRunCmd(app *App) *cobra.Command {
 	var handler string
 	var handlerArgs []string
 	var leaseDuration time.Duration
-	var heartbeatInterval time.Duration
 	var pollInterval time.Duration
 	var once bool
 	var keepJobDirs bool
@@ -99,7 +96,7 @@ func newJobsWorkerRunCmd(app *App) *cobra.Command {
 Run a worker loop for one job type.
 
 The worker claims one job at a time, materializes the payload locally, runs the
-configured handler, heartbeats the lease while the handler runs, then completes
+configured handler, renews the lease while the handler runs, then completes
 or fails the job through the same Jobs API surface.
 `),
 		Args: cobra.ArbitraryArgs,
@@ -123,18 +120,16 @@ or fails the job through the same Jobs API surface.
 				return writeErr(cmd, errors.New("--poll-interval must be > 0"))
 			}
 			cfg := jobsWorkerConfig{
-				jobType:           jobType,
-				workerID:          firstNonBlankString(strings.TrimSpace(workerID), defaultJobsWorkerID()),
-				batchID:           strings.TrimSpace(batchID),
-				workerLabels:      workerLabels,
-				handler:           resolvedHandler,
-				handlerArgs:       resolvedArgs,
-				leaseDuration:     leaseDuration,
-				heartbeatInterval: heartbeatInterval,
-				heartbeatAuto:     !cmd.Flags().Changed("heartbeat-interval"),
-				pollInterval:      pollInterval,
-				once:              once,
-				keepJobDirs:       keepJobDirs,
+				jobType:       jobType,
+				workerID:      firstNonBlankString(strings.TrimSpace(workerID), defaultJobsWorkerID()),
+				batchID:       strings.TrimSpace(batchID),
+				workerLabels:  workerLabels,
+				handler:       resolvedHandler,
+				handlerArgs:   resolvedArgs,
+				leaseDuration: leaseDuration,
+				pollInterval:  pollInterval,
+				once:          once,
+				keepJobDirs:   keepJobDirs,
 			}
 
 			sigCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -193,7 +188,6 @@ or fails the job through the same Jobs API surface.
 	cmd.Flags().StringVar(&handler, "handler", "", "Handler executable path")
 	cmd.Flags().StringArrayVar(&handlerArgs, "handler-arg", nil, "Handler argument (repeatable)")
 	cmd.Flags().DurationVar(&leaseDuration, "lease-duration", 2*time.Minute, "Lease duration for claims, e.g. 30s or 2m")
-	cmd.Flags().DurationVar(&heartbeatInterval, "heartbeat-interval", 0, "Heartbeat interval; defaults to half the lease duration, set 0s to disable")
 	cmd.Flags().DurationVar(&pollInterval, "poll-interval", 5*time.Second, "Sleep between empty claim polls")
 	cmd.Flags().BoolVar(&once, "once", false, "Claim at most one job, then exit")
 	cmd.Flags().BoolVar(&keepJobDirs, "keep-job-dirs", false, "Keep per-job materialization directories after processing")
@@ -285,7 +279,7 @@ func jobsWorkerClaimAndHandle(ctx context.Context, stderr io.Writer, app *App, c
 func jobsWorkerExecuteClaimedJob(ctx context.Context, stderr io.Writer, app *App, cfg jobsWorkerConfig, job map[string]any) (*jobsWorkerExecutionResult, error) {
 	jobID := strings.TrimSpace(toString(job["jobId"]))
 	leaseToken := strings.TrimSpace(toString(job["leaseToken"]))
-	jobDir, jobFile, payloadFile, resultFile, err := prepareJobsWorkerFiles(job)
+	jobDir, jobFile, payloadFile, resultFile, contextFile, err := prepareJobsWorkerFiles(job)
 	if err != nil {
 		return jobsWorkerFailWithPayload(stderr, app, jobID, leaseToken, map[string]any{
 			"message": fmt.Sprintf("failed to prepare job files: %v", err),
@@ -315,7 +309,7 @@ func jobsWorkerExecuteClaimedJob(ctx context.Context, stderr io.Writer, app *App
 	handlerCmd := exec.CommandContext(ctx, cfg.handler, cfg.handlerArgs...)
 	handlerCmd.Stdout = stderr
 	handlerCmd.Stderr = stderr
-	handlerCmd.Env = jobsWorkerEnv(app, cfg, job, jobDir, jobFile, payloadFile, resultFile)
+	handlerCmd.Env = jobsWorkerEnv(app, cfg, job, jobDir, jobFile, payloadFile, resultFile, contextFile)
 
 	if err := handlerCmd.Start(); err != nil {
 		return finalize(jobsWorkerFailWithPayload(stderr, app, jobID, leaseToken, map[string]any{
@@ -401,7 +395,7 @@ func defaultJobsWorkerID() string {
 	return fmt.Sprintf("%s-%d", host, os.Getpid())
 }
 
-func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir string, jobFile string, payloadFile string, resultFile string) []string {
+func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir string, jobFile string, payloadFile string, resultFile string, contextFile string) []string {
 	env := append([]string{}, os.Environ()...)
 	setEnv := func(key, value string) {
 		if strings.TrimSpace(key) == "" {
@@ -427,11 +421,11 @@ func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir st
 	setEnv("BREYTA_JOB_FILE", jobFile)
 	setEnv("BREYTA_JOB_PAYLOAD_FILE", payloadFile)
 	setEnv("BREYTA_JOB_RESULT_FILE", resultFile)
+	setEnv("BREYTA_JOB_CONTEXT_FILE", contextFile)
 	setEnv("BREYTA_JOB_ID", toString(job["jobId"]))
 	setEnv("BREYTA_JOB_TYPE", toString(job["jobType"]))
 	setEnv("BREYTA_JOB_BATCH_ID", toString(job["batchId"]))
 	setEnv("BREYTA_JOB_ATTEMPT", toString(job["attempt"]))
-	setEnv("BREYTA_JOB_LEASE_TOKEN", toString(job["leaseToken"]))
 	setEnv("BREYTA_JOB_WORKSPACE_ID", toString(job["workspaceId"]))
 	setEnv("BREYTA_JOB_ROOT_WORKFLOW_ID", toString(job["rootWorkflowId"]))
 	setEnv("BREYTA_JOB_PARENT_STEP_ID", toString(job["parentStepId"]))
@@ -450,6 +444,9 @@ func jobsWorkerEnv(app *App, cfg jobsWorkerConfig, job map[string]any, jobDir st
 	}
 	if strings.TrimSpace(app.WorkspaceID) != "" {
 		setEnv("BREYTA_WORKSPACE", strings.TrimSpace(app.WorkspaceID))
+	}
+	if app.APIKeyExplicit && strings.TrimSpace(app.APIKey) != "" {
+		setEnv("BREYTA_API_KEY", strings.TrimSpace(app.APIKey))
 	}
 	if strings.TrimSpace(app.Token) != "" {
 		setEnv("BREYTA_TOKEN", strings.TrimSpace(app.Token))
@@ -617,7 +614,7 @@ func jobsEnvelopeJob(out map[string]any) map[string]any {
 	return job
 }
 
-func prepareJobsWorkerFiles(job map[string]any) (string, string, string, string, error) {
+func prepareJobsWorkerFiles(job map[string]any) (string, string, string, string, string, error) {
 	jobID := strings.TrimSpace(toString(job["jobId"]))
 	prefix := "breyta-job-"
 	if jobID != "" {
@@ -625,24 +622,32 @@ func prepareJobsWorkerFiles(job map[string]any) (string, string, string, string,
 	}
 	jobDir, err := os.MkdirTemp("", prefix)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
 
 	jobFile := filepath.Join(jobDir, "job.json")
 	payloadFile := filepath.Join(jobDir, "payload.json")
 	resultFile := filepath.Join(jobDir, "result.json")
+	contextFile := filepath.Join(jobDir, "worker-context.json")
 
 	if err := writeJobsWorkerJSONFile(jobFile, job); err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
 	payload := any(map[string]any{})
 	if rawPayload, ok := job["payload"]; ok {
 		payload = rawPayload
 	}
 	if err := writeJobsWorkerJSONFile(payloadFile, payload); err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
-	return jobDir, jobFile, payloadFile, resultFile, nil
+	if err := writeJobsWorkerJSONFile(contextFile, map[string]any{
+		"jobId":      job["jobId"],
+		"leaseToken": job["leaseToken"],
+		"resultFile": resultFile,
+	}); err != nil {
+		return "", "", "", "", "", err
+	}
+	return jobDir, jobFile, payloadFile, resultFile, contextFile, nil
 }
 
 func writeJobsWorkerJSONFile(path string, value any) error {
@@ -709,9 +714,12 @@ func readJobsWorkerResult(path string) (*jobsWorkerResult, error) {
 }
 
 func startJobsWorkerHeartbeatLoop(ctx context.Context, stderr io.Writer, app *App, cfg jobsWorkerConfig, jobID string, leaseToken string) func() {
-	interval := cfg.effectiveHeartbeatInterval()
+	interval := cfg.leaseDuration / 2
 	if interval <= 0 {
 		return func() {}
+	}
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
 	}
 
 	heartbeatCtx, cancel := context.WithCancel(context.Background())
@@ -737,20 +745,6 @@ func startJobsWorkerHeartbeatLoop(ctx context.Context, stderr io.Writer, app *Ap
 		}
 	}()
 	return cancel
-}
-
-func (cfg jobsWorkerConfig) effectiveHeartbeatInterval() time.Duration {
-	if cfg.heartbeatAuto {
-		interval := cfg.leaseDuration / 2
-		if interval <= 0 {
-			return 0
-		}
-		if interval < 5*time.Second {
-			return 5 * time.Second
-		}
-		return interval
-	}
-	return cfg.heartbeatInterval
 }
 
 func sanitizeJobsWorkerPathToken(raw string) string {
