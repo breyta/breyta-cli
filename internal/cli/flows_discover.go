@@ -52,9 +52,9 @@ It is different from ` + "`breyta flows search`" + `, which only returns approve
 				return writeErr(cmd, errors.New("flows discover list requires API mode"))
 			}
 			payload := map[string]any{
-				"limit":              limit,
-				"from":               from,
-				"includeDefinition":  full,
+				"limit":             limit,
+				"from":              from,
+				"includeDefinition": full,
 			}
 			if strings.TrimSpace(provider) != "" {
 				payload["provider"] = strings.TrimSpace(provider)

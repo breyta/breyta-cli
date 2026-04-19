@@ -148,7 +148,7 @@ func NewRootCmd() *cobra.Command {
 		//
 		// IMPORTANT: We only default when a subcommand is invoked.
 		apiFlagExplicit := flagExplicit(cmd, "api")
-			apiKeyFlagExplicit := rootPersistentFlagExplicit(cmd, "api-key")
+		apiKeyFlagExplicit := rootPersistentFlagExplicit(cmd, "api-key")
 		tokenFlagExplicit := flagExplicit(cmd, "token")
 		apiURLFromEnv := strings.TrimSpace(os.Getenv("BREYTA_API_URL"))
 		apiEnvExplicit := apiURLFromEnv != ""

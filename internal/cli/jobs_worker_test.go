@@ -12,6 +12,8 @@ import (
 	"testing"
 )
 
+const persistedArtifactMarker = "_breytaPersisted"
+
 func TestJobsWorkerHandlerHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_JOBS_WORKER_HELPER") != "1" {
 		return
@@ -1151,6 +1153,9 @@ func TestJobsWorkerAttachFile_UploadsResourceAndAppendsArtifact(t *testing.T) {
 	if got, _ := artifact["resourceUri"].(string); got != "res://v1/ws/ws-acme/file/file-1" {
 		t.Fatalf("expected resource uri on artifact, got %#v", artifact["resourceUri"])
 	}
+	if _, found := artifact[persistedArtifactMarker]; found {
+		t.Fatalf("expected attach-file artifact to remain unpersisted in local state")
+	}
 }
 
 func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable(t *testing.T) {
@@ -1351,6 +1356,9 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 	if got, _ := artifact["key"].(string); got != expectedKey {
 		t.Fatalf("expected key on artifact, got %#v", artifact["key"])
 	}
+	if got, _ := artifact[persistedArtifactMarker].(bool); !got {
+		t.Fatalf("expected attach-kv artifact to be marked persisted in local state")
+	}
 }
 
 func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing.T) {
@@ -1475,6 +1483,9 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 	}
 	if got, _ := artifact["writeMode"].(string); got != "upsert" {
 		t.Fatalf("expected writeMode on artifact, got %#v", artifact["writeMode"])
+	}
+	if got, _ := artifact[persistedArtifactMarker].(bool); !got {
+		t.Fatalf("expected attach-table artifact to be marked persisted in local state")
 	}
 }
 
