@@ -58,6 +58,8 @@ type jobsWorkerSummary struct {
 	LastJobDir   string
 }
 
+const jobsWorkerPersistedArtifactMarker = "_breytaPersisted"
+
 func newJobsWorkerCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worker",
@@ -492,8 +494,8 @@ func jobsWorkerCompletionPayload(result *jobsWorkerResult, defaultWorkerInfo map
 		if result.Metrics != nil {
 			payload["metrics"] = result.Metrics
 		}
-		if result.Artifacts != nil {
-			payload["artifacts"] = result.Artifacts
+		if artifacts := jobsWorkerCompletionArtifacts(result.Artifacts); len(artifacts) > 0 {
+			payload["artifacts"] = artifacts
 		}
 		if result.WorkerInfo != nil {
 			payload["workerInfo"] = mergeJSONObjectFlags(defaultWorkerInfo, result.WorkerInfo)
@@ -533,8 +535,8 @@ func jobsWorkerFailurePayload(waitErr error, result *jobsWorkerResult) map[strin
 		for key, value := range result.Details {
 			details[key] = value
 		}
-		if len(result.Artifacts) > 0 {
-			artifacts = result.Artifacts
+		if filtered := jobsWorkerCompletionArtifacts(result.Artifacts); len(filtered) > 0 {
+			artifacts = filtered
 		}
 	}
 
@@ -549,6 +551,39 @@ func jobsWorkerFailurePayload(waitErr error, result *jobsWorkerResult) map[strin
 		payload["artifacts"] = artifacts
 	}
 	return payload
+}
+
+func jobsWorkerCompletionArtifacts(artifacts []any) []any {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	filtered := make([]any, 0, len(artifacts))
+	for _, raw := range artifacts {
+		artifact, ok := raw.(map[string]any)
+		if !ok {
+			filtered = append(filtered, raw)
+			continue
+		}
+		if persisted, _ := artifact[jobsWorkerPersistedArtifactMarker].(bool); persisted {
+			continue
+		}
+		if _, found := artifact[jobsWorkerPersistedArtifactMarker]; found {
+			copyArtifact := make(map[string]any, len(artifact))
+			for key, value := range artifact {
+				if key == jobsWorkerPersistedArtifactMarker {
+					continue
+				}
+				copyArtifact[key] = value
+			}
+			filtered = append(filtered, copyArtifact)
+			continue
+		}
+		filtered = append(filtered, artifact)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
 }
 
 func jobsWorkerResultRequiresFailure(result *jobsWorkerResult) bool {

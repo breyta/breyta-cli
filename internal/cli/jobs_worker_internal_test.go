@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -67,5 +68,63 @@ func TestJobsWorkerHeartbeatInterval_BoundsToLeaseDuration(t *testing.T) {
 				t.Fatalf("heartbeat interval %s must be < lease duration %s", got, tc.leaseDuration)
 			}
 		})
+	}
+}
+
+func TestJobsWorkerCompletionPayload_OmitsPersistedArtifacts(t *testing.T) {
+	payload, err := jobsWorkerCompletionPayload(&jobsWorkerResult{
+		Status:  "succeeded",
+		Summary: "ok",
+		Artifacts: []any{
+			map[string]any{
+				"label":                           "run-report",
+				"resourceUri":                     "res://report",
+				jobsWorkerPersistedArtifactMarker: true,
+			},
+			map[string]any{
+				"label":       "local-summary",
+				"resourceUri": "res://local",
+			},
+		},
+	}, map[string]any{"worker-id": "worker-1"})
+	if err != nil {
+		t.Fatalf("jobsWorkerCompletionPayload: %v", err)
+	}
+
+	artifacts, _ := payload["artifacts"].([]any)
+	if len(artifacts) != 1 {
+		t.Fatalf("expected one completion artifact, got %#v", payload["artifacts"])
+	}
+	artifact, _ := artifacts[0].(map[string]any)
+	if got := artifact["label"]; got != "local-summary" {
+		t.Fatalf("expected only unpersisted artifact to remain, got %#v", got)
+	}
+	if _, found := artifact[jobsWorkerPersistedArtifactMarker]; found {
+		t.Fatalf("expected persisted artifact marker to be stripped from completion payload")
+	}
+}
+
+func TestJobsWorkerFailurePayload_OmitsPersistedArtifacts(t *testing.T) {
+	payload := jobsWorkerFailurePayload(errors.New("boom"), &jobsWorkerResult{
+		Artifacts: []any{
+			map[string]any{
+				"label":                           "canonical-runs-table",
+				"resourceUri":                     "res://runs",
+				jobsWorkerPersistedArtifactMarker: true,
+			},
+			map[string]any{
+				"label":       "failure-report",
+				"resourceUri": "res://failure",
+			},
+		},
+	})
+
+	artifacts, _ := payload["artifacts"].([]any)
+	if len(artifacts) != 1 {
+		t.Fatalf("expected one failure artifact, got %#v", payload["artifacts"])
+	}
+	artifact, _ := artifacts[0].(map[string]any)
+	if got := artifact["label"]; got != "failure-report" {
+		t.Fatalf("expected only unpersisted artifact to remain, got %#v", got)
 	}
 }

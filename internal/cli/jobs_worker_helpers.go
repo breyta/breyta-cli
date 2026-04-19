@@ -702,6 +702,9 @@ func jobsWorkerSanitizeStateValue(value any) any {
 				out[key] = "[redacted]"
 				continue
 			}
+			if key == jobsWorkerPersistedArtifactMarker {
+				continue
+			}
 			out[key] = jobsWorkerSanitizeStateValue(nested)
 		}
 		return out
@@ -914,7 +917,12 @@ func jobsWorkerAppendArtifact(path string, artifact map[string]any) error {
 		default:
 			artifacts = append(artifacts, typed)
 		}
-		state["artifacts"] = append(artifacts, artifact)
+		copyArtifact := make(map[string]any, len(artifact)+1)
+		for key, value := range artifact {
+			copyArtifact[key] = value
+		}
+		copyArtifact[jobsWorkerPersistedArtifactMarker] = true
+		state["artifacts"] = append(artifacts, copyArtifact)
 		return nil
 	})
 	return err
