@@ -172,7 +172,7 @@ func newJobsWorkerAttachFileCmd(app *App) *cobra.Command {
 			if filename := firstNonBlankString(uploadResult["filename"], filename); filename != "" {
 				artifact["filename"] = filename
 			}
-			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, printURI)
+			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, false, printURI)
 		},
 	}
 
@@ -243,7 +243,7 @@ func newJobsWorkerAttachKVCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, printURI)
+			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, true, printURI)
 		},
 	}
 
@@ -330,7 +330,7 @@ func newJobsWorkerAttachTableCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, printURI)
+			return jobsWorkerPersistArtifact(cmd, app, ctx, artifact, true, printURI)
 		},
 	}
 
@@ -556,8 +556,8 @@ func jobsWorkerAttachArtifactCommand(ctx context.Context, app *App, command stri
 	return jobsWorkerEnvelopeArtifact(out)
 }
 
-func jobsWorkerPersistArtifact(cmd *cobra.Command, app *App, ctx *jobsWorkerHelperContext, artifact map[string]any, printURI bool) error {
-	if err := jobsWorkerAppendArtifact(ctx.ResultFile, artifact); err != nil {
+func jobsWorkerPersistArtifact(cmd *cobra.Command, app *App, ctx *jobsWorkerHelperContext, artifact map[string]any, alreadyPersisted bool, printURI bool) error {
+	if err := jobsWorkerAppendArtifact(ctx.ResultFile, artifact, alreadyPersisted); err != nil {
 		return err
 	}
 	return jobsWorkerWriteAttachedArtifact(cmd, app, ctx, artifact, printURI)
@@ -907,7 +907,7 @@ func jobsWorkerUpdateState(path string, mutate func(map[string]any) error) (map[
 	return state, nil
 }
 
-func jobsWorkerAppendArtifact(path string, artifact map[string]any) error {
+func jobsWorkerAppendArtifact(path string, artifact map[string]any, alreadyPersisted bool) error {
 	_, err := jobsWorkerUpdateState(path, func(state map[string]any) error {
 		var artifacts []any
 		switch typed := state["artifacts"].(type) {
@@ -921,7 +921,9 @@ func jobsWorkerAppendArtifact(path string, artifact map[string]any) error {
 		for key, value := range artifact {
 			copyArtifact[key] = value
 		}
-		copyArtifact[jobsWorkerPersistedArtifactMarker] = true
+		if alreadyPersisted {
+			copyArtifact[jobsWorkerPersistedArtifactMarker] = true
+		}
 		state["artifacts"] = append(artifacts, copyArtifact)
 		return nil
 	})
