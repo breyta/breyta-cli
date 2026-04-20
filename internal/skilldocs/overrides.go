@@ -56,6 +56,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)
 	updated = ensureProvenanceSection(updated)
+	updated = ensureDiscoverCardMediaSection(updated)
 	updated = ensureFlowLifecycleSection(updated)
 	updated = ensureNamingConventionsSection(updated)
 	if updated == original {
@@ -199,6 +200,19 @@ Goal: preserve clear lineage to source flows without changing the meaning of ` +
 - only clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `
 - when several source flows were consulted, keep only the flows that actually mattered to the final implementation`
 
+const discoverCardMediaSection = `## Discover card media (Public discover polish)
+
+Goal: make public discover/install cards show creator-curated media instead of only connection icons.
+
+- set discover card media with:
+  - ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + `
+- video media can also include an optional poster:
+  - ` + "`breyta flows update <slug> --publish-media-type video --publish-media-source-kind https-url --publish-media-source https://... --publish-media-poster-kind https-url --publish-media-poster https://...`" + `
+- clear discover card media intentionally with:
+  - ` + "`breyta flows update <slug> --clear-publish-media`" + `
+- if you keep the flow in source control, you can also author the same value in the flow file as ` + "`:publish-media`" + ` and push it
+- use alt text that explains the visible result, not the implementation detail`
+
 const flowLifecycleSection = `## Flow lifecycle cleanup (Public CLI surface)
 
 Goal: use the public lifecycle commands intentionally when a flow should stop being used or be removed entirely.
@@ -220,6 +234,16 @@ func ensureNamingConventionsSection(body string) string {
 		return body[:headingPos] + namingConventionsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
+}
+
+func ensureDiscoverCardMediaSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Discover card media (Public discover polish)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Flow lifecycle cleanup (Public CLI surface)"); headingPos >= 0 {
+		return body[:headingPos] + discoverCardMediaSection + "\n\n" + body[headingPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + discoverCardMediaSection + "\n"
 }
 
 func ensureWorkflowPlanningSection(body string) string {
