@@ -169,11 +169,17 @@ func TestFlowsUpdateHelpIncludesMetadataExamples(t *testing.T) {
 	if !strings.Contains(help, "Display icon loop:") {
 		t.Fatalf("flows update help missing display icon guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "Discover card media loop:") {
+		t.Fatalf("flows update help missing discover card media guidance:\n%s", help)
+	}
 	if !strings.Contains(help, "breyta flows update invoice-start \\") {
 		t.Fatalf("flows update help missing grouped-flow example:\n%s", help)
 	}
 	if !strings.Contains(help, "breyta flows update invoice-start --group-key \"\"") {
 		t.Fatalf("flows update help missing grouping clear example:\n%s", help)
+	}
+	if !strings.Contains(help, "--publish-media-type") || !strings.Contains(help, "--clear-publish-media") {
+		t.Fatalf("flows update help missing publish media flags:\n%s", help)
 	}
 	if !strings.Contains(help, "--primary-display-connection-slot") {
 		t.Fatalf("flows update help missing display icon flag:\n%s", help)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -310,6 +311,159 @@ func TestFlowsUpdate_BuildsPublishDescriptionFromFilePayload(t *testing.T) {
 	}
 	if value != "## Install\n\nFrom file." {
 		t.Fatalf("expected publishDescription markdown from file, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishMediaPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--publish-media-type", "video",
+		"--publish-media-source-kind", "https-url",
+		"--publish-media-source", "https://cdn.example.com/hero.mp4",
+		"--publish-media-poster-kind", "flow-resource",
+		"--publish-media-poster", "res://v1/ws/ws-test/result/run/run-1/step/poster",
+		"--publish-media-alt", "Generated hero",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishMedia"]
+	if !ok {
+		t.Fatalf("expected publishMedia to be present in payload")
+	}
+	media, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia object, got %T", value)
+	}
+	if media["type"] != "video" {
+		t.Fatalf("expected publishMedia.type=video, got %#v", media["type"])
+	}
+	source, ok := media["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia.source object, got %T", media["source"])
+	}
+	if source["kind"] != "https-url" || source["url"] != "https://cdn.example.com/hero.mp4" {
+		t.Fatalf("unexpected publishMedia.source: %#v", source)
+	}
+	poster, ok := media["posterSource"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia.posterSource object, got %T", media["posterSource"])
+	}
+	if poster["kind"] != "flow-resource" || poster["uri"] != "res://v1/ws/ws-test/result/run/run-1/step/poster" {
+		t.Fatalf("unexpected publishMedia.posterSource: %#v", poster)
+	}
+	if media["alt"] != "Generated hero" {
+		t.Fatalf("expected publishMedia.alt=Generated hero, got %#v", media["alt"])
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishMediaClearPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"demo-flow", "--clear-publish-media"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	value, ok := gotPayload["publishMedia"]
+	if !ok {
+		t.Fatalf("expected publishMedia to be present in payload")
+	}
+	if value != nil {
+		t.Fatalf("expected publishMedia to be nil for explicit clear, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_RejectsPublishMediaWhenIncomplete(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--publish-media-type", "image",
+		"--publish-media-source", "https://cdn.example.com/hero.png",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected execute to fail for incomplete publish media flags")
+	}
+	if !strings.Contains(out.String(), "--publish-media-source-kind") {
+		t.Fatalf("expected error to mention missing source kind, got %q", out.String())
+	}
+}
+
+func TestFlowsUpdate_RejectsPublishMediaClearMixedWithSetFlags(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--clear-publish-media",
+		"--publish-media-type", "image",
+		"--publish-media-source-kind", "https-url",
+		"--publish-media-source", "https://cdn.example.com/hero.png",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected execute to fail when clear flag is mixed with publish media setters")
+	}
+	if !strings.Contains(out.String(), "--clear-publish-media cannot be combined") {
+		t.Fatalf("expected clear/set conflict error, got %q", out.String())
 	}
 }
 

@@ -155,6 +155,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected agents content (missing ordered siblings verification guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
+		t.Fatalf("unexpected agents content (missing discover card media guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Run at least one failure/no-op/replay check when feasible before release") {
 		t.Fatalf("unexpected agents content (missing failure/no-op/replay step): %s", string(agents))
 	}
@@ -233,6 +236,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
+		t.Fatalf("unexpected readme content (missing discover card media workflow): %s", string(readme))
 	}
 	if !strings.Contains(stdout, "Verify identity + workspace summary: breyta auth whoami") {
 		t.Fatalf("unexpected init stdout (missing whoami next step): %s", stdout)

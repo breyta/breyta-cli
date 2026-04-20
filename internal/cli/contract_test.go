@@ -122,6 +122,10 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		"--group-name", "Contract Bundle",
 		"--group-description", "Flows that should be installed together",
 		"--group-order", "20",
+		"--publish-media-type", "image",
+		"--publish-media-source-kind", "https-url",
+		"--publish-media-source", "https://cdn.example.com/hero.png",
+		"--publish-media-alt", "Contract hero",
 		"--primary-display-connection-slot", "slack",
 		"--pretty")
 	if err != nil {
@@ -147,6 +151,28 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	}
 	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
 		t.Fatalf("expected update response groupOrder=20, got %v", got)
+	}
+	publishMediaAny, ok := flowMap["publishMedia"]
+	if !ok {
+		t.Fatalf("expected update response publishMedia")
+	}
+	publishMedia, ok := publishMediaAny.(map[string]any)
+	if !ok {
+		t.Fatalf("expected update response publishMedia object, got %T", publishMediaAny)
+	}
+	if got, _ := publishMedia["type"].(string); got != "image" {
+		t.Fatalf("expected update response publishMedia.type=image, got %q", got)
+	}
+	sourceAny, ok := publishMedia["source"]
+	if !ok {
+		t.Fatalf("expected update response publishMedia.source")
+	}
+	source, ok := sourceAny.(map[string]any)
+	if !ok {
+		t.Fatalf("expected update response publishMedia.source object, got %T", sourceAny)
+	}
+	if got, _ := source["url"].(string); got != "https://cdn.example.com/hero.png" {
+		t.Fatalf("expected update response publishMedia.source.url hero URL, got %q", got)
 	}
 	if got, _ := flowMap["primaryDisplayConnectionSlot"].(string); got != "slack" {
 		t.Fatalf("expected update response primaryDisplayConnectionSlot=slack, got %q", got)
@@ -217,6 +243,17 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 	}
 	if got, _ := flowMap["groupOrder"].(float64); got != 20 {
 		t.Fatalf("expected show response groupOrder=20, got %v", got)
+	}
+	publishMediaAny, ok = flowMap["publishMedia"]
+	if !ok {
+		t.Fatalf("expected show response publishMedia")
+	}
+	publishMedia, ok = publishMediaAny.(map[string]any)
+	if !ok {
+		t.Fatalf("expected show response publishMedia object, got %T", publishMediaAny)
+	}
+	if got, _ := publishMedia["alt"].(string); got != "Contract hero" {
+		t.Fatalf("expected show response publishMedia.alt=Contract hero, got %q", got)
 	}
 	if got, _ := flowMap["primaryDisplayConnectionSlot"].(string); got != "slack" {
 		t.Fatalf("expected show response primaryDisplayConnectionSlot=slack, got %q", got)
@@ -291,6 +328,17 @@ func TestContract_FlowsCreateEditAndValidate(t *testing.T) {
 		if slug == "contract-flow" {
 			if got, _ := item["groupOrder"].(float64); got != 20 {
 				t.Fatalf("expected list item %s groupOrder=20, got %v", slug, got)
+			}
+			publishMediaAny, ok := item["publishMedia"]
+			if !ok {
+				t.Fatalf("expected list item %s publishMedia", slug)
+			}
+			publishMedia, ok := publishMediaAny.(map[string]any)
+			if !ok {
+				t.Fatalf("expected list item %s publishMedia object, got %T", slug, publishMediaAny)
+			}
+			if got, _ := publishMedia["type"].(string); got != "image" {
+				t.Fatalf("expected list item %s publishMedia.type=image, got %q", slug, got)
 			}
 			if got, _ := item["primaryDisplayConnectionSlot"].(string); got != "slack" {
 				t.Fatalf("expected list item %s primaryDisplayConnectionSlot=slack, got %q", slug, got)

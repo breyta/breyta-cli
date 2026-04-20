@@ -111,6 +111,22 @@ Public discover visibility is stored flow metadata. A released version and the
 This discover catalog is separate from `breyta flows search`, which is only for
 approved example flows to inspect and copy from.
 
+If the flow should look polished on public cards, add curated discover card media:
+
+```bash
+breyta flows update <slug> \
+  --publish-media-type image \
+  --publish-media-source-kind https-url \
+  --publish-media-source https://cdn.example.com/hero.png \
+  --publish-media-alt "Preview of the generated result"
+
+# Clear it later
+breyta flows update <slug> --clear-publish-media
+```
+
+You can also keep this in source as `:publish-media` inside the flow file and
+push it with `breyta flows push`.
+
 ## Table resources
 
 The CLI also exposes the bounded table-resource surface used by flows and the UI:
