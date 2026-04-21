@@ -354,6 +354,76 @@ func TestResourcesTableImport_UsesImportEndpoint(t *testing.T) {
 	}
 }
 
+func TestResourcesTableImport_UsesNamedTableTargetWhenCreating(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/import-csv" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if _, ok := body["uri"]; ok {
+			t.Fatalf("expected named-table import to omit uri, got %#v", body["uri"])
+		}
+		if got, _ := body["table"].(string); got != "orders-import" {
+			t.Fatalf("expected table name in body, got %#v", body["table"])
+		}
+		if got, _ := body["write-mode"].(string); got != "upsert" {
+			t.Fatalf("expected write-mode=upsert, got %#v", body["write-mode"])
+		}
+		keyFields, _ := body["key-fields"].([]any)
+		if len(keyFields) != 1 || keyFields[0] != "order-id" {
+			t.Fatalf("expected key-fields=[order-id], got %#v", body["key-fields"])
+		}
+		indexFields, _ := body["index-fields"].([]any)
+		if len(indexFields) != 1 || indexFields[0] != "status" {
+			t.Fatalf("expected index-fields=[status], got %#v", body["index-fields"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceUri":  "res://v1/ws/ws-acme/result/table/tbl_orders_import",
+			"tableName":    "orders-import",
+			"rowsWritten":  2,
+			"rowsInserted": 2,
+			"rowsUpdated":  0,
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	csvPath := dir + "/orders.csv"
+	if err := os.WriteFile(csvPath, []byte("order-id,status\nord-1,open\nord-2,paid\n"), 0o644); err != nil {
+		t.Fatalf("write csv fixture: %v", err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "import", "orders-import",
+		"--file", csvPath,
+		"--write-mode", "upsert",
+		"--key-fields", "order-id",
+		"--index-fields", "status",
+	)
+	if err != nil {
+		t.Fatalf("resources table import failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if got, _ := data["tableName"].(string); got != "orders-import" {
+		t.Fatalf("unexpected tableName: %v", data["tableName"])
+	}
+	if got, _ := data["resourceUri"].(string); got != "res://v1/ws/ws-acme/result/table/tbl_orders_import" {
+		t.Fatalf("unexpected resourceUri: %v", data["resourceUri"])
+	}
+}
+
 func TestResourcesTableAggregate_UsesExpandedPayload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/aggregate" {
