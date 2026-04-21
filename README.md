@@ -411,6 +411,7 @@ breyta resources table aggregate <res://table-uri> --group-by currency --metrics
 breyta resources table schema <res://table-uri>
 breyta resources table export <res://table-uri> --out orders.csv
 breyta resources table import <res://table-uri> --file orders.csv --write-mode append
+breyta resources table import orders-import --file orders.csv --write-mode upsert --key-fields order-id --index-fields status
 breyta resources table update-cell <res://table-uri> --key order-id=ord-1 --column status --value closed
 breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1 --column amount --format-json '{"display":"currency","currency":"USD"}'
 breyta resources table materialize-join --left-json '{"table":{"ref":"res://...orders"}}' --right-json '{"table":{"ref":"res://...customers"}}' --on-json '[{"left-field":"customer-id","right-field":"customer-id"}]' --project-json '[{"field":"name","as":"customer-name"}]' --into-json '{"table":"joined-orders","write-mode":"upsert","key-fields":["order-id"]}'
