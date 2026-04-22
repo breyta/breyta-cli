@@ -160,6 +160,8 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintf(cmd.OutOrStdout(), "- First-session guide: %s\n", readmePath)
 			fmt.Fprintln(cmd.OutOrStdout(), "- Authenticate: breyta auth login")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Verify identity + workspace summary: breyta auth whoami")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Inventory reusable connections: breyta connections list")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Validate reusable connections: breyta connections test --all")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<idea>\"")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			return nil
@@ -215,6 +217,12 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
 - When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows list`" + ` then ` + "`breyta flows show <slug>`" + `
 - Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
 - Use ` + "`breyta docs`" + ` (then ` + "`breyta docs find <query>`" + ` / ` + "`breyta docs show <slug>`" + `) when the agent needs more Breyta detail
+- Before inferring implementation details, search docs with several query shapes:
+  - primitive name
+  - exact phrase
+  - command path
+  - source filter
+  - error text
 
 ## Where to keep flow files
 - ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)
@@ -232,7 +240,7 @@ Some agent tools can ingest a global skill bundle automatically, but not all do.
 If you want the agent to *always* use the skill when Breyta is involved, explicitly mention it in your project/root instructions (this file, or a root ` + "`AGENTS.md`" + ` equivalent).
 
 Suggested line to paste into your agent's persistent project instructions:
-- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), and use the ` + "`breyta`" + ` CLI."
+- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), use the ` + "`breyta`" + ` CLI, and search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text) before guessing implementation details."
 
 ## Release hygiene (required)
 - Iterate in ` + "`draft`" + ` while editing and debugging.
@@ -245,6 +253,18 @@ Suggested line to paste into your agent's persistent project instructions:
 ## Authoring standard (required before editing)
 - Write the problem contract: trigger, inputs, outputs, side effects, failure behavior.
 - Write the trigger map and path map: success path, fallback path, stop path.
+- Build reusable definitions before orchestration:
+  - start with connection inventory and validation:
+    - ` + "`breyta connections list`" + `
+    - ` + "`breyta connections test --all`" + `
+    - ` + "`breyta connections show <id>`" + ` for the connection you plan to reuse
+  - ` + "`:requires`" + ` for connections, secrets, installer/run inputs, and worker dependencies
+    - choose stable slot names around business capability (` + "`:github-api`" + `, ` + "`:crm`" + `, ` + "`:llm`" + `, ` + "`:slack`" + `) rather than transient provider names
+  - ` + "`:templates`" + ` for large prompts, request bodies, SQL, and static copy
+  - ` + "`:functions`" + ` for shaping, normalization, preparation, and projection
+  - packaged ` + "`:steps`" + ` for heavy built-in step configs
+  - reusable ` + "`:agents`" + ` for reviewer/fixer/coordinator behavior and delegation
+  - only then wire the final deterministic ` + "`:flow`" + ` orchestration
 - Define side effects and duplicate protection before building:
   - what must happen exactly once
   - idempotency key or dedupe strategy
@@ -263,6 +283,11 @@ Suggested line to paste into your agent's persistent project instructions:
   - counts
   - child workflow ids
   - resource refs
+- For agentic flows, default to:
+  - ` + "`:files`" + ` for code/resource state
+  - packaged ` + "`:steps`" + ` for heavy external or policy-shaped operations
+  - named ` + "`:agents`" + ` for reusable roles
+  - orchestration last
 
 ## Reliability checklist (required)
 - Exactly-once side effects have explicit duplicate protection.
@@ -309,7 +334,14 @@ Suggested line to paste into your agent's persistent project instructions:
 - Clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `.
 
 ## Docs for agents
-- Product docs: ` + "`breyta docs`" + ` (search with ` + "`breyta docs find \"flows push\"`" + `)
+- Product docs: ` + "`breyta docs`" + `
+- Search docs with several patterns before inferring implementation details:
+  - primitive name: ` + "`breyta docs find \"files materialize\"`" + `
+  - exact phrase: ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
+  - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
+  - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
+  - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
+  - then open the best hit with ` + "`breyta docs show <slug>`" + `
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
 
@@ -341,10 +373,14 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - If you need an account first, open ` + "`https://flows.breyta.ai/signup`" + `, finish sign-up/sign-in, then rerun login.
 4. Verify identity + workspace summary: ` + "`breyta auth whoami`" + `
    - If ` + "`whoami`" + ` shows multiple workspaces or no default workspace selected, keep discovering first. Use ` + "`breyta workspaces list`" + ` and ` + "`breyta workspaces use <workspace-id>`" + ` later when you are ready to adopt or build.
-5. Discover approved templates:
+5. Inventory reusable connections:
+   - ` + "`breyta connections list`" + `
+   - ` + "`breyta connections test --all`" + `
+   - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
+6. Discover approved templates:
    - ` + "`breyta flows search`" + `
    - ` + "`breyta flows search \"<idea>\"`" + `
-6. Pick one idea to explore next.
+7. Pick one idea to explore next.
 
 Easy ideas:
 - Scheduled API digest that posts a summary to Slack or email
@@ -365,6 +401,11 @@ Advanced ideas:
 - Start with approved template discovery and docs:
   - ` + "`breyta flows search \"<chosen idea>\"`" + `
   - ` + "`breyta docs find \"<chosen idea or primitive>\"`" + `
+- Then inventory and validate reusable connections before authoring behavior:
+  - ` + "`breyta connections list`" + `
+  - ` + "`breyta connections test --all`" + `
+  - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
+- Shape ` + "`:requires`" + ` around stable capability slots before writing ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, reusable ` + "`:agents`" + `, and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug> --pretty`" + `
@@ -380,6 +421,13 @@ Advanced ideas:
 
 ## Docs
 - Product docs: ` + "`breyta docs`" + `
+- Search patterns to avoid guessing:
+  - primitive name: ` + "`breyta docs find \"files materialize\"`" + `
+  - exact phrase: ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
+  - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
+  - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
+  - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
+  - then open the best hit with ` + "`breyta docs show <slug>`" + `
 - Command help: ` + "`breyta help <command...>`" + `
 `)
 }

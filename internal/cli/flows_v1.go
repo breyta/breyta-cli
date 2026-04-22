@@ -1092,6 +1092,10 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					return writeErr(cmd, err)
 				}
 			}
+			flowLiteral, err = expandFlowSourceIncludes(file, flowLiteral)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 
 			if useDoAPICommandFn {
 				payload := map[string]any{"flowLiteral": flowLiteral}

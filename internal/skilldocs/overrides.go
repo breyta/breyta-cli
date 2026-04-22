@@ -17,12 +17,20 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated := original
 	replacements := [][2]string{
 		{
+			"- Reuse existing workspace connections before creating new ones.",
+			"- Inventory and validate existing workspace connections before creating new ones.",
+		},
+		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
 			"- Before creating a new flow, start with approved template discovery: `breyta flows search <query>`.\n- When you already know the work belongs to an existing workspace flow, inspect it with `breyta flows list` then `breyta flows show <slug>`.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - Approved template discovery: `breyta flows search <query>`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`\n   - `breyta connections list`",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections test --all`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - Approved template discovery: `breyta flows search <query>`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`",
+		},
+		{
+			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
+			"2. Bootstrap from existing artifacts and connections\n- inventory and test the connections you expect the flow to need before editing behavior\n- decide which business capabilities become `:requires` slots and which existing workspace connections should satisfy them\n- if the flow will expose packaged `:steps` or `:agents` as tools, decide whether any reused connection needs flow-local scope limits before tool publication\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:requires` around validated connection slots, secrets, and input contracts\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
 		},
 		{
 			"- Schedule triggers require a prod profile before deploy and activate",
@@ -58,6 +66,8 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureProvenanceSection(updated)
 	updated = ensureFlowLifecycleSection(updated)
 	updated = ensureNamingConventionsSection(updated)
+	updated = ensureSolutionSurfacesSection(updated)
+	updated = ensureDocSearchPatternsSection(updated)
 	if updated == original {
 		return files
 	}
@@ -108,6 +118,52 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
   - breyta flows search <query> is for approved template discovery, not workspace flow lookup
   - for workspace lookup, use breyta flows list output with explicit keywords and grep/filter locally
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example invoice, approval, webhook, billing)`
+
+const solutionSurfacesSection = `## Solution surfaces first (Required before editing)
+
+Goal: use Breyta's reusable definition surfaces first, then compose them in
+:flow.
+
+Default authoring order:
+
+1. ` + "`:requires`" + `
+- declare connections, secrets, installer inputs, run inputs, and worker dependencies first
+- start with connection inventory:
+  - ` + "`breyta connections list`" + `
+  - ` + "`breyta connections test --all`" + `
+  - ` + "`breyta connections show <id>`" + ` for the connection you plan to reuse
+- choose stable slot names around business capability (` + "`:github-api`" + `, ` + "`:crm`" + `, ` + "`:llm`" + `, ` + "`:slack`" + `) rather than transient provider names
+
+2. ` + "`:templates`" + `
+- move prompts, request bodies, SQL, notification content, and other large static text here
+
+3. ` + "`:functions`" + `
+- put shaping, normalization, preparation, and projection logic here
+
+4. ` + "`:steps`" + `
+- package heavy built-in step configs behind a smaller input/output contract
+- prefer packaged step tools over exposing raw broad built-in surfaces to agents
+
+5. ` + "`:agents`" + `
+- define reusable named agent roles here when the behavior is agent-shaped
+- put objective, instructions, memory, cost/evaluate/trace, and delegation config in the named agent definition
+
+6. ` + "`:flow`" + `
+- only after the reusable surfaces are in place, wire them together in deterministic orchestration
+
+For agentic reviewer/fixer/coordinator flows, the default pattern should be:
+
+- ` + "`:files`" + ` for code/resource state
+- packaged ` + "`:steps`" + ` for heavy external or policy-shaped operations
+- named ` + "`:agents`" + ` for reusable roles
+- orchestration last
+
+Anti-patterns:
+
+- large raw prompts embedded directly in ` + "`:agent`" + `, ` + "`:llm`" + `, or ` + "`:http`" + ` steps
+- repeated one-off shaping logic in ` + "`:flow`" + `
+- exposing raw broad built-in step surfaces directly to agents when a packaged step would be safer
+- treating ` + "`:flow`" + ` as the place to define reusable behavior`
 
 const workflowPlanningSection = `## Workflow architecture planning (Required before build)
 
@@ -212,6 +268,38 @@ Goal: use the public lifecycle commands intentionally when a flow should stop be
 - prefer archive when you want to retire a flow safely and preserve history for inspection
 - prefer delete only for disposable or fully decommissioned flows`
 
+const docSearchPatternsSection = `## Doc lookup patterns (Required before guessing implementation details)
+
+Goal: search docs in more than one way before inferring behavior, flags, or
+runtime semantics.
+
+- start with the primitive or surface name
+  - ` + "`breyta docs find \"files materialize\"`" + `
+  - ` + "`breyta docs find \"packaged steps\"`" + `
+- search exact phrases when you know the likely wording
+  - ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
+  - ` + "`breyta docs find \"\\\"tool permissions\\\"\"`" + `
+- search command paths for operator behavior
+  - ` + "`breyta docs find \"source:cli flows configure check\"`" + `
+  - ` + "`breyta docs find \"source:cli connections test\"`" + `
+- search API/runtime docs when CLI docs are too thin
+  - ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
+  - ` + "`breyta docs find \"source:flows-api form requirements\"`" + `
+- search error text when debugging
+  - ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
+  - ` + "`breyta docs find \"\\\"missing api base url\\\"\"`" + `
+- then open the best hit with ` + "`breyta docs show <slug>`" + `
+- if the question is command shape or flags, finish with ` + "`breyta help <command...>`" + ` instead of guessing
+
+Escalation path when the first search misses:
+
+1. primitive name
+2. command path
+3. exact phrase
+4. source filter
+5. error text
+6. only then infer a fallback`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -220,6 +308,16 @@ func ensureNamingConventionsSection(body string) string {
 		return body[:headingPos] + namingConventionsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + namingConventionsSection + "\n"
+}
+
+func ensureSolutionSurfacesSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Solution surfaces first (Required before editing)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + solutionSurfacesSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + solutionSurfacesSection + "\n"
 }
 
 func ensureWorkflowPlanningSection(body string) string {
@@ -276,6 +374,19 @@ func ensureFlowLifecycleSection(body string) string {
 		return body[:headingPos] + flowLifecycleSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + flowLifecycleSection + "\n"
+}
+
+func ensureDocSearchPatternsSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Doc lookup patterns (Required before guessing implementation details)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Cross-Docs Search (Secondary)"); headingPos >= 0 {
+		return body[:headingPos] + docSearchPatternsSection + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Preflight"); headingPos >= 0 {
+		return body[:headingPos] + docSearchPatternsSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + docSearchPatternsSection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {
