@@ -28,6 +28,7 @@ func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map
 	inString := false
 	inComment := false
 	escapeNext := false
+	readerDiscardPending := false
 
 	for i := 0; i < len(src); {
 		ch := src[i]
@@ -54,6 +55,45 @@ func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map
 			case '"':
 				inString = false
 			}
+			continue
+		}
+
+		if readerDiscardPending {
+			if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == ',' {
+				out.WriteByte(ch)
+				i++
+				continue
+			}
+			if strings.HasPrefix(src[i:], flowIncludeTag) {
+				j := i + len(flowIncludeTag)
+				for j < len(src) {
+					switch src[j] {
+					case ' ', '\t', '\r', '\n', ',':
+						j++
+					default:
+						goto discardedIncludePath
+					}
+				}
+			discardedIncludePath:
+				if j >= len(src) || src[j] != '"' {
+					return "", fmt.Errorf("malformed %s form near byte %d: expected string path", flowIncludeTag, i)
+				}
+				_, _, next, err := readClojureStringToken(src, j)
+				if err != nil {
+					return "", fmt.Errorf("parse %s path near byte %d: %w", flowIncludeTag, i, err)
+				}
+				out.WriteString(src[i:next])
+				i = next
+				readerDiscardPending = false
+				continue
+			}
+			readerDiscardPending = false
+		}
+
+		if strings.HasPrefix(src[i:], "#_") {
+			out.WriteString("#_")
+			i += 2
+			readerDiscardPending = true
 			continue
 		}
 

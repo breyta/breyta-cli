@@ -84,6 +84,19 @@ func TestExpandFlowSourceIncludes_DetectsCycles(t *testing.T) {
 	}
 }
 
+func TestExpandFlowSourceIncludes_HonorsReaderDiscardOnDirectInclude(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+
+	expanded, err := expandFlowSourceIncludes(root, `{:templates [#_ #flow/include "tmp/debug.edn"]}`)
+	if err != nil {
+		t.Fatalf("expand discarded include: %v", err)
+	}
+	if !strings.Contains(expanded, `#_ #flow/include "tmp/debug.edn"`) {
+		t.Fatalf("expected discarded include form to remain untouched, got:\n%s", expanded)
+	}
+}
+
 func TestFlowsPush_LocalIncludeExpandsPayloadWithoutRewritingSource(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn
