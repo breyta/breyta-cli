@@ -38,23 +38,37 @@ type Workspace struct {
 }
 
 type Flow struct {
-	Slug                         string     `json:"slug"`
-	Name                         string     `json:"name"`
-	Description                  string     `json:"description"`
-	PublishDescription           string     `json:"publishDescription,omitempty"`
-	Tags                         []string   `json:"tags"`
-	GroupKey                     string     `json:"groupKey,omitempty"`
-	GroupName                    string     `json:"groupName,omitempty"`
-	GroupDescription             string     `json:"groupDescription,omitempty"`
-	GroupOrder                   *int       `json:"groupOrder,omitempty"`
-	PrimaryDisplayConnectionSlot string     `json:"primaryDisplayConnectionSlot,omitempty"`
-	ActiveVersion                int        `json:"activeVersion"`
-	UpdatedAt                    time.Time  `json:"updatedAt"`
-	Spine                        []string   `json:"spine"`
-	Steps                        []FlowStep `json:"steps"`
+	Slug                         string            `json:"slug"`
+	Name                         string            `json:"name"`
+	Description                  string            `json:"description"`
+	PublishDescription           string            `json:"publishDescription,omitempty"`
+	PublishMedia                 *FlowPublishMedia `json:"publishMedia,omitempty"`
+	Tags                         []string          `json:"tags"`
+	GroupKey                     string            `json:"groupKey,omitempty"`
+	GroupName                    string            `json:"groupName,omitempty"`
+	GroupDescription             string            `json:"groupDescription,omitempty"`
+	GroupOrder                   *int              `json:"groupOrder,omitempty"`
+	PrimaryDisplayConnectionSlot string            `json:"primaryDisplayConnectionSlot,omitempty"`
+	ActiveVersion                int               `json:"activeVersion"`
+	UpdatedAt                    time.Time         `json:"updatedAt"`
+	Spine                        []string          `json:"spine"`
+	Steps                        []FlowStep        `json:"steps"`
 
 	// Published, immutable versions (mock). Draft is the current Flow record.
 	Versions []FlowVersion `json:"versions,omitempty"`
+}
+
+type FlowPublishMedia struct {
+	Type         string                  `json:"type,omitempty"`
+	Source       *FlowPublishMediaSource `json:"source,omitempty"`
+	PosterSource *FlowPublishMediaSource `json:"posterSource,omitempty"`
+	Alt          string                  `json:"alt,omitempty"`
+}
+
+type FlowPublishMediaSource struct {
+	Kind string `json:"kind,omitempty"`
+	URL  string `json:"url,omitempty"`
+	URI  string `json:"uri,omitempty"`
 }
 
 type FlowVersion struct {

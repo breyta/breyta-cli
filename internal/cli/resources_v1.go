@@ -916,18 +916,23 @@ func newResourcesTableImportCmd(app *App) *cobra.Command {
 	var writeMode string
 	var partitionKey string
 	var partitionKeys string
+	var keyFields string
+	var indexFields string
 
 	cmd := &cobra.Command{
-		Use:   "import <uri>",
-		Short: "Import CSV rows onto an existing table resource",
+		Use:   "import <uri-or-table-name>",
+		Short: "Import CSV rows into a table resource or named table",
 		Args:  cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			uri := strings.TrimSpace(args[0])
+			target := strings.TrimSpace(args[0])
 			if strings.TrimSpace(filePath) == "" {
 				return writeErr(cmd, errors.New("import requires --file <path>"))
+			}
+			if target == "" {
+				return writeErr(cmd, errors.New("import requires a table resource URI or table name"))
 			}
 			var csvText string
 			var err error
@@ -944,9 +949,19 @@ func newResourcesTableImportCmd(app *App) *cobra.Command {
 				}
 			}
 			body := map[string]any{
-				"uri":        uri,
 				"csv":        csvText,
 				"write-mode": strings.TrimSpace(writeMode),
+			}
+			if strings.HasPrefix(target, "res://") {
+				body["uri"] = target
+			} else {
+				body["table"] = target
+			}
+			if fields := parseCommaFields(keyFields); len(fields) > 0 {
+				body["key-fields"] = fields
+			}
+			if fields := parseCommaFields(indexFields); len(fields) > 0 {
+				body["index-fields"] = fields
 			}
 			if err := applyTablePartitions(body, partitionKey, partitionKeys); err != nil {
 				return writeErr(cmd, err)
@@ -960,7 +975,9 @@ func newResourcesTableImportCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&filePath, "file", "", "CSV file to import, or - for stdin")
-	cmd.Flags().StringVar(&writeMode, "write-mode", "append", "Import mode: append or upsert")
+	cmd.Flags().StringVar(&writeMode, "write-mode", "append", "Import mode: append or upsert (new upsert tables require --key-fields)")
+	cmd.Flags().StringVar(&keyFields, "key-fields", "", "Comma-separated key fields to use when creating or upserting into a named table")
+	cmd.Flags().StringVar(&indexFields, "index-fields", "", "Comma-separated index fields to apply when creating a named table")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Write into a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Write into a comma-separated subset of table partitions")
 	return cmd

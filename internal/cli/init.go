@@ -312,16 +312,17 @@ Suggested line to paste into your agent's persistent project instructions:
 3) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
 4) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
 5) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug> --pretty`" + `
-6) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
-7) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-8) Run at least one failure/no-op/replay check when feasible before release
-9) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
-10) Repeat steps 2-9 until behavior is correct and side effects are understood in draft
-11) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
-12) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
-13) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
-14) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
-15) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
+6) If the flow should look polished on public discover/install cards, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
+7) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
+8) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
+9) Run at least one failure/no-op/replay check when feasible before release
+10) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
+11) Repeat steps 2-10 until behavior is correct and side effects are understood in draft
+12) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
+13) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
+14) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
+15) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+16) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
 
 ## Provenance for derived flows
 - Keep ` + "`created-by`" + ` as the creator of the current flow record.
@@ -409,6 +410,7 @@ Advanced ideas:
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug> --pretty`" + `
+- If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `

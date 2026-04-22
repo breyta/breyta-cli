@@ -111,6 +111,22 @@ Public discover visibility is stored flow metadata. A released version and the
 This discover catalog is separate from `breyta flows search`, which is only for
 approved example flows to inspect and copy from.
 
+If the flow should look polished on public cards, add curated discover card media:
+
+```bash
+breyta flows update <slug> \
+  --publish-media-type image \
+  --publish-media-source-kind https-url \
+  --publish-media-source https://cdn.example.com/hero.png \
+  --publish-media-alt "Preview of the generated result"
+
+# Clear it later
+breyta flows update <slug> --clear-publish-media
+```
+
+You can also keep this in source as `:publish-media` inside the flow file and
+push it with `breyta flows push`.
+
 ## Table resources
 
 The CLI also exposes the bounded table-resource surface used by flows and the UI:
@@ -395,6 +411,7 @@ breyta resources table aggregate <res://table-uri> --group-by currency --metrics
 breyta resources table schema <res://table-uri>
 breyta resources table export <res://table-uri> --out orders.csv
 breyta resources table import <res://table-uri> --file orders.csv --write-mode append
+breyta resources table import orders-import --file orders.csv --write-mode upsert --key-fields order-id --index-fields status
 breyta resources table update-cell <res://table-uri> --key order-id=ord-1 --column status --value closed
 breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1 --column amount --format-json '{"display":"currency","currency":"USD"}'
 breyta resources table materialize-join --left-json '{"table":{"ref":"res://...orders"}}' --right-json '{"table":{"ref":"res://...customers"}}' --on-json '[{"left-field":"customer-id","right-field":"customer-id"}]' --project-json '[{"field":"name","as":"customer-name"}]' --into-json '{"table":"joined-orders","write-mode":"upsert","key-fields":["order-id"]}'
