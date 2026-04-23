@@ -151,6 +151,17 @@ func TestRequireAPI_DoesNotRefreshWhenTokenExplicit(t *testing.T) {
 	}
 }
 
+func TestRequireAPI_StillRequiresTokenForNonLoopbackAPI(t *testing.T) {
+	app := &App{APIURL: "https://flows.breyta.ai", TokenExplicit: true}
+	err := requireAPI(app)
+	if err == nil {
+		t.Fatalf("expected missing-token error")
+	}
+	if !strings.Contains(err.Error(), "missing token") {
+		t.Fatalf("expected missing-token error, got %v", err)
+	}
+}
+
 func TestRefreshTokenViaAPI_ToleratesSnakeCase(t *testing.T) {
 	var gotRefreshToken string
 	var gotRefreshTokenSnake string

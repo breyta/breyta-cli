@@ -141,6 +141,87 @@ func TestBuildConfigureSuggestionsAllowsCompatibleHTTPConnectionForLLM(t *testin
 	}
 }
 
+func TestBuildConfigureSuggestionsRespectsRequiredLLMBackends(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "gpt-ai",
+			"type":     "llm-provider",
+			"backends": []any{"openai"},
+		},
+		map[string]any{
+			"slot":     "gemini-ai",
+			"type":     "llm-provider",
+			"backends": []any{"google"},
+		},
+		map[string]any{
+			"slot":     "claude-ai",
+			"type":     "llm-provider",
+			"backends": []any{"anthropic"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-openai", Name: "GPT Local", Type: "llm-provider", Backend: "openai", BaseURL: "https://api.openai.com/v1"},
+			{ID: "conn-gemini", Name: "Gemini Local", Type: "llm-provider", Backend: "google-ai", BaseURL: "https://generativelanguage.googleapis.com/v1beta"},
+			{ID: "conn-claude", Name: "Claude Local", Type: "llm-provider", Backend: "anthropic", BaseURL: "https://api.anthropic.com"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 3 {
+		t.Fatalf("expected three suggestion rows, got %#v", rows)
+	}
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.Slot] = row.SuggestedConnectionID
+		if row.Status != "suggested" {
+			t.Fatalf("expected suggested status for %s, got %#v", row.Slot, row)
+		}
+	}
+	if got["gpt-ai"] != "conn-openai" || got["gemini-ai"] != "conn-gemini" || got["claude-ai"] != "conn-claude" {
+		t.Fatalf("unexpected backend-specific suggestions: %#v", got)
+	}
+	if len(setArgs) != 3 {
+		t.Fatalf("expected three set args, got %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsReportsMissingRequiredLLMBackend(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "gpt-ai",
+			"type":     "llm-provider",
+			"backends": []any{"openai"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-gemini", Name: "Gemini Local", Type: "llm-provider", Backend: "google-ai", BaseURL: "https://generativelanguage.googleapis.com/v1beta"},
+			{ID: "conn-claude", Name: "Claude Local", Type: "llm-provider", Backend: "anthropic", BaseURL: "https://api.anthropic.com"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "unresolved" {
+		t.Fatalf("expected unresolved status, got %#v", rows[0])
+	}
+	if rows[0].Reason != "no matching connections found for required backends openai" {
+		t.Fatalf("unexpected reason: %#v", rows[0].Reason)
+	}
+	if len(setArgs) != 0 {
+		t.Fatalf("expected no set args, got %#v", setArgs)
+	}
+	if len(unresolved) != 1 || unresolved[0] != "gpt-ai" {
+		t.Fatalf("expected unresolved gpt-ai, got %#v", unresolved)
+	}
+}
+
 func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *testing.T) {
 	var calls []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -227,5 +308,54 @@ func TestListConnectionsByTypeFallsBackToHTTPForLLMProvider(t *testing.T) {
 	}
 	if connectionsByType["llm-provider"][0].ID != "conn-http-openai" {
 		t.Fatalf("expected HTTP fallback candidate, got %#v", connectionsByType["llm-provider"][0])
+	}
+}
+
+func TestListConnectionsByTypeSkipsInvalidConnections(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("type") != "http-api" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "unexpected type"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"connection-id": "conn-invalid",
+					"name":          "GitHub Broken",
+					"type":          "http-api",
+					"backend":       "rest",
+					"_invalid?":     true,
+				},
+				map[string]any{
+					"connection-id": "conn-valid",
+					"name":          "GitHub Public",
+					"type":          "http-api",
+					"backend":       "rest",
+					"config": map[string]any{
+						"auth": map[string]any{"type": "none"},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	connectionsByType, err := listConnectionsByType(api.Client{
+		BaseURL:     srv.URL,
+		WorkspaceID: "ws-test",
+		HTTP:        srv.Client(),
+	}, []any{
+		map[string]any{"slot": "github-api", "type": "http-api"},
+	})
+	if err != nil {
+		t.Fatalf("listConnectionsByType returned error: %v", err)
+	}
+	got := connectionsByType["http-api"]
+	if len(got) != 1 {
+		t.Fatalf("expected one valid http-api connection, got %#v", got)
+	}
+	if got[0].ID != "conn-valid" {
+		t.Fatalf("expected invalid connection to be skipped, got %#v", got)
 	}
 }

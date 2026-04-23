@@ -265,6 +265,11 @@ func getConnectionName(item map[string]any) string {
 	return ""
 }
 
+func connectionInvalid(item map[string]any) bool {
+	invalid, _ := item["_invalid?"].(bool)
+	return invalid
+}
+
 func getConnectionBackend(item map[string]any) string {
 	return normalizeConnectionType(item["backend"])
 }
@@ -393,6 +398,9 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 		for _, raw := range itemsAny {
 			item, ok := raw.(map[string]any)
 			if !ok {
+				continue
+			}
+			if connectionInvalid(item) {
 				continue
 			}
 			id := getConnectionID(item)

@@ -221,6 +221,72 @@ func TestAuthWhoami_IncludesWorkspaceSummary(t *testing.T) {
 	}
 }
 
+func TestAuthWhoami_AllowsLoopbackBypassWithoutToken(t *testing.T) {
+	var verifyCalls int
+	var meCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			verifyCalls++
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Not authenticated",
+			})
+		case "/api/me":
+			meCalls++
+			if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "" {
+				t.Fatalf("expected no Authorization header, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"user": map[string]any{
+					"id":    "dev-user",
+					"email": "dev@example.com",
+				},
+				"workspaces": []map[string]any{
+					{"id": "ws-acme", "name": "Acme"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	loopbackURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", loopbackURL,
+		"--workspace", "ws-acme",
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+	if verifyCalls == 0 {
+		t.Fatalf("expected /api/auth/verify to be called")
+	}
+	if meCalls == 0 {
+		t.Fatalf("expected /api/me to be called")
+	}
+
+	out := decodeEnvelope(t, stdout)
+	verify, _ := out.Data["verify"].(map[string]any)
+	if verify == nil || verify["success"] != true {
+		t.Fatalf("expected successful local bypass verify payload, got %#v\n%s", out.Data["verify"], stdout)
+	}
+	if verify["authMethod"] != "local-bypass" {
+		t.Fatalf("expected local-bypass auth method, got %#v\n%s", verify["authMethod"], stdout)
+	}
+	if out.Meta["authMethod"] != "local-bypass" {
+		t.Fatalf("expected local-bypass meta authMethod, got %#v\n%s", out.Meta["authMethod"], stdout)
+	}
+	current, _ := out.Data["currentWorkspace"].(map[string]any)
+	if current == nil || current["id"] != "ws-acme" {
+		t.Fatalf("expected currentWorkspace ws-acme, got %#v\n%s", out.Data["currentWorkspace"], stdout)
+	}
+}
+
 func TestAuthWhoami_SuggestsSingleWorkspaceWhenNoDefaultSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

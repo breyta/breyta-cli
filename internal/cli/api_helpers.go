@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -73,12 +75,7 @@ func ensureAPIURL(app *App) {
 }
 
 func requireAPI(app *App) error {
-	ensureAPIURL(app)
-	// In mock-auth mode, any non-blank token works, but we still require callers
-	// to be explicit about auth being in play.
-	if !app.TokenExplicit {
-		loadTokenFromAuthStore(app)
-	}
+	resolveAPIToken(app)
 	if strings.TrimSpace(app.Token) == "" {
 		if app.DevMode {
 			return errors.New("missing token (--token, BREYTA_TOKEN, --api-key, or BREYTA_API_KEY)")
@@ -86,6 +83,33 @@ func requireAPI(app *App) error {
 		return errors.New("missing token (run `breyta auth login` or provide --api-key / BREYTA_API_KEY)")
 	}
 	return nil
+}
+
+func resolveAPIToken(app *App) {
+	ensureAPIURL(app)
+	if !app.TokenExplicit {
+		loadTokenFromAuthStore(app)
+	}
+}
+
+func isLoopbackAPIURL(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return false
+	}
+	switch strings.ToLower(host) {
+	case "localhost":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func loadTokenFromAuthStore(app *App) {
