@@ -97,6 +97,19 @@ func TestExpandFlowSourceIncludes_HonorsReaderDiscardOnDirectInclude(t *testing.
 	}
 }
 
+func TestExpandFlowSourceIncludes_HonorsReaderDiscardAcrossNestedForms(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+
+	expanded, err := expandFlowSourceIncludes(root, `{:templates [#_ {:debug #flow/include "tmp/debug.edn"}]}`)
+	if err != nil {
+		t.Fatalf("expand discarded nested form: %v", err)
+	}
+	if !strings.Contains(expanded, `#_ {:debug #flow/include "tmp/debug.edn"}`) {
+		t.Fatalf("expected discarded nested form to remain untouched, got:\n%s", expanded)
+	}
+}
+
 func TestFlowsPush_LocalIncludeExpandsPayloadWithoutRewritingSource(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

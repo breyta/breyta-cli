@@ -222,6 +222,38 @@ func TestBuildConfigureSuggestionsReportsMissingRequiredLLMBackend(t *testing.T)
 	}
 }
 
+func TestBuildConfigureSuggestionsCanonicalizesRequiredLLMBackends(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "azure-ai",
+			"type":     "llm-provider",
+			"backends": []any{"azure-openai"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-azure", Name: "Azure OpenAI", Type: "llm-provider", Backend: "azure-openai", BaseURL: "https://example.openai.azure.com"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "suggested" {
+		t.Fatalf("expected suggested status, got %#v", rows[0])
+	}
+	if rows[0].SuggestedConnectionID != "conn-azure" {
+		t.Fatalf("unexpected suggested connection: %#v", rows[0])
+	}
+	if len(setArgs) != 1 || setArgs[0] != "azure-ai.conn=conn-azure" {
+		t.Fatalf("unexpected set args: %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
 func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *testing.T) {
 	var calls []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

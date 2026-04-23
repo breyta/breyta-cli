@@ -10,6 +10,138 @@ import (
 
 const flowIncludeTag = "#flow/include"
 
+func isClojureWhitespaceOrComma(ch byte) bool {
+	switch ch {
+	case ' ', '\t', '\r', '\n', ',':
+		return true
+	default:
+		return false
+	}
+}
+
+func readCommentEnd(src string, start int) int {
+	i := start
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	if i < len(src) {
+		i++
+	}
+	return i
+}
+
+func isClojureTokenDelimiter(ch byte) bool {
+	switch ch {
+	case ' ', '\t', '\r', '\n', ',', '(', ')', '[', ']', '{', '}', '"', ';', '\'', '`', '~', '@', '^':
+		return true
+	default:
+		return false
+	}
+}
+
+func readClojureTokenEnd(src string, start int) int {
+	i := start
+	for i < len(src) && !isClojureTokenDelimiter(src[i]) {
+		i++
+	}
+	return i
+}
+
+func readDelimitedFormEnd(src string, start int, closeCh byte) (int, error) {
+	for i := start + 1; i < len(src); {
+		for i < len(src) && isClojureWhitespaceOrComma(src[i]) {
+			i++
+		}
+		if i >= len(src) {
+			return 0, fmt.Errorf("unterminated collection")
+		}
+		if src[i] == ';' {
+			i = readCommentEnd(src, i)
+			continue
+		}
+		if src[i] == closeCh {
+			return i + 1, nil
+		}
+		next, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return 0, err
+		}
+		i = next
+	}
+	return 0, fmt.Errorf("unterminated collection")
+}
+
+func readClojureFormEnd(src string, start int) (int, error) {
+	i := start
+	for {
+		for i < len(src) && isClojureWhitespaceOrComma(src[i]) {
+			i++
+		}
+		if i >= len(src) {
+			return 0, fmt.Errorf("expected Clojure form")
+		}
+		if src[i] == ';' {
+			i = readCommentEnd(src, i)
+			continue
+		}
+		break
+	}
+
+	switch src[i] {
+	case '"':
+		_, _, next, err := readClojureStringToken(src, i)
+		return next, err
+	case '(':
+		return readDelimitedFormEnd(src, i, ')')
+	case '[':
+		return readDelimitedFormEnd(src, i, ']')
+	case '{':
+		return readDelimitedFormEnd(src, i, '}')
+	case '\'', '`', '@':
+		return readClojureFormEnd(src, i+1)
+	case '~':
+		if i+1 < len(src) && src[i+1] == '@' {
+			return readClojureFormEnd(src, i+2)
+		}
+		return readClojureFormEnd(src, i+1)
+	case '^':
+		metaEnd, err := readClojureFormEnd(src, i+1)
+		if err != nil {
+			return 0, err
+		}
+		return readClojureFormEnd(src, metaEnd)
+	case '#':
+		if strings.HasPrefix(src[i:], "#_") {
+			return readClojureFormEnd(src, i+2)
+		}
+		if i+1 >= len(src) {
+			return 0, fmt.Errorf("incomplete reader macro")
+		}
+		switch src[i+1] {
+		case '{':
+			return readDelimitedFormEnd(src, i+1, '}')
+		case '(':
+			return readDelimitedFormEnd(src, i+1, ')')
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i+1)
+			return next, err
+		case '?':
+			if i+2 < len(src) && src[i+2] == '@' {
+				return readClojureFormEnd(src, i+3)
+			}
+			return readClojureFormEnd(src, i+2)
+		default:
+			tagEnd := readClojureTokenEnd(src, i+1)
+			if tagEnd == i+1 {
+				return 0, fmt.Errorf("unsupported reader macro")
+			}
+			return readClojureFormEnd(src, tagEnd)
+		}
+	default:
+		return readClojureTokenEnd(src, i), nil
+	}
+}
+
 func expandFlowSourceIncludes(sourcePath, flowLiteral string) (string, error) {
 	baseDir := "."
 	if trimmed := strings.TrimSpace(sourcePath); trimmed != "" {
@@ -59,35 +191,25 @@ func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map
 		}
 
 		if readerDiscardPending {
-			if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == ',' {
+			if isClojureWhitespaceOrComma(ch) {
 				out.WriteByte(ch)
 				i++
 				continue
 			}
-			if strings.HasPrefix(src[i:], flowIncludeTag) {
-				j := i + len(flowIncludeTag)
-				for j < len(src) {
-					switch src[j] {
-					case ' ', '\t', '\r', '\n', ',':
-						j++
-					default:
-						goto discardedIncludePath
-					}
-				}
-			discardedIncludePath:
-				if j >= len(src) || src[j] != '"' {
-					return "", fmt.Errorf("malformed %s form near byte %d: expected string path", flowIncludeTag, i)
-				}
-				_, _, next, err := readClojureStringToken(src, j)
-				if err != nil {
-					return "", fmt.Errorf("parse %s path near byte %d: %w", flowIncludeTag, i, err)
-				}
+			if ch == ';' {
+				next := readCommentEnd(src, i)
 				out.WriteString(src[i:next])
 				i = next
-				readerDiscardPending = false
 				continue
 			}
+			next, err := readClojureFormEnd(src, i)
+			if err != nil {
+				return "", fmt.Errorf("parse discarded form near byte %d: %w", i, err)
+			}
+			out.WriteString(src[i:next])
+			i = next
 			readerDiscardPending = false
+			continue
 		}
 
 		if strings.HasPrefix(src[i:], "#_") {

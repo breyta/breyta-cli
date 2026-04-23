@@ -280,6 +280,11 @@ func filterConnectionsForRequirement(req configureConnectionRequirement, conns [
 	}
 	allowed := make(map[string]struct{}, len(req.Backends))
 	for _, backend := range req.Backends {
+		if req.Type == "llm-provider" {
+			backend = canonicalLLMBackend(backend)
+		} else {
+			backend = normalizeConnectionType(backend)
+		}
 		allowed[backend] = struct{}{}
 	}
 	filtered := make([]connectionSummary, 0, len(conns))
