@@ -151,11 +151,48 @@ func expandFlowSourceIncludes(sourcePath, flowLiteral string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve flow source base dir: %w", err)
 	}
+	rootDir, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("resolve flow source root dir: %w", err)
+		}
+		rootDir = baseDir
+	}
 	cache := map[string]string{}
-	return expandFlowSourceIncludesFrom(baseDir, flowLiteral, nil, cache)
+	return expandFlowSourceIncludesFrom(baseDir, rootDir, flowLiteral, nil, cache)
 }
 
-func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map[string]string) (string, error) {
+func pathWithinRoot(rootDir, candidate string) bool {
+	rel, err := filepath.Rel(rootDir, candidate)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func resolveFlowIncludePath(baseDir, rootDir, includePath string) (string, error) {
+	if filepath.IsAbs(includePath) {
+		return "", fmt.Errorf("absolute include paths are not allowed: %q", includePath)
+	}
+	includeAbs := filepath.Clean(filepath.Join(baseDir, includePath))
+	includeAbs, err := filepath.Abs(includeAbs)
+	if err != nil {
+		return "", fmt.Errorf("resolve include path %q: %w", includePath, err)
+	}
+	includeReal, err := filepath.EvalSymlinks(includeAbs)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("resolve include path %q: %w", includePath, err)
+		}
+		includeReal = includeAbs
+	}
+	if !pathWithinRoot(rootDir, includeReal) {
+		return "", fmt.Errorf("flow source include %q escapes the flow source root", includePath)
+	}
+	return includeReal, nil
+}
+
+func expandFlowSourceIncludesFrom(baseDir, rootDir, src string, stack []string, cache map[string]string) (string, error) {
 	var out strings.Builder
 	inString := false
 	inComment := false
@@ -238,12 +275,11 @@ func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map
 				return "", fmt.Errorf("parse %s path near byte %d: %w", flowIncludeTag, i, err)
 			}
 			_ = token
-			includeAbs := includePath
-			if !filepath.IsAbs(includeAbs) {
-				includeAbs = filepath.Join(baseDir, includeAbs)
+			includeAbs, err := resolveFlowIncludePath(baseDir, rootDir, includePath)
+			if err != nil {
+				return "", err
 			}
-			includeAbs = filepath.Clean(includeAbs)
-			expanded, err := readAndExpandFlowInclude(includeAbs, stack, cache)
+			expanded, err := readAndExpandFlowInclude(includeAbs, rootDir, stack, cache)
 			if err != nil {
 				return "", err
 			}
@@ -265,7 +301,7 @@ func expandFlowSourceIncludesFrom(baseDir, src string, stack []string, cache map
 	return out.String(), nil
 }
 
-func readAndExpandFlowInclude(path string, stack []string, cache map[string]string) (string, error) {
+func readAndExpandFlowInclude(path, rootDir string, stack []string, cache map[string]string) (string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve include path %q: %w", path, err)
@@ -283,7 +319,7 @@ func readAndExpandFlowInclude(path string, stack []string, cache map[string]stri
 	if err != nil {
 		return "", fmt.Errorf("read flow source include %q: %w", absPath, err)
 	}
-	expanded, err := expandFlowSourceIncludesFrom(filepath.Dir(absPath), string(b), append(stack, absPath), cache)
+	expanded, err := expandFlowSourceIncludesFrom(filepath.Dir(absPath), rootDir, string(b), append(stack, absPath), cache)
 	if err != nil {
 		return "", err
 	}

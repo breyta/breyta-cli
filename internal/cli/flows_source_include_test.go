@@ -84,6 +84,42 @@ func TestExpandFlowSourceIncludes_DetectsCycles(t *testing.T) {
 	}
 }
 
+func TestExpandFlowSourceIncludes_RejectsPathEscape(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+	outside := filepath.Join(filepath.Dir(tmpDir), "secret.edn")
+
+	if err := os.WriteFile(outside, []byte(`{:secret true}`), 0o644); err != nil {
+		t.Fatalf("write secret.edn: %v", err)
+	}
+
+	_, err := expandFlowSourceIncludes(root, `{:templates [#flow/include "../secret.edn"]}`)
+	if err == nil {
+		t.Fatalf("expected include escape to fail")
+	}
+	if !strings.Contains(err.Error(), "escapes the flow source root") {
+		t.Fatalf("expected root escape error, got: %v", err)
+	}
+}
+
+func TestExpandFlowSourceIncludes_RejectsAbsolutePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+	secret := filepath.Join(tmpDir, "secret.edn")
+
+	if err := os.WriteFile(secret, []byte(`{:secret true}`), 0o644); err != nil {
+		t.Fatalf("write secret.edn: %v", err)
+	}
+
+	_, err := expandFlowSourceIncludes(root, `{:templates [#flow/include "`+secret+`"]}`)
+	if err == nil {
+		t.Fatalf("expected absolute include to fail")
+	}
+	if !strings.Contains(err.Error(), "absolute include paths are not allowed") {
+		t.Fatalf("expected absolute path error, got: %v", err)
+	}
+}
+
 func TestExpandFlowSourceIncludes_HonorsReaderDiscardOnDirectInclude(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := filepath.Join(tmpDir, "flow.clj")

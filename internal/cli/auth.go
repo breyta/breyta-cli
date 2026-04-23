@@ -61,7 +61,7 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 		Short: "Show identity for the current token",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolveAPIToken(app)
-			if strings.TrimSpace(app.Token) == "" && !isLoopbackAPIURL(app.APIURL) {
+			if strings.TrimSpace(app.Token) == "" && !allowLocalWhoamiBypass(app) {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
 				}
@@ -91,6 +91,10 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 	}
 }
 
+func allowLocalWhoamiBypass(app *App) bool {
+	return app != nil && app.DevMode && isLoopbackAPIURL(app.APIURL)
+}
+
 func whoamiVerify(ctx context.Context, app *App) (any, int, string, error) {
 	out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
 	if err != nil {
@@ -102,7 +106,7 @@ func whoamiVerify(ctx context.Context, app *App) (any, int, string, error) {
 	if app == nil ||
 		app.TokenExplicit ||
 		strings.TrimSpace(app.Token) != "" ||
-		!isLoopbackAPIURL(app.APIURL) {
+		!allowLocalWhoamiBypass(app) {
 		return out, status, "", nil
 	}
 
@@ -115,7 +119,9 @@ func whoamiVerify(ctx context.Context, app *App) (any, int, string, error) {
 		return out, status, "", nil
 	}
 	user := mapStringAny(meBody["user"])
-	if user == nil {
+	authMeta := mapStringAny(meBody["auth"])
+	cliLocalBypass, _ := authMeta["cliLocalBypass"].(bool)
+	if user == nil || !cliLocalBypass {
 		return out, status, "", nil
 	}
 	return map[string]any{

@@ -239,6 +239,10 @@ func TestAuthWhoami_AllowsLoopbackBypassWithoutToken(t *testing.T) {
 				t.Fatalf("expected no Authorization header, got %q", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
+				"auth": map[string]any{
+					"mode":           "mock",
+					"cliLocalBypass": true,
+				},
 				"user": map[string]any{
 					"id":    "dev-user",
 					"email": "dev@example.com",
@@ -284,6 +288,55 @@ func TestAuthWhoami_AllowsLoopbackBypassWithoutToken(t *testing.T) {
 	current, _ := out.Data["currentWorkspace"].(map[string]any)
 	if current == nil || current["id"] != "ws-acme" {
 		t.Fatalf("expected currentWorkspace ws-acme, got %#v\n%s", out.Data["currentWorkspace"], stdout)
+	}
+}
+
+func TestAuthWhoami_DoesNotBypassWithoutServerOptIn(t *testing.T) {
+	var meCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/verify":
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Not authenticated",
+			})
+		case "/api/me":
+			meCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"auth": map[string]any{
+					"mode": "mock",
+				},
+				"user": map[string]any{
+					"id": "dev-user",
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	loopbackURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--api", loopbackURL,
+		"auth", "whoami",
+	)
+	if err != nil {
+		t.Fatalf("auth whoami failed: %v\n%s", err, stdout)
+	}
+	if meCalls == 0 {
+		t.Fatalf("expected /api/me to be called")
+	}
+
+	out := decodeEnvelope(t, stdout)
+	verify, _ := out.Data["verify"].(map[string]any)
+	if verify == nil || verify["success"] != false {
+		t.Fatalf("expected verify failure to remain authoritative, got %#v\n%s", out.Data["verify"], stdout)
+	}
+	if _, ok := out.Meta["authMethod"]; ok {
+		t.Fatalf("expected no authMethod meta when bypass is not explicitly allowed, got %#v\n%s", out.Meta["authMethod"], stdout)
 	}
 }
 
