@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 )
@@ -12,7 +11,7 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -58,7 +57,7 @@ func TestIncidentsShowBuildsFailureLimitRequest(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -98,7 +97,7 @@ func TestIncidentOperatorCommandsBuildCanonicalRequests(t *testing.T) {
 		Query  url.Values
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, struct {
 			Method string
 			Path   string
@@ -170,7 +169,7 @@ func TestIncidentOperatorCommandsBuildCanonicalRequests(t *testing.T) {
 func TestIncidentSnoozeRejectsInvalidDurationBeforeRequest(t *testing.T) {
 	var requestCount int
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		http.NotFound(w, r)
 	}))
@@ -199,7 +198,7 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 		Query  url.Values
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, struct {
 			Method string
 			Path   string
@@ -291,7 +290,7 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 func TestDigestsCadenceRejectsInvalidValueBeforeRequest(t *testing.T) {
 	var requestCount int
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		http.NotFound(w, r)
 	}))
@@ -315,7 +314,7 @@ func TestDigestsCadenceRejectsInvalidValueBeforeRequest(t *testing.T) {
 func TestDigestsListRejectsInvalidCadenceFilterBeforeRequest(t *testing.T) {
 	var requestCount int
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		http.NotFound(w, r)
 	}))

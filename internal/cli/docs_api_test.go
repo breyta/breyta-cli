@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +12,7 @@ import (
 func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -60,7 +59,7 @@ func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 func TestDocsFind_WithoutSummary(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -98,7 +97,7 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 
 	sawQuery := false
 	sawPageFetch := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			sawQuery = true
@@ -161,7 +160,7 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -207,7 +206,7 @@ func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/docs/pages/start-here" {
 			http.NotFound(w, r)
 			return
@@ -236,7 +235,7 @@ func TestDocsShow_PrintsMarkdown(t *testing.T) {
 func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/docs/pages/start-here" {
 			http.NotFound(w, r)
 			return

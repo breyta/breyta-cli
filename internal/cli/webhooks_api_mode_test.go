@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -12,7 +11,7 @@ func TestWebhooksSend_DraftEndpoint(t *testing.T) {
 	var gotPath string
 	var gotAuth string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -43,7 +42,7 @@ func TestWebhooksSend_DraftEndpoint(t *testing.T) {
 func TestWebhooksSend_DefaultEndpoint(t *testing.T) {
 	var gotPath string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}))
@@ -71,7 +70,7 @@ func TestWebhooksSend_ValidateOnly_DraftAddsDraftQuery(t *testing.T) {
 	var gotDraft string
 	var gotPersistResources string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotDraft = r.URL.Query().Get("draft")
 		gotPersistResources = r.URL.Query().Get("persist-resources")

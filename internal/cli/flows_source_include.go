@@ -47,6 +47,17 @@ func readClojureTokenEnd(src string, start int) int {
 	return i
 }
 
+func isFlowIncludeFormStart(src string, start int) bool {
+	if !strings.HasPrefix(src[start:], flowIncludeTag) {
+		return false
+	}
+	if start > 0 && !isClojureTokenDelimiter(src[start-1]) {
+		return false
+	}
+	next := start + len(flowIncludeTag)
+	return next >= len(src) || isClojureTokenDelimiter(src[next])
+}
+
 func readDelimitedFormEnd(src string, start int, closeCh byte) (int, error) {
 	for i := start + 1; i < len(src); {
 		for i < len(src) && isClojureWhitespaceOrComma(src[i]) {
@@ -256,7 +267,7 @@ func expandFlowSourceIncludesFrom(baseDir, rootDir, src string, stack []string, 
 			continue
 		}
 
-		if strings.HasPrefix(src[i:], flowIncludeTag) {
+		if isFlowIncludeFormStart(src, i) {
 			j := i + len(flowIncludeTag)
 			for j < len(src) {
 				switch src[j] {

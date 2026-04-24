@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,7 @@ func jwtWithEmailForCLI(email string) string {
 }
 
 func TestRunsList_SendsProfileIDFilter(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -58,7 +57,7 @@ func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 }
 
 func TestRunsList_SendsStructuredQueryFilters(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -99,7 +98,7 @@ func TestRunsList_SendsStructuredQueryFilters(t *testing.T) {
 }
 
 func TestRunsList_ExplicitFlagsOverrideQuery(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -144,7 +143,7 @@ func TestRunsList_ExplicitFlagsOverrideQuery(t *testing.T) {
 }
 
 func TestRunsList_DedicatedFlowFlagPreservesExactValue(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -180,7 +179,7 @@ func TestRunsList_DedicatedFlowFlagPreservesExactValue(t *testing.T) {
 }
 
 func TestRunsStart_SendsProfileID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -224,7 +223,7 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 }
 
 func TestRunsStart_AllowsExplicitSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -278,7 +277,7 @@ func TestRunsStart_EmitsRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
 
 	events := make(chan string, 4)
-	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	posthog := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/capture/" {
 			http.NotFound(w, r)
 			return
@@ -293,7 +292,7 @@ func TestRunsStart_EmitsRunStartedTelemetry(t *testing.T) {
 	defer posthog.Close()
 	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -341,7 +340,7 @@ func TestFlowsDraftRun_EmitsRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
 
 	events := make(chan string, 4)
-	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	posthog := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/capture/" {
 			http.NotFound(w, r)
 			return
@@ -356,7 +355,7 @@ func TestFlowsDraftRun_EmitsRunStartedTelemetry(t *testing.T) {
 	defer posthog.Close()
 	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -404,7 +403,7 @@ func TestFlowsDraftRun_EmitsRunStartedTelemetry(t *testing.T) {
 }
 
 func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -445,7 +444,7 @@ func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testin
 }
 
 func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -492,7 +491,7 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 }
 
 func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -527,7 +526,7 @@ func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 }
 
 func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -569,7 +568,7 @@ func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *
 }
 
 func TestFlowsInstallations_Configure_SupportsBindingAndActivationSetFlags(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -626,7 +625,7 @@ func TestFlowsInstallations_Configure_SupportsBindingAndActivationSetFlags(t *te
 }
 
 func TestFlowsInstallations_Configure_SetFlagsTreatBindingFieldsCaseInsensitively(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -670,7 +669,7 @@ func TestFlowsInstallations_Configure_SetFlagsTreatBindingFieldsCaseInsensitivel
 }
 
 func TestFlowsConfigure_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -718,7 +717,7 @@ func TestFlowsConfigure_UsesCanonicalCommand(t *testing.T) {
 }
 
 func TestFlowsConfigure_LiveTarget_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -789,7 +788,7 @@ func TestFlowsConfigure_VersionRequiresLiveTarget(t *testing.T) {
 }
 
 func TestFlowsConfigure_LiveTargetFromDraft_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -846,7 +845,7 @@ func TestFlowsConfigure_LiveTargetFromDraft_UsesCanonicalCommand(t *testing.T) {
 }
 
 func TestFlowsConfigureShow_UsesDraftProfileStatusByDefault(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -886,7 +885,7 @@ func TestFlowsConfigureShow_UsesDraftProfileStatusByDefault(t *testing.T) {
 }
 
 func TestFlowsConfigureShow_LiveTarget_UsesProdProfileStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -927,7 +926,7 @@ func TestFlowsConfigureShow_LiveTarget_UsesProdProfileStatus(t *testing.T) {
 }
 
 func TestFlowsConfigureCheck_DefaultTarget(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -971,7 +970,7 @@ func TestFlowsConfigureCheck_DefaultTarget(t *testing.T) {
 }
 
 func TestFlowsConfigureCheck_LiveTarget(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1016,7 +1015,7 @@ func TestFlowsConfigureCheck_LiveTarget(t *testing.T) {
 }
 
 func TestFlowsConfigureCheck_LiveTargetWithVersion(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1082,7 +1081,7 @@ func TestFlowsConfigureCheck_VersionRequiresLiveTarget(t *testing.T) {
 func TestFlowsConfigureSuggest_DefaultTarget_UsesTemplateStatusAndConnections(t *testing.T) {
 	commandCalls := 0
 	connectionCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/commands":
 			var body map[string]any
@@ -1192,7 +1191,7 @@ func TestFlowsConfigureSuggest_DefaultTarget_UsesTemplateStatusAndConnections(t 
 func TestFlowsConfigureSuggest_LiveTarget_UsesProdProfileType(t *testing.T) {
 	commandCalls := 0
 	connectionCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/commands":
 			var body map[string]any
@@ -1286,7 +1285,7 @@ func TestFlowsConfigureSuggest_LiveTarget_UsesProdProfileType(t *testing.T) {
 
 func TestConnectionsTest_All(t *testing.T) {
 	var bulkCalls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/connections/test" && r.Method == http.MethodPost:
 			bulkCalls++
@@ -1341,7 +1340,7 @@ func TestConnectionsTest_All(t *testing.T) {
 }
 
 func TestConnectionsTest_AllOnlyFailing_ReturnsFailureEnvelope(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/connections/test" && r.Method == http.MethodPost:
 			var body map[string]any
@@ -1395,7 +1394,7 @@ func TestConnectionsTest_AllOnlyFailing_ReturnsFailureEnvelope(t *testing.T) {
 
 func TestConnectionsUsages_API(t *testing.T) {
 	var called bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/connections/usages" {
 			http.NotFound(w, r)
 			return
@@ -1452,7 +1451,7 @@ func TestConnectionsUsages_API(t *testing.T) {
 
 func TestConnectionsCleanupUnused_API_Preview(t *testing.T) {
 	var called bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1499,7 +1498,7 @@ func TestConnectionsCleanupUnused_API_Preview(t *testing.T) {
 
 func TestConnectionsCleanupUnused_API_Apply(t *testing.T) {
 	var called bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1545,7 +1544,7 @@ func TestConnectionsCleanupUnused_API_Apply(t *testing.T) {
 }
 
 func TestConnectionsDelete_InUse_ReturnsHintDetails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/connections/conn-in-use" {
 			http.NotFound(w, r)
 			return
@@ -1589,7 +1588,7 @@ func TestConnectionsDelete_InUse_ReturnsHintDetails(t *testing.T) {
 
 func TestSecretsUsages_API(t *testing.T) {
 	var called bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/secrets/usages" {
 			http.NotFound(w, r)
 			return
@@ -1645,7 +1644,7 @@ func TestSecretsUsages_API(t *testing.T) {
 }
 
 func TestSecretsDelete_InUse_ReturnsHintDetails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/secrets/sec-in-use" {
 			http.NotFound(w, r)
 			return
@@ -1688,7 +1687,7 @@ func TestSecretsDelete_InUse_ReturnsHintDetails(t *testing.T) {
 }
 
 func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1733,7 +1732,7 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 }
 
 func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1784,7 +1783,7 @@ func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {
 }
 
 func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1820,7 +1819,7 @@ func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testin
 
 func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1888,7 +1887,7 @@ func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 
 func TestFlowsRelease_SendsReleaseNoteAndHints(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1960,7 +1959,7 @@ func TestFlowsRelease_DefaultInstallEmitsTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
 
 	events := make(chan string, 8)
-	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	posthog := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/capture/" {
 			http.NotFound(w, r)
 			return
@@ -1974,7 +1973,7 @@ func TestFlowsRelease_DefaultInstallEmitsTelemetry(t *testing.T) {
 	}))
 	defer posthog.Close()
 	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2038,7 +2037,7 @@ func TestFlowsRelease_DefaultInstallEmitsTelemetry(t *testing.T) {
 
 func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2110,7 +2109,7 @@ func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
 }
 
 func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2150,7 +2149,7 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 
 func TestFlowsRelease_SkipPromoteInstallations_PromotesLiveOnly(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2207,7 +2206,7 @@ func TestFlowsRelease_SkipPromoteInstallations_PromotesLiveOnly(t *testing.T) {
 }
 
 func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2262,7 +2261,7 @@ func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_API_KEY", "test-posthog-key")
 
 	events := make(chan string, 8)
-	posthog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	posthog := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/capture/" {
 			http.NotFound(w, r)
 			return
@@ -2277,7 +2276,7 @@ func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 	defer posthog.Close()
 	t.Setenv("BREYTA_POSTHOG_HOST", posthog.URL)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2323,7 +2322,7 @@ func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 }
 
 func TestFlowsRun_ExplicitDraftTarget_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2371,7 +2370,7 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	var flowsRunCalls int
 	var runsGetCalls int
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2444,7 +2443,7 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 	var runsGetPayloads []map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2519,7 +2518,7 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 func TestRunsShow_ForwardsInstallationIDInAPIMode(t *testing.T) {
 	var capturedArgs map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2606,7 +2605,7 @@ func TestFlowsRun_RejectsEndUserTarget(t *testing.T) {
 }
 
 func TestFlowsInstallPromote_LiveScope_UsesCanonicalCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2664,7 +2663,7 @@ func TestFlowsInstallPromote_InvalidScope(t *testing.T) {
 }
 
 func TestFlowsValidate_DefaultsToDraftSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2709,7 +2708,7 @@ func TestFlowsValidate_DefaultsToDraftSource(t *testing.T) {
 
 func TestFlowsValidate_TargetLive_UsesResolvedVersion(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
 			step++
@@ -2770,7 +2769,7 @@ func TestFlowsValidate_TargetLive_UsesResolvedVersion(t *testing.T) {
 
 func TestFlowsCompile_UsesActiveSourceInAPIMode(t *testing.T) {
 	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2818,7 +2817,7 @@ func TestFlowsCompile_UsesActiveSourceInAPIMode(t *testing.T) {
 }
 
 func TestFlowsShow_DefaultsToDraftSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -2863,7 +2862,7 @@ func TestFlowsShow_DefaultsToDraftSource(t *testing.T) {
 
 func TestFlowsShow_TargetLive_UsesResolvedVersion(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
 			step++
@@ -2920,7 +2919,7 @@ func TestFlowsShow_TargetLive_UsesResolvedVersion(t *testing.T) {
 }
 
 func TestFlowsShow_TargetDraft_UsesDraftSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
 			w.WriteHeader(400)
@@ -2967,7 +2966,7 @@ func TestFlowsShow_TargetLive_ResolvesAcrossProfilePagination(t *testing.T) {
 	t.Parallel()
 
 	profileCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
 			profileCalls++
@@ -3042,7 +3041,7 @@ func TestFlowsPull_TargetLive_UsesResolvedVersion(t *testing.T) {
 	outPath := filepath.Join(tmpDir, "flow-show.clj")
 	step := 0
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
 			step++
@@ -3110,7 +3109,7 @@ func TestFlowsPull_DefaultsToDraftSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-draft.clj")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3160,7 +3159,7 @@ func TestFlowsPull_HonorsCommandContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-timeout.clj")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3205,7 +3204,7 @@ func TestFlowsPull_HonorsCommandContext(t *testing.T) {
 }
 
 func TestFlowsPromote_WithVersion_UsesInstallPromoteCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3255,7 +3254,7 @@ func TestFlowsPromote_WithVersion_UsesInstallPromoteCommand(t *testing.T) {
 }
 
 func TestFlowsInstallSetEnabledFalse_UsesDisableCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3300,7 +3299,7 @@ func TestFlowsInstallSetEnabledFalse_UsesDisableCommand(t *testing.T) {
 }
 
 func TestFlowsDraftReset_UsesFlowsDraftResetCommand(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3336,7 +3335,7 @@ func TestFlowsDraftReset_UsesFlowsDraftResetCommand(t *testing.T) {
 
 func TestFlowsRelease_DeployKeyForwardedToReleaseAndPromote(t *testing.T) {
 	step := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -3422,7 +3421,7 @@ func TestFlowsRelease_RequiresAuthPreflightWhenInstallEnabled(t *testing.T) {
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
 	called := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		http.NotFound(w, r)
 	}))

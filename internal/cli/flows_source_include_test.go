@@ -146,6 +146,22 @@ func TestExpandFlowSourceIncludes_HonorsReaderDiscardAcrossNestedForms(t *testin
 	}
 }
 
+func TestExpandFlowSourceIncludes_IgnoresIncludeTagInsideTokens(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+	source := `{:slug :flow
+ :templates [:debug#flow/include #flow/include-extra :ok]
+ :flow '(identity :done)}`
+
+	expanded, err := expandFlowSourceIncludes(root, source)
+	if err != nil {
+		t.Fatalf("expand source with token substrings: %v", err)
+	}
+	if expanded != source {
+		t.Fatalf("expected non-form include substrings to remain unchanged, got:\n%s", expanded)
+	}
+}
+
 func TestFlowsPush_LocalIncludeExpandsPayloadWithoutRewritingSource(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

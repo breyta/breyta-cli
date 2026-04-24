@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 )
@@ -15,7 +14,7 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 	t.Setenv("APPDATA", tmp)
 	t.Setenv("LOCALAPPDATA", tmp)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -91,7 +90,7 @@ func TestFlowsMarketplaceUpdate_ForwardsVisibleFalse(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 
 	var sawVisibleFalse atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

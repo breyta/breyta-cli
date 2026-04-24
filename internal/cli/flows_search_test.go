@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -112,7 +111,7 @@ func TestFlowsSearch_UsesGlobalCommandWithoutWorkspace(t *testing.T) {
 	var gotWorkspaceHeader string
 	var gotBody map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/global/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}

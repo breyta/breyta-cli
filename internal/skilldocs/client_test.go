@@ -5,10 +5,32 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func newLocalTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		if isLocalListenerDenied(err) {
+			t.Skipf("local HTTP test server skipped: sandbox denied loopback listener creation: %v", err)
+		}
+		t.Fatalf("failed to start local test server: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = listener
+	server.Start()
+	return server
+}
+
+func isLocalListenerDenied(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied")
+}
 
 func TestFetchBundle(t *testing.T) {
 	skill := []byte("name: breyta\n")
@@ -16,7 +38,7 @@ func TestFetchBundle(t *testing.T) {
 	skillHash := sha256.Sum256(skill)
 	refHash := sha256.Sum256(ref)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/skills/breyta/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -57,7 +79,7 @@ func TestFetchBundle(t *testing.T) {
 }
 
 func TestFetchBundleChecksumMismatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/skills/breyta/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{

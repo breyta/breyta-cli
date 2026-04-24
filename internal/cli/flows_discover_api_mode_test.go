@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,7 +15,7 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 	t.Setenv("APPDATA", tmp)
 	t.Setenv("LOCALAPPDATA", tmp)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -65,7 +64,7 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 
 	var sawQuery atomic.Value
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -120,7 +119,7 @@ func TestFlowsDiscoverUpdate_UsesAPICommand(t *testing.T) {
 	t.Setenv("APPDATA", tmp)
 	t.Setenv("LOCALAPPDATA", tmp)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -196,7 +195,7 @@ func TestFlowsDiscoverUpdate_ForwardsPublicFalse(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 
 	var sawPublicFalse atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

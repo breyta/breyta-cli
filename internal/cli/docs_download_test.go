@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,7 @@ import (
 func TestDocsSync_WritesPages(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -80,7 +79,7 @@ func TestDocsSync_WritesPages(t *testing.T) {
 func TestDocsSync_CleanRemovesExistingFiles(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -142,7 +141,7 @@ func TestDocsSync_CleanRejectsDangerousPath(t *testing.T) {
 func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -190,7 +189,7 @@ func TestDocsSync_UsesPerRequestTimeout(t *testing.T) {
 func TestDocsSync_PaginatesAllPages(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
 			offset := r.URL.Query().Get("offset")

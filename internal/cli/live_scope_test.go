@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestResolveLiveProfileTarget_AllowsUnpinnedLiveProfile(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/flow-profiles" {
 			http.NotFound(w, r)
 			return
@@ -55,7 +54,7 @@ func TestResolveLiveProfileTarget_AllowsUnpinnedLiveProfile(t *testing.T) {
 
 func TestResolveLiveProfileTarget_PaginatesWithTopLevelCamelCase(t *testing.T) {
 	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/flow-profiles" {
 			http.NotFound(w, r)
 			return

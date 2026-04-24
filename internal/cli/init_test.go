@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +35,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "breyta-workspace")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/skills/breyta/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -264,7 +263,7 @@ func TestInit_GeminiProvider_InstallsSkill(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/skills/breyta/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -308,7 +307,7 @@ func TestInit_SkillInstallFailure_RendersNotInstalledInAgents(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Simulate docs API failure.
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("oops"))
@@ -376,7 +375,7 @@ func TestInit_NoWorkspace_SkipsWorkspaceFiles(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/skills/breyta/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{

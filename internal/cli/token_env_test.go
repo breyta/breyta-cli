@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -13,7 +12,11 @@ import (
 
 func TestDevModeUsesTokenEnv(t *testing.T) {
 	t.Setenv("BREYTA_TOKEN", "token-123")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 	path, err := configstore.DefaultPath()
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
@@ -22,7 +25,7 @@ func TestDevModeUsesTokenEnv(t *testing.T) {
 		t.Fatalf("SaveAtomic: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -78,7 +81,7 @@ func TestAPIKeyFlagAllowedOutsideDevMode(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -116,7 +119,7 @@ func TestAPIKeyEnvAllowedOutsideDevMode(t *testing.T) {
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
 	t.Setenv("BREYTA_API_KEY", "bsa_sak-456_secret")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -146,7 +149,11 @@ func TestAPIKeyEnvAllowedOutsideDevMode(t *testing.T) {
 
 func TestExplicitTokenFlagWinsOverAPIKeyEnvInDevMode(t *testing.T) {
 	t.Setenv("BREYTA_API_KEY", "bsa_sak-999_secret")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 	path, err := configstore.DefaultPath()
 	if err != nil {
 		t.Fatalf("DefaultPath: %v", err)
@@ -155,7 +162,7 @@ func TestExplicitTokenFlagWinsOverAPIKeyEnvInDevMode(t *testing.T) {
 		t.Fatalf("SaveAtomic: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -193,7 +200,7 @@ func TestLocalAPIKeyFlagDoesNotSuppressAuthStoreTokenLoading(t *testing.T) {
 	storePath := filepath.Join(tmp, "auth.json")
 	t.Setenv("BREYTA_AUTH_STORE", storePath)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/events/draft/webhooks/orders" {
 			http.NotFound(w, r)
 			return

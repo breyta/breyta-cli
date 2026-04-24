@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,7 +30,7 @@ func runCLIArgsWithIn(t *testing.T, stdin string, args ...string) (string, strin
 func TestAuthLogin_PrintsExportLine(t *testing.T) {
 	var got map[string]any
 	storePath := filepath.Join(t.TempDir(), "auth.json")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/token" {
 			http.NotFound(w, r)
 			return
@@ -73,7 +72,7 @@ func TestAuthLogin_PrintsExportLine(t *testing.T) {
 
 func TestAuthLogin_PasswordStdin_PrintsToken(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), "auth.json")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/token" {
 			http.NotFound(w, r)
 			return
@@ -103,7 +102,7 @@ func TestAuthLogin_PasswordStdin_PrintsToken(t *testing.T) {
 }
 
 func TestAuthWhoami_CallsVerify(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/verify" {
 			http.NotFound(w, r)
 			return
@@ -137,7 +136,7 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"a@b.com"}`))
 	tok := header + "." + payload + "."
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/verify" {
 			http.NotFound(w, r)
 			return
@@ -175,7 +174,7 @@ func TestAuthWhoami_IncludesEmailFromToken(t *testing.T) {
 }
 
 func TestAuthWhoami_IncludesWorkspaceSummary(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
@@ -224,7 +223,7 @@ func TestAuthWhoami_IncludesWorkspaceSummary(t *testing.T) {
 func TestAuthWhoami_AllowsLoopbackBypassWithoutToken(t *testing.T) {
 	var verifyCalls int
 	var meCalls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			verifyCalls++
@@ -293,7 +292,7 @@ func TestAuthWhoami_AllowsLoopbackBypassWithoutToken(t *testing.T) {
 
 func TestAuthWhoami_DoesNotBypassWithoutServerOptIn(t *testing.T) {
 	var meCalls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			w.WriteHeader(http.StatusUnauthorized)
@@ -341,7 +340,7 @@ func TestAuthWhoami_DoesNotBypassWithoutServerOptIn(t *testing.T) {
 }
 
 func TestAuthWhoami_SuggestsSingleWorkspaceWhenNoDefaultSet(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
@@ -379,7 +378,7 @@ func TestAuthWhoami_SuggestsSingleWorkspaceWhenNoDefaultSet(t *testing.T) {
 }
 
 func TestAuthWhoami_ContinuesWhenWorkspaceSummaryFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "user": map[string]any{"id": "uid-1"}})
@@ -414,7 +413,7 @@ func TestAuthWhoami_ContinuesWhenWorkspaceSummaryFails(t *testing.T) {
 
 func TestAuthWhoami_DoesNotClaimAuthWorksWhenVerifyFails(t *testing.T) {
 	meCalled := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/verify":
 			w.WriteHeader(http.StatusUnauthorized)
@@ -465,7 +464,7 @@ func TestAuthAPIConnection_UsesStoredRefreshToken(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), "auth.json")
 	t.Setenv("BREYTA_AUTH_STORE", storePath)
 	var got map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/runtime-connection" {
 			http.NotFound(w, r)
 			return

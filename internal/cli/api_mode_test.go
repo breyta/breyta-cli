@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,7 +57,7 @@ func TestDocs_Help_DefaultSurface(t *testing.T) {
 }
 
 func TestDocsFind_UsesDocsAPI(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/docs/pages" {
 			http.NotFound(w, r)
 			return
@@ -94,7 +93,7 @@ func TestDocsFind_UsesDocsAPI(t *testing.T) {
 }
 
 func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -172,7 +171,7 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 
 func TestFlowsBindingsApply_UsesProfilesBindingsApplyCommand(t *testing.T) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -238,7 +237,7 @@ func TestFlowsBindingsApply_UsesProfilesBindingsApplyCommand(t *testing.T) {
 
 func TestFlowsActivate_SendsVersionArg(t *testing.T) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -303,7 +302,7 @@ func TestFlowsActivate_SendsVersionArg(t *testing.T) {
 
 func TestFlowsDeploy_SendsDeployKeyFlag(t *testing.T) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -369,7 +368,7 @@ func TestFlowsDeploy_SendsDeployKeyFlag(t *testing.T) {
 func TestFlowsVersionsActivate_SendsDeployKeyFromEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("BREYTA_FLOW_DEPLOY_KEY", "env-secret")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -433,7 +432,7 @@ func TestFlowsVersionsActivate_SendsDeployKeyFromEnv(t *testing.T) {
 }
 
 func TestFlowsVersionsUpdate_SendsReleaseNote(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -529,7 +528,7 @@ func TestFlowsPush_SendsDeployKeyFromEnv(t *testing.T) {
 	if err := os.WriteFile(flowFile, []byte("{:slug :push-guarded :name \"Push Guarded\" :concurrency {:type :singleton :on-new-version :supersede} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
 		t.Fatalf("failed to write test flow file: %v", err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -629,7 +628,7 @@ func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 	t.Helper()
 	statusCalled := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -698,7 +697,7 @@ func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
 func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
 	t.Helper()
 	statusCalled := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -783,7 +782,7 @@ func TestResources_DefaultsToAPIMode(t *testing.T) {
 }
 
 func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/search" {
 			http.NotFound(w, r)
 			return
@@ -855,7 +854,7 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 }
 
 func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources" {
 			http.NotFound(w, r)
 			return

@@ -106,7 +106,7 @@ func TestJobsWorkerRun_ClaimsAndCompletesJob(t *testing.T) {
 
 	var mu sync.Mutex
 	var commands []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -236,7 +236,7 @@ func TestJobsWorkerRun_PreservesNonObjectPayloadFile(t *testing.T) {
 
 	var mu sync.Mutex
 	var commands []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -352,7 +352,7 @@ func TestJobsWorkerRun_FailsJobWhenHandlerFails(t *testing.T) {
 
 	var mu sync.Mutex
 	var commands []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -483,7 +483,7 @@ func TestJobsWorkerRun_FailsJobWhenHandlerRequestsFailure(t *testing.T) {
 
 	var mu sync.Mutex
 	var commands []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -610,7 +610,7 @@ func TestJobsWorkerRun_InjectsCLIPathIntoHandlerEnv(t *testing.T) {
 
 	var mu sync.Mutex
 	var commands []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -991,7 +991,7 @@ func TestJobsWorkerProgress_UsesEnvContext(t *testing.T) {
 	t.Setenv("BREYTA_JOB_ID", "job-1")
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1078,7 +1078,7 @@ func TestJobsWorkerAttachFile_UploadsResourceAndAppendsArtifact(t *testing.T) {
 	var initCalled bool
 	var completeCalled bool
 	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv = newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/files/uploads/init":
 			initCalled = true
@@ -1179,7 +1179,7 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 	var directUploadWorkspace string
 	var initCalled bool
 	var completeCalled bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/files/uploads/init":
 			initCalled = true
@@ -1263,7 +1263,7 @@ func TestJobsWorkerAttachKV_CallsJobsAttachKVAndAppendsArtifact(t *testing.T) {
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -1375,7 +1375,7 @@ func TestJobsWorkerAttachTable_CallsJobsAttachTableAndAppendsArtifact(t *testing
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

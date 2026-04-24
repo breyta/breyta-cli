@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/api"
@@ -256,7 +255,7 @@ func TestBuildConfigureSuggestionsCanonicalizesRequiredLLMBackends(t *testing.T)
 
 func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *testing.T) {
 	var calls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.URL.Query().Get("type"))
 		if r.URL.Query().Get("type") != "llm-provider" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -296,7 +295,7 @@ func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *tes
 
 func TestListConnectionsByTypeFallsBackToHTTPForLLMProvider(t *testing.T) {
 	var calls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		typ := r.URL.Query().Get("type")
 		calls = append(calls, typ)
 		switch typ {
@@ -344,7 +343,7 @@ func TestListConnectionsByTypeFallsBackToHTTPForLLMProvider(t *testing.T) {
 }
 
 func TestListConnectionsByTypeSkipsInvalidConnections(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("type") != "http-api" {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "unexpected type"}})
