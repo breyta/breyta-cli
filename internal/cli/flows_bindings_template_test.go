@@ -253,6 +253,48 @@ func TestBuildConfigureSuggestionsCanonicalizesRequiredLLMBackends(t *testing.T)
 	}
 }
 
+func TestBuildConfigureSuggestionsPreservesExplicitOpenAICompatibleBackends(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "router",
+			"type":     "llm-provider",
+			"backends": []any{"openrouter"},
+		},
+		map[string]any{
+			"slot":     "mistral",
+			"type":     "llm-provider",
+			"backends": []any{"mistral"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-router", Name: "OpenRouter", Type: "llm-provider", Backend: "openrouter"},
+			{ID: "conn-mistral", Name: "Mistral", Type: "llm-provider", Backend: "mistral"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 2 {
+		t.Fatalf("expected two suggestion rows, got %#v", rows)
+	}
+	bySlot := map[string]configureSuggestRow{}
+	for _, row := range rows {
+		bySlot[row.Slot] = row
+	}
+	if bySlot["router"].SuggestedConnectionID != "conn-router" {
+		t.Fatalf("unexpected router suggestion: %#v", bySlot["router"])
+	}
+	if bySlot["mistral"].SuggestedConnectionID != "conn-mistral" {
+		t.Fatalf("unexpected mistral suggestion: %#v", bySlot["mistral"])
+	}
+	if len(setArgs) != 2 {
+		t.Fatalf("expected two set args, got %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
 func TestListConnectionsByTypeSkipsHTTPFallbackWhenExactLLMProviderExists(t *testing.T) {
 	var calls []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

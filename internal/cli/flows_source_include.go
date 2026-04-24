@@ -30,6 +30,22 @@ func readCommentEnd(src string, start int) int {
 	return i
 }
 
+func skipClojureWhitespaceCommaAndComments(src string, start int) int {
+	i := start
+	for i < len(src) {
+		if isClojureWhitespaceOrComma(src[i]) {
+			i++
+			continue
+		}
+		if src[i] == ';' {
+			i = readCommentEnd(src, i)
+			continue
+		}
+		break
+	}
+	return i
+}
+
 func isClojureTokenDelimiter(ch byte) bool {
 	switch ch {
 	case ' ', '\t', '\r', '\n', ',', '(', ')', '[', ']', '{', '}', '"', ';', '\'', '`', '~', '@', '^':
@@ -269,15 +285,7 @@ func expandFlowSourceIncludesFrom(baseDir, rootDir, src string, stack []string, 
 
 		if isFlowIncludeFormStart(src, i) {
 			j := i + len(flowIncludeTag)
-			for j < len(src) {
-				switch src[j] {
-				case ' ', '\t', '\r', '\n', ',':
-					j++
-				default:
-					goto includePath
-				}
-			}
-		includePath:
+			j = skipClojureWhitespaceCommaAndComments(src, j)
 			if j >= len(src) || src[j] != '"' {
 				return "", fmt.Errorf("malformed %s form near byte %d: expected string path", flowIncludeTag, i)
 			}

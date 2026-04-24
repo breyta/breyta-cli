@@ -238,6 +238,8 @@ var llmBackends = map[string]struct{}{
 	"together":          {},
 	"openai-compatible": {},
 	"fireworks":         {},
+	"openrouter":        {},
+	"mistral":           {},
 }
 
 func normalizeConnectionType(v any) string {

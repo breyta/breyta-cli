@@ -197,6 +197,7 @@ func normalizePromoteScope(scope string) (string, error) {
 func newFlowsPromoteCmd(app *App) *cobra.Command {
 	var version string
 	var scope string
+	var policy string
 	cmd := &cobra.Command{
 		Use:   "promote <flow-slug>",
 		Short: "Promote a released version to live and all track-latest installations in this workspace",
@@ -236,11 +237,19 @@ breyta flows promote order-ingest --version 42
 			if resolvedScope != "" {
 				payload["scope"] = resolvedScope
 			}
+			policy = strings.ToLower(strings.TrimSpace(policy))
+			if policy != "" {
+				if policy != "track-latest" && policy != "pinned" {
+					return writeErr(cmd, errors.New("invalid --policy (expected pinned or track-latest)"))
+				}
+				payload["policy"] = policy
+			}
 			return doAPICommand(cmd, app, "flows.promote", payload)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "latest", "Release version to promote (or latest)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Advanced: promotion scope override (all|live). Default all")
+	cmd.Flags().StringVar(&policy, "policy", "", "Advanced: installation policy override (pinned|track-latest)")
 	return cmd
 }
 

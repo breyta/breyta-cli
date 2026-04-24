@@ -194,14 +194,15 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
-			payload := map[string]any{"flowSlug": args[0]}
+			resolvedTarget := "draft"
 			if cmd.Flags().Changed("target") {
-				resolvedTarget, err := normalizeInstallTarget(target)
+				var err error
+				resolvedTarget, err = normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				payload["target"] = resolvedTarget
 			}
+			payload := map[string]any{"flowSlug": args[0], "target": resolvedTarget}
 			installationID = strings.TrimSpace(installationID)
 			if installationID != "" {
 				payload["profileId"] = installationID

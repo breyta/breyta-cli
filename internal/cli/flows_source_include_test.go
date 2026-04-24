@@ -146,6 +146,25 @@ func TestExpandFlowSourceIncludes_HonorsReaderDiscardAcrossNestedForms(t *testin
 	}
 }
 
+func TestExpandFlowSourceIncludes_AllowsCommentsBeforePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "flow.clj")
+	includePath := filepath.Join(tmpDir, "part.edn")
+
+	if err := os.WriteFile(includePath, []byte(`{:id :annotated}`), 0o644); err != nil {
+		t.Fatalf("write include: %v", err)
+	}
+
+	expanded, err := expandFlowSourceIncludes(root, `{:templates [#flow/include ; why this include exists
+ "part.edn"]}`)
+	if err != nil {
+		t.Fatalf("expand commented include: %v", err)
+	}
+	if !strings.Contains(expanded, `:id :annotated`) {
+		t.Fatalf("expected commented include to expand, got:\n%s", expanded)
+	}
+}
+
 func TestExpandFlowSourceIncludes_IgnoresIncludeTagInsideTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := filepath.Join(tmpDir, "flow.clj")

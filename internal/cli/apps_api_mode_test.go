@@ -2224,9 +2224,9 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if _, ok := args["target"]; ok {
+		if args["target"] != "draft" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "target should be omitted when not explicitly set"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=draft"}})
 			return
 		}
 		if args["profileId"] != "prof-123" {
@@ -2623,10 +2623,15 @@ func TestFlowsInstallPromote_LiveScope_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing scope=live"}})
 			return
 		}
+		if args["policy"] != "pinned" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing policy=pinned"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"target": "live", "scope": "live"},
+			"data":        map[string]any{"target": "live", "scope": "live", "policy": "pinned"},
 		})
 	}))
 	defer srv.Close()
@@ -2638,6 +2643,7 @@ func TestFlowsInstallPromote_LiveScope_UsesCanonicalCommand(t *testing.T) {
 		"--token", "user-dev",
 		"flows", "promote", "flow-release",
 		"--scope", "live",
+		"--policy", "pinned",
 	)
 	if err != nil {
 		t.Fatalf("flows promote --scope live failed: %v\n%s", err, stdout)
