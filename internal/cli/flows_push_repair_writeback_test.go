@@ -167,6 +167,54 @@ func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 	}
 }
 
+func TestFlowsPush_RepairDelimiters_DoesNotRepairLexicalErrors(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	called := false
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		_ = method
+		_ = payload
+		called = true
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "flow.clj")
+	content := "{:slug :bad :description \"unterminated}\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsPushCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", file, "--repair-delimiters=true"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected execute error")
+	}
+	if called {
+		t.Fatalf("expected push to stop before upload")
+	}
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != content {
+		t.Fatalf("expected lexical-error file unchanged\n--- before\n%s\n--- after\n%s", content, string(after))
+	}
+}
+
 func TestFlowsParenRepair_DoesNotRewriteBalancedFlow(t *testing.T) {
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "flow.clj")
@@ -202,5 +250,33 @@ func TestFlowsParenRepair_DoesNotRewriteBalancedFlow(t *testing.T) {
 	}
 	if string(after) != content {
 		t.Fatalf("expected balanced file unchanged\n--- before\n%s\n--- after\n%s", content, string(after))
+	}
+}
+
+func TestFlowsParenRepair_DoesNotRepairLexicalErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "flow.clj")
+	content := "{:slug :bad :description \"unterminated}\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	app := &App{}
+	cmd := newFlowsParenRepairCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{file})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected execute error")
+	}
+
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != content {
+		t.Fatalf("expected lexical-error file unchanged\n--- before\n%s\n--- after\n%s", content, string(after))
 	}
 }

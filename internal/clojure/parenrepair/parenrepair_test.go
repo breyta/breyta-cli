@@ -1,6 +1,9 @@
 package parenrepair
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestRepair_AppendsMissingClosesAtEOF(t *testing.T) {
 	in := "(defn f [x]\n  (+ x 1)\n"
@@ -60,7 +63,7 @@ func TestRepair_DoesNotTouchDelimitersInStringsAndComments(t *testing.T) {
 }
 
 func TestRepair_DoesNotTouchDelimitersInCharacterLiterals(t *testing.T) {
-	in := "(def close-paren \\))\n(def close-bracket \\])\n(def close-brace \\})\n(def semi \\;)\n(def named [\\space \\newline \\tab])\n"
+	in := "(def open-paren \\()\n(def close-paren \\))\n(def open-bracket \\[)\n(def close-bracket \\])\n(def open-brace \\{)\n(def close-brace \\})\n(def quote \\\")\n(def backslash \\\\)\n(def semi \\;)\n(def named [\\space \\newline \\tab \\return \\backspace \\formfeed])\n(def escaped [\\u0041 \\o101])\n"
 	out, rep, err := Repair(in, true)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -73,6 +76,37 @@ func TestRepair_DoesNotTouchDelimitersInCharacterLiterals(t *testing.T) {
 	}
 	if err := Check(in); err != nil {
 		t.Fatalf("expected valid char literals to pass Check: %v", err)
+	}
+}
+
+func TestRepair_DoesNotTouchDelimitersInRegexLiterals(t *testing.T) {
+	in := "(def r #\"[\\\\(\\\\)\\\\[\\\\]{}]+\")\n"
+	out, rep, err := Repair(in, true)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if rep.Changed {
+		t.Fatalf("expected unchanged, got report: %+v", rep)
+	}
+	if out != in {
+		t.Fatalf("unexpected out:\n%q", out)
+	}
+	if err := Check(in); err != nil {
+		t.Fatalf("expected regex delimiters to pass Check: %v", err)
+	}
+}
+
+func TestCheckReportsDelimiterImbalance(t *testing.T) {
+	err := Check("(defn f [x]\n  (+ x 1)\n")
+	if !errors.Is(err, ErrUnbalancedDelimiters) {
+		t.Fatalf("expected ErrUnbalancedDelimiters, got %v", err)
+	}
+}
+
+func TestCheckReportsLexicalErrorsSeparately(t *testing.T) {
+	err := Check("(def s \"oops)\n")
+	if !errors.Is(err, ErrUnterminatedString) {
+		t.Fatalf("expected ErrUnterminatedString, got %v", err)
 	}
 }
 

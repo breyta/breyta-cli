@@ -389,6 +389,8 @@ This is intended as an escape hatch when LLM edits introduce delimiter errors.
 				if err := parenrepair.Check(orig); err == nil {
 					engine = "none"
 					report = map[string]any{"balanced": true, "skipped": true}
+				} else if !errors.Is(err, parenrepair.ErrUnbalancedDelimiters) {
+					return writeFailure(cmd, app, "clojure_paren_repair_failed", err, "Fix the underlying syntax issue (e.g. unterminated string), then retry.", map[string]any{"path": path})
 				} else {
 					if parinferPath != "" {
 						engine = "parinfer-rust"
@@ -1081,16 +1083,22 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 
 			orig := string(b)
 			flowLiteral := orig
-			if repairDelimiters && parenrepair.Check(flowLiteral) != nil {
-				parinferPath := tools.FindParinferRust()
-				if parinferPath != "" {
-					if repaired, _, err := (parinfer.Runner{BinaryPath: parinferPath}).RepairIndent(flowLiteral); err == nil {
+			if repairDelimiters {
+				checkErr := parenrepair.Check(flowLiteral)
+				if checkErr != nil && !errors.Is(checkErr, parenrepair.ErrUnbalancedDelimiters) {
+					return writeErr(cmd, checkErr)
+				}
+				if checkErr != nil {
+					parinferPath := tools.FindParinferRust()
+					if parinferPath != "" {
+						if repaired, _, err := (parinfer.Runner{BinaryPath: parinferPath}).RepairIndent(flowLiteral); err == nil {
+							flowLiteral = repaired
+						}
+					}
+					// Fallback best-effort repair (always runs if parinfer isn't available or fails).
+					if repaired, _, err := parenrepair.Repair(flowLiteral, false); err == nil {
 						flowLiteral = repaired
 					}
-				}
-				// Fallback best-effort repair (always runs if parinfer isn't available or fails).
-				if repaired, _, err := parenrepair.Repair(flowLiteral, false); err == nil {
-					flowLiteral = repaired
 				}
 			}
 
