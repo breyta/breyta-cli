@@ -92,6 +92,10 @@ func Repair(s string, includeFixes bool) (string, Report, error) {
 			inComment = true
 			out.WriteByte(b)
 			continue
+		case '\\':
+			out.WriteByte(b)
+			i = writeCharLiteralRemainder(&out, s, i)
+			continue
 		case '"':
 			inString = true
 			out.WriteByte(b)
@@ -180,4 +184,41 @@ func splitTrailingWhitespace(s string) (trimmed string, suffix string) {
 		break
 	}
 	return s[:i], s[i:]
+}
+
+func writeCharLiteralRemainder(out *strings.Builder, s string, slashAt int) int {
+	if slashAt+1 >= len(s) {
+		return slashAt
+	}
+
+	next := s[slashAt+1]
+	out.WriteByte(next)
+
+	if isCharLiteralSingleByte(next) {
+		return slashAt + 1
+	}
+
+	i := slashAt + 2
+	for i < len(s) {
+		b := s[i]
+		if unicode.IsSpace(rune(b)) || isStructuralDelimiter(b) || b == ';' {
+			break
+		}
+		out.WriteByte(b)
+		i++
+	}
+	return i - 1
+}
+
+func isCharLiteralSingleByte(b byte) bool {
+	return isStructuralDelimiter(b) || b == '"' || b == ';' || b == '\\'
+}
+
+func isStructuralDelimiter(b byte) bool {
+	switch b {
+	case '(', ')', '[', ']', '{', '}':
+		return true
+	default:
+		return false
+	}
 }

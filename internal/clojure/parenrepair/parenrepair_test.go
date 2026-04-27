@@ -59,6 +59,23 @@ func TestRepair_DoesNotTouchDelimitersInStringsAndComments(t *testing.T) {
 	}
 }
 
+func TestRepair_DoesNotTouchDelimitersInCharacterLiterals(t *testing.T) {
+	in := "(def close-paren \\))\n(def close-bracket \\])\n(def close-brace \\})\n(def semi \\;)\n(def named [\\space \\newline \\tab])\n"
+	out, rep, err := Repair(in, true)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if rep.Changed {
+		t.Fatalf("expected unchanged, got report: %+v", rep)
+	}
+	if out != in {
+		t.Fatalf("unexpected out:\n%q", out)
+	}
+	if err := Check(in); err != nil {
+		t.Fatalf("expected valid char literals to pass Check: %v", err)
+	}
+}
+
 func TestRepair_UnterminatedStringErrors(t *testing.T) {
 	_, rep, err := Repair("(def s \"oops)\n", true)
 	if err == nil {
