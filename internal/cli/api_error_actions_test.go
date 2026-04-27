@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -20,7 +19,7 @@ func decodeAPIErrorEnvelope(t *testing.T, stdout string) map[string]any {
 func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -103,7 +102,7 @@ func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.
 func TestAPIErrorActions_LegacyBillingFallbackOverridesGenericActivationURL(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -155,7 +154,7 @@ func TestAPIErrorActions_LegacyBillingFallbackOverridesGenericActivationURL(t *t
 func TestAPIErrorActions_ConnectionFallbackBuildsEditURL(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -220,7 +219,7 @@ func TestAPIErrorActions_ConnectionFallbackBuildsEditURL(t *testing.T) {
 func TestAPIErrorActions_DraftBindingsHintWinsForDraftProfileMissing(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -277,7 +276,7 @@ func TestAPIErrorActions_DraftBindingsHintWinsForDraftProfileMissing(t *testing.
 func TestAPIErrorActions_FlowsRunDefaultDraftGetsDraftBindingsHint(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

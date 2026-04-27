@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +40,7 @@ func decodeJSONOutput(t *testing.T, buf *bytes.Buffer) map[string]any {
 func TestFlowsShow_RecordsConsultedFlowInAgentWorkspace(t *testing.T) {
 	root := withAgentWorkspaceCwd(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
@@ -86,7 +85,7 @@ func TestFlowsCreate_AddsProvenanceHintsFromConsultedFlows(t *testing.T) {
 		t.Fatalf("save consulted refs: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request: %v", err)

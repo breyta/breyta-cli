@@ -60,17 +60,27 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 		Use:   "whoami",
 		Short: "Show identity for the current token",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := requireAPI(app); err != nil {
-				return writeErr(cmd, err)
+			resolveAPIToken(app)
+			if strings.TrimSpace(app.Token) == "" && !allowLocalWhoamiBypass(app) {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
+			} else if strings.TrimSpace(app.Token) != "" {
+				if err := requireAPI(app); err != nil {
+					return writeErr(cmd, err)
+				}
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 			defer cancel()
 
-			out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
+			out, status, authMethod, err := whoamiVerify(ctx, app)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			meta := map[string]any{"httpStatus": status}
+			if authMethod != "" {
+				meta["authMethod"] = authMethod
+			}
 			data := map[string]any{"verify": out}
 			if email := authinfo.EmailFromToken(app.Token); email != "" {
 				data["email"] = email
@@ -79,6 +89,46 @@ func newAuthWhoamiCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, meta, data)
 		},
 	}
+}
+
+func allowLocalWhoamiBypass(app *App) bool {
+	return app != nil && app.DevMode && isLoopbackAPIURL(app.APIURL)
+}
+
+func whoamiVerify(ctx context.Context, app *App) (any, int, string, error) {
+	out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/auth/verify", nil, nil)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if authVerifySucceeded(status, out) {
+		return out, status, "", nil
+	}
+	if app == nil ||
+		app.TokenExplicit ||
+		strings.TrimSpace(app.Token) != "" ||
+		!allowLocalWhoamiBypass(app) {
+		return out, status, "", nil
+	}
+
+	meOut, meStatus, meErr := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
+	if meErr != nil {
+		return out, status, "", nil
+	}
+	meBody := mapStringAny(meOut)
+	if meStatus >= http.StatusBadRequest || meBody == nil {
+		return out, status, "", nil
+	}
+	user := mapStringAny(meBody["user"])
+	authMeta := mapStringAny(meBody["auth"])
+	cliLocalBypass, _ := authMeta["cliLocalBypass"].(bool)
+	if user == nil || !cliLocalBypass {
+		return out, status, "", nil
+	}
+	return map[string]any{
+		"success":    true,
+		"authMethod": "local-bypass",
+		"user":       user,
+	}, meStatus, "local-bypass", nil
 }
 
 func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]any, meta map[string]any, verifyOK bool) {

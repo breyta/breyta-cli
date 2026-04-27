@@ -3,12 +3,11 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestWebLinks_FlowCommandAddsWebURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -53,7 +52,7 @@ func TestWebLinks_FlowCommandAddsWebURL(t *testing.T) {
 }
 
 func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -101,7 +100,7 @@ func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
 }
 
 func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -148,7 +147,7 @@ func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
 }
 
 func TestWebLinks_ConnectionRESTAddsWebURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/connections/conn-123" {
 			http.NotFound(w, r)
 			return
@@ -188,7 +187,7 @@ func TestWebLinks_ConnectionRESTAddsWebURL(t *testing.T) {
 }
 
 func TestWebLinks_ResourcesGetAbsolutizesRelativeWebURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/by-uri" {
 			http.NotFound(w, r)
 			return
@@ -227,7 +226,7 @@ func TestWebLinks_ResourcesGetAbsolutizesRelativeWebURL(t *testing.T) {
 }
 
 func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources" {
 			http.NotFound(w, r)
 			return
@@ -289,7 +288,7 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 }
 
 func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/search" {
 			http.NotFound(w, r)
 			return
@@ -349,7 +348,7 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 }
 
 func TestWebLinks_ResourcesGetInfersCanonicalRunStepURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/by-uri" {
 			http.NotFound(w, r)
 			return
@@ -388,7 +387,7 @@ func TestWebLinks_ResourcesGetInfersCanonicalRunStepURL(t *testing.T) {
 }
 
 func TestWebLinks_ResourcesGetPreservesPlusInStepID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/by-uri" {
 			http.NotFound(w, r)
 			return
@@ -423,7 +422,7 @@ func TestWebLinks_ResourcesGetPreservesPlusInStepID(t *testing.T) {
 }
 
 func TestWebLinks_DoesNotRewriteUnknownPayloadWebURLFields(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -463,7 +462,7 @@ func TestWebLinks_DoesNotRewriteUnknownPayloadWebURLFields(t *testing.T) {
 }
 
 func TestWebLinks_FlowScopedListPrefersInstallationsURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

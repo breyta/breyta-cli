@@ -238,6 +238,8 @@ var llmBackends = map[string]struct{}{
 	"together":          {},
 	"openai-compatible": {},
 	"fireworks":         {},
+	"openrouter":        {},
+	"mistral":           {},
 }
 
 func normalizeConnectionType(v any) string {
@@ -263,6 +265,11 @@ func getConnectionName(item map[string]any) string {
 		return s
 	}
 	return ""
+}
+
+func connectionInvalid(item map[string]any) bool {
+	invalid, _ := item["_invalid?"].(bool)
+	return invalid
 }
 
 func getConnectionBackend(item map[string]any) string {
@@ -395,6 +402,9 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 			if !ok {
 				continue
 			}
+			if connectionInvalid(item) {
+				continue
+			}
 			id := getConnectionID(item)
 			if id == "" {
 				continue
@@ -502,32 +512,22 @@ func applyDefaultConnectionReuse(template map[string]any, requirements []any, co
 		return
 	}
 	llmConns := connectionsByType["llm-provider"]
-	pick, ok := pickPreferredLLMConnection(llmConns)
-	if !ok {
-		return
-	}
-
-	for _, raw := range requirements {
-		req, ok := raw.(map[string]any)
-		if !ok {
+	for _, req := range collectConnectionRequirements(requirements) {
+		if req.Type != "llm-provider" {
 			continue
 		}
-		kind := strings.ToLower(toString(req["kind"]))
-		if kind == "form" {
-			continue
-		}
-		if normalizeConnectionType(req["type"]) != "llm-provider" {
-			continue
-		}
-		slot := strings.TrimSpace(toString(req["slot"]))
-		slotKey := strings.TrimPrefix(slot, ":")
-		if strings.TrimSpace(slotKey) == "" {
+		slotKey := strings.TrimSpace(strings.TrimPrefix(req.Slot, ":"))
+		if slotKey == "" {
 			continue
 		}
 		if existing, ok := bindings[slotKey].(map[string]any); ok && existing != nil {
 			if conn := strings.TrimSpace(toString(existing["conn"])); conn != "" {
 				continue
 			}
+		}
+		pick, _, _ := chooseSuggestedConnection(req, llmConns)
+		if strings.TrimSpace(pick.ID) == "" {
+			continue
 		}
 		bindings[slotKey] = map[string]any{"conn": pick.ID}
 	}

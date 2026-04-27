@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -13,7 +12,7 @@ func TestWorkspaceMembersListBuildsCanonicalMembersRequestAndDefaultsToTable(t *
 	var gotPath string
 	var gotQuery url.Values
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		if r.URL.Path != "/api/workspaces/ws-breyta/members" || r.Method != http.MethodGet {
@@ -65,7 +64,7 @@ func TestWorkspaceMembersListBuildsCanonicalMembersRequestAndDefaultsToTable(t *
 func TestWorkspaceMembersListSupportsRoleAndPendingFiltersAndJSONOutput(t *testing.T) {
 	var gotQuery url.Values
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query()
 		if r.URL.Path != "/api/workspaces/ws-breyta/members" || r.Method != http.MethodGet {
 			http.NotFound(w, r)

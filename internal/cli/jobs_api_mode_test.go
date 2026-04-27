@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
@@ -12,7 +11,7 @@ func TestJobsCreate_UsesAPICommand(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -97,7 +96,7 @@ func TestJobsBatchCreate_UsesBatchCommand(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -185,7 +184,7 @@ func TestJobsClaim_UsesLeaseDurationAndLabels(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	var gotArgs map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

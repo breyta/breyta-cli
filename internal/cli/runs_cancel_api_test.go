@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -11,7 +10,7 @@ import (
 func TestRunsCancel_ResolvesShortIDWithFlowFilter(t *testing.T) {
 	listCalls := 0
 	cancelCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -87,7 +86,7 @@ func TestRunsCancel_ResolvesShortIDWithFlowFilter(t *testing.T) {
 
 func TestRunsCancel_ShortIDAmbiguousReturnsError(t *testing.T) {
 	cancelCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return
@@ -140,7 +139,7 @@ func TestRunsCancel_FullWorkflowIDSkipsResolution(t *testing.T) {
 	listCalls := 0
 	cancelCalls := 0
 	fullID := "flow-fiken-email-receipts-ws-acme-r34"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
 			return

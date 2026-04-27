@@ -4,12 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 )
+
+func newLocalTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		if isLocalListenerDenied(err) {
+			t.Skipf("local HTTP test server skipped: sandbox denied loopback listener creation: %v", err)
+		}
+		t.Fatalf("failed to start local test server: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.Listener = listener
+	server.Start()
+	return server
+}
+
+func isLocalListenerDenied(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied")
+}
 
 func TestClient_baseEndpointFor_AppendsPath(t *testing.T) {
 	c := Client{BaseURL: "http://example.test/base/"}
@@ -37,7 +58,7 @@ func TestClient_DoRootREST_SetsHeadersAndQueryAndParsesJSON(t *testing.T) {
 	var gotAuth, gotCT, gotPath, gotQuery string
 	var gotBody []byte
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotCT = r.Header.Get("Content-Type")
 		gotPath = r.URL.Path
@@ -78,7 +99,7 @@ func TestClient_DoRootREST_SetsHeadersAndQueryAndParsesJSON(t *testing.T) {
 }
 
 func TestClient_DoRootREST_AllowsNonJSONResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("<html>nope</html>"))
 	}))
@@ -101,7 +122,7 @@ func TestClient_DoRootREST_AllowsNonJSONResponse(t *testing.T) {
 func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	var got map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
@@ -138,7 +159,7 @@ func TestClient_DoGlobalCommand_UsesGlobalEndpointWithoutWorkspaceHeader(t *test
 	var got map[string]any
 	var gotWorkspaceHeader string
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/global/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}

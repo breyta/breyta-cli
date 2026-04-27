@@ -23,8 +23,9 @@ type configureSuggestRow struct {
 }
 
 type configureConnectionRequirement struct {
-	Slot string
-	Type string
+	Slot     string
+	Type     string
+	Backends []string
 }
 
 func newFlowsConfigureSuggestCmd(app *App) *cobra.Command {
@@ -206,17 +207,133 @@ func collectConnectionRequirements(requirements []any) []configureConnectionRequ
 			continue
 		}
 		seen[slot] = struct{}{}
-		out = append(out, configureConnectionRequirement{Slot: slot, Type: reqType})
+		out = append(out, configureConnectionRequirement{
+			Slot:     slot,
+			Type:     reqType,
+			Backends: normalizeRequirementBackends(req["backends"]),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slot < out[j].Slot })
 	return out
 }
 
-func chooseSuggestedConnection(slot string, reqType string, conns []connectionSummary) (connectionSummary, string, string) {
-	if len(conns) == 0 {
-		return connectionSummary{}, "", "no matching connections found"
+func normalizeRequirementBackends(value any) []string {
+	var raw []any
+	switch v := value.(type) {
+	case []any:
+		raw = v
+	case []string:
+		raw = make([]any, 0, len(v))
+		for _, item := range v {
+			raw = append(raw, item)
+		}
+	default:
+		return nil
 	}
-	if reqType == "llm-provider" {
+
+	out := make([]string, 0, len(raw))
+	seen := map[string]struct{}{}
+	for _, item := range raw {
+		backend := normalizeConnectionType(item)
+		if backend == "" {
+			continue
+		}
+		if _, exists := seen[backend]; exists {
+			continue
+		}
+		seen[backend] = struct{}{}
+		out = append(out, backend)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func effectiveBackendForRequirement(req configureConnectionRequirement, conn connectionSummary) string {
+	if req.Type == "llm-provider" {
+		return compatibleLLMBackend(conn)
+	}
+	backend := normalizeConnectionType(conn.Backend)
+	if req.Type == "http-api" && backend == "" && normalizeConnectionType(conn.Type) == "http-api" {
+		return "rest"
+	}
+	return backend
+}
+
+func llmBackendMatchKeys(backend string) []string {
+	backend = normalizeConnectionType(backend)
+	if backend == "" {
+		return nil
+	}
+	keys := []string{backend}
+	seen := map[string]struct{}{backend: {}}
+	add := func(key string) {
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	switch backend {
+	case "bedrock":
+		add("anthropic")
+	case "google-ai":
+		add("google")
+	case "azure-openai", "ollama", "groq", "together", "fireworks", "openrouter", "mistral":
+		add("openai-compatible")
+	}
+	return keys
+}
+
+func llmBackendAllowed(candidate string, allowed map[string]struct{}) bool {
+	for _, key := range llmBackendMatchKeys(candidate) {
+		if _, ok := allowed[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func filterConnectionsForRequirement(req configureConnectionRequirement, conns []connectionSummary) []connectionSummary {
+	if len(req.Backends) == 0 {
+		return conns
+	}
+	allowed := make(map[string]struct{}, len(req.Backends))
+	for _, backend := range req.Backends {
+		backend = normalizeConnectionType(backend)
+		allowed[backend] = struct{}{}
+	}
+	filtered := make([]connectionSummary, 0, len(conns))
+	for _, conn := range conns {
+		effective := effectiveBackendForRequirement(req, conn)
+		if req.Type == "llm-provider" {
+			if llmBackendAllowed(effective, allowed) {
+				filtered = append(filtered, conn)
+			}
+			continue
+		}
+		if _, ok := allowed[effective]; ok {
+			filtered = append(filtered, conn)
+		}
+	}
+	return filtered
+}
+
+func noMatchingConnectionsReason(req configureConnectionRequirement) string {
+	if len(req.Backends) == 0 {
+		return "no matching connections found"
+	}
+	return fmt.Sprintf("no matching connections found for required backends %s", strings.Join(req.Backends, ", "))
+}
+
+func chooseSuggestedConnection(req configureConnectionRequirement, conns []connectionSummary) (connectionSummary, string, string) {
+	conns = filterConnectionsForRequirement(req, conns)
+	if len(conns) == 0 {
+		return connectionSummary{}, "", noMatchingConnectionsReason(req)
+	}
+	if req.Type == "llm-provider" {
 		if pick, ok := pickPreferredLLMConnection(conns); ok {
 			return pick, "high", "matched preferred LLM connection"
 		}
@@ -225,12 +342,12 @@ func chooseSuggestedConnection(slot string, reqType string, conns []connectionSu
 		return conns[0], "high", "only matching connection for required type"
 	}
 
-	slotNorm := strings.ToLower(strings.ReplaceAll(slot, "-", " "))
+	slotNorm := strings.ToLower(strings.ReplaceAll(req.Slot, "-", " "))
 	matches := make([]connectionSummary, 0)
 	for _, conn := range conns {
 		nameNorm := strings.ToLower(conn.Name)
 		idNorm := strings.ToLower(conn.ID)
-		if (slotNorm != "" && strings.Contains(nameNorm, slotNorm)) || strings.Contains(idNorm, strings.ToLower(slot)) {
+		if (slotNorm != "" && strings.Contains(nameNorm, slotNorm)) || strings.Contains(idNorm, strings.ToLower(req.Slot)) {
 			matches = append(matches, conn)
 		}
 	}
@@ -260,7 +377,7 @@ func buildConfigureSuggestions(requirements []any, bindingValues map[string]stri
 			continue
 		}
 
-		candidate, confidence, reason := chooseSuggestedConnection(req.Slot, req.Type, connectionsByType[req.Type])
+		candidate, confidence, reason := chooseSuggestedConnection(req, connectionsByType[req.Type])
 		if strings.TrimSpace(candidate.ID) != "" {
 			row.Status = "suggested"
 			row.SuggestedConnectionID = candidate.ID

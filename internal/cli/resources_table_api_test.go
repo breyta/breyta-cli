@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/content" {
 			http.NotFound(w, r)
 			return
@@ -66,7 +65,7 @@ func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
 }
 
 func TestResourcesRead_DoesNotForcePreviewPagingWhenLimitIsUnset(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/content" {
 			http.NotFound(w, r)
 			return
@@ -100,7 +99,7 @@ func TestResourcesRead_DoesNotForcePreviewPagingWhenLimitIsUnset(t *testing.T) {
 }
 
 func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/query" {
 			http.NotFound(w, r)
 			return
@@ -165,7 +164,7 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableQuery_SendsCursorPayloadWhenRequested(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/query" {
 			http.NotFound(w, r)
 			return
@@ -231,7 +230,7 @@ func TestResourcesTableQuery_SendsCursorPayloadWhenRequested(t *testing.T) {
 }
 
 func TestResourcesTableExport_WritesCSVToStdout(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/export" {
 			http.NotFound(w, r)
 			return
@@ -257,7 +256,7 @@ func TestResourcesTableExport_WritesCSVToStdout(t *testing.T) {
 }
 
 func TestResourcesTableGetRow_UsesGetRowEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/get-row" {
 			http.NotFound(w, r)
 			return
@@ -296,7 +295,7 @@ func TestResourcesTableGetRow_UsesGetRowEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableImport_UsesImportEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/import-csv" {
 			http.NotFound(w, r)
 			return
@@ -355,7 +354,7 @@ func TestResourcesTableImport_UsesImportEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableImport_UsesNamedTableTargetWhenCreating(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/import-csv" {
 			http.NotFound(w, r)
 			return
@@ -425,7 +424,7 @@ func TestResourcesTableImport_UsesNamedTableTargetWhenCreating(t *testing.T) {
 }
 
 func TestResourcesTableAggregate_UsesExpandedPayload(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/aggregate" {
 			http.NotFound(w, r)
 			return
@@ -505,7 +504,7 @@ func TestResourcesTableAggregate_UsesExpandedPayload(t *testing.T) {
 }
 
 func TestResourcesTableUpdateCell_UsesUpdateEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/update-cell" {
 			http.NotFound(w, r)
 			return
@@ -549,7 +548,7 @@ func TestResourcesTableUpdateCell_UsesUpdateEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableUpdateCellFormat_UsesFormatEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/update-cell-format" {
 			http.NotFound(w, r)
 			return
@@ -587,7 +586,7 @@ func TestResourcesTableUpdateCellFormat_UsesFormatEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableSetColumn_UsesSetColumnEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/set-column" {
 			http.NotFound(w, r)
 			return
@@ -651,7 +650,7 @@ func TestResourcesTableSetColumn_UsesSetColumnEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableRecompute_UsesRecomputeEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/recompute" {
 			http.NotFound(w, r)
 			return
@@ -697,7 +696,7 @@ func TestResourcesTableRecompute_UsesRecomputeEndpoint(t *testing.T) {
 }
 
 func TestResourcesTableMaterializeJoin_UsesMaterializeJoinEndpoint(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/materialize-join" {
 			http.NotFound(w, r)
 			return
