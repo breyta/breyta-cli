@@ -386,23 +386,28 @@ This is intended as an escape hatch when LLM edits introduce delimiter errors.
 				repaired := orig
 				var report any
 
-				if parinferPath != "" {
-					engine = "parinfer-rust"
-					if out, ans, err := parinferRunner.RepairIndent(orig); err == nil {
-						repaired = out
-						report = ans
-					} else {
-						engine = "fallback"
+				if err := parenrepair.Check(orig); err == nil {
+					engine = "none"
+					report = map[string]any{"balanced": true, "skipped": true}
+				} else {
+					if parinferPath != "" {
+						engine = "parinfer-rust"
+						if out, ans, err := parinferRunner.RepairIndent(orig); err == nil {
+							repaired = out
+							report = ans
+						} else {
+							engine = "fallback"
+						}
 					}
-				}
 
-				if engine == "fallback" {
-					out, rep, err := parenrepair.Repair(orig, verbose)
-					if err != nil {
-						return writeFailure(cmd, app, "clojure_paren_repair_failed", err, "Fix the underlying syntax issue (e.g. unterminated string), then retry.", map[string]any{"path": path, "report": rep})
+					if engine == "fallback" {
+						out, rep, err := parenrepair.Repair(orig, verbose)
+						if err != nil {
+							return writeFailure(cmd, app, "clojure_paren_repair_failed", err, "Fix the underlying syntax issue (e.g. unterminated string), then retry.", map[string]any{"path": path, "report": rep})
+						}
+						repaired = out
+						report = rep
 					}
-					repaired = out
-					report = rep
 				}
 
 				changed := repaired != orig
@@ -1076,7 +1081,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 
 			orig := string(b)
 			flowLiteral := orig
-			if repairDelimiters {
+			if repairDelimiters && parenrepair.Check(flowLiteral) != nil {
 				parinferPath := tools.FindParinferRust()
 				if parinferPath != "" {
 					if repaired, _, err := (parinfer.Runner{BinaryPath: parinferPath}).RepairIndent(flowLiteral); err == nil {

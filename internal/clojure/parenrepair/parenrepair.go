@@ -25,10 +25,22 @@ type Report struct {
 }
 
 var ErrUnterminatedString = errors.New("unterminated string literal")
+var ErrUnbalancedDelimiters = errors.New("unbalanced delimiters")
 
 func Check(s string) error {
-	_, _, err := Repair(s, false)
-	return err
+	_, report, err := Repair(s, false)
+	if err != nil {
+		return err
+	}
+	if report.Changed {
+		return fmt.Errorf("%w: unclosed=%d dropped=%d replaced=%d appended=%d",
+			ErrUnbalancedDelimiters,
+			report.UnclosedCount,
+			report.DroppedCloses,
+			report.ReplacedCloses,
+			report.AppendedCloses)
+	}
+	return nil
 }
 
 func Repair(s string, includeFixes bool) (string, Report, error) {
