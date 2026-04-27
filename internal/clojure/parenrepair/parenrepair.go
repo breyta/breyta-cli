@@ -25,10 +25,22 @@ type Report struct {
 }
 
 var ErrUnterminatedString = errors.New("unterminated string literal")
+var ErrUnbalancedDelimiters = errors.New("unbalanced delimiters")
 
 func Check(s string) error {
-	_, _, err := Repair(s, false)
-	return err
+	_, report, err := Repair(s, false)
+	if err != nil {
+		return err
+	}
+	if report.Changed {
+		return fmt.Errorf("%w: unclosed=%d dropped=%d replaced=%d appended=%d",
+			ErrUnbalancedDelimiters,
+			report.UnclosedCount,
+			report.DroppedCloses,
+			report.ReplacedCloses,
+			report.AppendedCloses)
+	}
+	return nil
 }
 
 func Repair(s string, includeFixes bool) (string, Report, error) {
@@ -79,6 +91,10 @@ func Repair(s string, includeFixes bool) (string, Report, error) {
 		case ';':
 			inComment = true
 			out.WriteByte(b)
+			continue
+		case '\\':
+			out.WriteByte(b)
+			i = writeCharLiteralRemainder(&out, s, i)
 			continue
 		case '"':
 			inString = true
@@ -168,4 +184,41 @@ func splitTrailingWhitespace(s string) (trimmed string, suffix string) {
 		break
 	}
 	return s[:i], s[i:]
+}
+
+func writeCharLiteralRemainder(out *strings.Builder, s string, slashAt int) int {
+	if slashAt+1 >= len(s) {
+		return slashAt
+	}
+
+	next := s[slashAt+1]
+	out.WriteByte(next)
+
+	if isCharLiteralSingleByte(next) {
+		return slashAt + 1
+	}
+
+	i := slashAt + 2
+	for i < len(s) {
+		b := s[i]
+		if unicode.IsSpace(rune(b)) || isStructuralDelimiter(b) || b == ';' {
+			break
+		}
+		out.WriteByte(b)
+		i++
+	}
+	return i - 1
+}
+
+func isCharLiteralSingleByte(b byte) bool {
+	return isStructuralDelimiter(b) || b == '"' || b == ';' || b == '\\'
+}
+
+func isStructuralDelimiter(b byte) bool {
+	switch b {
+	case '(', ')', '[', ']', '{', '}':
+		return true
+	default:
+		return false
+	}
 }
