@@ -248,24 +248,9 @@ func normalizeRequirementBackends(value any) []string {
 	return out
 }
 
-func canonicalLLMBackend(backend string) string {
-	switch normalizeConnectionType(backend) {
-	case "openai":
-		return "openai"
-	case "anthropic", "bedrock":
-		return "anthropic"
-	case "google", "google-ai":
-		return "google"
-	case "azure-openai", "ollama", "groq", "together", "openai-compatible", "fireworks", "openrouter", "mistral":
-		return "openai-compatible"
-	default:
-		return normalizeConnectionType(backend)
-	}
-}
-
 func effectiveBackendForRequirement(req configureConnectionRequirement, conn connectionSummary) string {
 	if req.Type == "llm-provider" {
-		return canonicalLLMBackend(compatibleLLMBackend(conn))
+		return compatibleLLMBackend(conn)
 	}
 	backend := normalizeConnectionType(conn.Backend)
 	if req.Type == "http-api" && backend == "" && normalizeConnectionType(conn.Type) == "http-api" {
@@ -274,22 +259,62 @@ func effectiveBackendForRequirement(req configureConnectionRequirement, conn con
 	return backend
 }
 
+func llmBackendMatchKeys(backend string) []string {
+	backend = normalizeConnectionType(backend)
+	if backend == "" {
+		return nil
+	}
+	keys := []string{backend}
+	seen := map[string]struct{}{backend: {}}
+	add := func(key string) {
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	switch backend {
+	case "bedrock":
+		add("anthropic")
+	case "google-ai":
+		add("google")
+	case "azure-openai", "ollama", "groq", "together", "fireworks", "openrouter", "mistral":
+		add("openai-compatible")
+	}
+	return keys
+}
+
+func llmBackendAllowed(candidate string, allowed map[string]struct{}) bool {
+	for _, key := range llmBackendMatchKeys(candidate) {
+		if _, ok := allowed[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func filterConnectionsForRequirement(req configureConnectionRequirement, conns []connectionSummary) []connectionSummary {
 	if len(req.Backends) == 0 {
 		return conns
 	}
 	allowed := make(map[string]struct{}, len(req.Backends))
 	for _, backend := range req.Backends {
-		if req.Type == "llm-provider" {
-			backend = canonicalLLMBackend(backend)
-		} else {
-			backend = normalizeConnectionType(backend)
-		}
+		backend = normalizeConnectionType(backend)
 		allowed[backend] = struct{}{}
 	}
 	filtered := make([]connectionSummary, 0, len(conns))
 	for _, conn := range conns {
-		if _, ok := allowed[effectiveBackendForRequirement(req, conn)]; ok {
+		effective := effectiveBackendForRequirement(req, conn)
+		if req.Type == "llm-provider" {
+			if llmBackendAllowed(effective, allowed) {
+				filtered = append(filtered, conn)
+			}
+			continue
+		}
+		if _, ok := allowed[effective]; ok {
 			filtered = append(filtered, conn)
 		}
 	}

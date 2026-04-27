@@ -109,6 +109,42 @@ func TestApplyDefaultConnectionReuseAllowsCompatibleHTTPConnectionForLLM(t *test
 	}
 }
 
+func TestApplyDefaultConnectionReuseRespectsRequiredLLMBackends(t *testing.T) {
+	template := map[string]any{
+		"bindings": map[string]any{},
+	}
+	requirements := []any{
+		map[string]any{
+			"slot":     "router",
+			"type":     "llm-provider",
+			"backends": []any{"openrouter"},
+		},
+		map[string]any{
+			"slot":     "mistral",
+			"type":     "llm-provider",
+			"backends": []any{"mistral"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-router", Name: "OpenRouter", Type: "llm-provider", Backend: "openrouter"},
+			{ID: "conn-mistral", Name: "Mistral", Type: "llm-provider", Backend: "mistral"},
+		},
+	}
+
+	applyDefaultConnectionReuse(template, requirements, connectionsByType)
+
+	bindings, _ := template["bindings"].(map[string]any)
+	routerBinding, _ := bindings["router"].(map[string]any)
+	mistralBinding, _ := bindings["mistral"].(map[string]any)
+	if routerBinding["conn"] != "conn-router" {
+		t.Fatalf("expected openrouter slot to reuse conn-router, got %#v", routerBinding)
+	}
+	if mistralBinding["conn"] != "conn-mistral" {
+		t.Fatalf("expected mistral slot to reuse conn-mistral, got %#v", mistralBinding)
+	}
+}
+
 func TestBuildConfigureSuggestionsAllowsCompatibleHTTPConnectionForLLM(t *testing.T) {
 	requirements := []any{
 		map[string]any{
@@ -289,6 +325,64 @@ func TestBuildConfigureSuggestionsPreservesExplicitOpenAICompatibleBackends(t *t
 	}
 	if len(setArgs) != 2 {
 		t.Fatalf("expected two set args, got %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsDoesNotCollapseExplicitOpenAICompatibleBackends(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "router",
+			"type":     "llm-provider",
+			"backends": []any{"openrouter"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-mistral", Name: "Mistral", Type: "llm-provider", Backend: "mistral"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "unresolved" {
+		t.Fatalf("expected explicit openrouter requirement to remain unresolved, got %#v", rows[0])
+	}
+	if len(setArgs) != 0 {
+		t.Fatalf("expected no set args, got %#v", setArgs)
+	}
+	if len(unresolved) != 1 || unresolved[0] != "router" {
+		t.Fatalf("expected router unresolved, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsAllowsBroadOpenAICompatibleBackend(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":     "llm",
+			"type":     "llm-provider",
+			"backends": []any{"openai-compatible"},
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-router", Name: "OpenRouter", Type: "llm-provider", Backend: "openrouter"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "suggested" || rows[0].SuggestedConnectionID != "conn-router" {
+		t.Fatalf("expected broad openai-compatible requirement to allow openrouter, got %#v", rows[0])
+	}
+	if len(setArgs) != 1 || setArgs[0] != "llm.conn=conn-router" {
+		t.Fatalf("unexpected set args: %#v", setArgs)
 	}
 	if len(unresolved) != 0 {
 		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
