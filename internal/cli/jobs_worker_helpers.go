@@ -1018,6 +1018,10 @@ func detectJobsWorkerContentType(path string, explicit string, file *os.File) (s
 		return trimmed, nil
 	}
 	if ext := strings.TrimSpace(filepath.Ext(path)); ext != "" {
+		switch strings.ToLower(ext) {
+		case ".md", ".markdown":
+			return "text/markdown; charset=utf-8", nil
+		}
 		if guessed := strings.TrimSpace(mime.TypeByExtension(ext)); guessed != "" {
 			return guessed, nil
 		}

@@ -45,6 +45,18 @@ func TestPrepareJobsWorkerFiles_PersistsPrivateStateFiles(t *testing.T) {
 	}
 }
 
+func TestDetectJobsWorkerContentType_MarkdownExtensionsAreStable(t *testing.T) {
+	for _, path := range []string{"report.md", "report.markdown", "REPORT.MD"} {
+		got, err := detectJobsWorkerContentType(path, "", nil)
+		if err != nil {
+			t.Fatalf("detect content type for %s: %v", path, err)
+		}
+		if got != "text/markdown; charset=utf-8" {
+			t.Fatalf("expected markdown content type for %s, got %q", path, got)
+		}
+	}
+}
+
 func TestJobsWorkerHeartbeatInterval_BoundsToLeaseDuration(t *testing.T) {
 	tests := []struct {
 		name          string
