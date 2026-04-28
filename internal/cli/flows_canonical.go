@@ -174,6 +174,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Default:
 - breyta flows run <flow-slug> [--input '{...}'] [--wait]
+- brand-new unreleased flows: add --target draft while authoring, or release first
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
