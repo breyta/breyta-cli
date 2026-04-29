@@ -48,6 +48,10 @@ breyta auth whoami
 breyta flows search "<idea>"
 ```
 
+When a flow touches external APIs or LLM models, check current official provider
+docs/API references or model-list endpoints before choosing request shapes,
+auth assumptions, limits, or model ids.
+
 To browse public installable end-user flows for your current workspace instead,
 use:
 
@@ -438,6 +442,9 @@ The flow/runtime surface is mirrored here through the native `:table` step and t
   - `breyta docs`
   - `breyta docs find "<query>"`
   - `breyta docs show <slug>`
+- External provider/API truth: use current official provider docs/API
+  references or model-list endpoints before choosing model ids, endpoints,
+  request shapes, auth assumptions, or limits.
 - Command usage:
   - `breyta help <command...>`
 

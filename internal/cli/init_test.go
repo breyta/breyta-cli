@@ -94,6 +94,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Start new work with approved template discovery: `breyta flows search <query>`") {
 		t.Fatalf("unexpected agents content (missing search-first guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "check against current official provider docs/API references or model-list endpoints") {
+		t.Fatalf("unexpected agents content (missing provider/API freshness guidance): %s", string(agents))
+	}
 	if strings.Contains(string(agents), "## Stop gate") {
 		t.Fatalf("unexpected agents content (AGENTS.md should stay evergreen): %s", string(agents))
 	}
@@ -223,6 +226,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "When a command fails, prefer the exact page from `error.actions[].url` first, then `meta.webUrl`.") {
 		t.Fatalf("unexpected readme content (missing recovery URL guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "External provider/API truth: check current official provider docs/API references or model-list endpoints") {
+		t.Fatalf("unexpected readme content (missing provider/API freshness guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Release once to live after draft is verified and approved, using `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected readme content (missing release-note workflow): %s", string(readme))
