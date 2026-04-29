@@ -33,8 +33,10 @@ type cacheFile struct {
 }
 
 type SyncResult struct {
-	InstalledProviders []skills.Provider `json:"installedProviders,omitempty"`
-	SyncedProviders    []skills.Provider `json:"syncedProviders,omitempty"`
+	InstalledProviders []skills.Provider                `json:"installedProviders,omitempty"`
+	SyncedProviders    []skills.Provider                `json:"syncedProviders,omitempty"`
+	DuplicateSkills    []skills.DuplicateInstalledSkill `json:"duplicateSkills,omitempty"`
+	Warnings           []string                         `json:"warnings,omitempty"`
 }
 
 func cachePath() (string, error) {
@@ -128,6 +130,39 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 	return synced, firstErr
 }
 
+func duplicateBreytaSkills(home string, providers []skills.Provider) []skills.DuplicateInstalledSkill {
+	duplicates := []skills.DuplicateInstalledSkill{}
+	for _, provider := range providers {
+		found, err := skills.FindDuplicateBreytaSkills(home, provider)
+		if err != nil {
+			continue
+		}
+		duplicates = append(duplicates, found...)
+	}
+	return duplicates
+}
+
+func duplicateSkillWarnings(duplicates []skills.DuplicateInstalledSkill) []string {
+	if len(duplicates) == 0 {
+		return nil
+	}
+	byProvider := map[skills.Provider][]skills.DuplicateInstalledSkill{}
+	providers := []skills.Provider{}
+	for _, duplicate := range duplicates {
+		if _, ok := byProvider[duplicate.Provider]; !ok {
+			providers = append(providers, duplicate.Provider)
+		}
+		byProvider[duplicate.Provider] = append(byProvider[duplicate.Provider], duplicate)
+	}
+	warnings := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		if warning := skills.DuplicateBreytaSkillWarning(provider, byProvider[provider]); warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	return warnings
+}
+
 // SyncInstalledNow refreshes already-installed Breyta skills for all detected providers.
 func SyncInstalledNow(ctx context.Context, apiURL, token string) (SyncResult, error) {
 	apiURL = strings.TrimSpace(apiURL)
@@ -152,15 +187,21 @@ func SyncInstalledNow(ctx context.Context, apiURL, token string) (SyncResult, er
 	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 
 	synced, err := syncProviders(home, providers, files)
+	duplicates := duplicateBreytaSkills(home, providers)
+	warnings := duplicateSkillWarnings(duplicates)
 	if err != nil {
 		return SyncResult{
 			InstalledProviders: providers,
 			SyncedProviders:    synced,
+			DuplicateSkills:    duplicates,
+			Warnings:           warnings,
 		}, err
 	}
 	return SyncResult{
 		InstalledProviders: providers,
 		SyncedProviders:    synced,
+		DuplicateSkills:    duplicates,
+		Warnings:           warnings,
 	}, nil
 }
 

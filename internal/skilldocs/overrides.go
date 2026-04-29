@@ -15,6 +15,12 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 
 	original := string(raw)
 	updated := original
+
+	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
+		strings.Contains(updated, "## Public Flow Presentation") &&
+		strings.Contains(updated, "## Model Selection") &&
+		strings.Contains(updated, "## Output Guidance")
+
 	replacements := [][2]string{
 		{
 			"- Reuse existing workspace connections before creating new ones.",
@@ -60,6 +66,17 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 
 	for _, pair := range replacements {
 		updated = strings.ReplaceAll(updated, pair[0], pair[1])
+	}
+	if currentCanonicalSkill {
+		if updated == original {
+			return files
+		}
+		cloned := make(map[string][]byte, len(files))
+		for k, v := range files {
+			cloned[k] = v
+		}
+		cloned["SKILL.md"] = []byte(updated)
+		return cloned
 	}
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)

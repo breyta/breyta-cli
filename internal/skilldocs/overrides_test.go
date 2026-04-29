@@ -60,6 +60,40 @@ func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Create/Edit Preflight",
+			"- bounded discovery",
+			"",
+			"## Public Flow Presentation",
+			"- end-user landing page",
+			"",
+			"## Model Selection",
+			"- avoid stale models",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	for _, unexpected := range []string{
+		"## Workflow architecture planning (Required before build)",
+		"## Reliability + determinism planning (Required before push)",
+		"## Readability + Searchability Naming Conventions (Required)",
+		"## Doc lookup patterns (Required before guessing implementation details)",
+	} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("expected current canonical skill to stay compact, found %q in:\n%s", unexpected, body)
+		}
+	}
+	if !strings.Contains(body, "## Output Guidance") {
+		t.Fatalf("expected canonical sections preserved, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{

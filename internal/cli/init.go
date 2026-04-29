@@ -95,6 +95,7 @@ breyta init --dir ./my-breyta-workspace --force
 						skillInstalled = true
 
 						fmt.Fprintf(cmd.OutOrStdout(), "Installed Breyta agent skill bundle for %s in %s\n", target.Provider, target.Dir)
+						warnDuplicateBreytaSkills(cmd, home, p)
 					}
 				}
 			}

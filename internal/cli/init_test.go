@@ -303,6 +303,40 @@ func TestInit_GeminiProvider_InstallsSkill(t *testing.T) {
 	}
 }
 
+func TestInitWarnsOnDuplicateBreytaSkillName(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+	duplicatePath := filepath.Join(homeDir, ".codex", "skills", "legacy-breyta", "SKILL.md")
+	duplicateContent := []byte("---\nname: breyta\n---\n# Legacy Breyta skill\n")
+	if err := os.MkdirAll(filepath.Dir(duplicatePath), 0o755); err != nil {
+		t.Fatalf("mkdir duplicate skill dir: %v", err)
+	}
+	if err := os.WriteFile(duplicatePath, duplicateContent, 0o644); err != nil {
+		t.Fatalf("seed duplicate skill file: %v", err)
+	}
+
+	srv := newTestSkillBundleServer(t, []byte("---\nname: breyta\n---\n# Breyta Skill\n"))
+	defer srv.Close()
+
+	stdout, stderr, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "frontmatter name \"breyta\"") ||
+		!strings.Contains(stderr, duplicatePath) ||
+		!strings.Contains(stderr, "left it untouched") {
+		t.Fatalf("expected duplicate skill warning, got stderr: %s", stderr)
+	}
+
+	gotContent, err := os.ReadFile(duplicatePath)
+	if err != nil {
+		t.Fatalf("read duplicate skill file: %v", err)
+	}
+	if string(gotContent) != string(duplicateContent) {
+		t.Fatalf("duplicate skill file was modified:\nwant %q\ngot  %q", string(duplicateContent), string(gotContent))
+	}
+}
+
 func TestInit_SkillInstallFailure_RendersNotInstalledInAgents(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := filepath.Join(t.TempDir(), "ws")
