@@ -17,10 +17,13 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated := original
 
 	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
-		strings.Contains(updated, "## Public Flow Presentation") &&
+		(strings.Contains(updated, "## Public Flow Presentation") ||
+			strings.Contains(updated, "## Public Approval Gate")) &&
 		(strings.Contains(updated, "## Model Selection") ||
 			strings.Contains(updated, "## Provider/API Freshness And Model Selection")) &&
-		strings.Contains(updated, "## Output Guidance")
+		strings.Contains(updated, "## Output Guidance") &&
+		(strings.Contains(updated, "## Reference Loading Matrix") ||
+			strings.Contains(updated, "## Public Flow Presentation"))
 
 	replacements := [][2]string{
 		{

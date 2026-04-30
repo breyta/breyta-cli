@@ -62,6 +62,9 @@ breyta flows discover search "<idea>"
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
+The skill bundle can include `SKILL.md` plus bundled `references/` files; agents
+should read `SKILL.md` first and load the referenced file for the task surface
+they are editing.
 
 If `breyta auth whoami` shows multiple workspaces or no default workspace
 selected, use:

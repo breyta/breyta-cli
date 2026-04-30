@@ -238,11 +238,12 @@ Some agent tools can ingest a global skill bundle automatically, but not all do.
 
 ` + skillLine + `
 - (Re)install / update it with: ` + "`breyta skills install --provider " + string(target.Provider) + "`" + `
+- The bundle may include ` + "`SKILL.md`" + ` plus ` + "`references/`" + `. Read ` + "`SKILL.md`" + ` first, then load the reference it names for the task surface before creating or editing flows.
 
 If you want the agent to *always* use the skill when Breyta is involved, explicitly mention it in your project/root instructions (this file, or a root ` + "`AGENTS.md`" + ` equivalent).
 
 Suggested line to paste into your agent's persistent project instructions:
-- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), use the ` + "`breyta`" + ` CLI, search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text), and check current official provider docs/API references or model-list endpoints before choosing external API shapes or model ids."
+- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), load the relevant bundled ` + "`references/`" + ` file named by ` + "`SKILL.md`" + ` before creating or editing flows, use the ` + "`breyta`" + ` CLI, search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text), and check current official provider docs/API references or model-list endpoints before choosing external API shapes or model ids."
 
 ## Release hygiene (required)
 - Iterate in ` + "`draft`" + ` while editing and debugging.
@@ -348,6 +349,7 @@ Suggested line to paste into your agent's persistent project instructions:
 - External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
+- Skill references: read ` + "`SKILL.md`" + ` first, then load the bundled ` + "`references/`" + ` file named for the task surface before creating or editing flows.
 
 ## Recovery URLs (when commands fail)
 - Prefer exact recovery URLs from failures: ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.

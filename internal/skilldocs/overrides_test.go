@@ -63,11 +63,16 @@ func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
+			"## Reference Loading Matrix",
+			"- creating/editing: `references/authoring-loop.md`",
+			"- public flows: `references/public-flows.md`",
+			"- outputs/tables: `references/outputs-and-tables.md`",
+			"",
 			"## Create/Edit Preflight",
 			"- bounded discovery",
 			"",
-			"## Public Flow Presentation",
-			"- end-user landing page",
+			"## Public Approval Gate",
+			"- end-user landing page approval",
 			"",
 			"## Provider/API Freshness And Model Selection",
 			"- check current official provider docs/API references",
@@ -75,6 +80,7 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 			"## Output Guidance",
 			"- include full URLs",
 		}, "\n")),
+		"references/public-flows.md": []byte("# Public Flows\n"),
 	}
 
 	got := ApplyCLIOverrides("breyta", input)
@@ -91,6 +97,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	}
 	if !strings.Contains(body, "## Output Guidance") {
 		t.Fatalf("expected canonical sections preserved, got:\n%s", body)
+	}
+	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
+		t.Fatalf("expected reference file preserved")
 	}
 }
 
