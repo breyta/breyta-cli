@@ -15,7 +15,61 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 
 	original := string(raw)
 	updated := original
+
+	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
+		(strings.Contains(updated, "## Public Flow Presentation") ||
+			strings.Contains(updated, "## Public Approval Gate")) &&
+		(strings.Contains(updated, "## Model Selection") ||
+			strings.Contains(updated, "## Provider/API Freshness And Model Selection")) &&
+		strings.Contains(updated, "## Output Guidance") &&
+		(strings.Contains(updated, "## Reference Loading Matrix") ||
+			strings.Contains(updated, "## Public Flow Presentation"))
+
 	replacements := [][2]string{
+		{
+			"inspect docs/bindings/tables/fanout/outputs/OpenAI models, and report full",
+			"inspect docs/bindings/tables/fanout/outputs/provider APIs/models, and report full",
+		},
+		{
+			"touching OpenAI-backed LLM steps.",
+			"touching external API calls or LLM provider/model config.",
+		},
+		{
+			"- For new or changed OpenAI model config, avoid stale GPT-4-era defaults. Check current OpenAI model guidance and relevant Breyta examples/docs; preserve an explicit user-requested target such as `gpt-5.4`. As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
+			"- For new or changed external API, LLM provider, or model config, avoid stale training-data defaults. Do a quick source-of-truth check against current official provider docs/API references and relevant Breyta docs/examples before choosing endpoints, request shape, auth, rate-limit assumptions, or model ids. For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability; do not claim or use unreleased models such as `gpt-5.5` without provider/API proof.",
+		},
+		{
+			"- OpenAI models: check current OpenAI docs before introducing or changing model ids",
+			"- external APIs/models: check current official provider docs/API references before introducing or changing endpoints, request bodies, auth, limits, or model ids",
+		},
+		{
+			"## Model Selection\n\n- Do not default new OpenAI-backed LLM steps to GPT-4-era model names.\n- Before adding or changing OpenAI model ids, check current OpenAI model guidance and relevant Breyta docs/examples.\n- As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.\n- Preserve explicit user requests, such as `gpt-5.4`, even when newer models exist.\n- When editing existing flows, keep legacy models only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current approved GPT-5.x model.",
+			providerAPIFreshnessSection,
+		},
+		{
+			"## Model Selection",
+			"## Provider/API Freshness And Model Selection",
+		},
+		{
+			"- Do not default new OpenAI-backed LLM steps to GPT-4-era model names.",
+			"- Do not rely on model training data for current API shape, provider behavior, or model availability.",
+		},
+		{
+			"- Before adding or changing OpenAI model ids, check current OpenAI model guidance and relevant Breyta docs/examples.",
+			"- Before adding or changing any external API integration, check current official provider docs/API references plus relevant Breyta docs/examples. Apply this to OpenAI, Anthropic/Claude, Google/Gemini, OpenAI-compatible providers, HTTP APIs, databases, and any vendor a flow calls.\n- Before adding or changing model ids, check the provider's current model docs or model-list API when credentials/tooling are available. Verify the exact model id with a draft run or isolated step run before release when feasible.\n- For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability in the target environment.",
+		},
+		{
+			"- As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
+			"- Do not claim or use unreleased provider models, such as `gpt-5.5`, without provider/API proof.",
+		},
+		{
+			"- Preserve explicit user requests, such as `gpt-5.4`, even when newer models exist.",
+			"- Preserve explicit user requests, such as `gpt-5.4` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable.",
+		},
+		{
+			"- When editing existing flows, keep legacy models only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current approved GPT-5.x model.",
+			"- When editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice.",
+		},
 		{
 			"- Reuse existing workspace connections before creating new ones.",
 			"- Inventory and validate existing workspace connections before creating new ones.",
@@ -61,6 +115,17 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	for _, pair := range replacements {
 		updated = strings.ReplaceAll(updated, pair[0], pair[1])
 	}
+	if currentCanonicalSkill {
+		if updated == original {
+			return files
+		}
+		cloned := make(map[string][]byte, len(files))
+		for k, v := range files {
+			cloned[k] = v
+		}
+		cloned["SKILL.md"] = []byte(updated)
+		return cloned
+	}
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)
 	updated = ensureProvenanceSection(updated)
@@ -69,6 +134,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureNamingConventionsSection(updated)
 	updated = ensureSolutionSurfacesSection(updated)
 	updated = ensureDocSearchPatternsSection(updated)
+	updated = ensureProviderAPIFreshnessSection(updated)
 	if updated == original {
 		return files
 	}
@@ -314,6 +380,20 @@ Escalation path when the first search misses:
 5. error text
 6. only then infer a fallback`
 
+const providerAPIFreshnessSection = `## Provider/API Freshness And Model Selection
+
+Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and model ids.
+
+- do not rely on model training data for current API shape, provider behavior, or model availability
+- before adding or changing any external API integration, check current official provider docs/API references plus relevant Breyta docs/examples
+- apply this to OpenAI, Anthropic/Claude, Google/Gemini, OpenAI-compatible providers, HTTP APIs, databases, and any vendor a flow calls
+- before adding or changing model ids, check the provider's current model docs or model-list API when credentials/tooling are available
+- verify the exact model id with a draft run or isolated step run before release when feasible
+- for OpenAI-backed steps, use ` + "`gpt-5.4`" + ` as Breyta's current API default where a default is needed, but still verify availability in the target environment
+- do not claim or use unreleased provider models, such as ` + "`gpt-5.5`" + `, without provider/API proof
+- preserve explicit user requests, such as ` + "`gpt-5.4`" + ` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable
+- when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -411,6 +491,19 @@ func ensureDocSearchPatternsSection(body string) string {
 		return body[:headingPos] + docSearchPatternsSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + docSearchPatternsSection + "\n"
+}
+
+func ensureProviderAPIFreshnessSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Provider/API Freshness And Model Selection") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Model Selection"); headingPos >= 0 {
+		return body[:headingPos] + providerAPIFreshnessSection + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Output Guidance"); headingPos >= 0 {
+		return body[:headingPos] + providerAPIFreshnessSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + providerAPIFreshnessSection + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {

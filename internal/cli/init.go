@@ -95,6 +95,7 @@ breyta init --dir ./my-breyta-workspace --force
 						skillInstalled = true
 
 						fmt.Fprintf(cmd.OutOrStdout(), "Installed Breyta agent skill bundle for %s in %s\n", target.Provider, target.Dir)
+						warnDuplicateBreytaSkills(cmd, home, p)
 					}
 				}
 			}
@@ -223,6 +224,7 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
   - command path
   - source filter
   - error text
+- For external APIs and LLM models, do a quick source-of-truth check against current official provider docs/API references or model-list endpoints before choosing endpoints, request shapes, auth assumptions, limits, or model ids.
 
 ## Where to keep flow files
 - ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)
@@ -236,11 +238,12 @@ Some agent tools can ingest a global skill bundle automatically, but not all do.
 
 ` + skillLine + `
 - (Re)install / update it with: ` + "`breyta skills install --provider " + string(target.Provider) + "`" + `
+- The bundle may include ` + "`SKILL.md`" + ` plus ` + "`references/`" + `. Read ` + "`SKILL.md`" + ` first, then load the reference it names for the task surface before creating or editing flows.
 
 If you want the agent to *always* use the skill when Breyta is involved, explicitly mention it in your project/root instructions (this file, or a root ` + "`AGENTS.md`" + ` equivalent).
 
 Suggested line to paste into your agent's persistent project instructions:
-- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), use the ` + "`breyta`" + ` CLI, and search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text) before guessing implementation details."
+- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), load the relevant bundled ` + "`references/`" + ` file named by ` + "`SKILL.md`" + ` before creating or editing flows, use the ` + "`breyta`" + ` CLI, search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text), and check current official provider docs/API references or model-list endpoints before choosing external API shapes or model ids."
 
 ## Release hygiene (required)
 - Iterate in ` + "`draft`" + ` while editing and debugging.
@@ -343,8 +346,10 @@ Suggested line to paste into your agent's persistent project instructions:
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
   - then open the best hit with ` + "`breyta docs show <slug>`" + `
+- External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
+- Skill references: read ` + "`SKILL.md`" + ` first, then load the bundled ` + "`references/`" + ` file named for the task surface before creating or editing flows.
 
 ## Recovery URLs (when commands fail)
 - Prefer exact recovery URLs from failures: ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
@@ -430,6 +435,7 @@ Advanced ideas:
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
   - then open the best hit with ` + "`breyta docs show <slug>`" + `
+- External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
 - Command help: ` + "`breyta help <command...>`" + `
 `)
 }

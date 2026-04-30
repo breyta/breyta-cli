@@ -60,6 +60,89 @@ func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Reference Loading Matrix",
+			"- creating/editing: `references/authoring-loop.md`",
+			"- public flows: `references/public-flows.md`",
+			"- outputs/tables: `references/outputs-and-tables.md`",
+			"",
+			"## Create/Edit Preflight",
+			"- bounded discovery",
+			"",
+			"## Public Approval Gate",
+			"- end-user landing page approval",
+			"",
+			"## Provider/API Freshness And Model Selection",
+			"- check current official provider docs/API references",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+		"references/public-flows.md": []byte("# Public Flows\n"),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	for _, unexpected := range []string{
+		"## Workflow architecture planning (Required before build)",
+		"## Reliability + determinism planning (Required before push)",
+		"## Readability + Searchability Naming Conventions (Required)",
+		"## Doc lookup patterns (Required before guessing implementation details)",
+	} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("expected current canonical skill to stay compact, found %q in:\n%s", unexpected, body)
+		}
+	}
+	if !strings.Contains(body, "## Output Guidance") {
+		t.Fatalf("expected canonical sections preserved, got:\n%s", body)
+	}
+	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
+		t.Fatalf("expected reference file preserved")
+	}
+}
+
+func TestApplyCLIOverrides_BreytaCanonicalSkillRewritesStaleModelGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Create/Edit Preflight",
+			"- OpenAI models: check current OpenAI docs before introducing or changing model ids",
+			"",
+			"## Public Flow Presentation",
+			"- end-user landing page",
+			"",
+			"## Model Selection",
+			"- Do not default new OpenAI-backed LLM steps to GPT-4-era model names.",
+			"- Before adding or changing OpenAI model ids, check current OpenAI model guidance and relevant Breyta docs/examples.",
+			"- As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
+			"- Preserve explicit user requests, such as `gpt-5.4`, even when newer models exist.",
+			"- When editing existing flows, keep legacy models only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current approved GPT-5.x model.",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Contains(body, "As of the current OpenAI latest-model guide") {
+		t.Fatalf("expected fixed latest-model claim removed, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
+		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "use `gpt-5.4` as Breyta's current API default") {
+		t.Fatalf("expected gpt-5.4 current API default guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Do not claim or use unreleased provider models, such as `gpt-5.5`, without provider/API proof") {
+		t.Fatalf("expected unreleased model guardrail, got:\n%s", body)
+	}
+	if !strings.Contains(body, "check current official provider docs/API references") {
+		t.Fatalf("expected official provider docs/API guidance, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
@@ -135,6 +218,12 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
+		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "OpenAI, Anthropic/Claude, Google/Gemini, OpenAI-compatible providers") {
+		t.Fatalf("expected broad provider guidance, got:\n%s", body)
 	}
 	workflowPos := strings.Index(body, "## Workflow architecture planning (Required before build)")
 	reliabilityPos := strings.Index(body, "## Reliability + determinism planning (Required before push)")

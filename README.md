@@ -48,6 +48,10 @@ breyta auth whoami
 breyta flows search "<idea>"
 ```
 
+When a flow touches external APIs or LLM models, check current official provider
+docs/API references or model-list endpoints before choosing request shapes,
+auth assumptions, limits, or model ids.
+
 To browse public installable end-user flows for your current workspace instead,
 use:
 
@@ -58,6 +62,9 @@ breyta flows discover search "<idea>"
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
+The skill bundle can include `SKILL.md` plus bundled `references/` files; agents
+should read `SKILL.md` first and load the referenced file for the task surface
+they are editing.
 
 If `breyta auth whoami` shows multiple workspaces or no default workspace
 selected, use:
@@ -438,6 +445,9 @@ The flow/runtime surface is mirrored here through the native `:table` step and t
   - `breyta docs`
   - `breyta docs find "<query>"`
   - `breyta docs show <slug>`
+- External provider/API truth: use current official provider docs/API
+  references or model-list endpoints before choosing model ids, endpoints,
+  request shapes, auth assumptions, or limits.
 - Command usage:
   - `breyta help <command...>`
 

@@ -663,7 +663,7 @@ dispatcher as normal flows.
 
 Examples:
   breyta steps run --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}'
-  breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.2"}'
+  breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.4"}'
   breyta steps run --type llm --id summarize --params-file ./params.json
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
