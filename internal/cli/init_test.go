@@ -49,11 +49,14 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 					"signature":     "",
 					"files": []map[string]any{
 						{"path": "SKILL.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
+						{"path": "references/authoring-loop.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
 					},
 				},
 			})
 		case "/api/docs/skills/breyta/files/SKILL.md":
 			_, _ = w.Write([]byte("# Breyta Skill\n\nUse `breyta docs`.\n"))
+		case "/api/docs/skills/breyta/files/references/authoring-loop.md":
+			_, _ = w.Write([]byte("# Authoring Loop\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -85,6 +88,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "- Breyta skill bundle:") {
 		t.Fatalf("unexpected agents content (missing skill bundle line): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "The bundle may include `SKILL.md` plus `references/`. Read `SKILL.md` first") {
+		t.Fatalf("unexpected agents content (missing skill references guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "load the relevant bundled `references/` file named by `SKILL.md` before creating or editing flows") {
+		t.Fatalf("unexpected agents content (missing persistent references guidance): %s", string(agents))
+	}
 	if strings.Contains(string(agents), "(Not installed)") {
 		t.Fatalf("unexpected agents content (expected installed): %s", string(agents))
 	}
@@ -93,6 +102,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(agents), "Start new work with approved template discovery: `breyta flows search <query>`") {
 		t.Fatalf("unexpected agents content (missing search-first guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "check against current official provider docs/API references or model-list endpoints") {
+		t.Fatalf("unexpected agents content (missing provider/API freshness guidance): %s", string(agents))
 	}
 	if strings.Contains(string(agents), "## Stop gate") {
 		t.Fatalf("unexpected agents content (AGENTS.md should stay evergreen): %s", string(agents))
@@ -199,6 +211,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "include the exact recovery URL in runtime proof instead of generic \"go to billing/setup\" text") {
 		t.Fatalf("unexpected agents content (missing runtime proof recovery guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Skill references: read `SKILL.md` first, then load the bundled `references/` file named for the task surface before creating or editing flows.") {
+		t.Fatalf("unexpected agents content (missing docs skill reference guidance): %s", string(agents))
+	}
 	readme, err := os.ReadFile(filepath.Join(wsDir, "README.md"))
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
@@ -223,6 +238,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "When a command fails, prefer the exact page from `error.actions[].url` first, then `meta.webUrl`.") {
 		t.Fatalf("unexpected readme content (missing recovery URL guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "External provider/API truth: check current official provider docs/API references or model-list endpoints") {
+		t.Fatalf("unexpected readme content (missing provider/API freshness guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Release once to live after draft is verified and approved, using `breyta flows release <slug> --release-note-file ./release-note.md`") {
 		t.Fatalf("unexpected readme content (missing release-note workflow): %s", string(readme))
@@ -256,6 +274,14 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "Breyta Skill") {
 		t.Fatalf("unexpected skill file content: %s", string(b))
+	}
+	refPath := filepath.Join(homeDir, ".codex", "skills", "breyta", "references", "authoring-loop.md")
+	ref, err := os.ReadFile(refPath)
+	if err != nil {
+		t.Fatalf("expected skill reference file to exist: %s: %v", refPath, err)
+	}
+	if !strings.Contains(string(ref), "Authoring Loop") {
+		t.Fatalf("unexpected reference file content: %s", string(ref))
 	}
 }
 
@@ -300,6 +326,40 @@ func TestInit_GeminiProvider_InstallsSkill(t *testing.T) {
 	skillPath := filepath.Join(homeDir, ".gemini", "skills", "breyta", "SKILL.md")
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Fatalf("expected skill file to exist: %s: %v", skillPath, err)
+	}
+}
+
+func TestInitWarnsOnDuplicateBreytaSkillName(t *testing.T) {
+	homeDir := t.TempDir()
+	wsDir := filepath.Join(t.TempDir(), "ws")
+	duplicatePath := filepath.Join(homeDir, ".codex", "skills", "legacy-breyta", "SKILL.md")
+	duplicateContent := []byte("---\nname: breyta\n---\n# Legacy Breyta skill\n")
+	if err := os.MkdirAll(filepath.Dir(duplicatePath), 0o755); err != nil {
+		t.Fatalf("mkdir duplicate skill dir: %v", err)
+	}
+	if err := os.WriteFile(duplicatePath, duplicateContent, 0o644); err != nil {
+		t.Fatalf("seed duplicate skill file: %v", err)
+	}
+
+	srv := newTestSkillBundleServer(t, []byte("---\nname: breyta\n---\n# Breyta Skill\n"))
+	defer srv.Close()
+
+	stdout, stderr, err := runInit(t, homeDir, "--dev", "--api", srv.URL, "init", "--provider", "codex", "--dir", wsDir)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "frontmatter name \"breyta\"") ||
+		!strings.Contains(stderr, duplicatePath) ||
+		!strings.Contains(stderr, "left it untouched") {
+		t.Fatalf("expected duplicate skill warning, got stderr: %s", stderr)
+	}
+
+	gotContent, err := os.ReadFile(duplicatePath)
+	if err != nil {
+		t.Fatalf("read duplicate skill file: %v", err)
+	}
+	if string(gotContent) != string(duplicateContent) {
+		t.Fatalf("duplicate skill file was modified:\nwant %q\ngot  %q", string(duplicateContent), string(gotContent))
 	}
 }
 

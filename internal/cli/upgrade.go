@@ -101,16 +101,30 @@ func newUpgradeCmd(app *App) *cobra.Command {
 					if skillsOnly {
 						return writeErr(cmd, err)
 					}
-					data["skills"] = map[string]any{
+					skillsData := map[string]any{
 						"requested": true,
 						"error":     err.Error(),
 					}
+					if len(res.DuplicateSkills) > 0 {
+						skillsData["duplicateSkills"] = res.DuplicateSkills
+					}
+					if len(res.Warnings) > 0 {
+						skillsData["warnings"] = res.Warnings
+					}
+					data["skills"] = skillsData
 				} else {
-					data["skills"] = map[string]any{
+					skillsData := map[string]any{
 						"requested":          true,
 						"installedProviders": res.InstalledProviders,
 						"syncedProviders":    res.SyncedProviders,
 					}
+					if len(res.DuplicateSkills) > 0 {
+						skillsData["duplicateSkills"] = res.DuplicateSkills
+					}
+					if len(res.Warnings) > 0 {
+						skillsData["warnings"] = res.Warnings
+					}
+					data["skills"] = skillsData
 				}
 			}
 

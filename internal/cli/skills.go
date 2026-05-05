@@ -52,6 +52,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Installed skill in %s\n", target.Dir)
+			warnDuplicateBreytaSkills(cmd, home, p)
 			if verbose {
 				for _, installedPath := range paths {
 					fmt.Fprintln(cmd.OutOrStdout(), "installed:", installedPath)
@@ -64,4 +65,15 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", string(skills.ProviderCodex), "Install location (codex|cursor|claude|gemini)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print every installed file path")
 	return cmd
+}
+
+func warnDuplicateBreytaSkills(cmd *cobra.Command, home string, provider skills.Provider) {
+	duplicates, err := skills.FindDuplicateBreytaSkills(home, provider)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: duplicate skill check failed (%v)\n", err)
+		return
+	}
+	if warning := skills.DuplicateBreytaSkillWarning(provider, duplicates); warning != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), warning)
+	}
 }

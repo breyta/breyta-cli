@@ -49,6 +49,40 @@ func TestInstallBreytaSkillFiles_CursorTargetAndReferences(t *testing.T) {
 	}
 }
 
+func TestInstallBreytaSkillFiles_LeavesDuplicateNamedSkillUntouched(t *testing.T) {
+	home := t.TempDir()
+	duplicatePath := filepath.Join(home, ".codex", "skills", "legacy-breyta", "SKILL.md")
+	duplicateContent := []byte("---\nname: breyta\n---\n# Legacy Breyta skill\n")
+	if err := os.MkdirAll(filepath.Dir(duplicatePath), 0o755); err != nil {
+		t.Fatalf("mkdir duplicate skill dir: %v", err)
+	}
+	if err := os.WriteFile(duplicatePath, duplicateContent, 0o644); err != nil {
+		t.Fatalf("seed duplicate skill file: %v", err)
+	}
+
+	if _, err := InstallBreytaSkillFiles(home, ProviderCodex, map[string][]byte{
+		"SKILL.md": []byte("---\nname: breyta\n---\n# Managed Breyta skill\n"),
+	}); err != nil {
+		t.Fatalf("install files: %v", err)
+	}
+
+	gotContent, err := os.ReadFile(duplicatePath)
+	if err != nil {
+		t.Fatalf("read duplicate skill file: %v", err)
+	}
+	if string(gotContent) != string(duplicateContent) {
+		t.Fatalf("duplicate skill file was modified:\nwant %q\ngot  %q", string(duplicateContent), string(gotContent))
+	}
+
+	duplicates, err := FindDuplicateBreytaSkills(home, ProviderCodex)
+	if err != nil {
+		t.Fatalf("find duplicates: %v", err)
+	}
+	if len(duplicates) != 1 || duplicates[0].File != duplicatePath {
+		t.Fatalf("expected duplicate path %q, got %#v", duplicatePath, duplicates)
+	}
+}
+
 func TestSanitizeRelPath_RejectsAbsoluteAndWindowsPaths(t *testing.T) {
 	t.Parallel()
 

@@ -2,8 +2,12 @@ package skillsync
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,5 +99,78 @@ func TestMaybeSyncInstalledSavesCacheAfterPartialSyncError(t *testing.T) {
 	}
 	if !saved {
 		t.Fatalf("expected cache to be saved on partial sync success")
+	}
+}
+
+func TestSyncInstalledNowReportsDuplicateBreytaSkillNames(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	codexTarget, err := skills.Target(home, skills.ProviderCodex)
+	if err != nil {
+		t.Fatalf("codex target: %v", err)
+	}
+	if err := os.MkdirAll(codexTarget.Dir, 0o755); err != nil {
+		t.Fatalf("mkdir codex target: %v", err)
+	}
+	if err := os.WriteFile(codexTarget.File, []byte("---\nname: breyta\n---\n# Current Breyta skill\n"), 0o644); err != nil {
+		t.Fatalf("seed codex skill file: %v", err)
+	}
+
+	duplicatePath := filepath.Join(home, ".codex", "skills", "legacy-breyta", "SKILL.md")
+	duplicateContent := []byte("---\nname: breyta\n---\n# Legacy Breyta skill\n")
+	if err := os.MkdirAll(filepath.Dir(duplicatePath), 0o755); err != nil {
+		t.Fatalf("mkdir duplicate skill dir: %v", err)
+	}
+	if err := os.WriteFile(duplicatePath, duplicateContent, 0o644); err != nil {
+		t.Fatalf("seed duplicate skill file: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "test",
+					"minCliVersion": "0.0.0",
+					"keyId":         "test",
+					"signature":     "",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "sha256": "", "bytes": 0, "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			_, _ = w.Write([]byte("---\nname: breyta\n---\n# Synced Breyta skill\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	res, err := SyncInstalledNow(context.Background(), srv.URL, "")
+	if err != nil {
+		t.Fatalf("sync installed: %v", err)
+	}
+	if len(res.DuplicateSkills) != 1 || res.DuplicateSkills[0].File != duplicatePath {
+		t.Fatalf("expected duplicate path %q, got %#v", duplicatePath, res.DuplicateSkills)
+	}
+	if len(res.Warnings) != 1 ||
+		!strings.Contains(res.Warnings[0], "frontmatter name \"breyta\"") ||
+		!strings.Contains(res.Warnings[0], duplicatePath) ||
+		!strings.Contains(res.Warnings[0], "left it untouched") {
+		t.Fatalf("expected duplicate warning, got %#v", res.Warnings)
+	}
+
+	gotContent, err := os.ReadFile(duplicatePath)
+	if err != nil {
+		t.Fatalf("read duplicate skill file: %v", err)
+	}
+	if string(gotContent) != string(duplicateContent) {
+		t.Fatalf("duplicate skill file was modified:\nwant %q\ngot  %q", string(duplicateContent), string(gotContent))
 	}
 }
