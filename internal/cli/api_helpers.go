@@ -1001,6 +1001,132 @@ func writeErrorDocsHints(cmd *cobra.Command, out map[string]any) {
 	}
 }
 
+func apiWarningMaps(out map[string]any) []map[string]any {
+	meta := mapStringAny(out["meta"])
+	if meta == nil {
+		return nil
+	}
+	raw, ok := meta["warnings"]
+	if !ok {
+		return nil
+	}
+	appendWarning := func(dst []map[string]any, value any) []map[string]any {
+		if m := mapStringAny(value); m != nil {
+			return append(dst, m)
+		}
+		return dst
+	}
+	switch warnings := raw.(type) {
+	case []any:
+		out := make([]map[string]any, 0, len(warnings))
+		for _, warning := range warnings {
+			out = appendWarning(out, warning)
+		}
+		return out
+	case []map[string]any:
+		return warnings
+	case map[string]any:
+		return []map[string]any{warnings}
+	default:
+		return nil
+	}
+}
+
+func apiDeprecationWarningLines(app *App, out map[string]any) []string {
+	warnings := apiWarningMaps(out)
+	if len(warnings) == 0 {
+		return nil
+	}
+	baseRoot := ""
+	if app != nil {
+		baseRoot = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+	}
+	var lines []string
+	seen := map[string]struct{}{}
+	for _, warning := range warnings {
+		kind := strings.ToLower(firstNonBlankString(warning["kind"], warning["category"], warning["type"]))
+		code := strings.ToLower(firstNonBlankString(warning["code"]))
+		if kind != "deprecation" && !strings.HasPrefix(code, "deprecated_") {
+			continue
+		}
+		message := firstNonBlankString(warning["message"], warning["warning"], warning["title"])
+		if message == "" {
+			if code == "" {
+				continue
+			}
+			message = code
+		}
+		docsURL := firstNonBlankString(warning["docsUrl"], warning["docsURL"], warning["docs-url"], warning["documentationUrl"], warning["docUrl"])
+		if docsURL != "" {
+			docsURL = absolutizeWebURL(baseRoot, docsURL)
+		}
+		var b strings.Builder
+		b.WriteString("warning: deprecated flow source pattern: ")
+		b.WriteString(message)
+		if path := warningPathString(warning["path"]); path != "" {
+			b.WriteString("\n  path: ")
+			b.WriteString(path)
+		}
+		if replacement := firstNonBlankString(warning["replacement"], warning["use"], warning["correctPattern"]); replacement != "" {
+			b.WriteString("\n  use: ")
+			b.WriteString(replacement)
+		}
+		if docsURL != "" {
+			b.WriteString("\n  docs: ")
+			b.WriteString(docsURL)
+		}
+		line := b.String()
+		if _, exists := seen[line]; exists {
+			continue
+		}
+		seen[line] = struct{}{}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func warningPathString(value any) string {
+	var parts []string
+	appendPart := func(v any) {
+		s := scalarString(v)
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	switch path := value.(type) {
+	case []any:
+		for _, part := range path {
+			appendPart(part)
+		}
+	case []string:
+		for _, part := range path {
+			appendPart(part)
+		}
+	case string:
+		appendPart(path)
+	default:
+		appendPart(path)
+	}
+	return strings.Join(parts, " ")
+}
+
+func writeAPIDeprecationWarnings(cmd *cobra.Command, app *App, out map[string]any) {
+	lines := apiDeprecationWarningLines(app, out)
+	if len(lines) == 0 {
+		return
+	}
+	writer := os.Stderr
+	if cmd != nil {
+		for _, line := range lines {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
+		}
+		return
+	}
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(writer, line)
+	}
+}
+
 func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) error {
 	// Add progressive-disclosure hints for common auth/binding issues (best-effort).
 	// This keeps agent/human workflows on the “happy path” without requiring out-of-band docs.
@@ -1045,6 +1171,9 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 	ensureErrorRecoveryActions(app, v)
 
 	_ = writeOut(cmd, app, v)
+	if status < 400 && isOK(v) {
+		writeAPIDeprecationWarnings(cmd, app, v)
+	}
 
 	// Determine exit code: non-2xx OR ok=false => exit non-zero.
 	if status >= 400 {

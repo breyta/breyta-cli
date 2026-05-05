@@ -593,6 +593,96 @@ func TestFlowsPush_SendsDeployKeyFromEnv(t *testing.T) {
 	}
 }
 
+func TestFlowsPush_RendersAPIDeprecationWarnings(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	flowFile := filepath.Join(tmp, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :push-deprecated :name \"Push Deprecated\" :concurrency {:type :singleton :on-new-version :supersede} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
+		t.Fatalf("failed to write test flow file: %v", err)
+	}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.put_draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"meta": map[string]any{
+				"warnings": []map[string]any{
+					{
+						"kind":        "deprecation",
+						"code":        "deprecated_run_collected_form",
+						"message":     "Run-collected :requires form fields are deprecated for new flow source.",
+						"path":        []any{":requires", 0, ":collect"},
+						"replacement": ":invocations {:default {:inputs [...]}}",
+						"docsUrl":     "/docs/reference-flow-definition#deprecated-run-form-shapes",
+					},
+					{
+						"kind":    "config",
+						"message": "not a deprecation warning",
+					},
+				},
+			},
+			"data": map[string]any{
+				"flowSlug": "push-deprecated",
+				"saved":    true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "push",
+		"--file", flowFile,
+		"--target", "draft",
+		"--validate=false",
+	)
+	if err != nil {
+		t.Fatalf("flows push failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stderr, "warning: deprecated flow source pattern: Run-collected :requires form fields are deprecated") {
+		t.Fatalf("expected deprecation warning on stderr, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "path: :requires 0 :collect") {
+		t.Fatalf("expected warning path on stderr, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "use: :invocations {:default {:inputs [...]}}") {
+		t.Fatalf("expected replacement on stderr, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "docs: "+srv.URL+"/docs/reference-flow-definition#deprecated-run-form-shapes") {
+		t.Fatalf("expected docs URL on stderr, got:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "not a deprecation warning") {
+		t.Fatalf("expected non-deprecation warnings to stay out of stderr, got:\n%s", stderr)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+}
+
 func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	t.Helper()
 	tmp := t.TempDir()
