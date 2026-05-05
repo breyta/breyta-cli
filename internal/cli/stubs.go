@@ -26,6 +26,7 @@ func newConnectionsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newConnectionsUsagesCmd(app))
 	cmd.AddCommand(newConnectionsCleanupUnusedCmd(app))
 	cmd.AddCommand(newConnectionsShowCmd(app))
+	cmd.AddCommand(newConnectionsItemsCmd(app))
 	cmd.AddCommand(newConnectionsCreateCmd(app))
 	cmd.AddCommand(newConnectionsUpdateCmd(app))
 	cmd.AddCommand(newConnectionsDeleteCmd(app))
