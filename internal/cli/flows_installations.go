@@ -75,7 +75,7 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var sourceFlowSlug string
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
-		Short: "Create a new installation (disabled until enabled)",
+		Short: "Create a new installation",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
