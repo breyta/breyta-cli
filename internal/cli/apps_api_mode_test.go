@@ -2710,7 +2710,7 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 	}
 	first, _ := items[0].(map[string]any)
 	endpoint, _ := first["endpoint"].(map[string]any)
-	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
 		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
 	}
 }
@@ -2786,7 +2786,7 @@ func TestFlowsInterfacesShow_FindsMcpTool(t *testing.T) {
 
 func TestFlowsInterfacesCall_PostsToHTTPInterfaceRoute(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
+		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
 			http.NotFound(w, r)
 			return
 		}
@@ -2857,7 +2857,7 @@ func TestFlowsInterfacesCall_TargetLiveResolvesInstallation(t *testing.T) {
 					},
 				},
 			})
-		case "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich":
+		case "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich":
 			if r.Method != http.MethodPost {
 				w.WriteHeader(405)
 				return
@@ -2903,7 +2903,7 @@ func TestFlowsInterfacesCall_WaitPollsRunCompletion(t *testing.T) {
 	var runsGetPayloads []map[string]any
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich":
+		case "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich":
 			if r.Method != http.MethodPost {
 				w.WriteHeader(405)
 				return
@@ -3029,7 +3029,7 @@ func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	}
 	out := decodeEnvelope(t, stdout)
 	curl, _ := out.Data["curl"].(string)
-	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich") ||
+	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich") ||
 		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
 		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
 		t.Fatalf("unexpected curl command: %s", curl)
@@ -3057,7 +3057,7 @@ func TestFlowsInterfacesCall_RequiresInstallationID(t *testing.T) {
 
 func TestFlowsInterfacesCall_ErrorAddsRecoveryHints(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/missing" {
+		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/missing" {
 			http.NotFound(w, r)
 			return
 		}

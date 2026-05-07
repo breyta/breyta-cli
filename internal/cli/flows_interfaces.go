@@ -238,10 +238,10 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
 			}
-			path := fmt.Sprintf("/api/workspaces/%s/flow-interfaces/%s/%s/%s",
+			path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
 				url.PathEscape(app.WorkspaceID),
-				url.PathEscape(installationID),
 				url.PathEscape(args[0]),
+				url.PathEscape(installationID),
 				url.PathEscape(args[1]))
 			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
 			if err != nil {
@@ -475,10 +475,10 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 
 func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, interfaceID string) string {
 	ensureAPIURL(app)
-	path := fmt.Sprintf("/api/workspaces/%s/flow-interfaces/%s/%s/%s",
+	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
 		url.PathEscape(app.WorkspaceID),
-		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
