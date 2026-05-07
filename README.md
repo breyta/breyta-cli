@@ -134,6 +134,22 @@ breyta flows update <slug> --clear-publish-media
 You can also keep this in source as `:publish-media` inside the flow file and
 push it with `breyta flows push`.
 
+## Connection item caches
+
+Some installable flows use connection-backed dropdowns for provider-owned
+objects such as repositories, channels, projects, folders, or accounts. Inspect
+the cached non-secret items behind a connection with:
+
+```bash
+breyta connections items <connection-id>
+breyta connections items <connection-id> --item-type github/repository --limit 25
+breyta connections items <connection-id> --item-type github/repository --raw
+```
+
+By default, the CLI prints summarized rows and omits raw provider payloads. Use
+`--raw` only when debugging item metadata. Use `--limit 0` with an `--item-type`
+to fetch all pages.
+
 ## Table resources
 
 The CLI also exposes the bounded table-resource surface used by flows and the UI:
