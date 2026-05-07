@@ -2837,6 +2837,80 @@ func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
+	var runsGetPayloads []map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich":
+			if r.Method != http.MethodPost {
+				w.WriteHeader(405)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"workflowId":     "wf-export-wait",
+					"installationId": "prof-live",
+					"status":         "running",
+				},
+			})
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "runs.get" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			runsGetPayloads = append(runsGetPayloads, args)
+			if args["workflowId"] != "wf-export-wait" || args["installationId"] != "prof-live" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected runs.get args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":     "wf-export-wait",
+						"installationId": "prof-live",
+						"status":         "completed",
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "call", "flow-release", "enrich",
+		"--installation-id", "prof-live",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows exports call --wait failed: %v\n%s", err, stdout)
+	}
+	if len(runsGetPayloads) == 0 {
+		t.Fatalf("expected at least one runs.get payload")
+	}
+	out := decodeEnvelope(t, stdout)
+	run, _ := out.Data["run"].(map[string]any)
+	if run["status"] != "completed" || run["workflowId"] != "wf-export-wait" {
+		t.Fatalf("unexpected waited run output: %#v", out.Data)
+	}
+}
+
 func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

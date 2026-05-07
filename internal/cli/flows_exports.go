@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -133,6 +134,9 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	var installationID string
 	var legacyProfileID string
 	var inputJSON string
+	var wait bool
+	var timeout time.Duration
+	var poll time.Duration
 	cmd := &cobra.Command{
 		Use:   "call <flow-slug> <http-export-id>",
 		Short: "Call a flow HTTP export",
@@ -185,6 +189,9 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 					"data":   out,
 				}
 			}
+			if wait && status < 400 && isOK(resp) {
+				return waitForRunCompletion(cmd, app, resp, args[0], "flows.exports.call", timeout, poll)
+			}
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
@@ -193,6 +200,9 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
 

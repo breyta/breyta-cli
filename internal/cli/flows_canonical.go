@@ -65,13 +65,17 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		return nil
 	}
 
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll)
+}
+
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration) error {
+	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
 	if strings.TrimSpace(workflowID) == "" {
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
-
 	deadline := time.Now().Add(timeout)
 	for {
 		payload := map[string]any{"workflowId": workflowID}
@@ -108,11 +112,11 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 				"product":     "flows",
 				"channel":     "cli",
 				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   strings.TrimSpace(flowSlug),
+				"flow_slug":   flowSlug,
 				"command":     strings.TrimSpace(command),
 				"workflow_id": workflowID,
 				"run_status":  s,
-				"wait":        wait,
+				"wait":        true,
 			})
 			if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
 				return writeErr(cmd, err)
@@ -125,10 +129,10 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 				"product":     "flows",
 				"channel":     "cli",
 				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   strings.TrimSpace(flowSlug),
+				"flow_slug":   flowSlug,
 				"command":     strings.TrimSpace(command),
 				"workflow_id": workflowID,
-				"wait":        wait,
+				"wait":        true,
 			})
 			timeoutOut := map[string]any{
 				"ok": false,
