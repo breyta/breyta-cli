@@ -2993,6 +2993,43 @@ func TestFlowsExportsCall_RequiresInstallationID(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsCall_ErrorAddsRecoveryHints(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/missing" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(404)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"message": "HTTP export not found",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "call", "flow-release", "missing",
+		"--installation-id", "prof-live",
+	)
+	if err == nil {
+		t.Fatalf("expected export not found error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	out := decodeEnvelope(t, stdout)
+	hint, _ := out.Meta["hint"].(string)
+	if !strings.Contains(hint, "breyta flows installations exports prof-live") {
+		t.Fatalf("expected installation exports hint, got %#v", out.Meta)
+	}
+	if !strings.Contains(stderr, `breyta docs find "flow exports invocation"`) {
+		t.Fatalf("expected docs hint in stderr, got:\n%s", stderr)
+	}
+}
+
 func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")

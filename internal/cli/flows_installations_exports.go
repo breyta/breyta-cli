@@ -19,6 +19,7 @@ func newFlowsInstallationsExportsCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
+				enrichFlowExportFailure(resp, flowSlug, args[0], "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
 			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, "installation"), flowSlug, args[0])

@@ -45,6 +45,7 @@ func newFlowsExportsListCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
+				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
 			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
@@ -86,6 +87,7 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
+				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
 			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
@@ -104,6 +106,7 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 						},
 					},
 				}
+				enrichFlowExportFailure(out, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, out, 404)
 			}
 			out := map[string]any{
@@ -189,6 +192,7 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 					"data":   out,
 				}
 			}
+			enrichFlowExportFailure(resp, args[0], installationID, args[1])
 			if wait && status < 400 && isOK(resp) {
 				return waitForRunCompletion(cmd, app, resp, args[0], "flows.exports.call", timeout, poll)
 			}
@@ -220,6 +224,7 @@ func newFlowsExportsCurlCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
+				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
 			if strings.TrimSpace(resolvedInstallationID) == "" {
@@ -228,7 +233,7 @@ func newFlowsExportsCurlCmd(app *App) *cobra.Command {
 			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
 			item := findFlowExportItem(items, args[1], "http")
 			if item == nil {
-				return writeAPIResult(cmd, app, map[string]any{
+				out := map[string]any{
 					"ok": false,
 					"error": map[string]any{
 						"message": "HTTP export not found",
@@ -238,7 +243,9 @@ func newFlowsExportsCurlCmd(app *App) *cobra.Command {
 							"export":   args[1],
 						},
 					},
-				}, 404)
+				}
+				enrichFlowExportFailure(out, args[0], resolvedInstallationID, args[1])
+				return writeAPIResult(cmd, app, out, 404)
 			}
 			input, err := parseJSONObjectFlag(inputJSON)
 			if err != nil {
@@ -276,6 +283,44 @@ func newFlowsExportsCurlCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
 	return cmd
+}
+
+func enrichFlowExportFailure(out map[string]any, flowSlug string, installationID string, exportID string) {
+	if out == nil || isOK(out) {
+		return
+	}
+	msg := strings.ToLower(getErrorMessage(out))
+	if strings.TrimSpace(msg) == "" {
+		return
+	}
+	meta := ensureMeta(out)
+	if meta != nil {
+		if _, exists := meta["hint"]; !exists {
+			switch {
+			case strings.Contains(msg, "export not found"):
+				if strings.TrimSpace(installationID) != "" {
+					meta["hint"] = "Inspect available exports with `breyta flows installations exports " + strings.TrimSpace(installationID) + "`, or check the authored :exports map and release/promote the flow version that declares this export."
+				} else {
+					meta["hint"] = "Inspect available exports with `breyta flows exports list " + strings.TrimSpace(flowSlug) + " --target live`, or check the authored :exports map and release/promote the flow version that declares this export."
+				}
+			case strings.Contains(msg, "installation not found"), strings.Contains(msg, "invalid installationid"):
+				meta["hint"] = "Check the installation id with `breyta flows installations list " + strings.TrimSpace(flowSlug) + "`, then inspect exports with `breyta flows installations exports <installation-id>`."
+			case strings.Contains(msg, "invocation not found"), strings.Contains(msg, "no invocation"):
+				meta["hint"] = "The export points at a missing invocation. Update the flow :exports entry to reference an existing :invocations key, then push/release/promote the flow."
+			default:
+				meta["hint"] = "Inspect export metadata with `breyta flows exports show " + strings.TrimSpace(flowSlug) + " " + strings.TrimSpace(exportID) + "` and check installation configuration with `breyta flows installations get <installation-id>`."
+			}
+		}
+	}
+	errMap := mapStringAny(out["error"])
+	if errMap != nil {
+		if _, exists := errMap["hintRefs"]; !exists {
+			errMap["hintRefs"] = []any{
+				map[string]any{"kind": "find", "query": "flow exports invocation"},
+				map[string]any{"kind": "find", "query": "installations configure invocation"},
+			}
+		}
+	}
 }
 
 func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int, installationID string) (map[string]any, int, map[string]any, string, string, error) {
