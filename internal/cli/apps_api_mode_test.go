@@ -2473,7 +2473,8 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain", "type": "text"}}},
 					},
 					"interfaces": map[string]any{
-						"http": []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "workspace-api-auth"}},
+						"manual": []any{map[string]any{"id": "run", "label": "Run enrichment", "invocation": "default"}},
+						"http":   []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "workspace-api-auth"}},
 						"webhook": []any{map[string]any{"id": "stripe", "eventName": "billing.stripe.webhook", "invocation": "default",
 							"auth": map[string]any{"type": "stripe-signature", "secretRef": "stripe-webhook-secret"}}},
 						"mcp": []any{map[string]any{"tool-name": "enrich_company", "invocation": "default"}},
@@ -2496,14 +2497,14 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	}
 	out := decodeEnvelope(t, stdout)
 	items, _ := out.Data["items"].([]any)
-	if len(items) != 3 {
-		t.Fatalf("expected 3 interfaces, got %#v", out.Data["items"])
+	if len(items) != 4 {
+		t.Fatalf("expected 4 interfaces, got %#v", out.Data["items"])
 	}
 	first, _ := items[0].(map[string]any)
-	if first["family"] != "http" || first["id"] != "enrich" || first["invocationId"] != "default" {
+	if first["family"] != "manual" || first["id"] != "run" || first["label"] != "Run enrichment" || first["invocationId"] != "default" {
 		t.Fatalf("unexpected first interface item: %#v", first)
 	}
-	second, _ := items[1].(map[string]any)
+	second, _ := items[2].(map[string]any)
 	if second["family"] != "webhook" || second["id"] != "stripe" || second["eventName"] != "billing.stripe.webhook" {
 		t.Fatalf("unexpected webhook interface item: %#v", second)
 	}
@@ -2612,6 +2613,7 @@ func TestFlowsInterfacesList_InstallationTargetResolvesPinnedVersion(t *testing.
 					"flow": map[string]any{
 						"invocations": map[string]any{"default": map[string]any{}},
 						"interfaces": map[string]any{
+							"manual":  []any{map[string]any{"id": "run", "invocation": "default"}},
 							"http":    []any{map[string]any{"id": "enrich", "invocation": "default"}},
 							"webhook": []any{map[string]any{"id": "stripe", "eventName": "billing.stripe.webhook", "invocation": "default"}},
 						},
@@ -2686,6 +2688,7 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 					"flow": map[string]any{
 						"invocations": map[string]any{"default": map[string]any{}},
 						"interfaces": map[string]any{
+							"manual":  []any{map[string]any{"id": "run", "invocation": "default"}},
 							"http":    []any{map[string]any{"id": "enrich", "invocation": "default"}},
 							"webhook": []any{map[string]any{"id": "stripe", "eventName": "billing.stripe.webhook", "invocation": "default"}},
 						},
@@ -2717,15 +2720,15 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 		t.Fatalf("expected installation interface metadata, got %#v", out.Data)
 	}
 	items, _ := out.Data["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 interfaces, got %#v", out.Data["items"])
+	if len(items) != 3 {
+		t.Fatalf("expected 3 interfaces, got %#v", out.Data["items"])
 	}
-	first, _ := items[0].(map[string]any)
+	first, _ := items[1].(map[string]any)
 	endpoint, _ := first["endpoint"].(map[string]any)
 	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
 		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
 	}
-	second, _ := items[1].(map[string]any)
+	second, _ := items[2].(map[string]any)
 	webhookEndpoint, _ := second["endpoint"].(map[string]any)
 	if webhookEndpoint["method"] != "POST" || webhookEndpoint["auth"] != "webhook-auth" || webhookEndpoint["url"] != srv.URL+"/ws-acme/events/webhooks/flow-release/billing.stripe.webhook/prof-live" {
 		t.Fatalf("expected webhook endpoint metadata, got %#v", webhookEndpoint)

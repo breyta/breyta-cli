@@ -18,7 +18,7 @@ func newFlowsInterfacesCmd(app *App) *cobra.Command {
 		Use:   "interfaces",
 		Short: "Inspect flow interfaces backed by invocations",
 		Long: strings.TrimSpace(`
-Inspect external client surfaces declared under :interfaces.
+Inspect callable surfaces declared under :interfaces.
 
 These commands read interface metadata from the API. They do not construct runtime
 HTTP or MCP routes locally.
@@ -519,6 +519,21 @@ func flowInterfaceItems(flow map[string]any, target string) []any {
 	interfaces := mapStringAny(flow["interfaces"])
 	invocations := mapStringAny(flow["invocations"])
 	items := make([]any, 0)
+	for _, raw := range sliceAny(interfaces["manual"]) {
+		iface := mapStringAny(raw)
+		invocationID := firstNonBlankString(iface["invocation"])
+		item := map[string]any{
+			"family":        "manual",
+			"id":            firstNonBlankString(iface["id"]),
+			"label":         firstNonBlankString(iface["label"]),
+			"invocationId":  invocationID,
+			"target":        target,
+			"description":   firstNonBlankString(iface["description"]),
+			"invocation":    invocationContract(invocations, invocationID),
+			"runtimeStatus": "available",
+		}
+		items = append(items, pruneEmptyStrings(item))
+	}
 	for _, raw := range sliceAny(interfaces["http"]) {
 		iface := mapStringAny(raw)
 		invocationID := firstNonBlankString(iface["invocation"])
