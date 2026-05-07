@@ -26,7 +26,6 @@ HTTP or MCP routes locally.
 	}
 	cmd.AddCommand(newFlowsExportsListCmd(app))
 	cmd.AddCommand(newFlowsExportsShowCmd(app))
-	cmd.AddCommand(newFlowsExportsMetricsCmd(app))
 	cmd.AddCommand(newFlowsExportsCallCmd(app))
 	cmd.AddCommand(newFlowsExportsCurlCmd(app))
 	return cmd
@@ -140,18 +139,18 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newFlowsExportsMetricsCmd(app *App) *cobra.Command {
+func newFlowsMetricsCmd(app *App) *cobra.Command {
 	var target string
 	var installationID string
-	var family string
+	var kind string
 	var limit int
 	cmd := &cobra.Command{
-		Use:   "metrics <flow-slug> [export-id-or-tool-name]",
-		Short: "Show recent metrics for exported invocation surfaces",
+		Use:   "metrics <flow-slug> [entrypoint-id]",
+		Short: "Show recent invocation metrics for a flow",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows exports metrics requires --api/BREYTA_API_URL"))
+				return writeErr(cmd, errors.New("flows metrics requires --api/BREYTA_API_URL"))
 			}
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
@@ -167,7 +166,7 @@ func newFlowsExportsMetricsCmd(app *App) *cobra.Command {
 					return writeErr(cmd, err)
 				}
 				if normalizedTarget != "live" {
-					return writeErr(cmd, errors.New("flows exports metrics only supports --target live"))
+					return writeErr(cmd, errors.New("flows metrics only supports --target live"))
 				}
 				liveTarget, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], false)
 				if err != nil {
@@ -178,25 +177,24 @@ func newFlowsExportsMetricsCmd(app *App) *cobra.Command {
 			}
 			payload := pruneEmptyStrings(map[string]any{
 				"flowSlug":       args[0],
-				"exportId":       optionalArg(args, 1),
+				"entrypointId":   optionalArg(args, 1),
 				"installationId": installationID,
-				"family":         family,
+				"kind":           kind,
 				"limit":          limit,
 			})
-			resp, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.exports.metrics", payload)
+			resp, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.invocations.metrics", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			if meta := mapStringAny(resp["meta"]); meta != nil && resolvedTarget != "" {
 				meta["target"] = resolvedTarget
 			}
-			enrichFlowExportFailure(resp, args[0], installationID, optionalArg(args, 1))
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Resolve metrics for a flow target (live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Restrict metrics to a specific installation id")
-	cmd.Flags().StringVar(&family, "family", "", "Restrict metrics to export family (http|mcp)")
+	cmd.Flags().StringVar(&kind, "kind", "", "Restrict metrics to invocation kind (manual|http|mcp|schedule|webhook|cli)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Maximum metric rows to return")
 	return cmd
 }

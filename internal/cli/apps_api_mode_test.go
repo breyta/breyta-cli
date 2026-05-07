@@ -2503,7 +2503,7 @@ func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsMetrics_CallsMetricsCommand(t *testing.T) {
+func TestFlowsMetrics_CallsMetricsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -2511,13 +2511,13 @@ func TestFlowsExportsMetrics_CallsMetricsCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.exports.metrics" {
+		if body["command"] != "flows.invocations.metrics" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
 		}
 		args, _ := body["args"].(map[string]any)
-		if args["flowSlug"] != "flow-release" || args["exportId"] != "enrich" || args["installationId"] != "prof-live" || args["family"] != "http" {
+		if args["flowSlug"] != "flow-release" || args["entrypointId"] != "enrich" || args["installationId"] != "prof-live" || args["kind"] != "http" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected args", "details": args}})
 			return
@@ -2529,9 +2529,9 @@ func TestFlowsExportsMetrics_CallsMetricsCommand(t *testing.T) {
 			"data": map[string]any{
 				"flowSlug": "flow-release",
 				"items": []any{map[string]any{
-					"family":         "http",
+					"invocationKind": "http",
 					"flowSlug":       "flow-release",
-					"exportId":       "enrich",
+					"entrypointId":   "enrich",
 					"installationId": "prof-live",
 					"requestCount":   2,
 					"successCount":   1,
@@ -2547,12 +2547,12 @@ func TestFlowsExportsMetrics_CallsMetricsCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "metrics", "flow-release", "enrich",
+		"flows", "metrics", "flow-release", "enrich",
 		"--installation-id", "prof-live",
-		"--family", "http",
+		"--kind", "http",
 	)
 	if err != nil {
-		t.Fatalf("flows exports metrics failed: %v\n%s", err, stdout)
+		t.Fatalf("flows metrics failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
 	items, _ := out.Data["items"].([]any)
