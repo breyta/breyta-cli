@@ -135,7 +135,7 @@ func newFlowsInterfacesShowCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", "", "Interface target (draft|live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect interfaces for a specific installation id")
 	cmd.Flags().IntVar(&version, "version", 0, "Release version override for draft/source lookup")
-	cmd.Flags().StringVar(&family, "family", "", "Restrict lookup to interface family (http|mcp)")
+	cmd.Flags().StringVar(&family, "family", "", "Restrict lookup to interface family (manual|http|webhook|mcp)")
 	return cmd
 }
 
