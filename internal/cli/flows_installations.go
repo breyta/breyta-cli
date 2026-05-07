@@ -75,7 +75,7 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var sourceFlowSlug string
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
-		Short: "Create a new installation (disabled until enabled)",
+		Short: "Create a new installation",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
@@ -127,24 +127,36 @@ func newFlowsInstallationsRenameCmd(app *App) *cobra.Command {
 func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 	var inputJSON string
 	var bindingsJSON string
+	var schedulesJSON string
+	var scheduleEnableItems []string
+	var scheduleDisableItems []string
+	var scheduleResetItems []string
 	var setItems []string
 	cmd := &cobra.Command{
-		Use:     "configure <installation-id> [--input '{...}'] [--bindings '{...}'] [--set activation.<field>=... --set <slot>.conn=... --set <slot>.root=...]",
+		Use:     "configure <installation-id> [--input '{...}'] [--bindings '{...}'] [--schedules '{...}'] [--schedule-enable <trigger-id>] [--schedule-disable <trigger-id>] [--set activation.<field>=... --set <slot>.conn=... --set <slot>.root=...]",
 		Aliases: []string{"set-inputs"},
-		Short:   "Configure installation setup inputs and installer-owned bindings",
+		Short:   "Configure installation setup inputs, schedules, and installer-owned bindings",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations configure requires API mode"))
 			}
-			if strings.TrimSpace(inputJSON) == "" && strings.TrimSpace(bindingsJSON) == "" && len(setItems) == 0 {
-				return writeErr(cmd, errors.New("missing configuration updates (use --input, --bindings, or --set)"))
+			if strings.TrimSpace(inputJSON) == "" && strings.TrimSpace(bindingsJSON) == "" && strings.TrimSpace(schedulesJSON) == "" && len(scheduleEnableItems) == 0 && len(scheduleDisableItems) == 0 && len(scheduleResetItems) == 0 && len(setItems) == 0 {
+				return writeErr(cmd, errors.New("missing configuration updates (use --input, --bindings, --schedules, --schedule-enable, --schedule-disable, --schedule-reset, or --set)"))
 			}
 			inputs, err := parseJSONObjectFlag(inputJSON)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			bindings, err := parseJSONObjectFlag(bindingsJSON)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			schedules, err := parseJSONObjectFlag(schedulesJSON)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			schedules, err = mergeScheduleEnabledFlags(schedules, scheduleEnableItems, scheduleDisableItems)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -159,11 +171,21 @@ func newFlowsInstallationsSetInputsCmd(app *App) *cobra.Command {
 			if mergedBindings := mergeJSONObjectFlags(bindings, setPayload.Bindings); len(mergedBindings) > 0 {
 				payload["bindings"] = mergedBindings
 			}
+			if len(schedules) > 0 || strings.TrimSpace(schedulesJSON) != "" {
+				payload["schedules"] = schedules
+			}
+			if len(scheduleResetItems) > 0 {
+				payload["scheduleResets"] = scheduleResetMap(scheduleResetItems)
+			}
 			return doAPICommand(cmd, app, "flows.installations.set_inputs", payload)
 		},
 	}
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object of activation inputs")
 	cmd.Flags().StringVar(&bindingsJSON, "bindings", "", "JSON object of installer-owned binding updates")
+	cmd.Flags().StringVar(&schedulesJSON, "schedules", "", "JSON object of installation schedule settings")
+	cmd.Flags().StringArrayVar(&scheduleEnableItems, "schedule-enable", nil, "Enable one installation schedule trigger")
+	cmd.Flags().StringArrayVar(&scheduleDisableItems, "schedule-disable", nil, "Disable one installation schedule trigger")
+	cmd.Flags().StringArrayVar(&scheduleResetItems, "schedule-reset", nil, "Reset a schedule trigger override to the flow default")
 	cmd.Flags().StringArrayVar(&setItems, "set", nil, "Set installation setup values, e.g. activation.folder=https://... or archive.root=customer-a")
 	return cmd
 }
@@ -348,6 +370,59 @@ func parseJSONObjectFlag(raw string) (map[string]any, error) {
 		return nil, errors.New("input must be a JSON object")
 	}
 	return m, nil
+}
+
+func scheduleResetMap(items []string) map[string]any {
+	out := map[string]any{}
+	for _, item := range items {
+		key := strings.TrimSpace(strings.TrimPrefix(item, ":"))
+		if key != "" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func mergeScheduleEnabledFlags(schedules map[string]any, enableItems []string, disableItems []string) (map[string]any, error) {
+	out := mergeJSONObjectFlags(map[string]any{}, schedules)
+	seen := map[string]bool{}
+	for _, item := range enableItems {
+		key := strings.TrimSpace(strings.TrimPrefix(item, ":"))
+		if key == "" {
+			continue
+		}
+		seen[key] = true
+		if err := setScheduleEnabled(out, key, true); err != nil {
+			return nil, err
+		}
+	}
+	for _, item := range disableItems {
+		key := strings.TrimSpace(strings.TrimPrefix(item, ":"))
+		if key == "" {
+			continue
+		}
+		if seen[key] {
+			return nil, fmt.Errorf("schedule %q cannot be both enabled and disabled", key)
+		}
+		if err := setScheduleEnabled(out, key, false); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func setScheduleEnabled(schedules map[string]any, key string, enabled bool) error {
+	existing, ok := schedules[key]
+	if !ok {
+		schedules[key] = map[string]any{"enabled": enabled}
+		return nil
+	}
+	setting, ok := existing.(map[string]any)
+	if !ok {
+		return fmt.Errorf("schedule %q must be a JSON object", key)
+	}
+	setting["enabled"] = enabled
+	return nil
 }
 
 func mergeJSONObjectFlags(base map[string]any, overlay map[string]any) map[string]any {

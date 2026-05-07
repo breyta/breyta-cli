@@ -567,6 +567,57 @@ func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *
 	}
 }
 
+func TestFlowsInstallations_Configure_SendsSchedules(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.set_inputs" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["profileId"] != "prof-sched" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+			return
+		}
+		schedules, _ := args["schedules"].(map[string]any)
+		review, _ := schedules["scheduled-review"].(map[string]any)
+		if review["enabled"] != false || review["preset"] != "weekly" || review["timezone"] != "Europe/Oslo" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing schedule settings"}})
+			return
+		}
+		resets, _ := args["scheduleResets"].(map[string]any)
+		if resets["scheduled-review"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing schedule reset"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-sched"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "configure", "prof-sched",
+		"--schedules", `{"scheduled-review":{"enabled":true,"preset":"weekly","timezone":"Europe/Oslo"}}`,
+		"--schedule-disable", "scheduled-review",
+		"--schedule-reset", "scheduled-review",
+	)
+	if err != nil {
+		t.Fatalf("flows installations configure with --schedules failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsInstallations_Configure_SupportsBindingAndActivationSetFlags(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -713,6 +764,63 @@ func TestFlowsConfigure_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows configure failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsConfigure_SendsSchedules(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.configure" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-configure" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		schedules, _ := args["schedules"].(map[string]any)
+		review, _ := schedules["scheduled-review"].(map[string]any)
+		if review["enabled"] != false || review["preset"] != "monthly" || review["dayOfMonth"] != "last" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing schedules"}})
+			return
+		}
+		daily, _ := schedules["daily-review"].(map[string]any)
+		if daily["enabled"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing schedule enable"}})
+			return
+		}
+		resets, _ := args["scheduleResets"].(map[string]any)
+		if resets["monthly-review"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing schedule reset"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"profileId": "prof-draft"}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "configure", "flow-configure",
+		"--schedules", `{"scheduled-review":{"enabled":false,"preset":"monthly","dayOfMonth":"last"}}`,
+		"--schedule-enable", "daily-review",
+		"--schedule-reset", "monthly-review",
+	)
+	if err != nil {
+		t.Fatalf("flows configure with --schedules failed: %v\n%s", err, stdout)
 	}
 }
 
