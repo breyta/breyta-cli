@@ -222,6 +222,47 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
+func TestRunsStart_SendsInvocation(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.start" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["invocation"] != "import-orders" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing invocation"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"started": true, "workflowId": "wf-invocation-1"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--invocation", "import-orders",
+	)
+	if err != nil {
+		t.Fatalf("runs start failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestRunsStart_AllowsExplicitSource(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -2357,6 +2398,46 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 		"--token", "user-dev",
 		"flows", "run", "flow-release",
 		"--installation-id", "prof-123",
+	)
+	if err != nil {
+		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_SendsInvocation(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["target"] != "draft" || args["invocation"] != "import-orders" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing invocation payload"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-invocation-2", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--invocation-id", "import-orders",
 	)
 	if err != nil {
 		t.Fatalf("flows run failed: %v\n%s", err, stdout)

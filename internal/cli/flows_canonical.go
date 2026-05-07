@@ -163,6 +163,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var installationID string
 	var target string
 	var version int
+	var invocation string
 	var inputJSON string
 	var wait bool
 	var timeout time.Duration
@@ -178,6 +179,7 @@ Default:
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
+	- --invocation <id> : select a named invocation input contract
 	- --target draft|live : select run target explicitly (default draft)
 	- --version <n> : force a specific release version for this invocation
 	`),
@@ -188,6 +190,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	# Advanced
 	breyta flows run order-ingest --target live --wait
 	breyta flows run order-ingest --target draft --wait
+	breyta flows run order-ingest --invocation import-orders --input '{"region":"EU"}' --wait
 	breyta flows run order-ingest --installation-id prof_123 --wait
 	`),
 		Args: cobra.ExactArgs(1),
@@ -211,6 +214,10 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 			if version > 0 {
 				payload["version"] = version
 			}
+			invocation = strings.TrimSpace(invocation)
+			if invocation != "" {
+				payload["invocation"] = invocation
+			}
 			if strings.TrimSpace(inputJSON) != "" {
 				m, err := parseJSONObjectFlag(inputJSON)
 				if err != nil {
@@ -225,6 +232,8 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
 	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
+	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
