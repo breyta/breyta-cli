@@ -2503,6 +2503,68 @@ func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsMetrics_CallsMetricsCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.exports.metrics" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["exportId"] != "enrich" || args["installationId"] != "prof-live" || args["family"] != "http" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected args", "details": args}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"meta":        map[string]any{"count": 1},
+			"data": map[string]any{
+				"flowSlug": "flow-release",
+				"items": []any{map[string]any{
+					"family":         "http",
+					"flowSlug":       "flow-release",
+					"exportId":       "enrich",
+					"installationId": "prof-live",
+					"requestCount":   2,
+					"successCount":   1,
+					"errorCount":     1,
+				}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "metrics", "flow-release", "enrich",
+		"--installation-id", "prof-live",
+		"--family", "http",
+	)
+	if err != nil {
+		t.Fatalf("flows exports metrics failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	items, _ := out.Data["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 metric item, got %#v", out.Data["items"])
+	}
+	item, _ := items[0].(map[string]any)
+	if item["requestCount"] != float64(2) || item["successCount"] != float64(1) {
+		t.Fatalf("unexpected metric item: %#v", item)
+	}
+}
+
 func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) {
 	var commands []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
