@@ -119,7 +119,8 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 }
 
 func newFlowsExportsCallCmd(app *App) *cobra.Command {
-	var profileID string
+	var installationID string
+	var legacyProfileID string
 	var inputJSON string
 	cmd := &cobra.Command{
 		Use:   "call <flow-slug> <http-export-id>",
@@ -132,9 +133,12 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
-			profileID = strings.TrimSpace(profileID)
-			if profileID == "" {
-				return writeErr(cmd, errors.New("--profile-id is required"))
+			installationID = strings.TrimSpace(installationID)
+			if installationID == "" {
+				installationID = strings.TrimSpace(legacyProfileID)
+			}
+			if installationID == "" {
+				return writeErr(cmd, errors.New("--installation-id is required"))
 			}
 			input, err := parseJSONObjectFlag(inputJSON)
 			if err != nil {
@@ -142,7 +146,7 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 			}
 			path := fmt.Sprintf("/api/workspaces/%s/flow-exports/%s/%s/%s",
 				url.PathEscape(app.WorkspaceID),
-				url.PathEscape(profileID),
+				url.PathEscape(installationID),
 				url.PathEscape(args[0]),
 				url.PathEscape(args[1]))
 			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
@@ -160,7 +164,9 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Flow profile or installation id to call")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
+	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
 	return cmd
 }

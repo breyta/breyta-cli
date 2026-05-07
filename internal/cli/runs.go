@@ -85,7 +85,7 @@ In API mode, prefer the structured query syntax used by the web runs list:
 Supported query tokens:
   - status:<running|completed|failed|waiting>
   - flow:<slug>
-  - installation:<profile-id>
+  - installation:<installation-id>
   - version:<n>
 
 Legacy discrete flags remain available and override matching --query tokens.`,

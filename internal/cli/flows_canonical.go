@@ -191,7 +191,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	breyta flows run order-ingest --target live --wait
 	breyta flows run order-ingest --target draft --wait
 	breyta flows run order-ingest --invocation import-orders --input '{"region":"EU"}' --wait
-	breyta flows run order-ingest --installation-id prof_123 --wait
+	breyta flows run order-ingest --installation-id inst_123 --wait
 	`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

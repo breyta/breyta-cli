@@ -49,7 +49,7 @@ func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 		"--token", "user-dev",
 		"runs", "list",
 		"--flow", "my-flow",
-		"--profile-id", "prof-1",
+		"--installation-id", "prof-1",
 	)
 	if err != nil {
 		t.Fatalf("runs list failed: %v\n%s", err, stdout)
@@ -215,7 +215,7 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 		"--token", "user-dev",
 		"runs", "start",
 		"--flow", "my-flow",
-		"--profile-id", "prof-2",
+		"--installation-id", "prof-2",
 	)
 	if err != nil {
 		t.Fatalf("runs start failed: %v\n%s", err, stdout)
@@ -2594,7 +2594,7 @@ func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "exports", "call", "flow-release", "enrich",
-		"--profile-id", "prof-live",
+		"--installation-id", "prof-live",
 		"--input", `{"domain":"example.com"}`,
 	)
 	if err != nil {
@@ -2606,7 +2606,7 @@ func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsCall_RequiresProfileID(t *testing.T) {
+func TestFlowsExportsCall_RequiresInstallationID(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
@@ -2615,10 +2615,10 @@ func TestFlowsExportsCall_RequiresProfileID(t *testing.T) {
 		"flows", "exports", "call", "flow-release", "enrich",
 	)
 	if err == nil {
-		t.Fatalf("expected missing profile id error\nstdout=%s\nstderr=%s", stdout, stderr)
+		t.Fatalf("expected missing installation id error\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
-	if !strings.Contains(stderr, "--profile-id is required") {
-		t.Fatalf("expected profile id error, got stderr=%s stdout=%s", stderr, stdout)
+	if !strings.Contains(stderr, "--installation-id is required") {
+		t.Fatalf("expected installation id error, got stderr=%s stdout=%s", stderr, stdout)
 	}
 }
 
