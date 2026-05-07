@@ -2444,7 +2444,7 @@ func TestFlowsRun_SendsInvocation(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
+func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -2472,7 +2472,7 @@ func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
 					"invocations": map[string]any{
 						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain", "type": "text"}}},
 					},
-					"exports": map[string]any{
+					"interfaces": map[string]any{
 						"http": []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "installation-token"}},
 						"mcp":  []any{map[string]any{"tool-name": "enrich_company", "invocation": "default"}},
 					},
@@ -2487,19 +2487,19 @@ func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "list", "flow-release",
+		"flows", "interfaces", "list", "flow-release",
 	)
 	if err != nil {
-		t.Fatalf("flows exports list failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces list failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
 	items, _ := out.Data["items"].([]any)
 	if len(items) != 2 {
-		t.Fatalf("expected 2 exports, got %#v", out.Data["items"])
+		t.Fatalf("expected 2 interfaces, got %#v", out.Data["items"])
 	}
 	first, _ := items[0].(map[string]any)
 	if first["family"] != "http" || first["id"] != "enrich" || first["invocationId"] != "default" {
-		t.Fatalf("unexpected first export item: %#v", first)
+		t.Fatalf("unexpected first interface item: %#v", first)
 	}
 }
 
@@ -2565,7 +2565,7 @@ func TestFlowsMetrics_CallsMetricsCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) {
+func TestFlowsInterfacesList_InstallationTargetResolvesPinnedVersion(t *testing.T) {
 	var commands []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -2605,7 +2605,7 @@ func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) 
 				"data": map[string]any{
 					"flow": map[string]any{
 						"invocations": map[string]any{"default": map[string]any{}},
-						"exports":     map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+						"interfaces":  map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
 					},
 				},
 			})
@@ -2621,11 +2621,11 @@ func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) 
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "list", "flow-release",
+		"flows", "interfaces", "list", "flow-release",
 		"--installation-id", "prof-live",
 	)
 	if err != nil {
-		t.Fatalf("flows exports list failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces list failed: %v\n%s", err, stdout)
 	}
 	if strings.Join(commands, ",") != "flows.installations.get,flows.get" {
 		t.Fatalf("unexpected command sequence: %#v", commands)
@@ -2636,7 +2636,7 @@ func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) 
 	}
 }
 
-func TestFlowsInstallationsExports_ResolvesInstallationFlowSlugAndVersion(t *testing.T) {
+func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *testing.T) {
 	var commands []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -2676,7 +2676,7 @@ func TestFlowsInstallationsExports_ResolvesInstallationFlowSlugAndVersion(t *tes
 				"data": map[string]any{
 					"flow": map[string]any{
 						"invocations": map[string]any{"default": map[string]any{}},
-						"exports":     map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+						"interfaces":  map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
 					},
 				},
 			})
@@ -2692,36 +2692,36 @@ func TestFlowsInstallationsExports_ResolvesInstallationFlowSlugAndVersion(t *tes
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "installations", "exports", "prof-live",
+		"flows", "installations", "interfaces", "prof-live",
 	)
 	if err != nil {
-		t.Fatalf("flows installations exports failed: %v\n%s", err, stdout)
+		t.Fatalf("flows installations interfaces failed: %v\n%s", err, stdout)
 	}
 	if strings.Join(commands, ",") != "flows.installations.get,flows.get" {
 		t.Fatalf("unexpected command sequence: %#v", commands)
 	}
 	out := decodeEnvelope(t, stdout)
 	if out.Data["target"] != "installation" || out.Data["installationId"] != "prof-live" || out.Data["flowSlug"] != "flow-release" {
-		t.Fatalf("expected installation export metadata, got %#v", out.Data)
+		t.Fatalf("expected installation interface metadata, got %#v", out.Data)
 	}
 	items, _ := out.Data["items"].([]any)
 	if len(items) != 1 {
-		t.Fatalf("expected 1 export, got %#v", out.Data["items"])
+		t.Fatalf("expected 1 interface, got %#v", out.Data["items"])
 	}
 	first, _ := items[0].(map[string]any)
 	endpoint, _ := first["endpoint"].(map[string]any)
-	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-token" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich" {
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-token" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
 		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
 	}
 }
 
-func TestFlowsExportsList_RejectsInstallationWithTarget(t *testing.T) {
+func TestFlowsInterfacesList_RejectsInstallationWithTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:1",
 		"--token", "user-dev",
-		"flows", "exports", "list", "flow-release",
+		"flows", "interfaces", "list", "flow-release",
 		"--installation-id", "prof-live",
 		"--target", "live",
 	)
@@ -2733,7 +2733,7 @@ func TestFlowsExportsList_RejectsInstallationWithTarget(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
+func TestFlowsInterfacesShow_FindsMcpTool(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -2754,7 +2754,7 @@ func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
 					"invocations": map[string]any{
 						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain"}}},
 					},
-					"exports": map[string]any{
+					"interfaces": map[string]any{
 						"mcp": []any{map[string]any{"tool-name": "enrich_company", "description": "Enrich company", "invocation": "default"}},
 					},
 				},
@@ -2768,25 +2768,25 @@ func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "show", "flow-release", "enrich_company",
+		"flows", "interfaces", "show", "flow-release", "enrich_company",
 		"--family", "mcp",
 	)
 	if err != nil {
-		t.Fatalf("flows exports show failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces show failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
-	export, _ := out.Data["export"].(map[string]any)
-	if export["family"] != "mcp" || export["toolName"] != "enrich_company" || export["invocationId"] != "default" {
-		t.Fatalf("unexpected export: %#v", export)
+	iface, _ := out.Data["interface"].(map[string]any)
+	if iface["family"] != "mcp" || iface["toolName"] != "enrich_company" || iface["invocationId"] != "default" {
+		t.Fatalf("unexpected interface: %#v", iface)
 	}
-	if export["invocation"] == nil {
-		t.Fatalf("expected invocation contract in export: %#v", export)
+	if iface["invocation"] == nil {
+		t.Fatalf("expected invocation contract in interface: %#v", iface)
 	}
 }
 
-func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
+func TestFlowsInterfacesCall_PostsToHTTPInterfaceRoute(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich" {
+		if r.URL.Path != "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
 			http.NotFound(w, r)
 			return
 		}
@@ -2812,7 +2812,7 @@ func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
 			"workspaceId": "ws-acme",
 			"data": map[string]any{
 				"started":    true,
-				"workflowId": "wf-export-1",
+				"workflowId": "wf-interface-1",
 			},
 		})
 	}))
@@ -2823,20 +2823,20 @@ func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "call", "flow-release", "enrich",
+		"flows", "interfaces", "call", "flow-release", "enrich",
 		"--installation-id", "prof-live",
 		"--input", `{"domain":"example.com"}`,
 	)
 	if err != nil {
-		t.Fatalf("flows exports call failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces call failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
-	if out.Data["workflowId"] != "wf-export-1" {
-		t.Fatalf("unexpected export call output: %#v", out.Data)
+	if out.Data["workflowId"] != "wf-interface-1" {
+		t.Fatalf("unexpected interface call output: %#v", out.Data)
 	}
 }
 
-func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
+func TestFlowsInterfacesCall_TargetLiveResolvesInstallation(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
@@ -2857,7 +2857,7 @@ func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
 					},
 				},
 			})
-		case "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich":
+		case "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich":
 			if r.Method != http.MethodPost {
 				w.WriteHeader(405)
 				return
@@ -2873,7 +2873,7 @@ func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
-				"data":        map[string]any{"workflowId": "wf-export-live"},
+				"data":        map[string]any{"workflowId": "wf-interface-live"},
 			})
 		default:
 			http.NotFound(w, r)
@@ -2886,24 +2886,24 @@ func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "call", "flow-release", "enrich",
+		"flows", "interfaces", "call", "flow-release", "enrich",
 		"--target", "live",
 		"--input", `{"domain":"example.com"}`,
 	)
 	if err != nil {
-		t.Fatalf("flows exports call --target live failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces call --target live failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
-	if out.Data["workflowId"] != "wf-export-live" {
-		t.Fatalf("unexpected export call output: %#v", out.Data)
+	if out.Data["workflowId"] != "wf-interface-live" {
+		t.Fatalf("unexpected interface call output: %#v", out.Data)
 	}
 }
 
-func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
+func TestFlowsInterfacesCall_WaitPollsRunCompletion(t *testing.T) {
 	var runsGetPayloads []map[string]any
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich":
+		case "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich":
 			if r.Method != http.MethodPost {
 				w.WriteHeader(405)
 				return
@@ -2912,7 +2912,7 @@ func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
 				"ok":          true,
 				"workspaceId": "ws-acme",
 				"data": map[string]any{
-					"workflowId":     "wf-export-wait",
+					"workflowId":     "wf-interface-wait",
 					"installationId": "prof-live",
 					"status":         "running",
 				},
@@ -2927,7 +2927,7 @@ func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
 			}
 			args, _ := body["args"].(map[string]any)
 			runsGetPayloads = append(runsGetPayloads, args)
-			if args["workflowId"] != "wf-export-wait" || args["installationId"] != "prof-live" {
+			if args["workflowId"] != "wf-interface-wait" || args["installationId"] != "prof-live" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected runs.get args"}})
 				return
@@ -2937,7 +2937,7 @@ func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
 				"workspaceId": "ws-acme",
 				"data": map[string]any{
 					"run": map[string]any{
-						"workflowId":     "wf-export-wait",
+						"workflowId":     "wf-interface-wait",
 						"installationId": "prof-live",
 						"status":         "completed",
 					},
@@ -2954,26 +2954,26 @@ func TestFlowsExportsCall_WaitPollsRunCompletion(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "call", "flow-release", "enrich",
+		"flows", "interfaces", "call", "flow-release", "enrich",
 		"--installation-id", "prof-live",
 		"--wait",
 		"--poll", "1ms",
 		"--timeout", "2s",
 	)
 	if err != nil {
-		t.Fatalf("flows exports call --wait failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces call --wait failed: %v\n%s", err, stdout)
 	}
 	if len(runsGetPayloads) == 0 {
 		t.Fatalf("expected at least one runs.get payload")
 	}
 	out := decodeEnvelope(t, stdout)
 	run, _ := out.Data["run"].(map[string]any)
-	if run["status"] != "completed" || run["workflowId"] != "wf-export-wait" {
+	if run["status"] != "completed" || run["workflowId"] != "wf-interface-wait" {
 		t.Fatalf("unexpected waited run output: %#v", out.Data)
 	}
 }
 
-func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
+func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/flow-profiles":
@@ -3005,7 +3005,7 @@ func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
 				"data": map[string]any{
 					"flow": map[string]any{
 						"invocations": map[string]any{"default": map[string]any{}},
-						"exports":     map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+						"interfaces":  map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
 					},
 				},
 			})
@@ -3020,16 +3020,16 @@ func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "curl", "flow-release", "enrich",
+		"flows", "interfaces", "curl", "flow-release", "enrich",
 		"--target", "live",
 		"--input", `{"domain":"example.com"}`,
 	)
 	if err != nil {
-		t.Fatalf("flows exports curl failed: %v\n%s", err, stdout)
+		t.Fatalf("flows interfaces curl failed: %v\n%s", err, stdout)
 	}
 	out := decodeEnvelope(t, stdout)
 	curl, _ := out.Data["curl"].(string)
-	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich") ||
+	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich") ||
 		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
 		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
 		t.Fatalf("unexpected curl command: %s", curl)
@@ -3039,13 +3039,13 @@ func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsCall_RequiresInstallationID(t *testing.T) {
+func TestFlowsInterfacesCall_RequiresInstallationID(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:1",
 		"--token", "user-dev",
-		"flows", "exports", "call", "flow-release", "enrich",
+		"flows", "interfaces", "call", "flow-release", "enrich",
 	)
 	if err == nil {
 		t.Fatalf("expected missing installation id error\nstdout=%s\nstderr=%s", stdout, stderr)
@@ -3055,9 +3055,9 @@ func TestFlowsExportsCall_RequiresInstallationID(t *testing.T) {
 	}
 }
 
-func TestFlowsExportsCall_ErrorAddsRecoveryHints(t *testing.T) {
+func TestFlowsInterfacesCall_ErrorAddsRecoveryHints(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/missing" {
+		if r.URL.Path != "/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/missing" {
 			http.NotFound(w, r)
 			return
 		}
@@ -3065,7 +3065,7 @@ func TestFlowsExportsCall_ErrorAddsRecoveryHints(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": false,
 			"error": map[string]any{
-				"message": "HTTP export not found",
+				"message": "HTTP interface not found",
 			},
 		})
 	}))
@@ -3076,18 +3076,18 @@ func TestFlowsExportsCall_ErrorAddsRecoveryHints(t *testing.T) {
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
-		"flows", "exports", "call", "flow-release", "missing",
+		"flows", "interfaces", "call", "flow-release", "missing",
 		"--installation-id", "prof-live",
 	)
 	if err == nil {
-		t.Fatalf("expected export not found error\nstdout=%s\nstderr=%s", stdout, stderr)
+		t.Fatalf("expected interface not found error\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
 	out := decodeEnvelope(t, stdout)
 	hint, _ := out.Meta["hint"].(string)
-	if !strings.Contains(hint, "breyta flows installations exports prof-live") {
-		t.Fatalf("expected installation exports hint, got %#v", out.Meta)
+	if !strings.Contains(hint, "breyta flows installations interfaces prof-live") {
+		t.Fatalf("expected installation interfaces hint, got %#v", out.Meta)
 	}
-	if !strings.Contains(stderr, `breyta docs find "flow exports invocation"`) {
+	if !strings.Contains(stderr, `breyta docs find "flow interfaces invocation"`) {
 		t.Fatalf("expected docs hint in stderr, got:\n%s", stderr)
 	}
 }

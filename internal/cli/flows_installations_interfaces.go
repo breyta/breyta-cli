@@ -8,21 +8,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newFlowsInstallationsExportsCmd(app *App) *cobra.Command {
+func newFlowsInstallationsInterfacesCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "exports <installation-id>",
-		Short: "List exports for an installation",
+		Use:   "interfaces <installation-id>",
+		Short: "List interfaces for an installation",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, flowSlug, err := fetchInstallationExportMetadata(cmd.Context(), app, args[0])
+			resp, status, flow, flowSlug, err := fetchInstallationInterfaceMetadata(cmd.Context(), app, args[0])
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
-				enrichFlowExportFailure(resp, flowSlug, args[0], "")
+				enrichFlowInterfaceFailure(resp, flowSlug, args[0], "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, "installation"), flowSlug, args[0])
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, "installation"), flowSlug, args[0])
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
@@ -43,9 +43,9 @@ func newFlowsInstallationsExportsCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func fetchInstallationExportMetadata(ctx context.Context, app *App, installationID string) (map[string]any, int, map[string]any, string, error) {
+func fetchInstallationInterfaceMetadata(ctx context.Context, app *App, installationID string) (map[string]any, int, map[string]any, string, error) {
 	if !isAPIMode(app) {
-		return nil, 0, nil, "", errors.New("flows installations exports requires --api/BREYTA_API_URL")
+		return nil, 0, nil, "", errors.New("flows installations interfaces requires --api/BREYTA_API_URL")
 	}
 	if err := requireAPI(app); err != nil {
 		return nil, 0, nil, "", err

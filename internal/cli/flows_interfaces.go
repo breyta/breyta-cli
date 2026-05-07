@@ -13,21 +13,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newFlowsExportsCmd(app *App) *cobra.Command {
+func newFlowsInterfacesCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "exports",
-		Short: "Inspect flow exports backed by invocations",
+		Use:   "interfaces",
+		Short: "Inspect flow interfaces backed by invocations",
 		Long: strings.TrimSpace(`
-Inspect external client surfaces declared under :exports.
+Inspect external client surfaces declared under :interfaces.
 
-These commands read export metadata from the API. They do not construct runtime
+These commands read interface metadata from the API. They do not construct runtime
 HTTP or MCP routes locally.
 `),
 	}
-	cmd.AddCommand(newFlowsExportsListCmd(app))
-	cmd.AddCommand(newFlowsExportsShowCmd(app))
-	cmd.AddCommand(newFlowsExportsCallCmd(app))
-	cmd.AddCommand(newFlowsExportsCurlCmd(app))
+	cmd.AddCommand(newFlowsInterfacesListCmd(app))
+	cmd.AddCommand(newFlowsInterfacesShowCmd(app))
+	cmd.AddCommand(newFlowsInterfacesCallCmd(app))
+	cmd.AddCommand(newFlowsInterfacesCurlCmd(app))
 	return cmd
 }
 
@@ -38,24 +38,24 @@ func optionalArg(args []string, idx int) string {
 	return ""
 }
 
-func newFlowsExportsListCmd(app *App) *cobra.Command {
+func newFlowsInterfacesListCmd(app *App) *cobra.Command {
 	var target string
 	var version int
 	var installationID string
 	cmd := &cobra.Command{
 		Use:   "list <flow-slug>",
-		Short: "List exported invocation surfaces for a flow",
+		Short: "List invocation-backed interfaces for a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version, installationID)
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowInterfaceMetadata(cmd.Context(), app, args[0], target, version, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
-				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, "")
+				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
@@ -73,47 +73,47 @@ func newFlowsExportsListCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Export target (draft|live)")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect exports for a specific installation id")
+	cmd.Flags().StringVar(&target, "target", "", "Interface target (draft|live)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect interfaces for a specific installation id")
 	cmd.Flags().IntVar(&version, "version", 0, "Release version override for draft/source lookup")
 	return cmd
 }
 
-func newFlowsExportsShowCmd(app *App) *cobra.Command {
+func newFlowsInterfacesShowCmd(app *App) *cobra.Command {
 	var target string
 	var version int
 	var family string
 	var installationID string
 	cmd := &cobra.Command{
-		Use:   "show <flow-slug> <export-id-or-tool-name>",
-		Short: "Show one exported invocation surface",
+		Use:   "show <flow-slug> <interface-id-or-tool-name>",
+		Short: "Show one invocation-backed interface",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version, installationID)
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowInterfaceMetadata(cmd.Context(), app, args[0], target, version, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
-				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, args[1])
+				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
-			item := findFlowExportItem(items, args[1], family)
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			item := findFlowInterfaceItem(items, args[1], family)
 			if item == nil {
 				out := map[string]any{
 					"ok": false,
 					"error": map[string]any{
-						"message": "Export not found",
+						"message": "Interface not found",
 						"details": map[string]any{
 							"flowSlug":       args[0],
 							"target":         resolvedTarget,
 							"installationId": resolvedInstallationID,
-							"export":         args[1],
+							"interface":      args[1],
 							"family":         strings.TrimSpace(family),
 						},
 					},
 				}
-				enrichFlowExportFailure(out, args[0], resolvedInstallationID, args[1])
+				enrichFlowInterfaceFailure(out, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, out, 404)
 			}
 			out := map[string]any{
@@ -126,16 +126,16 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 					"flowSlug":       args[0],
 					"target":         resolvedTarget,
 					"installationId": resolvedInstallationID,
-					"export":         item,
+					"interface":      item,
 				}),
 			}
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Export target (draft|live)")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect exports for a specific installation id")
+	cmd.Flags().StringVar(&target, "target", "", "Interface target (draft|live)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect interfaces for a specific installation id")
 	cmd.Flags().IntVar(&version, "version", 0, "Release version override for draft/source lookup")
-	cmd.Flags().StringVar(&family, "family", "", "Restrict lookup to export family (http|mcp)")
+	cmd.Flags().StringVar(&family, "family", "", "Restrict lookup to interface family (http|mcp)")
 	return cmd
 }
 
@@ -199,7 +199,7 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newFlowsExportsCallCmd(app *App) *cobra.Command {
+func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 	var target string
 	var installationID string
 	var inputJSON string
@@ -207,12 +207,12 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	var timeout time.Duration
 	var poll time.Duration
 	cmd := &cobra.Command{
-		Use:   "call <flow-slug> <http-export-id>",
-		Short: "Call a flow HTTP export",
+		Use:   "call <flow-slug> <http-interface-id>",
+		Short: "Call a flow HTTP interface",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows exports call requires --api/BREYTA_API_URL"))
+				return writeErr(cmd, errors.New("flows interfaces call requires --api/BREYTA_API_URL"))
 			}
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
@@ -238,7 +238,7 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
 			}
-			path := fmt.Sprintf("/api/workspaces/%s/flow-exports/%s/%s/%s",
+			path := fmt.Sprintf("/api/workspaces/%s/flow-interfaces/%s/%s/%s",
 				url.PathEscape(app.WorkspaceID),
 				url.PathEscape(installationID),
 				url.PathEscape(args[0]),
@@ -255,57 +255,57 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 					"data":   out,
 				}
 			}
-			enrichFlowExportFailure(resp, args[0], installationID, args[1])
+			enrichFlowInterfaceFailure(resp, args[0], installationID, args[1])
 			if wait && status < 400 && isOK(resp) {
-				return waitForRunCompletion(cmd, app, resp, args[0], "flows.exports.call", timeout, poll)
+				return waitForRunCompletion(cmd, app, resp, args[0], "flows.interfaces.call", timeout, poll)
 			}
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Resolve and call a flow target (live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
-	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
+	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the interface invocation")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
 
-func newFlowsExportsCurlCmd(app *App) *cobra.Command {
+func newFlowsInterfacesCurlCmd(app *App) *cobra.Command {
 	var target string
 	var installationID string
 	var inputJSON string
 	cmd := &cobra.Command{
-		Use:   "curl <flow-slug> <http-export-id>",
-		Short: "Generate a curl command for a flow HTTP export",
+		Use:   "curl <flow-slug> <http-interface-id>",
+		Short: "Generate a curl command for a flow HTTP interface",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, 0, installationID)
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowInterfaceMetadata(cmd.Context(), app, args[0], target, 0, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			if status >= 400 || !isOK(resp) {
-				enrichFlowExportFailure(resp, args[0], resolvedInstallationID, args[1])
+				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
 			if strings.TrimSpace(resolvedInstallationID) == "" {
 				return writeErr(cmd, errors.New("--installation-id is required (or use --target live)"))
 			}
-			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
-			item := findFlowExportItem(items, args[1], "http")
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			item := findFlowInterfaceItem(items, args[1], "http")
 			if item == nil {
 				out := map[string]any{
 					"ok": false,
 					"error": map[string]any{
-						"message": "HTTP export not found",
+						"message": "HTTP interface not found",
 						"details": map[string]any{
-							"flowSlug": args[0],
-							"target":   resolvedTarget,
-							"export":   args[1],
+							"flowSlug":  args[0],
+							"target":    resolvedTarget,
+							"interface": args[1],
 						},
 					},
 				}
-				enrichFlowExportFailure(out, args[0], resolvedInstallationID, args[1])
+				enrichFlowInterfaceFailure(out, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, out, 404)
 			}
 			input, err := parseJSONObjectFlag(inputJSON)
@@ -333,20 +333,20 @@ func newFlowsExportsCurlCmd(app *App) *cobra.Command {
 					"flowSlug":       args[0],
 					"target":         resolvedTarget,
 					"installationId": resolvedInstallationID,
-					"export":         item,
+					"interface":      item,
 					"curl":           curl,
 				}),
 			}
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Export target (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Interface target (live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
-	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
+	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the interface invocation")
 	return cmd
 }
 
-func enrichFlowExportFailure(out map[string]any, flowSlug string, installationID string, exportID string) {
+func enrichFlowInterfaceFailure(out map[string]any, flowSlug string, installationID string, interfaceID string) {
 	if out == nil || isOK(out) {
 		return
 	}
@@ -358,18 +358,18 @@ func enrichFlowExportFailure(out map[string]any, flowSlug string, installationID
 	if meta != nil {
 		if _, exists := meta["hint"]; !exists {
 			switch {
-			case strings.Contains(msg, "export not found"):
+			case strings.Contains(msg, "interface not found"):
 				if strings.TrimSpace(installationID) != "" {
-					meta["hint"] = "Inspect available exports with `breyta flows installations exports " + strings.TrimSpace(installationID) + "`, or check the authored :exports map and release/promote the flow version that declares this export."
+					meta["hint"] = "Inspect available interfaces with `breyta flows installations interfaces " + strings.TrimSpace(installationID) + "`, or check the authored :interfaces map and release/promote the flow version that declares this interface."
 				} else {
-					meta["hint"] = "Inspect available exports with `breyta flows exports list " + strings.TrimSpace(flowSlug) + " --target live`, or check the authored :exports map and release/promote the flow version that declares this export."
+					meta["hint"] = "Inspect available interfaces with `breyta flows interfaces list " + strings.TrimSpace(flowSlug) + " --target live`, or check the authored :interfaces map and release/promote the flow version that declares this interface."
 				}
 			case strings.Contains(msg, "installation not found"), strings.Contains(msg, "invalid installationid"):
-				meta["hint"] = "Check the installation id with `breyta flows installations list " + strings.TrimSpace(flowSlug) + "`, then inspect exports with `breyta flows installations exports <installation-id>`."
+				meta["hint"] = "Check the installation id with `breyta flows installations list " + strings.TrimSpace(flowSlug) + "`, then inspect interfaces with `breyta flows installations interfaces <installation-id>`."
 			case strings.Contains(msg, "invocation not found"), strings.Contains(msg, "no invocation"):
-				meta["hint"] = "The export points at a missing invocation. Update the flow :exports entry to reference an existing :invocations key, then push/release/promote the flow."
+				meta["hint"] = "The interface points at a missing invocation. Update the flow :interfaces entry to reference an existing :invocations key, then push/release/promote the flow."
 			default:
-				meta["hint"] = "Inspect export metadata with `breyta flows exports show " + strings.TrimSpace(flowSlug) + " " + strings.TrimSpace(exportID) + "` and check installation configuration with `breyta flows installations get <installation-id>`."
+				meta["hint"] = "Inspect interface metadata with `breyta flows interfaces show " + strings.TrimSpace(flowSlug) + " " + strings.TrimSpace(interfaceID) + "` and check installation configuration with `breyta flows installations get <installation-id>`."
 			}
 		}
 	}
@@ -377,16 +377,16 @@ func enrichFlowExportFailure(out map[string]any, flowSlug string, installationID
 	if errMap != nil {
 		if _, exists := errMap["hintRefs"]; !exists {
 			errMap["hintRefs"] = []any{
-				map[string]any{"kind": "find", "query": "flow exports invocation"},
+				map[string]any{"kind": "find", "query": "flow interfaces invocation"},
 				map[string]any{"kind": "find", "query": "installations configure invocation"},
 			}
 		}
 	}
 }
 
-func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int, installationID string) (map[string]any, int, map[string]any, string, string, error) {
+func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, target string, version int, installationID string) (map[string]any, int, map[string]any, string, string, error) {
 	if !isAPIMode(app) {
-		return nil, 0, nil, "", "", errors.New("flows exports requires --api/BREYTA_API_URL")
+		return nil, 0, nil, "", "", errors.New("flows interfaces requires --api/BREYTA_API_URL")
 	}
 	if err := requireAPI(app); err != nil {
 		return nil, 0, nil, "", "", err
@@ -446,7 +446,7 @@ func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, tar
 	return resp, status, flow, resolvedTarget, installationID, nil
 }
 
-func withFlowExportEndpointMetadata(app *App, items []any, flowSlug string, installationID string) []any {
+func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, installationID string) []any {
 	installationID = strings.TrimSpace(installationID)
 	flowSlug = strings.TrimSpace(flowSlug)
 	if installationID == "" || flowSlug == "" {
@@ -456,14 +456,14 @@ func withFlowExportEndpointMetadata(app *App, items []any, flowSlug string, inst
 	for _, raw := range items {
 		item := mapStringAny(raw)
 		if strings.EqualFold(firstNonBlankString(item["family"]), "http") {
-			if exportID := firstNonBlankString(item["id"]); exportID != "" {
+			if interfaceID := firstNonBlankString(item["id"]); interfaceID != "" {
 				method := strings.ToUpper(firstNonBlankString(item["method"]))
 				if method == "" {
 					method = "POST"
 				}
 				item["endpoint"] = map[string]any{
 					"method": method,
-					"url":    flowExportRuntimeURL(app, installationID, flowSlug, exportID),
+					"url":    flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID),
 					"auth":   "workspace-token",
 				}
 			}
@@ -473,13 +473,13 @@ func withFlowExportEndpointMetadata(app *App, items []any, flowSlug string, inst
 	return out
 }
 
-func flowExportRuntimeURL(app *App, installationID string, flowSlug string, exportID string) string {
+func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, interfaceID string) string {
 	ensureAPIURL(app)
-	path := fmt.Sprintf("/api/workspaces/%s/flow-exports/%s/%s/%s",
+	path := fmt.Sprintf("/api/workspaces/%s/flow-interfaces/%s/%s/%s",
 		url.PathEscape(app.WorkspaceID),
 		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(flowSlug)),
-		url.PathEscape(strings.TrimSpace(exportID)))
+		url.PathEscape(strings.TrimSpace(interfaceID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
@@ -496,36 +496,36 @@ func firstPositiveInt(values ...any) int {
 	return 0
 }
 
-func flowExportItems(flow map[string]any, target string) []any {
-	exports := mapStringAny(flow["exports"])
+func flowInterfaceItems(flow map[string]any, target string) []any {
+	interfaces := mapStringAny(flow["interfaces"])
 	invocations := mapStringAny(flow["invocations"])
 	items := make([]any, 0)
-	for _, raw := range sliceAny(exports["http"]) {
-		export := mapStringAny(raw)
-		invocationID := firstNonBlankString(export["invocation"])
+	for _, raw := range sliceAny(interfaces["http"]) {
+		iface := mapStringAny(raw)
+		invocationID := firstNonBlankString(iface["invocation"])
 		item := map[string]any{
 			"family":        "http",
-			"id":            firstNonBlankString(export["id"]),
+			"id":            firstNonBlankString(iface["id"]),
 			"invocationId":  invocationID,
 			"target":        target,
-			"method":        firstNonBlankString(export["method"]),
-			"path":          firstNonBlankString(export["path"]),
-			"auth":          firstNonBlankString(export["auth"]),
-			"description":   firstNonBlankString(export["description"]),
+			"method":        firstNonBlankString(iface["method"]),
+			"path":          firstNonBlankString(iface["path"]),
+			"auth":          firstNonBlankString(iface["auth"]),
+			"description":   firstNonBlankString(iface["description"]),
 			"invocation":    invocationContract(invocations, invocationID),
 			"runtimeStatus": "available",
 		}
 		items = append(items, pruneEmptyStrings(item))
 	}
-	for _, raw := range sliceAny(exports["mcp"]) {
-		export := mapStringAny(raw)
-		invocationID := firstNonBlankString(export["invocation"])
+	for _, raw := range sliceAny(interfaces["mcp"]) {
+		iface := mapStringAny(raw)
+		invocationID := firstNonBlankString(iface["invocation"])
 		item := map[string]any{
 			"family":        "mcp",
-			"toolName":      firstNonBlankString(export["toolName"], export["tool-name"]),
+			"toolName":      firstNonBlankString(iface["toolName"], iface["tool-name"]),
 			"invocationId":  invocationID,
 			"target":        target,
-			"description":   firstNonBlankString(export["description"]),
+			"description":   firstNonBlankString(iface["description"]),
 			"invocation":    invocationContract(invocations, invocationID),
 			"runtimeStatus": "not_implemented",
 		}
@@ -547,8 +547,8 @@ func invocationContract(invocations map[string]any, invocationID string) any {
 	return nil
 }
 
-func findFlowExportItem(items []any, exportID string, family string) map[string]any {
-	want := strings.TrimSpace(exportID)
+func findFlowInterfaceItem(items []any, interfaceID string, family string) map[string]any {
+	want := strings.TrimSpace(interfaceID)
 	wantFamily := strings.ToLower(strings.TrimSpace(family))
 	for _, raw := range items {
 		item := mapStringAny(raw)
