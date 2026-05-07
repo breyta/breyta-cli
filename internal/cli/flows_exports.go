@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +26,7 @@ HTTP or MCP routes locally.
 	cmd.AddCommand(newFlowsExportsListCmd(app))
 	cmd.AddCommand(newFlowsExportsShowCmd(app))
 	cmd.AddCommand(newFlowsExportsCallCmd(app))
+	cmd.AddCommand(newFlowsExportsCurlCmd(app))
 	return cmd
 }
 
@@ -194,6 +196,78 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newFlowsExportsCurlCmd(app *App) *cobra.Command {
+	var target string
+	var installationID string
+	var inputJSON string
+	cmd := &cobra.Command{
+		Use:   "curl <flow-slug> <http-export-id>",
+		Short: "Generate a curl command for a flow HTTP export",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, 0, installationID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if status >= 400 || !isOK(resp) {
+				return writeAPIResult(cmd, app, resp, status)
+			}
+			if strings.TrimSpace(resolvedInstallationID) == "" {
+				return writeErr(cmd, errors.New("--installation-id is required (or use --target live)"))
+			}
+			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			item := findFlowExportItem(items, args[1], "http")
+			if item == nil {
+				return writeAPIResult(cmd, app, map[string]any{
+					"ok": false,
+					"error": map[string]any{
+						"message": "HTTP export not found",
+						"details": map[string]any{
+							"flowSlug": args[0],
+							"target":   resolvedTarget,
+							"export":   args[1],
+						},
+					},
+				}, 404)
+			}
+			input, err := parseJSONObjectFlag(inputJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+			}
+			body, err := json.Marshal(map[string]any{"input": input})
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			endpoint := mapStringAny(item["endpoint"])
+			url := firstNonBlankString(endpoint["url"])
+			curl := strings.Join([]string{
+				"curl",
+				"-X", "POST",
+				shellSingleQuote(url),
+				"-H", shellSingleQuote("Authorization: Bearer ${BREYTA_TOKEN}"),
+				"-H", shellSingleQuote("Content-Type: application/json"),
+				"--data", shellSingleQuote(string(body)),
+			}, " ")
+			out := map[string]any{
+				"ok":          true,
+				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
+				"data": pruneEmptyStrings(map[string]any{
+					"flowSlug":       args[0],
+					"target":         resolvedTarget,
+					"installationId": resolvedInstallationID,
+					"export":         item,
+					"curl":           curl,
+				}),
+			}
+			return writeAPIResult(cmd, app, out, 200)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", "", "Export target (live)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
+	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
+	return cmd
+}
+
 func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int, installationID string) (map[string]any, int, map[string]any, string, string, error) {
 	if !isAPIMode(app) {
 		return nil, 0, nil, "", "", errors.New("flows exports requires --api/BREYTA_API_URL")
@@ -287,6 +361,10 @@ func flowExportRuntimeURL(app *App, installationID string, flowSlug string, expo
 		url.PathEscape(strings.TrimSpace(flowSlug)),
 		url.PathEscape(strings.TrimSpace(exportID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func firstPositiveInt(values ...any) int {

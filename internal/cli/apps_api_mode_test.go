@@ -2837,6 +2837,72 @@ func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsCurl_TargetLiveBuildsCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/flow-profiles":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"items": []any{
+						map[string]any{"profile-id": "prof-live", "version": 9, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
+					},
+				},
+			})
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "flows.get" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flow": map[string]any{
+						"invocations": map[string]any{"default": map[string]any{}},
+						"exports":     map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "curl", "flow-release", "enrich",
+		"--target", "live",
+		"--input", `{"domain":"example.com"}`,
+	)
+	if err != nil {
+		t.Fatalf("flows exports curl failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	curl, _ := out.Data["curl"].(string)
+	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich") ||
+		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
+		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
+		t.Fatalf("unexpected curl command: %s", curl)
+	}
+	if strings.Contains(curl, "user-dev") {
+		t.Fatalf("curl command leaked token: %s", curl)
+	}
+}
+
 func TestFlowsExportsCall_RequiresInstallationID(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
