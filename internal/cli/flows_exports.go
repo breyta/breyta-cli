@@ -396,8 +396,12 @@ func withFlowExportEndpointMetadata(app *App, items []any, flowSlug string, inst
 		item := mapStringAny(raw)
 		if strings.EqualFold(firstNonBlankString(item["family"]), "http") {
 			if exportID := firstNonBlankString(item["id"]); exportID != "" {
+				method := strings.ToUpper(firstNonBlankString(item["method"]))
+				if method == "" {
+					method = "POST"
+				}
 				item["endpoint"] = map[string]any{
-					"method": "POST",
+					"method": method,
 					"url":    flowExportRuntimeURL(app, installationID, flowSlug, exportID),
 					"auth":   "workspace-token",
 				}
