@@ -150,6 +150,12 @@ By default, the CLI prints summarized rows and omits raw provider payloads. Use
 `--raw` only when debugging item metadata. Use `--limit 0` with an `--item-type`
 to fetch all pages.
 
+When a setup or run input is backed by connection items, Breyta validates the
+submitted value against this cache. Missing bindings, empty caches, disabled
+items, and unknown values fail closed. Installation setup errors include
+`setupState` details so CLI callers can show the missing field, binding, or
+invalid option to the operator.
+
 ## Table resources
 
 The CLI also exposes the bounded table-resource surface used by flows and the UI:
