@@ -2503,6 +2503,95 @@ func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsList_InstallationTargetResolvesPinnedVersion(t *testing.T) {
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		commands = append(commands, command)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.installations.get":
+			if args["profileId"] != "prof-live" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installation id"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug":         "flow-release",
+					"version":          9,
+					"installedVersion": 9,
+				},
+			})
+		case "flows.get":
+			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flow": map[string]any{
+						"invocations": map[string]any{"default": map[string]any{}},
+						"exports":     map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "list", "flow-release",
+		"--installation-id", "prof-live",
+	)
+	if err != nil {
+		t.Fatalf("flows exports list failed: %v\n%s", err, stdout)
+	}
+	if strings.Join(commands, ",") != "flows.installations.get,flows.get" {
+		t.Fatalf("unexpected command sequence: %#v", commands)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["target"] != "installation" || out.Data["installationId"] != "prof-live" {
+		t.Fatalf("expected installation target metadata, got %#v", out.Data)
+	}
+}
+
+func TestFlowsExportsList_RejectsInstallationWithTarget(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "exports", "list", "flow-release",
+		"--installation-id", "prof-live",
+		"--target", "live",
+	)
+	if err == nil {
+		t.Fatalf("expected incompatible flags error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--installation-id cannot be combined with --target or --version") {
+		t.Fatalf("expected incompatible flags error, got stderr=%s stdout=%s", stderr, stdout)
+	}
+}
+
 func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

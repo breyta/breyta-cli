@@ -31,12 +31,13 @@ HTTP or MCP routes locally.
 func newFlowsExportsListCmd(app *App) *cobra.Command {
 	var target string
 	var version int
+	var installationID string
 	cmd := &cobra.Command{
 		Use:   "list <flow-slug>",
 		Short: "List exported invocation surfaces for a flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, resolvedTarget, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version)
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -47,20 +48,22 @@ func newFlowsExportsListCmd(app *App) *cobra.Command {
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
-				"meta": map[string]any{
+				"meta": pruneEmptyStrings(map[string]any{
 					"target": resolvedTarget,
 					"count":  len(items),
-				},
-				"data": map[string]any{
-					"flowSlug": args[0],
-					"target":   resolvedTarget,
-					"items":    items,
-				},
+				}),
+				"data": pruneEmptyStrings(map[string]any{
+					"flowSlug":       args[0],
+					"target":         resolvedTarget,
+					"installationId": resolvedInstallationID,
+					"items":          items,
+				}),
 			}
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Export target (draft|live)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect exports for a specific installation id")
 	cmd.Flags().IntVar(&version, "version", 0, "Release version override for draft/source lookup")
 	return cmd
 }
@@ -69,12 +72,13 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 	var target string
 	var version int
 	var family string
+	var installationID string
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug> <export-id-or-tool-name>",
 		Short: "Show one exported invocation surface",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, status, flow, resolvedTarget, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version)
+			resp, status, flow, resolvedTarget, resolvedInstallationID, err := fetchFlowExportMetadata(cmd.Context(), app, args[0], target, version, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -88,10 +92,11 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 					"error": map[string]any{
 						"message": "Export not found",
 						"details": map[string]any{
-							"flowSlug": args[0],
-							"target":   resolvedTarget,
-							"export":   args[1],
-							"family":   strings.TrimSpace(family),
+							"flowSlug":       args[0],
+							"target":         resolvedTarget,
+							"installationId": resolvedInstallationID,
+							"export":         args[1],
+							"family":         strings.TrimSpace(family),
 						},
 					},
 				}
@@ -100,19 +105,21 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
-				"meta": map[string]any{
+				"meta": pruneEmptyStrings(map[string]any{
 					"target": resolvedTarget,
-				},
-				"data": map[string]any{
-					"flowSlug": args[0],
-					"target":   resolvedTarget,
-					"export":   item,
-				},
+				}),
+				"data": pruneEmptyStrings(map[string]any{
+					"flowSlug":       args[0],
+					"target":         resolvedTarget,
+					"installationId": resolvedInstallationID,
+					"export":         item,
+				}),
 			}
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Export target (draft|live)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Inspect exports for a specific installation id")
 	cmd.Flags().IntVar(&version, "version", 0, "Release version override for draft/source lookup")
 	cmd.Flags().StringVar(&family, "family", "", "Restrict lookup to export family (http|mcp)")
 	return cmd
@@ -171,29 +178,51 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int) (map[string]any, int, map[string]any, string, error) {
+func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int, installationID string) (map[string]any, int, map[string]any, string, string, error) {
 	if !isAPIMode(app) {
-		return nil, 0, nil, "", errors.New("flows exports requires --api/BREYTA_API_URL")
+		return nil, 0, nil, "", "", errors.New("flows exports requires --api/BREYTA_API_URL")
 	}
 	if err := requireAPI(app); err != nil {
-		return nil, 0, nil, "", err
+		return nil, 0, nil, "", "", err
 	}
 	resolvedTarget, err := normalizeInstallTarget(target)
 	if err != nil {
-		return nil, 0, nil, "", err
+		return nil, 0, nil, "", "", err
 	}
+	installationID = strings.TrimSpace(installationID)
 	if resolvedTarget == "live" && version > 0 {
-		return nil, 0, nil, "", errors.New("--target cannot be combined with --version")
+		return nil, 0, nil, "", "", errors.New("--target cannot be combined with --version")
+	}
+	if installationID != "" && (strings.TrimSpace(target) != "" || version > 0) {
+		return nil, 0, nil, "", "", errors.New("--installation-id cannot be combined with --target or --version")
 	}
 	payload := map[string]any{
 		"flowSlug":           flowSlug,
 		"source":             "draft",
 		"includeFlowLiteral": false,
 	}
-	if resolvedTarget == "live" {
+	if installationID != "" {
+		resp, status, err := runAPICommandWithContext(ctx, app, "flows.installations.get", map[string]any{"profileId": installationID})
+		if err != nil {
+			return nil, 0, nil, "", "", err
+		}
+		if status >= 400 || !isOK(resp) {
+			return resp, status, nil, "installation", installationID, nil
+		}
+		data := mapStringAny(resp["data"])
+		flowSlugFromInstallation := firstNonBlankString(data["flowSlug"], data["flow-slug"])
+		if flowSlugFromInstallation != "" && flowSlugFromInstallation != flowSlug {
+			return nil, 0, nil, "", "", fmt.Errorf("--installation-id %s belongs to flow %s, not %s", installationID, flowSlugFromInstallation, flowSlug)
+		}
+		if resolvedVersion := firstPositiveInt(data["version"], data["installedVersion"], data["installed-version"]); resolvedVersion > 0 {
+			payload["version"] = resolvedVersion
+		}
+		payload["source"] = "active"
+		resolvedTarget = "installation"
+	} else if resolvedTarget == "live" {
 		target, err := resolveLiveProfileTarget(ctx, app, flowSlug, true)
 		if err != nil {
-			return nil, 0, nil, "", err
+			return nil, 0, nil, "", "", err
 		}
 		payload["source"] = "active"
 		if target.Version > 0 {
@@ -204,10 +233,19 @@ func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, tar
 	}
 	resp, status, err := runAPICommandWithContext(ctx, app, "flows.get", payload)
 	if err != nil {
-		return nil, 0, nil, "", err
+		return nil, 0, nil, "", "", err
 	}
 	flow := mapStringAny(mapStringAny(resp["data"])["flow"])
-	return resp, status, flow, resolvedTarget, nil
+	return resp, status, flow, resolvedTarget, installationID, nil
+}
+
+func firstPositiveInt(values ...any) int {
+	for _, value := range values {
+		if n := anyInt(value); n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func flowExportItems(flow map[string]any, target string) []any {
