@@ -2444,6 +2444,116 @@ func TestFlowsRun_SendsInvocation(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsList_ReadsFlowExportsMetadata(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["source"] != "draft" || args["includeFlowLiteral"] != false {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flow": map[string]any{
+					"flowSlug": "flow-release",
+					"invocations": map[string]any{
+						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain", "type": "text"}}},
+					},
+					"exports": map[string]any{
+						"http": []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "installation-token"}},
+						"mcp":  []any{map[string]any{"tool-name": "enrich_company", "invocation": "default"}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "list", "flow-release",
+	)
+	if err != nil {
+		t.Fatalf("flows exports list failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	items, _ := out.Data["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 exports, got %#v", out.Data["items"])
+	}
+	first, _ := items[0].(map[string]any)
+	if first["family"] != "http" || first["id"] != "enrich" || first["invocationId"] != "default" {
+		t.Fatalf("unexpected first export item: %#v", first)
+	}
+}
+
+func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flow": map[string]any{
+					"invocations": map[string]any{
+						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain"}}},
+					},
+					"exports": map[string]any{
+						"mcp": []any{map[string]any{"tool-name": "enrich_company", "description": "Enrich company", "invocation": "default"}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "show", "flow-release", "enrich_company",
+		"--family", "mcp",
+	)
+	if err != nil {
+		t.Fatalf("flows exports show failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	export, _ := out.Data["export"].(map[string]any)
+	if export["family"] != "mcp" || export["toolName"] != "enrich_company" || export["invocationId"] != "default" {
+		t.Fatalf("unexpected export: %#v", export)
+	}
+	if export["invocation"] == nil {
+		t.Fatalf("expected invocation contract in export: %#v", export)
+	}
+}
+
 func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
