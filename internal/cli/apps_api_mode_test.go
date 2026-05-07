@@ -2473,7 +2473,7 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 						"default": map[string]any{"inputs": []any{map[string]any{"name": "domain", "type": "text"}}},
 					},
 					"interfaces": map[string]any{
-						"http": []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "installation-token"}},
+						"http": []any{map[string]any{"id": "enrich", "invocation": "default", "method": "post", "path": "/enrich", "auth": "workspace-api-auth"}},
 						"mcp":  []any{map[string]any{"tool-name": "enrich_company", "invocation": "default"}},
 					},
 				},
@@ -2710,7 +2710,7 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 	}
 	first, _ := items[0].(map[string]any)
 	endpoint, _ := first["endpoint"].(map[string]any)
-	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-token" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-interfaces/prof-live/flow-release/enrich" {
 		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
 	}
 }

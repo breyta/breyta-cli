@@ -464,7 +464,7 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 				item["endpoint"] = map[string]any{
 					"method": method,
 					"url":    flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID),
-					"auth":   "workspace-token",
+					"auth":   "workspace-api-auth",
 				}
 			}
 		}
