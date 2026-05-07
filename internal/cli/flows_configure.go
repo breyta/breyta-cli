@@ -9,6 +9,10 @@ import (
 
 func newFlowsConfigureCmd(app *App) *cobra.Command {
 	var profileArg string
+	var schedulesJSON string
+	var scheduleEnableItems []string
+	var scheduleDisableItems []string
+	var scheduleResetItems []string
 	var setArgs []string
 	var target string
 	var version string
@@ -70,8 +74,8 @@ Use "flows installations configure" when you need installation-specific configur
 				if !targetChanged || resolvedTarget != "live" {
 					return writeErr(cmd, errors.New("--from-draft requires --target live"))
 				}
-				if len(args) == 2 || strings.TrimSpace(profileArg) != "" || len(setArgs) > 0 {
-					return writeErr(cmd, errors.New("--from-draft cannot be used with a profile file or --set"))
+				if len(args) == 2 || strings.TrimSpace(profileArg) != "" || strings.TrimSpace(schedulesJSON) != "" || len(scheduleEnableItems) > 0 || len(scheduleDisableItems) > 0 || len(scheduleResetItems) > 0 || len(setArgs) > 0 {
+					return writeErr(cmd, errors.New("--from-draft cannot be used with a profile file, --schedules, --schedule-enable, --schedule-disable, --schedule-reset, or --set"))
 				}
 				body["fromDraft"] = true
 				return doAPICommand(cmd, app, "flows.configure", body)
@@ -83,8 +87,8 @@ Use "flows installations configure" when you need installation-specific configur
 				}
 				profileArg = args[1]
 			}
-			if strings.TrimSpace(profileArg) == "" && len(setArgs) == 0 {
-				return writeErr(cmd, errors.New("missing profile file or --set (use @profile.edn, --profile, or --set)"))
+			if strings.TrimSpace(profileArg) == "" && strings.TrimSpace(schedulesJSON) == "" && len(scheduleEnableItems) == 0 && len(scheduleDisableItems) == 0 && len(scheduleResetItems) == 0 && len(setArgs) == 0 {
+				return writeErr(cmd, errors.New("missing profile file, --schedules, --schedule-enable, --schedule-disable, --schedule-reset, or --set (use @profile.edn, --profile, --schedules, --schedule-enable, --schedule-disable, --schedule-reset, or --set)"))
 			}
 
 			body["inputs"] = map[string]any{}
@@ -114,10 +118,34 @@ Use "flows installations configure" when you need installation-specific configur
 					inputs[k] = v
 				}
 			}
+			if strings.TrimSpace(schedulesJSON) != "" {
+				schedules, err := parseJSONObjectFlag(schedulesJSON)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				schedules, err = mergeScheduleEnabledFlags(schedules, scheduleEnableItems, scheduleDisableItems)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				body["schedules"] = schedules
+			} else if len(scheduleEnableItems) > 0 || len(scheduleDisableItems) > 0 {
+				schedules, err := mergeScheduleEnabledFlags(map[string]any{}, scheduleEnableItems, scheduleDisableItems)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				body["schedules"] = schedules
+			}
+			if len(scheduleResetItems) > 0 {
+				body["scheduleResets"] = scheduleResetMap(scheduleResetItems)
+			}
 			return doAPICommand(cmd, app, "flows.configure", body)
 		},
 	}
 	cmd.Flags().StringVar(&profileArg, "profile", "", "Bindings profile (@profile.edn or inline EDN)")
+	cmd.Flags().StringVar(&schedulesJSON, "schedules", "", "JSON object of author schedule settings")
+	cmd.Flags().StringArrayVar(&scheduleEnableItems, "schedule-enable", nil, "Enable one schedule trigger override")
+	cmd.Flags().StringArrayVar(&scheduleDisableItems, "schedule-disable", nil, "Disable one schedule trigger override")
+	cmd.Flags().StringArrayVar(&scheduleResetItems, "schedule-reset", nil, "Reset a schedule trigger override to the flow default")
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().StringVar(&version, "version", "", "Flow version override for live target (positive integer or latest)")
