@@ -2554,6 +2554,74 @@ func TestFlowsExportsShow_FindsMcpTool(t *testing.T) {
 	}
 }
 
+func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		if r.Header.Get("X-Breyta-Workspace") != "ws-acme" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing workspace header"}})
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		input, _ := body["input"].(map[string]any)
+		if input["domain"] != "example.com" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing input"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"started":    true,
+				"workflowId": "wf-export-1",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "call", "flow-release", "enrich",
+		"--profile-id", "prof-live",
+		"--input", `{"domain":"example.com"}`,
+	)
+	if err != nil {
+		t.Fatalf("flows exports call failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["workflowId"] != "wf-export-1" {
+		t.Fatalf("unexpected export call output: %#v", out.Data)
+	}
+}
+
+func TestFlowsExportsCall_RequiresProfileID(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "exports", "call", "flow-release", "enrich",
+	)
+	if err == nil {
+		t.Fatalf("expected missing profile id error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--profile-id is required") {
+		t.Fatalf("expected profile id error, got stderr=%s stdout=%s", stderr, stdout)
+	}
+}
+
 func TestFlowsRun_EmitsMappedRunStartedTelemetry(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "true")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")

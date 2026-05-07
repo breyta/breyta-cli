@@ -3,6 +3,9 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,6 +24,7 @@ HTTP or MCP routes locally.
 	}
 	cmd.AddCommand(newFlowsExportsListCmd(app))
 	cmd.AddCommand(newFlowsExportsShowCmd(app))
+	cmd.AddCommand(newFlowsExportsCallCmd(app))
 	return cmd
 }
 
@@ -114,6 +118,53 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newFlowsExportsCallCmd(app *App) *cobra.Command {
+	var profileID string
+	var inputJSON string
+	cmd := &cobra.Command{
+		Use:   "call <flow-slug> <http-export-id>",
+		Short: "Call a flow HTTP export",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows exports call requires --api/BREYTA_API_URL"))
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			profileID = strings.TrimSpace(profileID)
+			if profileID == "" {
+				return writeErr(cmd, errors.New("--profile-id is required"))
+			}
+			input, err := parseJSONObjectFlag(inputJSON)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+			}
+			path := fmt.Sprintf("/api/workspaces/%s/flow-exports/%s/%s/%s",
+				url.PathEscape(app.WorkspaceID),
+				url.PathEscape(profileID),
+				url.PathEscape(args[0]),
+				url.PathEscape(args[1]))
+			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			resp := mapStringAny(out)
+			if resp == nil {
+				resp = map[string]any{
+					"ok":     status >= 200 && status < 300,
+					"status": status,
+					"data":   out,
+				}
+			}
+			return writeAPIResult(cmd, app, resp, status)
+		},
+	}
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Flow profile or installation id to call")
+	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
+	return cmd
+}
+
 func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, target string, version int) (map[string]any, int, map[string]any, string, error) {
 	if !isAPIMode(app) {
 		return nil, 0, nil, "", errors.New("flows exports requires --api/BREYTA_API_URL")
@@ -170,7 +221,7 @@ func flowExportItems(flow map[string]any, target string) []any {
 			"auth":          firstNonBlankString(export["auth"]),
 			"description":   firstNonBlankString(export["description"]),
 			"invocation":    invocationContract(invocations, invocationID),
-			"runtimeStatus": "not_implemented",
+			"runtimeStatus": "available",
 		}
 		items = append(items, pruneEmptyStrings(item))
 	}
