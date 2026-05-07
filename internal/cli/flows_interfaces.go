@@ -468,6 +468,15 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 				}
 			}
 		}
+		if strings.EqualFold(firstNonBlankString(item["family"]), "webhook") {
+			if eventName := firstNonBlankString(item["eventName"]); eventName != "" {
+				item["endpoint"] = map[string]any{
+					"method": "POST",
+					"url":    flowWebhookRuntimeURL(app, installationID, flowSlug, eventName),
+					"auth":   "webhook-auth",
+				}
+			}
+		}
 		out = append(out, pruneEmptyStrings(item))
 	}
 	return out
@@ -480,6 +489,16 @@ func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, i
 		url.PathEscape(strings.TrimSpace(flowSlug)),
 		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
+	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
+}
+
+func flowWebhookRuntimeURL(app *App, installationID string, flowSlug string, eventName string) string {
+	ensureAPIURL(app)
+	path := fmt.Sprintf("/%s/events/webhooks/%s/%s/%s",
+		url.PathEscape(app.WorkspaceID),
+		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(strings.TrimSpace(eventName)),
+		url.PathEscape(strings.TrimSpace(installationID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
@@ -517,6 +536,27 @@ func flowInterfaceItems(flow map[string]any, target string) []any {
 		}
 		items = append(items, pruneEmptyStrings(item))
 	}
+	for _, raw := range sliceAny(interfaces["webhook"]) {
+		iface := mapStringAny(raw)
+		invocationID := firstNonBlankString(iface["invocation"])
+		interfaceID := firstNonBlankString(iface["id"])
+		eventName := firstNonBlankString(iface["eventName"], iface["event-name"])
+		if eventName == "" {
+			eventName = interfaceID
+		}
+		item := map[string]any{
+			"family":        "webhook",
+			"id":            interfaceID,
+			"eventName":     eventName,
+			"invocationId":  invocationID,
+			"target":        target,
+			"description":   firstNonBlankString(iface["description"]),
+			"auth":          webhookAuthSummary(mapStringAny(iface["auth"])),
+			"invocation":    invocationContract(invocations, invocationID),
+			"runtimeStatus": "available",
+		}
+		items = append(items, pruneEmptyStrings(item))
+	}
 	for _, raw := range sliceAny(interfaces["mcp"]) {
 		iface := mapStringAny(raw)
 		invocationID := firstNonBlankString(iface["invocation"])
@@ -532,6 +572,24 @@ func flowInterfaceItems(flow map[string]any, target string) []any {
 		items = append(items, pruneEmptyStrings(item))
 	}
 	return items
+}
+
+func webhookAuthSummary(auth map[string]any) any {
+	if auth == nil {
+		return nil
+	}
+	out := pruneEmptyStrings(map[string]any{
+		"type":            firstNonBlankString(auth["type"]),
+		"location":        firstNonBlankString(auth["location"]),
+		"param":           firstNonBlankString(auth["param"], auth["queryParam"], auth["query-param"]),
+		"secretRef":       firstNonBlankString(auth["secretRef"], auth["secret-ref"]),
+		"publicKeyRef":    firstNonBlankString(auth["publicKeyRef"], auth["public-key-ref"]),
+		"signatureHeader": firstNonBlankString(auth["signatureHeader"], auth["signature-header"]),
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func invocationContract(invocations map[string]any, invocationID string) any {
