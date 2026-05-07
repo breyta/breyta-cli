@@ -21,7 +21,7 @@ func newFlowsInstallationsExportsCmd(app *App) *cobra.Command {
 			if status >= 400 || !isOK(resp) {
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := flowExportItems(flow, "installation")
+			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, "installation"), flowSlug, args[0])
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),

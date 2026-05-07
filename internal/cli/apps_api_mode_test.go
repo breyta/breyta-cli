@@ -2646,6 +2646,11 @@ func TestFlowsInstallationsExports_ResolvesInstallationFlowSlugAndVersion(t *tes
 	if len(items) != 1 {
 		t.Fatalf("expected 1 export, got %#v", out.Data["items"])
 	}
+	first, _ := items[0].(map[string]any)
+	endpoint, _ := first["endpoint"].(map[string]any)
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-token" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich" {
+		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
+	}
 }
 
 func TestFlowsExportsList_RejectsInstallationWithTarget(t *testing.T) {
@@ -2765,6 +2770,69 @@ func TestFlowsExportsCall_PostsToHTTPExportRoute(t *testing.T) {
 	}
 	out := decodeEnvelope(t, stdout)
 	if out.Data["workflowId"] != "wf-export-1" {
+		t.Fatalf("unexpected export call output: %#v", out.Data)
+	}
+}
+
+func TestFlowsExportsCall_TargetLiveResolvesInstallation(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/flow-profiles":
+			if r.Method != http.MethodGet {
+				w.WriteHeader(405)
+				return
+			}
+			if r.URL.Query().Get("flow-slug") != "flow-release" || r.URL.Query().Get("profile-type") != "prod" || r.URL.Query().Get("enabled") != "true" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected live target query"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"items": []any{
+						map[string]any{"profile-id": "prof-live", "version": 9, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
+					},
+				},
+			})
+		case "/api/workspaces/ws-acme/flow-exports/prof-live/flow-release/enrich":
+			if r.Method != http.MethodPost {
+				w.WriteHeader(405)
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			input, _ := body["input"].(map[string]any)
+			if input["domain"] != "example.com" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing input"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"workflowId": "wf-export-live"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "exports", "call", "flow-release", "enrich",
+		"--target", "live",
+		"--input", `{"domain":"example.com"}`,
+	)
+	if err != nil {
+		t.Fatalf("flows exports call --target live failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["workflowId"] != "wf-export-live" {
 		t.Fatalf("unexpected export call output: %#v", out.Data)
 	}
 }

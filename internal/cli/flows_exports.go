@@ -44,7 +44,7 @@ func newFlowsExportsListCmd(app *App) *cobra.Command {
 			if status >= 400 || !isOK(resp) {
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := flowExportItems(flow, resolvedTarget)
+			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
@@ -85,7 +85,8 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 			if status >= 400 || !isOK(resp) {
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			item := findFlowExportItem(flowExportItems(flow, resolvedTarget), args[1], family)
+			items := withFlowExportEndpointMetadata(app, flowExportItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			item := findFlowExportItem(items, args[1], family)
 			if item == nil {
 				out := map[string]any{
 					"ok": false,
@@ -126,6 +127,7 @@ func newFlowsExportsShowCmd(app *App) *cobra.Command {
 }
 
 func newFlowsExportsCallCmd(app *App) *cobra.Command {
+	var target string
 	var installationID string
 	var legacyProfileID string
 	var inputJSON string
@@ -145,7 +147,20 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 				installationID = strings.TrimSpace(legacyProfileID)
 			}
 			if installationID == "" {
-				return writeErr(cmd, errors.New("--installation-id is required"))
+				resolvedTarget, err := normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if resolvedTarget != "live" {
+					return writeErr(cmd, errors.New("--installation-id is required (or use --target live)"))
+				}
+				liveTarget, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], false)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				installationID = liveTarget.ProfileID
+			} else if strings.TrimSpace(target) != "" {
+				return writeErr(cmd, errors.New("--installation-id cannot be combined with --target"))
 			}
 			input, err := parseJSONObjectFlag(inputJSON)
 			if err != nil {
@@ -171,6 +186,7 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
+	cmd.Flags().StringVar(&target, "target", "", "Resolve and call a flow target (live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
@@ -228,6 +244,7 @@ func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, tar
 		if target.Version > 0 {
 			payload["version"] = target.Version
 		}
+		installationID = target.ProfileID
 	} else if version > 0 {
 		payload["version"] = version
 	}
@@ -237,6 +254,39 @@ func fetchFlowExportMetadata(ctx context.Context, app *App, flowSlug string, tar
 	}
 	flow := mapStringAny(mapStringAny(resp["data"])["flow"])
 	return resp, status, flow, resolvedTarget, installationID, nil
+}
+
+func withFlowExportEndpointMetadata(app *App, items []any, flowSlug string, installationID string) []any {
+	installationID = strings.TrimSpace(installationID)
+	flowSlug = strings.TrimSpace(flowSlug)
+	if installationID == "" || flowSlug == "" {
+		return items
+	}
+	out := make([]any, 0, len(items))
+	for _, raw := range items {
+		item := mapStringAny(raw)
+		if strings.EqualFold(firstNonBlankString(item["family"]), "http") {
+			if exportID := firstNonBlankString(item["id"]); exportID != "" {
+				item["endpoint"] = map[string]any{
+					"method": "POST",
+					"url":    flowExportRuntimeURL(app, installationID, flowSlug, exportID),
+					"auth":   "workspace-token",
+				}
+			}
+		}
+		out = append(out, pruneEmptyStrings(item))
+	}
+	return out
+}
+
+func flowExportRuntimeURL(app *App, installationID string, flowSlug string, exportID string) string {
+	ensureAPIURL(app)
+	path := fmt.Sprintf("/api/workspaces/%s/flow-exports/%s/%s/%s",
+		url.PathEscape(app.WorkspaceID),
+		url.PathEscape(strings.TrimSpace(installationID)),
+		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(strings.TrimSpace(exportID)))
+	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
 func firstPositiveInt(values ...any) int {
