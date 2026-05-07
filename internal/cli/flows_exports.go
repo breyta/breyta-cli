@@ -202,7 +202,6 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	var target string
 	var installationID string
-	var legacyProfileID string
 	var inputJSON string
 	var wait bool
 	var timeout time.Duration
@@ -219,9 +218,6 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			installationID = strings.TrimSpace(installationID)
-			if installationID == "" {
-				installationID = strings.TrimSpace(legacyProfileID)
-			}
 			if installationID == "" {
 				resolvedTarget, err := normalizeInstallTarget(target)
 				if err != nil {
@@ -268,8 +264,6 @@ func newFlowsExportsCallCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Resolve and call a flow target (live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
-	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
-	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the export invocation")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
