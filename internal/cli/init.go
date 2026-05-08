@@ -163,7 +163,9 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout(), "- Verify identity + workspace summary: breyta auth whoami")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Inventory reusable connections: breyta connections list")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Validate reusable connections: breyta connections test --all")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<idea>\"")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Inspect nearby workspace flows: breyta flows list --limit 50")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Search docs: breyta docs find \"<idea or primitive>\"")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<problem or integration query>\" --limit 5 --pretty")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			return nil
 		},
@@ -214,8 +216,9 @@ This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code,
 If this is your first session in this workspace, start with ` + "`README.md`" + ` in this folder. Keep this file for durable workflow guidance.
 
 ## Durable discovery defaults
-- Start new work with approved template discovery: ` + "`breyta flows search <query>`" + `
-- When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows list`" + ` then ` + "`breyta flows show <slug>`" + `
+- Before meaningful Breyta flow work, state the loaded Breyta skill path and the bundled reference files read for the task.
+- Start new work by inspecting nearby workspace flows, docs, and approved templates; do not invent structure from a name alone.
+- When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows list`" + ` then ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
 - Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
 - Use ` + "`breyta docs`" + ` (then ` + "`breyta docs find <query>`" + ` / ` + "`breyta docs show <slug>`" + `) when the agent needs more Breyta detail
 - Before inferring implementation details, search docs with several query shapes:
@@ -250,12 +253,25 @@ Suggested line to paste into your agent's persistent project instructions:
 - Inspect draft changes before release: ` + "`breyta flows diff <slug>`" + `
 - Do not repeatedly release to ` + "`live`" + ` during normal iteration.
 - Release to ` + "`live`" + ` once after draft behavior is verified, you have explicit sign-off, and you can attach a markdown release note.
+- Do not tell the user a public/end-user flow is "ready for UI" from draft proof alone; verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger.
 - Use ` + "`breyta flows archive <slug>`" + ` when the flow should stop appearing in the normal active surface but its versions and metadata should remain available.
 - Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
+
+## Template discovery (required for create/edit)
+- New flow sequence: ` + "`breyta flows list`" + ` -> docs search -> ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + ` -> inspect the best match with ` + "`--full --pretty`" + ` when structure matters.
+- Existing flow sequence: ` + "`breyta flows show <slug> --pretty`" + ` or ` + "`breyta flows pull <slug>`" + ` -> docs search -> template search -> compare current flow against the closest approved template before changing structure.
+- Review template metadata before choosing a pattern: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `.
+- If no useful approved template exists, say so explicitly and continue from docs.
+- Final handoff must include template queries run, chosen/rejected templates, and what structure was reused or intentionally ignored.
 
 ## Authoring standard (required before editing)
 - Write the problem contract: trigger, inputs, outputs, side effects, failure behavior.
 - Write the trigger map and path map: success path, fallback path, stop path.
+- For public/end-user flows, classify every user value before adding fields:
+  - setup-once values like company profile, audience, voice, examples, default folder, region, or durable profile/bible inputs
+  - run-each-time values like prompt, file, CSV, resource picker selection, row limit, date range, or recipient
+  - connection values like OAuth/API keys, databases, and blob-storage roots
+  - hidden/internal values that should not appear in setup page or run form fields
 - Build reusable definitions before orchestration:
   - start with connection inventory and validation:
     - ` + "`breyta connections list`" + `
@@ -311,21 +327,24 @@ Suggested line to paste into your agent's persistent project instructions:
 
 ## Authoring loop (agent-friendly, draft-first)
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
-2) Edit ` + "`./flows/<slug>.clj`" + `
-3) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-4) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
-5) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug> --pretty`" + `
-6) If the flow should look polished on public discover/install cards, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
-7) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
-8) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-9) Run at least one failure/no-op/replay check when feasible before release
-10) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
-11) Repeat steps 2-10 until behavior is correct and side effects are understood in draft
-12) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
-13) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
-14) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
-15) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
-16) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
+2) Search docs and approved templates, inspect the best template fully when structure matters, and compare before editing
+3) Edit ` + "`./flows/<slug>.clj`" + `
+4) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
+5) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
+6) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug> --pretty`" + `
+7) If the flow should look polished on public discover/install cards, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
+8) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
+9) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
+10) Run at least one failure/no-op/replay check when feasible before release
+11) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
+12) Repeat steps 2-11 until behavior is correct and side effects are understood in draft
+13) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
+14) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
+15) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
+16) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
+17) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
+18) For public/end-user flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + ` when relevant
+19) If browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page; if unavailable, report ` + "`web UI not verified`" + `
 
 ## Provenance for derived flows
 - Keep ` + "`created-by`" + ` as the creator of the current flow record.
@@ -383,10 +402,14 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - ` + "`breyta connections list`" + `
    - ` + "`breyta connections test --all`" + `
    - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
-6. Discover approved templates:
+6. Inspect nearby workspace flows, docs, and approved templates:
+   - ` + "`breyta flows list --limit 50`" + `
+   - ` + "`breyta docs find \"<idea or primitive>\"`" + `
+   - ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
+7. Inspect the best approved template fully when structure matters:
    - ` + "`breyta flows search`" + `
-   - ` + "`breyta flows search \"<idea>\"`" + `
-7. Pick one idea to explore next.
+   - ` + "`breyta flows search \"<best template query>\" --full --pretty`" + `
+8. Pick one idea to explore next.
 
 Easy ideas:
 - Scheduled API digest that posts a summary to Slack or email
@@ -404,9 +427,14 @@ Advanced ideas:
 - If you intentionally want to skip the stop gate, do it knowingly.
 
 ## After the stop gate
-- Start with approved template discovery and docs:
-  - ` + "`breyta flows search \"<chosen idea>\"`" + `
+- Start with current state, docs, and approved template discovery:
+  - new flow: inspect nearby workspace flows with ` + "`breyta flows list --limit 50`" + `
+  - existing flow: inspect it with ` + "`breyta flows show <slug> --pretty`" + ` or ` + "`breyta flows pull <slug>`" + `
   - ` + "`breyta docs find \"<chosen idea or primitive>\"`" + `
+  - ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
+  - inspect best matches with ` + "`breyta flows search \"<best template query>\" --full --pretty`" + ` when structure matters
+  - compare the current flow against the closest approved template before changing structure
+  - final handoff should list template queries, chosen/rejected templates, and reused/ignored structure
 - Then inventory and validate reusable connections before authoring behavior:
   - ` + "`breyta connections list`" + `
   - ` + "`breyta connections test --all`" + `
@@ -418,6 +446,8 @@ Advanced ideas:
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
+- Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
+- When browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
 - Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations; add ` + "`--timeout 5m`" + ` for large cleanup jobs)
 

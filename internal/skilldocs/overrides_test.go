@@ -21,11 +21,32 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 
 	got := ApplyCLIOverrides("breyta", input)
 	body := string(got["SKILL.md"])
-	if !strings.Contains(body, "start with approved template discovery: `breyta flows search <query>`") {
+	if !strings.Contains(body, "Before creating or editing a flow, inspect current state, search docs, search approved templates") {
 		t.Fatalf("expected search-first guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`") {
+	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5 --pretty") {
+		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Full template inspection when structure matters: `breyta flows search \"<best template query>\" --full --pretty`") {
+		t.Fatalf("expected full template inspection guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug> --pretty` or `breyta flows pull <slug>`") {
 		t.Fatalf("expected workspace flow guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Template discovery for create/edit (Required)") {
+		t.Fatalf("expected template discovery section in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "compare the current flow against the closest approved template before editing") {
+		t.Fatalf("expected template comparison guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Public/end-user UI verification (Required for public flows)") {
+		t.Fatalf("expected public UI verification section in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "do not tell the user a public/end-user flow is \"ready for UI\" from draft proof alone") {
+		t.Fatalf("expected ready-for-UI guardrail in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "`web UI not verified` in the risk ledger") {
+		t.Fatalf("expected web UI risk-ledger guidance in override, got:\n%s", body)
 	}
 	if string(got["references/x.md"]) != "ref" {
 		t.Fatalf("expected non-skill files preserved")

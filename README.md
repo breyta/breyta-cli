@@ -37,7 +37,7 @@ The usual path is:
 2. Bootstrap a local agent workspace
 3. Authenticate
 4. Verify your account and workspace summary
-5. Discover approved examples to copy from
+5. Inspect nearby workspace flows, docs, and approved templates before designing
 6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
@@ -45,12 +45,28 @@ breyta init --provider <codex|cursor|claude|gemini>
 cd breyta-workspace
 breyta auth login
 breyta auth whoami
-breyta flows search "<idea>"
+breyta flows list --limit 50
+breyta docs find "<idea or primitive>"
+breyta flows search "<problem or integration query>" --limit 5 --pretty
+breyta flows search "<best template query>" --full --pretty
 ```
+
+For new flows, inspect nearby workspace flows first, search docs, then inspect
+the closest approved template fully when structure matters. For edits, inspect
+the current flow with `breyta flows show <slug> --pretty` or `breyta flows pull
+<slug>` before the docs/template search, then compare the current flow against
+the closest approved template before changing structure. Template name alone is
+not enough context; review description, tags, providers, step types, step count,
+publish description, `steps_text`, and `flow_web_url`.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,
 auth assumptions, limits, or model ids.
+
+For public or end-user flows, do not call the flow "ready for UI" from draft CLI
+proof alone. Verify live/install-shaped behavior, or say `web UI not verified`
+in the risk ledger. When browser/UI access is available, test the actual setup
+page, run form fields, upload CSV/file path, resource picker, and output page.
 
 To browse public installable end-user flows for your current workspace instead,
 use:
