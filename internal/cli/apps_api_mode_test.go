@@ -2572,6 +2572,71 @@ func TestFlowsMetrics_CallsMetricsCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsMetrics_SourceFiltersAuthorInterfaceScope(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.invocations.metrics" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["entrypointId"] != "enrich" || args["interfaceScope"] != "draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected args", "details": args}})
+			return
+		}
+		if _, ok := args["installationId"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected installation id", "details": args}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"meta":        map[string]any{"count": 1},
+			"data": map[string]any{
+				"flowSlug": "flow-release",
+				"items": []any{map[string]any{
+					"invocationKind": "http",
+					"interfaceScope": "draft",
+					"flowSlug":       "flow-release",
+					"entrypointId":   "enrich",
+					"requestCount":   1,
+					"successCount":   1,
+				}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "metrics", "flow-release", "enrich",
+		"--source", "draft",
+	)
+	if err != nil {
+		t.Fatalf("flows metrics failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Meta["source"] != "draft" {
+		t.Fatalf("expected source metadata, got %#v", out.Meta)
+	}
+	items, _ := out.Data["items"].([]any)
+	item, _ := items[0].(map[string]any)
+	if item["interfaceScope"] != "draft" || item["requestCount"] != float64(1) {
+		t.Fatalf("unexpected metric item: %#v", item)
+	}
+}
+
 func TestFlowsInterfacesList_InstallationTargetResolvesPinnedVersion(t *testing.T) {
 	var commands []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -141,6 +141,7 @@ func newFlowsInterfacesShowCmd(app *App) *cobra.Command {
 
 func newFlowsMetricsCmd(app *App) *cobra.Command {
 	var target string
+	var source string
 	var installationID string
 	var kind string
 	var limit int
@@ -157,6 +158,19 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 			}
 			installationID = strings.TrimSpace(installationID)
 			resolvedTarget := strings.TrimSpace(target)
+			resolvedSource := strings.TrimSpace(source)
+			interfaceScope := ""
+			if resolvedSource != "" && (installationID != "" || resolvedTarget != "") {
+				return writeErr(cmd, errors.New("--source cannot be combined with --installation-id or --target"))
+			}
+			if resolvedSource != "" {
+				normalizedSource, err := normalizeInstallTarget(resolvedSource)
+				if err != nil {
+					return writeErr(cmd, errors.New("invalid --source (expected draft or live)"))
+				}
+				interfaceScope = normalizedSource
+				resolvedSource = normalizedSource
+			}
 			if installationID != "" && resolvedTarget != "" {
 				return writeErr(cmd, errors.New("--installation-id cannot be combined with --target"))
 			}
@@ -179,6 +193,7 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 				"flowSlug":       args[0],
 				"entrypointId":   optionalArg(args, 1),
 				"installationId": installationID,
+				"interfaceScope": interfaceScope,
 				"kind":           kind,
 				"limit":          limit,
 			})
@@ -189,10 +204,14 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 			if meta := mapStringAny(resp["meta"]); meta != nil && resolvedTarget != "" {
 				meta["target"] = resolvedTarget
 			}
+			if meta := mapStringAny(resp["meta"]); meta != nil && resolvedSource != "" {
+				meta["source"] = resolvedSource
+			}
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "Resolve metrics for a flow target (live)")
+	cmd.Flags().StringVar(&source, "source", "", "Restrict metrics to author source calls (draft|live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Restrict metrics to a specific installation id")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict metrics to invocation kind (manual|http|mcp|schedule|webhook|cli)")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Maximum metric rows to return")
