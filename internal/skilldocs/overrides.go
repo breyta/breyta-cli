@@ -345,6 +345,8 @@ Goal: use the public lifecycle commands intentionally when a flow should stop be
   - ` + "`breyta flows delete <slug> --yes`" + `
 - use force delete only when you intentionally want the backend to cancel runs and remove installations as part of cleanup:
   - ` + "`breyta flows delete <slug> --yes --force`" + `
+- for large cleanup jobs with many runs or resources, raise the request timeout:
+  - ` + "`breyta flows delete <slug> --yes --force --timeout 5m`" + `
 - prefer archive when you want to retire a flow safely and preserve history for inspection
 - prefer delete only for disposable or fully decommissioned flows`
 
