@@ -188,6 +188,9 @@ breyta flows delete <slug> --yes
 
 # If the flow still has runs/installations to clean up, force the delete
 breyta flows delete <slug> --yes --force
+
+# For large cleanup jobs with many runs or resources, raise the request timeout
+breyta flows delete <slug> --yes --force --timeout 5m
 ```
 
 Inspect runs with the same structured filter syntax as the web runs list:

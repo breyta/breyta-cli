@@ -1925,6 +1925,73 @@ func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testin
 	}
 }
 
+func TestFlowsDelete_UsesFlowsDeleteCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.delete" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-del" || args["yes"] != true || args["force"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing delete args"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"deleted": true}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "delete", "flow-del",
+		"--yes",
+		"--force",
+		"--timeout", "45s",
+	)
+	if err != nil {
+		t.Fatalf("flows delete failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDelete_TimeoutFlagBoundsRequest(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"deleted": true}})
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+	_, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "delete", "flow-del",
+		"--yes",
+		"--timeout", "20ms",
+	)
+	if err == nil {
+		t.Fatal("expected flows delete to fail when the timeout expires")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected timeout to bound request quickly, elapsed=%s", elapsed)
+	}
+}
+
 func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	step := 0
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

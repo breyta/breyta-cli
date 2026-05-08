@@ -1079,14 +1079,25 @@ func enrichAPICommandResult(app *App, client api.Client, command string, args ma
 	enrichCommandHints(app, command, args, status, out)
 }
 
-func runAPICommandWithContext(ctx context.Context, app *App, command string, args map[string]any) (map[string]any, int, error) {
+func runAPICommandWithContextAndTimeout(ctx context.Context, app *App, command string, args map[string]any, timeout time.Duration) (map[string]any, int, error) {
 	if err := requireAPI(app); err != nil {
 		return nil, 0, err
+	}
+	if timeout < 0 {
+		return nil, 0, fmt.Errorf("timeout must be non-negative")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	client := apiClient(app)
+	if timeout > 0 {
+		client.HTTP = &http.Client{Timeout: timeout}
+	}
 	out, status, err := client.DoCommand(ctx, command, args)
 	if err != nil {
 		return nil, 0, err
@@ -1096,12 +1107,27 @@ func runAPICommandWithContext(ctx context.Context, app *App, command string, arg
 	return out, status, nil
 }
 
+func runAPICommandWithContext(ctx context.Context, app *App, command string, args map[string]any) (map[string]any, int, error) {
+	return runAPICommandWithContextAndTimeout(ctx, app, command, args, 0)
+}
+
 func runAPICommand(app *App, command string, args map[string]any) (map[string]any, int, error) {
 	return runAPICommandWithContext(context.Background(), app, command, args)
 }
 
 func doAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
 	out, status, err := runAPICommand(app, command, args)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
+}
+
+func doAPICommandWithTimeout(cmd *cobra.Command, app *App, command string, args map[string]any, timeout time.Duration) error {
+	out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, command, args, timeout)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
