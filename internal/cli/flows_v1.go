@@ -529,10 +529,10 @@ func newFlowsActivateCmd(app *App) *cobra.Command {
 func newFlowsDraftBindingsURLCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "draft-bindings-url <flow-slug>",
-		Short: "Print the draft bindings URL for working-copy runs",
+		Short: "Print the draft setup URL for working-copy runs",
 		Long: strings.TrimSpace(`
 Working-copy runs use a user-scoped draft profile. Bind credentials here:
-- Draft bindings: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
+- Draft setup: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1575,6 +1575,7 @@ or ` + "`breyta flows pull`" + ` in this agent workspace. Use --source for works
 func newFlowsDeleteCmd(app *App) *cobra.Command {
 	var yes bool
 	var force bool
+	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "delete <flow-slug>",
 		Short: "Delete a flow",
@@ -1588,7 +1589,7 @@ func newFlowsDeleteCmd(app *App) *cobra.Command {
 				if force {
 					payload["force"] = true
 				}
-				return doAPICommand(cmd, app, "flows.delete", payload)
+				return doAPICommandWithTimeout(cmd, app, "flows.delete", payload, timeout)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1611,6 +1612,7 @@ func newFlowsDeleteCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm delete")
 	cmd.Flags().BoolVar(&force, "force", false, "Force delete (cancel runs, delete installations)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "Request timeout for API delete")
 	return cmd
 }
 

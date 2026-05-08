@@ -76,11 +76,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating a new flow, start with approved template discovery: `breyta flows search <query>`.\n- When you already know the work belongs to an existing workspace flow, inspect it with `breyta flows list` then `breyta flows show <slug>`.",
+			"- Before creating or editing a flow, inspect current state, search docs, search approved templates with `breyta flows search \"<problem or integration query>\" --limit 5 --pretty`, inspect the best match with `--full --pretty` when structure matters, and compare against the closest approved template before changing structure.\n- For new flows, inspect nearby workspace flows with `breyta flows list --limit 50` before template selection.\n- For existing flows, inspect the target with `breyta flows show <slug> --pretty` or `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections test --all`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - Approved template discovery: `breyta flows search <query>`\n   - Existing workspace flow: `breyta flows list` then `breyta flows show <slug>`",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections test --all`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - Nearby workspace flows: `breyta flows list --limit 50`\n   - Docs: `breyta docs find \"<problem or primitive>\"`\n   - Approved template discovery: `breyta flows search \"<problem or integration query>\" --limit 5 --pretty`\n   - Full template inspection when structure matters: `breyta flows search \"<best template query>\" --full --pretty`\n   - Existing workspace flow: `breyta flows show <slug> --pretty` or `breyta flows pull <slug>`",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -133,6 +133,8 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureFlowLifecycleSection(updated)
 	updated = ensureNamingConventionsSection(updated)
 	updated = ensureSolutionSurfacesSection(updated)
+	updated = ensureTemplateDiscoverySection(updated)
+	updated = ensurePublicFlowUIVerificationSection(updated)
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
 	if updated == original {
@@ -231,6 +233,35 @@ Anti-patterns:
 - repeated one-off shaping logic in ` + "`:flow`" + `
 - exposing raw broad built-in step surfaces directly to agents when a packaged step would be safer
 - treating ` + "`:flow`" + ` as the place to define reusable behavior`
+
+const templateDiscoverySection = `## Template discovery for create/edit (Required)
+
+Goal: avoid inventing flow structure from a name alone.
+
+- for new flows:
+  - inspect nearby workspace flows first with ` + "`breyta flows list --limit 50`" + `
+  - search docs for the problem, primitive, and integration
+  - search approved templates with ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
+  - inspect the best match with ` + "`breyta flows search \"<best template query>\" --full --pretty`" + ` when structure matters
+- for existing flows:
+  - inspect the current flow first with ` + "`breyta flows show <slug> --pretty`" + ` or ` + "`breyta flows pull <slug>`" + `
+  - search docs and approved templates before changing structure
+  - compare the current flow against the closest approved template before editing
+- review template metadata before choosing a pattern: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
+- if no useful approved template exists, say so explicitly and continue from docs
+- final handoff must include template queries run, chosen/rejected templates, and what structure was reused or intentionally ignored`
+
+const publicFlowUIVerificationSection = `## Public/end-user UI verification (Required for public flows)
+
+Goal: prove the installed end-user path, not only draft CLI execution.
+
+- do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
+- verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
+- verify live target with ` + "`breyta flows show <slug> --target live`" + `
+- smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
+- for installed flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `
+- when browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page
+- if CLI works but UI fails, or draft works but setup page, run form fields, installed flow, resource picker, or old live version fails, send ` + "`breyta feedback send`" + ` with full run/output URLs`
 
 const workflowPlanningSection = `## Workflow architecture planning (Required before build)
 
@@ -345,6 +376,8 @@ Goal: use the public lifecycle commands intentionally when a flow should stop be
   - ` + "`breyta flows delete <slug> --yes`" + `
 - use force delete only when you intentionally want the backend to cancel runs and remove installations as part of cleanup:
   - ` + "`breyta flows delete <slug> --yes --force`" + `
+- for large cleanup jobs with many runs or resources, raise the request timeout:
+  - ` + "`breyta flows delete <slug> --yes --force --timeout 5m`" + `
 - prefer archive when you want to retire a flow safely and preserve history for inspection
 - prefer delete only for disposable or fully decommissioned flows`
 
@@ -412,6 +445,36 @@ func ensureSolutionSurfacesSection(body string) string {
 		return body[:headingPos] + solutionSurfacesSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + solutionSurfacesSection + "\n"
+}
+
+func ensureTemplateDiscoverySection(body string) string {
+	if h2LineStartOutsideFences(body, "## Template discovery for create/edit (Required)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Solution surfaces first (Required before editing)"); headingPos >= 0 {
+		insertPos := nextH2LineStartOutsideFences(body, headingPos+len("## Solution surfaces first (Required before editing)"))
+		if insertPos >= 0 {
+			return body[:insertPos] + templateDiscoverySection + "\n\n" + body[insertPos:]
+		}
+		return strings.TrimRight(body, "\n") + "\n\n" + templateDiscoverySection + "\n"
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + templateDiscoverySection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + templateDiscoverySection + "\n"
+}
+
+func ensurePublicFlowUIVerificationSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Public/end-user UI verification (Required for public flows)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Output Guidance"); headingPos >= 0 {
+		return body[:headingPos] + publicFlowUIVerificationSection + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + publicFlowUIVerificationSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + publicFlowUIVerificationSection + "\n"
 }
 
 func ensureDiscoverCardMediaSection(body string) string {
@@ -525,6 +588,33 @@ func h2LineStartOutsideFences(body, heading string) int {
 		}
 
 		if !inFence && strings.TrimSpace(lineNoEOL) == heading {
+			return offset
+		}
+		offset += len(line)
+	}
+	return -1
+}
+
+func nextH2LineStartOutsideFences(body string, start int) int {
+	inFence := false
+	openFence := markdownFence{}
+	offset := 0
+	for _, line := range strings.SplitAfter(body, "\n") {
+		lineNoEOL := strings.TrimRight(line, "\r\n")
+		if marker, ok := markdownFenceMarker(lineNoEOL); ok {
+			if !inFence {
+				inFence = true
+				openFence = marker
+			} else if marker.char == openFence.char && marker.length >= openFence.length && marker.validCloser {
+				inFence = false
+				openFence = markdownFence{}
+			}
+			offset += len(line)
+			continue
+		}
+
+		trimmed := strings.TrimSpace(lineNoEOL)
+		if offset >= start && !inFence && strings.HasPrefix(trimmed, "## ") {
 			return offset
 		}
 		offset += len(line)

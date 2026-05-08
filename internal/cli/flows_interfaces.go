@@ -55,7 +55,7 @@ func newFlowsInterfacesListCmd(app *App) *cobra.Command {
 				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID, resolvedTarget)
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),
@@ -97,7 +97,7 @@ func newFlowsInterfacesShowCmd(app *App) *cobra.Command {
 				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID, resolvedTarget)
 			item := findFlowInterfaceItem(items, args[1], family)
 			if item == nil {
 				out := map[string]any{
@@ -237,19 +237,13 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			installationID = strings.TrimSpace(installationID)
+			resolvedTarget := strings.TrimSpace(target)
 			if installationID == "" {
-				resolvedTarget, err := normalizeInstallTarget(target)
+				var err error
+				resolvedTarget, err = normalizeInstallTarget(resolvedTarget)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				if resolvedTarget != "live" {
-					return writeErr(cmd, errors.New("--installation-id is required (or use --target live)"))
-				}
-				liveTarget, err := resolveLiveProfileTarget(cmd.Context(), app, args[0], false)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				installationID = liveTarget.ProfileID
 			} else if strings.TrimSpace(target) != "" {
 				return writeErr(cmd, errors.New("--installation-id cannot be combined with --target"))
 			}
@@ -257,11 +251,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
 			}
-			path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
-				url.PathEscape(app.WorkspaceID),
-				url.PathEscape(args[0]),
-				url.PathEscape(installationID),
-				url.PathEscape(args[1]))
+			path := flowInterfaceCallPath(app.WorkspaceID, args[0], args[1], installationID, resolvedTarget)
 			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
 			if err != nil {
 				return writeErr(cmd, err)
@@ -281,7 +271,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, resp, status)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Resolve and call a flow target (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Author interface target (draft|live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the interface invocation")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
@@ -307,10 +297,7 @@ func newFlowsInterfacesCurlCmd(app *App) *cobra.Command {
 				enrichFlowInterfaceFailure(resp, args[0], resolvedInstallationID, args[1])
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			if strings.TrimSpace(resolvedInstallationID) == "" {
-				return writeErr(cmd, errors.New("--installation-id is required (or use --target live)"))
-			}
-			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID)
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, resolvedTarget), args[0], resolvedInstallationID, resolvedTarget)
 			item := findFlowInterfaceItem(items, args[1], "http")
 			if item == nil {
 				out := map[string]any{
@@ -359,7 +346,7 @@ func newFlowsInterfacesCurlCmd(app *App) *cobra.Command {
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "", "Interface target (live)")
+	cmd.Flags().StringVar(&target, "target", "", "Author interface target (draft|live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the interface invocation")
 	return cmd
@@ -381,7 +368,7 @@ func enrichFlowInterfaceFailure(out map[string]any, flowSlug string, installatio
 				if strings.TrimSpace(installationID) != "" {
 					meta["hint"] = "Inspect available interfaces with `breyta flows installations interfaces " + strings.TrimSpace(installationID) + "`, or check the authored :interfaces map and release/promote the flow version that declares this interface."
 				} else {
-					meta["hint"] = "Inspect available interfaces with `breyta flows interfaces list " + strings.TrimSpace(flowSlug) + " --target live`, or check the authored :interfaces map and release/promote the flow version that declares this interface."
+					meta["hint"] = "Inspect available interfaces with `breyta flows interfaces list " + strings.TrimSpace(flowSlug) + "` for draft or `breyta flows interfaces list " + strings.TrimSpace(flowSlug) + " --target live`, or check the authored :interfaces map and release/promote the flow version that declares this interface."
 				}
 			case strings.Contains(msg, "installation not found"), strings.Contains(msg, "invalid installationid"):
 				meta["hint"] = "Check the installation id with `breyta flows installations list " + strings.TrimSpace(flowSlug) + "`, then inspect interfaces with `breyta flows installations interfaces <installation-id>`."
@@ -445,15 +432,7 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 		payload["source"] = "active"
 		resolvedTarget = "installation"
 	} else if resolvedTarget == "live" {
-		target, err := resolveLiveProfileTarget(ctx, app, flowSlug, true)
-		if err != nil {
-			return nil, 0, nil, "", "", err
-		}
 		payload["source"] = "active"
-		if target.Version > 0 {
-			payload["version"] = target.Version
-		}
-		installationID = target.ProfileID
 	} else if version > 0 {
 		payload["version"] = version
 	}
@@ -465,10 +444,11 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 	return resp, status, flow, resolvedTarget, installationID, nil
 }
 
-func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, installationID string) []any {
+func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, installationID string, target string) []any {
 	installationID = strings.TrimSpace(installationID)
 	flowSlug = strings.TrimSpace(flowSlug)
-	if installationID == "" || flowSlug == "" {
+	target = strings.TrimSpace(target)
+	if flowSlug == "" || (installationID == "" && target == "") {
 		return items
 	}
 	out := make([]any, 0, len(items))
@@ -482,17 +462,29 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 				}
 				item["endpoint"] = map[string]any{
 					"method": method,
-					"url":    flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID),
+					"url":    flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
 					"auth":   "workspace-api-auth",
 				}
 			}
 		}
 		if strings.EqualFold(firstNonBlankString(item["family"]), "webhook") {
-			if eventName := firstNonBlankString(item["eventName"]); eventName != "" {
+			interfaceID := firstNonBlankString(item["id"], item["eventName"])
+			eventName := firstNonBlankString(item["eventName"], interfaceID)
+			if interfaceID != "" || eventName != "" {
+				auth := "webhook-auth"
+				endpointURL := flowWebhookRuntimeURL(app, installationID, flowSlug, eventName)
+				if installationID == "" {
+					sourceSegment := interfaceID
+					if sourceSegment == "" {
+						sourceSegment = eventName
+					}
+					auth = "workspace-api-auth"
+					endpointURL = flowInterfaceSourceRuntimeURL(app, target, flowSlug, sourceSegment)
+				}
 				item["endpoint"] = map[string]any{
 					"method": "POST",
-					"url":    flowWebhookRuntimeURL(app, installationID, flowSlug, eventName),
-					"auth":   "webhook-auth",
+					"url":    endpointURL,
+					"auth":   auth,
 				}
 			}
 		}
@@ -501,7 +493,10 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 	return out
 }
 
-func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, interfaceID string) string {
+func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, interfaceID string, target string) string {
+	if strings.TrimSpace(installationID) == "" {
+		return flowInterfaceSourceRuntimeURL(app, target, flowSlug, interfaceID)
+	}
 	ensureAPIURL(app)
 	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
 		url.PathEscape(app.WorkspaceID),
@@ -509,6 +504,39 @@ func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, i
 		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
+}
+
+func flowInterfaceSourceRuntimeURL(app *App, target string, flowSlug string, interfaceID string) string {
+	ensureAPIURL(app)
+	source := strings.TrimSpace(target)
+	if source == "" {
+		source = "draft"
+	}
+	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/interfaces/%s/%s",
+		url.PathEscape(app.WorkspaceID),
+		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(source),
+		url.PathEscape(strings.TrimSpace(interfaceID)))
+	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
+}
+
+func flowInterfaceCallPath(workspaceID string, flowSlug string, interfaceID string, installationID string, target string) string {
+	if strings.TrimSpace(installationID) != "" {
+		return fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
+			url.PathEscape(workspaceID),
+			url.PathEscape(strings.TrimSpace(flowSlug)),
+			url.PathEscape(strings.TrimSpace(installationID)),
+			url.PathEscape(strings.TrimSpace(interfaceID)))
+	}
+	source := strings.TrimSpace(target)
+	if source == "" {
+		source = "draft"
+	}
+	return fmt.Sprintf("/api/workspaces/%s/flows/%s/interfaces/%s/%s",
+		url.PathEscape(workspaceID),
+		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(source),
+		url.PathEscape(strings.TrimSpace(interfaceID)))
 }
 
 func flowWebhookRuntimeURL(app *App, installationID string, flowSlug string, eventName string) string {

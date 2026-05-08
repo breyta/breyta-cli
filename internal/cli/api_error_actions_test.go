@@ -66,7 +66,7 @@ func TestAPIErrorActions_ServerProvidedActionSetsMetaWebURLAndStderr(t *testing.
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	if got, _ := meta["draftBindingsUrl"].(string); got != "" {
-		t.Fatalf("did not expect draft bindings hint on billing error, got %q", got)
+		t.Fatalf("did not expect draft setup hint on billing error, got %q", got)
 	}
 	errMap, _ := out["error"].(map[string]any)
 	actions, _ := errMap["actions"].([]any)
@@ -257,7 +257,7 @@ func TestAPIErrorActions_DraftBindingsHintWinsForDraftProfileMissing(t *testing.
 	meta, _ := out["meta"].(map[string]any)
 	wantURL := srv.URL + "/ws-acme/flows/demo-flow/draft-bindings"
 	if got, _ := meta["webUrl"].(string); got != wantURL {
-		t.Fatalf("expected draft bindings page as meta.webUrl, got %q", got)
+		t.Fatalf("expected draft setup page as meta.webUrl, got %q", got)
 	}
 	errMap, _ := out["error"].(map[string]any)
 	actions, _ := errMap["actions"].([]any)
@@ -268,8 +268,8 @@ func TestAPIErrorActions_DraftBindingsHintWinsForDraftProfileMissing(t *testing.
 	if got, _ := first["url"].(string); got != wantURL {
 		t.Fatalf("unexpected first action url: %q", got)
 	}
-	if !strings.Contains(stderr, "Open Draft bindings: "+wantURL) {
-		t.Fatalf("stderr missing draft bindings guidance:\n%s", stderr)
+	if !strings.Contains(stderr, "Open Draft setup: "+wantURL) {
+		t.Fatalf("stderr missing draft setup guidance:\n%s", stderr)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestAPIErrorActions_FlowsRunDefaultDraftGetsDraftBindingsHint(t *testing.T)
 	meta, _ := out["meta"].(map[string]any)
 	wantURL := srv.URL + "/ws-acme/flows/demo-flow/draft-bindings"
 	if got, _ := meta["webUrl"].(string); got != wantURL {
-		t.Fatalf("expected draft bindings page as meta.webUrl, got %q", got)
+		t.Fatalf("expected draft setup page as meta.webUrl, got %q", got)
 	}
 	errMap, _ := out["error"].(map[string]any)
 	actions, _ := errMap["actions"].([]any)
@@ -323,7 +323,7 @@ func TestAPIErrorActions_FlowsRunDefaultDraftGetsDraftBindingsHint(t *testing.T)
 	if got, _ := first["url"].(string); got != wantURL {
 		t.Fatalf("unexpected first action url: %q", got)
 	}
-	if !strings.Contains(stderr, "Open Draft bindings: "+wantURL) {
-		t.Fatalf("stderr missing draft bindings guidance:\n%s", stderr)
+	if !strings.Contains(stderr, "Open Draft setup: "+wantURL) {
+		t.Fatalf("stderr missing draft setup guidance:\n%s", stderr)
 	}
 }

@@ -22,7 +22,7 @@ func newFlowsInstallationsInterfacesCmd(app *App) *cobra.Command {
 				enrichFlowInterfaceFailure(resp, flowSlug, args[0], "")
 				return writeAPIResult(cmd, app, resp, status)
 			}
-			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, "installation"), flowSlug, args[0])
+			items := withFlowInterfaceEndpointMetadata(app, flowInterfaceItems(flow, "installation"), flowSlug, args[0], "installation")
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": workspaceIDFromEnvelope(resp, app.WorkspaceID),

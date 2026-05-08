@@ -1966,6 +1966,73 @@ func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testin
 	}
 }
 
+func TestFlowsDelete_UsesFlowsDeleteCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.delete" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-del" || args["yes"] != true || args["force"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing delete args"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"deleted": true}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "delete", "flow-del",
+		"--yes",
+		"--force",
+		"--timeout", "45s",
+	)
+	if err != nil {
+		t.Fatalf("flows delete failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDelete_TimeoutFlagBoundsRequest(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"deleted": true}})
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+	_, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "delete", "flow-del",
+		"--yes",
+		"--timeout", "20ms",
+	)
+	if err == nil {
+		t.Fatal("expected flows delete to fail when the timeout expires")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected timeout to bound request quickly, elapsed=%s", elapsed)
+	}
+}
+
 func TestFlowsRelease_UsesCanonicalCommand(t *testing.T) {
 	step := 0
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2378,9 +2445,9 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=draft"}})
 			return
 		}
-		if args["profileId"] != "prof-123" {
+		if args["installationId"] != "prof-123" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -2507,6 +2574,10 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	second, _ := items[2].(map[string]any)
 	if second["family"] != "webhook" || second["id"] != "stripe" || second["eventName"] != "billing.stripe.webhook" {
 		t.Fatalf("unexpected webhook interface item: %#v", second)
+	}
+	endpoint, _ := second["endpoint"].(map[string]any)
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/stripe" {
+		t.Fatalf("expected source webhook endpoint to use interface id, got %#v", endpoint)
 	}
 }
 
@@ -2921,48 +2992,29 @@ func TestFlowsInterfacesCall_PostsToHTTPInterfaceRoute(t *testing.T) {
 	}
 }
 
-func TestFlowsInterfacesCall_TargetLiveResolvesInstallation(t *testing.T) {
+func TestFlowsInterfacesCall_TargetLiveCallsAuthorSourceEndpoint(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/flow-profiles":
-			if r.Method != http.MethodGet {
-				w.WriteHeader(405)
-				return
-			}
-			if r.URL.Query().Get("flow-slug") != "flow-release" || r.URL.Query().Get("profile-type") != "prod" || r.URL.Query().Get("enabled") != "true" {
-				w.WriteHeader(400)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected live target query"}})
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok": true,
-				"data": map[string]any{
-					"items": []any{
-						map[string]any{"profile-id": "prof-live", "version": 9, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
-					},
-				},
-			})
-		case "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich":
-			if r.Method != http.MethodPost {
-				w.WriteHeader(405)
-				return
-			}
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			input, _ := body["input"].(map[string]any)
-			if input["domain"] != "example.com" {
-				w.WriteHeader(400)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing input"}})
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-				"data":        map[string]any{"workflowId": "wf-interface-live"},
-			})
-		default:
+		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich" {
 			http.NotFound(w, r)
+			return
 		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		input, _ := body["input"].(map[string]any)
+		if input["domain"] != "example.com" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing input"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"workflowId": "wf-interface-live"},
+		})
 	}))
 	defer srv.Close()
 
@@ -3060,43 +3112,38 @@ func TestFlowsInterfacesCall_WaitPollsRunCompletion(t *testing.T) {
 
 func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/flow-profiles":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok": true,
-				"data": map[string]any{
-					"items": []any{
-						map[string]any{"profile-id": "prof-live", "version": 9, "enabled": true, "updated-at": "2026-02-16T20:00:00Z", "config": map[string]any{"install-scope": "live"}},
-					},
-				},
-			})
-		case "/api/commands":
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["command"] != "flows.get" {
-				w.WriteHeader(400)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
-				return
-			}
-			args, _ := body["args"].(map[string]any)
-			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) {
-				w.WriteHeader(400)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-				"data": map[string]any{
-					"flow": map[string]any{
-						"invocations": map[string]any{"default": map[string]any{}},
-						"interfaces":  map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
-					},
-				},
-			})
-		default:
+		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
+			return
 		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["source"] != "active" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
+			return
+		}
+		if _, ok := args["version"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected version"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flow": map[string]any{
+					"invocations": map[string]any{"default": map[string]any{}},
+					"interfaces":  map[string]any{"http": []any{map[string]any{"id": "enrich", "invocation": "default"}}},
+				},
+			},
+		})
 	}))
 	defer srv.Close()
 
@@ -3114,7 +3161,7 @@ func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	}
 	out := decodeEnvelope(t, stdout)
 	curl, _ := out.Data["curl"].(string)
-	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich") ||
+	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich") ||
 		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
 		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
 		t.Fatalf("unexpected curl command: %s", curl)
@@ -3124,19 +3171,37 @@ func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsInterfacesCall_RequiresInstallationID(t *testing.T) {
-	stdout, stderr, err := runCLIArgs(t,
+func TestFlowsInterfacesCall_DefaultsToDraftAuthorSourceEndpoint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/enrich" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"workflowId": "wf-interface-draft"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
 		"--dev",
 		"--workspace", "ws-acme",
-		"--api", "http://127.0.0.1:1",
+		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "interfaces", "call", "flow-release", "enrich",
 	)
-	if err == nil {
-		t.Fatalf("expected missing installation id error\nstdout=%s\nstderr=%s", stdout, stderr)
+	if err != nil {
+		t.Fatalf("flows interfaces call default draft failed: %v\n%s", err, stdout)
 	}
-	if !strings.Contains(stderr, "--installation-id is required") {
-		t.Fatalf("expected installation id error, got stderr=%s stdout=%s", stderr, stdout)
+	out := decodeEnvelope(t, stdout)
+	if out.Data["workflowId"] != "wf-interface-draft" {
+		t.Fatalf("unexpected interface call output: %#v", out.Data)
 	}
 }
 
@@ -3285,6 +3350,57 @@ func TestFlowsRun_ExplicitDraftTarget_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows run --target draft failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_ForwardsTriggerID(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["target"] != "draft" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=draft"}})
+			return
+		}
+		if args["triggerId"] != "manual-import" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing triggerId"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-trigger", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--target", "draft",
+		"--trigger-id", "manual-import",
+	)
+	if err != nil {
+		t.Fatalf("flows run --trigger-id failed: %v\n%s", err, stdout)
 	}
 }
 

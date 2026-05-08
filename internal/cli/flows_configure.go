@@ -25,7 +25,7 @@ Configure bindings/activation inputs for the workspace default run target.
 
 This is the canonical command for workspace-default flow configuration.
 Use "--target draft|live" to choose draft (default) or live target.
-Use "--target live --from-draft" to promote draft bindings to live in one step.
+Use "--target live --from-draft" to promote draft setup to live in one step.
 Use "flows configure check <flow-slug>" to verify required config before running.
 Use "flows installations configure" when you need installation-specific configuration.
 `),
@@ -149,7 +149,7 @@ Use "flows installations configure" when you need installation-specific configur
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().StringVar(&version, "version", "", "Flow version override for live target (positive integer or latest)")
-	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote current draft bindings to live target")
+	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote current draft setup to live target")
 	cmd.AddCommand(newFlowsConfigureShowCmd(app))
 	cmd.AddCommand(newFlowsConfigureCheckCmd(app))
 	cmd.AddCommand(newFlowsConfigureSuggestCmd(app))
