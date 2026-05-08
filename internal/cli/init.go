@@ -251,7 +251,7 @@ Suggested line to paste into your agent's persistent project instructions:
 - Do not repeatedly release to ` + "`live`" + ` during normal iteration.
 - Release to ` + "`live`" + ` once after draft behavior is verified, you have explicit sign-off, and you can attach a markdown release note.
 - Use ` + "`breyta flows archive <slug>`" + ` when the flow should stop appearing in the normal active surface but its versions and metadata should remain available.
-- Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up.
+- Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
 
 ## Authoring standard (required before editing)
 - Write the problem contract: trigger, inputs, outputs, side effects, failure behavior.
@@ -419,7 +419,7 @@ Advanced ideas:
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
-- Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations)
+- Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations; add ` + "`--timeout 5m`" + ` for large cleanup jobs)
 
 ## Recovery URLs
 - When a command fails, prefer the exact page from ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
