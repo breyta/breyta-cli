@@ -266,8 +266,26 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta auth whoami`") {
 		t.Fatalf("unexpected readme content (missing whoami step): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta flows search \"<idea>\"`") {
-		t.Fatalf("unexpected readme content (missing flows search step): %s", string(readme))
+	if !strings.Contains(string(readme), "`breyta flows list --limit 50`") {
+		t.Fatalf("unexpected readme content (missing workspace flow inventory step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta docs find \"<idea or primitive>\"`") {
+		t.Fatalf("unexpected readme content (missing docs search step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`") {
+		t.Fatalf("unexpected readme content (missing query-shaped flows search step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "inspect best matches with `breyta flows search \"<best template query>\" --full --pretty` when structure matters") {
+		t.Fatalf("unexpected readme content (missing full template inspection step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "compare the current flow against the closest approved template before changing structure") {
+		t.Fatalf("unexpected readme content (missing template comparison guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
+		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`web UI not verified` in the risk ledger") {
+		t.Fatalf("unexpected readme content (missing web UI risk ledger guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "## Stop gate") {
 		t.Fatalf("unexpected readme content (missing stop gate): %s", string(readme))
@@ -299,7 +317,13 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(stdout, "Verify identity + workspace summary: breyta auth whoami") {
 		t.Fatalf("unexpected init stdout (missing whoami next step): %s", stdout)
 	}
-	if !strings.Contains(stdout, "Discover approved templates: breyta flows search \"<idea>\"") {
+	if !strings.Contains(stdout, "Inspect nearby workspace flows: breyta flows list --limit 50") {
+		t.Fatalf("unexpected init stdout (missing flows list next step): %s", stdout)
+	}
+	if !strings.Contains(stdout, "Search docs: breyta docs find \"<idea or primitive>\"") {
+		t.Fatalf("unexpected init stdout (missing docs search next step): %s", stdout)
+	}
+	if !strings.Contains(stdout, "Discover approved templates: breyta flows search \"<problem or integration query>\" --limit 5 --pretty") {
 		t.Fatalf("unexpected init stdout (missing flows search next step): %s", stdout)
 	}
 	if !strings.Contains(stdout, "Stop after idea exploration unless you intentionally want to continue now") {

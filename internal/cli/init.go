@@ -163,7 +163,9 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout(), "- Verify identity + workspace summary: breyta auth whoami")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Inventory reusable connections: breyta connections list")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Validate reusable connections: breyta connections test --all")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<idea>\"")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Inspect nearby workspace flows: breyta flows list --limit 50")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Search docs: breyta docs find \"<idea or primitive>\"")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Discover approved templates: breyta flows search \"<problem or integration query>\" --limit 5 --pretty")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			return nil
 		},
@@ -400,10 +402,14 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - ` + "`breyta connections list`" + `
    - ` + "`breyta connections test --all`" + `
    - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
-6. Discover approved templates:
+6. Inspect nearby workspace flows, docs, and approved templates:
+   - ` + "`breyta flows list --limit 50`" + `
+   - ` + "`breyta docs find \"<idea or primitive>\"`" + `
+   - ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
+7. Inspect the best approved template fully when structure matters:
    - ` + "`breyta flows search`" + `
-   - ` + "`breyta flows search \"<idea>\"`" + `
-7. Pick one idea to explore next.
+   - ` + "`breyta flows search \"<best template query>\" --full --pretty`" + `
+8. Pick one idea to explore next.
 
 Easy ideas:
 - Scheduled API digest that posts a summary to Slack or email
@@ -421,9 +427,14 @@ Advanced ideas:
 - If you intentionally want to skip the stop gate, do it knowingly.
 
 ## After the stop gate
-- Start with approved template discovery and docs:
-  - ` + "`breyta flows search \"<chosen idea>\"`" + `
+- Start with current state, docs, and approved template discovery:
+  - new flow: inspect nearby workspace flows with ` + "`breyta flows list --limit 50`" + `
+  - existing flow: inspect it with ` + "`breyta flows show <slug> --pretty`" + ` or ` + "`breyta flows pull <slug>`" + `
   - ` + "`breyta docs find \"<chosen idea or primitive>\"`" + `
+  - ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
+  - inspect best matches with ` + "`breyta flows search \"<best template query>\" --full --pretty`" + ` when structure matters
+  - compare the current flow against the closest approved template before changing structure
+  - final handoff should list template queries, chosen/rejected templates, and reused/ignored structure
 - Then inventory and validate reusable connections before authoring behavior:
   - ` + "`breyta connections list`" + `
   - ` + "`breyta connections test --all`" + `
@@ -435,6 +446,8 @@ Advanced ideas:
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
+- Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
+- When browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
 - Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations; add ` + "`--timeout 5m`" + ` for large cleanup jobs)
 
