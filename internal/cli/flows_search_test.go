@@ -381,3 +381,87 @@ func TestFlowsDoctorIncludesConfigureCheckReadiness(t *testing.T) {
 		t.Fatalf("expected configure suggest recovery command:\n%s", out.String())
 	}
 }
+
+func TestFlowsDoctorPreservesReadinessWhenConfigureCheckUnsupported(t *testing.T) {
+	seenCommands := []string{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		command, _ := body["command"].(string)
+		seenCommands = append(seenCommands, command)
+		switch command {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "legacy-flow",
+						"target":   "draft",
+						"ready":    true,
+						"checks": []map[string]any{
+							{"id": "definition", "label": "Flow definition", "pass": true},
+						},
+					},
+				},
+				"meta": map[string]any{
+					"nextCommands": []string{
+						"breyta flows validate legacy-flow",
+						"breyta flows run legacy-flow --target draft --wait",
+						"breyta flows diff legacy-flow",
+					},
+				},
+			})
+		case "flows.configure.check":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-test",
+				"error": map[string]any{
+					"code":    "unknown_command",
+					"message": "unexpected command",
+				},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", command)
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsDoctorCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"legacy-flow", "--target", "draft"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor execute: %v\n%s", err, out.String())
+	}
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check" {
+		t.Fatalf("unexpected commands: %s", got)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	doctor := mapStringAny(mapStringAny(envelope["data"])["doctor"])
+	if doctor["ready"] != true {
+		t.Fatalf("expected original doctor ready=true, got %#v", doctor["ready"])
+	}
+	if _, ok := doctor["configuration"]; ok {
+		t.Fatalf("expected unsupported configure check to leave doctor unchanged, got:\n%s", out.String())
+	}
+	nextJoined := strings.TrimSpace(out.String())
+	if !strings.Contains(nextJoined, "flows run legacy-flow --target draft --wait") {
+		t.Fatalf("expected original run command to remain:\n%s", out.String())
+	}
+	if strings.Contains(nextJoined, "flows configure suggest legacy-flow") {
+		t.Fatalf("did not expect configure remediation for unsupported check:\n%s", out.String())
+	}
+}

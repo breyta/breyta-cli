@@ -44,12 +44,30 @@ func doFlowsDoctorCommand(cmd *cobra.Command, app *App, flowSlug, target string,
 		if err != nil {
 			return writeErr(cmd, err)
 		}
+		if flowsConfigureCheckUnsupported(checkOut, checkStatus) {
+			return writeAPIResult(cmd, app, out, status)
+		}
 		mergeFlowsDoctorConfigureReadiness(out, checkOut, checkStatus, flowSlug, target)
 	}
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)
 	}
 	return nil
+}
+
+func flowsConfigureCheckUnsupported(out map[string]any, status int) bool {
+	if status < 400 && isOK(out) {
+		return false
+	}
+	errMap := mapStringAny(out["error"])
+	code := strings.ToLower(firstNonBlankString(errMap["code"], out["code"]))
+	if code == "unknown_command" || code == "command_not_found" {
+		return true
+	}
+	msg := strings.ToLower(firstNonBlankString(errMap["message"], out["message"]))
+	return strings.Contains(msg, "unknown command") ||
+		strings.Contains(msg, "unexpected command") ||
+		strings.Contains(msg, "unsupported command")
 }
 
 func mergeFlowsDoctorConfigureReadiness(doctorOut map[string]any, checkOut map[string]any, checkStatus int, flowSlug, target string) {
