@@ -344,7 +344,7 @@ Suggested line to paste into your agent's persistent project instructions:
 3) Edit ` + "`./flows/<slug>.clj`" + `
 4) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
 5) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
-6) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug>`" + `
+6) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug> --pretty`" + ` so ` + "`groupFlows`" + ` is visible
 7) If the flow should look polished on public discover/install cards, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 8) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
 9) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
@@ -456,7 +456,7 @@ Advanced ideas:
 - Shape ` + "`:requires`" + ` around stable capability slots before writing ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, reusable ` + "`:agents`" + `, and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
-- If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug>`" + `
+- If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug> --pretty`" + ` so ` + "`groupFlows`" + ` is visible
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `

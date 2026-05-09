@@ -205,7 +205,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {
 		t.Fatalf("unexpected agents content (missing group ordering guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug>`") {
+	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected agents content (missing ordered siblings verification guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
@@ -320,7 +320,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Delete flows only for permanent cleanup: `breyta flows delete <slug> --yes`") {
 		t.Fatalf("unexpected readme content (missing delete workflow): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug>`") {
+	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
