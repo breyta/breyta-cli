@@ -277,8 +277,8 @@ Notes:
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
 - Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
-  - inspect grouped flows: breyta flows list --pretty
-  - verify ordered siblings: breyta flows show <slug> --pretty
+  - inspect grouped flows: breyta flows list --limit 50
+  - verify ordered siblings: breyta flows show <slug>
   - clear only ordering: breyta flows update <slug> --group-order ""
 - Release notes are markdown attached to published versions.
   - draft vs live diff: breyta flows diff <slug>
@@ -749,6 +749,7 @@ func newFlowsShowCmd(app *App) *cobra.Command {
 	var include string
 	var target string
 	var version int
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show a flow",
@@ -798,6 +799,7 @@ breyta flows show order-ingest --target live
 				if version > 0 {
 					payload["version"] = version
 				}
+				applyFlowsGetVerbosityPayload(payload, full, include)
 				if useDoAPICommandFn {
 					return doAPICommandFn(cmd, app, "flows.get", payload)
 				}
@@ -827,6 +829,9 @@ breyta flows show order-ingest --target live
 			f := ws.Flows[args[0]]
 			if f == nil {
 				return writeErr(cmd, errors.New("flow not found"))
+			}
+			if full {
+				include = "schemas,definition,spine,versions"
 			}
 			inc := parseCSV(include)
 
@@ -876,7 +881,8 @@ breyta flows show order-ingest --target live
 			return writeData(cmd, app, meta, map[string]any{"flow": out})
 		},
 	}
-	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition,spine,versions)")
+	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (templates,functions,flow-literal,definition; local also supports schemas,spine,versions)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full flow definition, templates, functions, and source literal")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific version for API mode (0 = default)")
 	return cmd
@@ -998,6 +1004,10 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 					payload["version"] = version
 				}
 			}
+			payload["view"] = "full"
+			payload["includeFlowLiteral"] = true
+			payload["includeTemplates"] = false
+			payload["includeFunctions"] = false
 
 			resp, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.get", payload)
 			if err != nil {
@@ -1288,17 +1298,17 @@ Grouping and display icon metadata are workspace metadata. They do not round-tri
 Discover card media can be set here or authored as ` + "`:publish-media`" + ` in the flow source.
 
 Common grouped-flow loop:
-- inspect current grouping with ` + "`breyta flows list --pretty`" + ` or ` + "`breyta flows show <slug> --pretty`" + `
+- inspect current grouping with ` + "`breyta flows list --limit 50`" + ` or ` + "`breyta flows show <slug>`" + `
 - set or change grouping with ` + "`breyta flows update <slug> --group-key ... --group-name ... --group-order ...`" + `
-- verify sibling order again with ` + "`breyta flows show <slug> --pretty`" + `
+- verify sibling order again with ` + "`breyta flows show <slug>`" + `
 
 Discover card media loop:
-- inspect current discover card media with ` + "`breyta flows show <slug> --pretty`" + `
+- inspect current discover card media with ` + "`breyta flows show <slug>`" + `
 - replace the whole card media value with ` + "`--publish-media-type`" + ` + source flags
 - use ` + "`--clear-publish-media`" + ` to remove it
 
 Display icon loop:
-- inspect current display icon selector with ` + "`breyta flows show <slug> --pretty`" + `
+- inspect current display icon selector with ` + "`breyta flows show <slug>`" + `
 - set or clear it with ` + "`breyta flows update <slug> --primary-display-connection-slot <selector>`" + `
 		`),
 		Example: strings.TrimSpace(`
@@ -1310,7 +1320,7 @@ breyta flows update invoice-start \
 
 breyta flows update invoice-reconcile --group-order 20
 
-breyta flows show invoice-start --pretty
+breyta flows show invoice-start
 
 breyta flows update invoice-reconcile --group-order ""
 breyta flows update invoice-start --group-key ""
@@ -2177,6 +2187,7 @@ func newFlowsVersionsActivateCmd(app *App) *cobra.Command {
 
 func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 	var from, to int
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "diff <flow-slug>",
 		Short: "Diff two versions",
@@ -2186,13 +2197,19 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 				if from == 0 || to == 0 {
 					return writeErr(cmd, errors.New("missing --from and/or --to"))
 				}
-				return doAPICommand(cmd, app, "flows.diff", map[string]any{
+				payload := map[string]any{
 					"flowSlug":    args[0],
 					"from":        "version",
 					"fromVersion": from,
 					"to":          "version",
 					"toVersion":   to,
-				})
+				}
+				if full {
+					payload["view"] = "full"
+				} else {
+					payload["view"] = "summary"
+				}
+				return doAPICommand(cmd, app, "flows.diff", payload)
 			}
 			if from == 0 || to == 0 {
 				return writeErr(cmd, errors.New("missing --from and/or --to"))
@@ -2219,6 +2236,7 @@ func newFlowsVersionsDiffCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&from, "from", 0, "From version")
 	cmd.Flags().IntVar(&to, "to", 0, "To version")
+	cmd.Flags().BoolVar(&full, "full", false, "Include the full unified diff in API mode")
 	return cmd
 }
 

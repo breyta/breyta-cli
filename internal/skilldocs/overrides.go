@@ -88,7 +88,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --pretty` or `breyta flows show <slug> --pretty`.",
-			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --pretty` or `breyta flows show <slug> --pretty` so `groupFlows` and ordering metadata are visible.",
+			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --limit 50` or `breyta flows show <slug>` so `groupFlows` and ordering metadata are visible. Use `--full` only when definition fields are needed.",
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
@@ -120,7 +120,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, re-check grouping after metadata changes with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`",
-			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug> --pretty` so `groupFlows` is visible\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
+			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug>` so `groupFlows` is visible\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
 		},
 		{
 			"- `breyta flows release <slug>`\n- `breyta flows promote <slug>`\n- `breyta flows installations configure <installation-id> --input '{...}'`",

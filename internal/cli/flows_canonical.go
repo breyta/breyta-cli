@@ -74,7 +74,7 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 
 	deadline := time.Now().Add(timeout)
 	for {
-		payload := map[string]any{"workflowId": workflowID}
+		payload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
 			payload["installationId"] = installationID
 		}
@@ -393,6 +393,7 @@ func newFlowsDiffCmd(app *App) *cobra.Command {
 	var to string
 	var fromVersion int
 	var toVersion int
+	var full bool
 
 	cmd := &cobra.Command{
 		Use:   "diff <flow-slug>",
@@ -424,6 +425,11 @@ Defaults to draft versus live so you can inspect unpublished changes:
 			if toVersion > 0 {
 				payload["toVersion"] = toVersion
 			}
+			if full {
+				payload["view"] = "full"
+			} else {
+				payload["view"] = "summary"
+			}
 			return doAPICommand(cmd, app, "flows.diff", payload)
 		},
 	}
@@ -432,5 +438,6 @@ Defaults to draft versus live so you can inspect unpublished changes:
 	cmd.Flags().StringVar(&to, "to", "live", "Diff target (draft|live|version)")
 	cmd.Flags().IntVar(&fromVersion, "from-version", 0, "Version number when --from=version")
 	cmd.Flags().IntVar(&toVersion, "to-version", 0, "Version number when --to=version")
+	cmd.Flags().BoolVar(&full, "full", false, "Include the full unified diff")
 	return cmd
 }

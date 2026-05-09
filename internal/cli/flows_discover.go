@@ -123,7 +123,7 @@ Typical authoring flow:
 4. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
 5. ` + "`breyta flows discover list`" + ` from another workspace to verify visibility
 
-Use ` + "`breyta flows show <slug> --pretty`" + ` after updating to confirm stored metadata includes
+Use ` + "`breyta flows show <slug>`" + ` after updating to confirm stored metadata includes
 ` + "`discover.public`" + `.
 
 Only a privileged workspace member can change this metadata.`,
