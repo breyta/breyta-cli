@@ -75,12 +75,28 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			"- Inventory and validate existing workspace connections before creating new ones.",
 		},
 		{
+			"- Search templates before creating or editing a flow: `breyta flows search \"<problem or integration query>\" --limit 5 --pretty`.",
+			"- Search approved examples before creating a new flow, changing architecture, using unfamiliar integrations, or when primitive examples are missing: `breyta flows search \"<problem or integration query>\" --limit 5`.",
+		},
+		{
+			"- Use `breyta flows search \"<query>\" --limit 1 --full --pretty` for the best one or two matches when structure matters.",
+			"- For primitive/step edits, use matching primitive snippets and referenced dependencies when available. Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.",
+		},
+		{
+			"`current state -> docs search -> template search -> full template inspect -> compare -> edit -> draft proof -> live/install proof`.",
+			"`current state -> docs search -> approved example metadata -> primitive snippet -> referenced dependencies -> full template only if needed -> compare -> edit -> draft proof -> live/install proof`.",
+		},
+		{
+			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --pretty` or `breyta flows show <slug> --pretty`.",
+			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --pretty` or `breyta flows show <slug> --pretty` so `groupFlows` and ordering metadata are visible.",
+		},
+		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating or editing a flow, inspect current state, search docs, search approved templates with `breyta flows search \"<problem or integration query>\" --limit 5 --pretty`, inspect the best match with `--full --pretty` when structure matters, and compare against the closest approved template before changing structure.\n- For new flows, inspect nearby workspace flows with `breyta flows list --limit 50` before template selection.\n- For existing flows, inspect the target with `breyta flows show <slug> --pretty` or `breyta flows pull <slug>` before editing.",
+			"- Before creating or editing a flow, pick a task mode, inspect current state, search docs for touched primitives, and search approved examples with `breyta flows search \"<problem or integration query>\" --limit 5`.\n- Use primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, inspect nearby workspace flows with `breyta flows list --limit 50` before example selection.\n- For existing flows, inspect the target with `breyta flows show <slug>` or `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections test --all`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - Nearby workspace flows: `breyta flows list --limit 50`\n   - Docs: `breyta docs find \"<problem or primitive>\"`\n   - Approved template discovery: `breyta flows search \"<problem or integration query>\" --limit 5 --pretty`\n   - Full template inspection when structure matters: `breyta flows search \"<best template query>\" --full --pretty`\n   - Existing workspace flow: `breyta flows show <slug> --pretty` or `breyta flows pull <slug>`",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace flows: `breyta flows list --limit 50`\n   - Docs: `breyta docs find \"<problem or primitive>\"`\n   - Approved example discovery: `breyta flows search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` or `breyta flows pull <slug>`",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -104,7 +120,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, re-check grouping after metadata changes with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`",
-			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
+			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug> --pretty` so `groupFlows` is visible\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
 		},
 		{
 			"- `breyta flows release <slug>`\n- `breyta flows promote <slug>`\n- `breyta flows installations configure <installation-id> --input '{...}'`",
@@ -134,6 +150,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureNamingConventionsSection(updated)
 	updated = ensureSolutionSurfacesSection(updated)
 	updated = ensureTemplateDiscoverySection(updated)
+	updated = ensureWorkflowQualityContractSection(updated)
 	updated = ensurePublicFlowUIVerificationSection(updated)
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
@@ -199,8 +216,8 @@ Default authoring order:
 - declare connections, secrets, installer inputs, run inputs, and worker dependencies first
 - start with connection inventory:
   - ` + "`breyta connections list`" + `
-  - ` + "`breyta connections test --all`" + `
   - ` + "`breyta connections show <id>`" + ` for the connection you plan to reuse
+  - ` + "`breyta connections test <id>`" + ` only when binding or debugging that connection
 - choose stable slot names around business capability (` + "`:github-api`" + `, ` + "`:crm`" + `, ` + "`:llm`" + `, ` + "`:slack`" + `) rather than transient provider names
 
 2. ` + "`:templates`" + `
@@ -234,22 +251,48 @@ Anti-patterns:
 - exposing raw broad built-in step surfaces directly to agents when a packaged step would be safer
 - treating ` + "`:flow`" + ` as the place to define reusable behavior`
 
-const templateDiscoverySection = `## Template discovery for create/edit (Required)
+const templateDiscoverySection = `## Primitive-first reuse for create/edit (Required)
 
-Goal: avoid inventing flow structure from a name alone.
+Goal: avoid inventing flow structure from a name alone while keeping evidence small.
 
+- pick a task mode before running commands: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, or release
 - for new flows:
   - inspect nearby workspace flows first with ` + "`breyta flows list --limit 50`" + `
   - search docs for the problem, primitive, and integration
-  - search approved templates with ` + "`breyta flows search \"<problem or integration query>\" --limit 5 --pretty`" + `
-  - inspect the best match with ` + "`breyta flows search \"<best template query>\" --full --pretty`" + ` when structure matters
+  - search approved examples with ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + `
 - for existing flows:
-  - inspect the current flow first with ` + "`breyta flows show <slug> --pretty`" + ` or ` + "`breyta flows pull <slug>`" + `
-  - search docs and approved templates before changing structure
-  - compare the current flow against the closest approved template before editing
-- review template metadata before choosing a pattern: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
-- if no useful approved template exists, say so explicitly and continue from docs
-- final handoff must include template queries run, chosen/rejected templates, and what structure was reused or intentionally ignored`
+  - inspect the current flow first with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
+  - search docs and approved examples before changing structure
+  - compare the touched surface against the closest approved example before editing
+- primitive-first ladder:
+  - review metadata: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
+  - inspect matching primitive snippets when available
+  - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
+  - inspect one full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
+- if no useful approved example exists, say so explicitly and continue from docs
+- command budget:
+  - authenticate once unless auth/workspace state changes
+  - do not repeat identical commands unless state changed
+  - use one docs search per changed primitive before opening docs pages
+  - use one full template inspection at most for normal create/edit work
+  - test only the connection you plan to bind or debug, not ` + "`breyta connections test --all`" + `
+  - after two failed edit/run cycles, stop and re-plan
+- final handoff must include approved example queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored`
+
+const workflowQualityContractSection = `## Workflow quality contract (Required)
+
+Before editing, write the contract at the depth required by the task mode:
+
+- inputs and outputs
+- side effects and exactly-once requirements
+- idempotency or dedupe strategy
+- failure behavior, retries, and timeouts
+- observability proof: result fields, counters, run ids, resources, or side-effect evidence
+- user-facing output review path
+
+For primitive/step edits, scope the contract to the changed primitive. For new
+flows, release work, public installs, and cross-step changes, cover the full
+flow.`
 
 const publicFlowUIVerificationSection = `## Public/end-user UI verification (Required for public flows)
 
@@ -448,8 +491,15 @@ func ensureSolutionSurfacesSection(body string) string {
 }
 
 func ensureTemplateDiscoverySection(body string) string {
-	if h2LineStartOutsideFences(body, "## Template discovery for create/edit (Required)") >= 0 {
+	if h2LineStartOutsideFences(body, "## Primitive-first reuse for create/edit (Required)") >= 0 {
 		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Template discovery for create/edit (Required)"); headingPos >= 0 {
+		nextPos := nextH2LineStartOutsideFences(body, headingPos+len("## Template discovery for create/edit (Required)"))
+		if nextPos >= 0 {
+			return body[:headingPos] + templateDiscoverySection + "\n\n" + body[nextPos:]
+		}
+		return strings.TrimRight(body[:headingPos], "\n") + "\n\n" + templateDiscoverySection + "\n"
 	}
 	if headingPos := h2LineStartOutsideFences(body, "## Solution surfaces first (Required before editing)"); headingPos >= 0 {
 		insertPos := nextH2LineStartOutsideFences(body, headingPos+len("## Solution surfaces first (Required before editing)"))
@@ -475,6 +525,19 @@ func ensurePublicFlowUIVerificationSection(body string) string {
 		return body[:headingPos] + publicFlowUIVerificationSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + publicFlowUIVerificationSection + "\n"
+}
+
+func ensureWorkflowQualityContractSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Workflow quality contract (Required)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Public/end-user UI verification (Required for public flows)"); headingPos >= 0 {
+		return body[:headingPos] + workflowQualityContractSection + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Capability Discovery"); headingPos >= 0 {
+		return body[:headingPos] + workflowQualityContractSection + "\n\n" + body[headingPos:]
+	}
+	return body + "\n\n" + workflowQualityContractSection + "\n"
 }
 
 func ensureDiscoverCardMediaSection(body string) string {

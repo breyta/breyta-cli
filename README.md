@@ -37,7 +37,7 @@ The usual path is:
 2. Bootstrap a local agent workspace
 3. Authenticate
 4. Verify your account and workspace summary
-5. Inspect nearby workspace flows, docs, and approved templates before designing
+5. Inspect nearby workspace flows, docs, and approved examples before designing
 6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
@@ -47,17 +47,20 @@ breyta auth login
 breyta auth whoami
 breyta flows list --limit 50
 breyta docs find "<idea or primitive>"
-breyta flows search "<problem or integration query>" --limit 5 --pretty
-breyta flows search "<best template query>" --full --pretty
+breyta flows search "<problem or integration query>" --limit 5
 ```
 
-For new flows, inspect nearby workspace flows first, search docs, then inspect
-the closest approved template fully when structure matters. For edits, inspect
-the current flow with `breyta flows show <slug> --pretty` or `breyta flows pull
-<slug>` before the docs/template search, then compare the current flow against
-the closest approved template before changing structure. Template name alone is
-not enough context; review description, tags, providers, step types, step count,
-publish description, `steps_text`, and `flow_web_url`.
+For new flows, inspect nearby workspace flows first, search docs, then search
+approved examples. For edits, inspect the current flow with
+`breyta flows show <slug>` or `breyta flows pull <slug>` before the docs/example
+search, then compare the touched surface against the closest approved example
+before changing structure. Keep reuse primitive-first: use matching snippets and
+referenced dependencies when available, and inspect a full template only for
+architecture-level reuse, public install patterns, multi-flow orchestration,
+fanout/child-flow behavior, unclear snippet dependencies, or copying overall
+flow structure. Template name alone is not enough context; review description,
+tags, providers, step types, step count, publish description, `steps_text`, and
+`flow_web_url`.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,

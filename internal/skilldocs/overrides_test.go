@@ -21,23 +21,29 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 
 	got := ApplyCLIOverrides("breyta", input)
 	body := string(got["SKILL.md"])
-	if !strings.Contains(body, "Before creating or editing a flow, inspect current state, search docs, search approved templates") {
+	if !strings.Contains(body, "Before creating or editing a flow, pick a task mode, inspect current state") {
 		t.Fatalf("expected search-first guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5 --pretty") {
+	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Full template inspection when structure matters: `breyta flows search \"<best template query>\" --full --pretty`") {
-		t.Fatalf("expected full template inspection guidance in override, got:\n%s", body)
+	if !strings.Contains(body, "Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates") {
+		t.Fatalf("expected primitive-first reuse guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug> --pretty` or `breyta flows pull <slug>`") {
+	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug>` or `breyta flows pull <slug>`") {
 		t.Fatalf("expected workspace flow guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "## Template discovery for create/edit (Required)") {
-		t.Fatalf("expected template discovery section in override, got:\n%s", body)
+	if !strings.Contains(body, "## Primitive-first reuse for create/edit (Required)") {
+		t.Fatalf("expected primitive-first reuse section in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "compare the current flow against the closest approved template before editing") {
-		t.Fatalf("expected template comparison guidance in override, got:\n%s", body)
+	if !strings.Contains(body, "inspect one full template only for cross-step architecture reuse") {
+		t.Fatalf("expected full-template escalation guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Workflow quality contract (Required)") {
+		t.Fatalf("expected workflow quality contract in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Do not run `breyta connections test --all`") && !strings.Contains(body, "not `breyta connections test --all`") {
+		t.Fatalf("expected targeted connection test guidance in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Public/end-user UI verification (Required for public flows)") {
 		t.Fatalf("expected public UI verification section in override, got:\n%s", body)
