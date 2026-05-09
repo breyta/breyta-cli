@@ -37,7 +37,7 @@ The usual path is:
 2. Bootstrap a local agent workspace
 3. Authenticate
 4. Verify your account and workspace summary
-5. Inspect nearby workspace flows, docs, and approved examples before designing
+5. Search nearby workspace flow patterns, docs, and approved examples before designing
 6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
@@ -45,24 +45,23 @@ breyta init --provider <codex|cursor|claude|gemini>
 cd breyta-workspace
 breyta auth login
 breyta auth whoami
-breyta flows list --limit 50
+breyta flows workspace search "<integration or problem query>" --limit 5
+breyta flows workspace examples step <type> "<integration or problem query>" --limit 3
 breyta docs find "<idea or primitive>"
 breyta flows search "<problem or integration query>" --limit 5
 breyta flows examples step <type> "<problem or integration query>" --limit 3
 ```
 
-For new flows, inspect nearby workspace flows first, search docs, then search
-approved examples. For edits, inspect the current flow with
-`breyta flows show <slug>` or `breyta flows pull <slug>` before the docs/example
-search, then compare the touched surface against the closest approved example
-before changing structure. Keep reuse primitive-first: use
-`breyta flows examples step <type> "<query>"` for matching snippets and
-referenced dependencies when available, and inspect a full template only for
-architecture-level reuse, public install patterns, multi-flow orchestration,
-fanout/child-flow behavior, unclear snippet dependencies, or copying overall
-flow structure. Template name alone is not enough context; review description,
-tags, providers, step types, step count, publish description, `steps_text`, and
-`flow_web_url`.
+For new flows, search nearby workspace flows first instead of listing every
+flow, then search docs snippets and approved examples. For edits, inspect the
+current flow with `breyta flows show <slug>` or `breyta flows pull <slug>`
+before docs/example search. Keep reuse primitive-first: use
+`breyta flows workspace examples step <type> "<query>"` for local private
+snippets, then `breyta flows examples step <type> "<query>"` for approved
+snippets. Inspect a full template only for architecture-level reuse, public
+install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear
+snippet dependencies, or copying overall flow structure. `breyta flows list` is
+for inventory, slug checks, or explicit user requests, not pattern discovery.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,
@@ -313,6 +312,15 @@ breyta service-accounts create \
 for that workspace, but it does not make service-account management or human UI
 surfaces machine-accessible.
 
+## Dev utilities
+
+Analyze an old agent authoring session for command/token regressions:
+
+```bash
+python scripts/analyze-authoring-session ./session.jsonl
+python scripts/analyze-authoring-session ./session.jsonl --json
+```
+
 The key is shown once. Store it in the worker environment or your secret
 manager before starting the worker process.
 
@@ -507,7 +515,7 @@ The flow/runtime surface is mirrored here through the native `:table` step and t
   - https://flows.breyta.ai/docs
   - `breyta docs`
   - `breyta docs find "<query>"`
-  - `breyta docs show <slug>`
+  - `breyta docs show <slug>` only after search identifies the narrow page needed
 - External provider/API truth: use current official provider docs/API
   references or model-list endpoints before choosing model ids, endpoints,
   request shapes, auth assumptions, or limits.

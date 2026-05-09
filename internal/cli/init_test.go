@@ -112,11 +112,14 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "## Primitive-first reuse (required for create/edit)") {
 		t.Fatalf("unexpected agents content (missing primitive-first reuse section): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "New flow sequence: `breyta flows list` -> docs search -> `breyta flows search \"<problem or integration query>\" --limit 5`") {
+	if !strings.Contains(string(agents), "New flow sequence: `breyta flows workspace search \"<integration or problem query>\" --limit 5`") {
 		t.Fatalf("unexpected agents content (missing new-flow example sequence): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Existing flow sequence: `breyta flows show <slug>` or `breyta flows pull <slug>` -> docs search -> approved example metadata -> primitive snippet") {
+	if !strings.Contains(string(agents), "Existing flow sequence: `breyta flows show <slug>` or `breyta flows pull <slug>` -> workspace search only for nearby patterns -> docs search snippets") {
 		t.Fatalf("unexpected agents content (missing edit-flow primitive-first sequence): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Do not use `breyta flows list` for pattern discovery") {
+		t.Fatalf("unexpected agents content (missing workspace search list guard): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "Do not pull a full template for a primitive/step edit unless snippet context") {
 		t.Fatalf("unexpected agents content (missing full-template escalation guard): %s", string(agents))
@@ -199,8 +202,11 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
 		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Search docs and approved examples, inspect primitive snippets with `breyta flows examples step <type> \"<query>\"`") {
+	if !strings.Contains(string(agents), "Search workspace patterns and docs snippets, inspect private snippets with `breyta flows workspace examples step <type> \"<query>\"`") {
 		t.Fatalf("unexpected agents content (missing authoring loop primitive-first step): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "If configure check reports missing required config, stop before draft/live runs unless the task is static validation only") {
+		t.Fatalf("unexpected agents content (missing configure-check run gate): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {
 		t.Fatalf("unexpected agents content (missing group ordering guidance): %s", string(agents))
@@ -275,8 +281,11 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta auth whoami`") {
 		t.Fatalf("unexpected readme content (missing whoami step): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta flows list --limit 50`") {
-		t.Fatalf("unexpected readme content (missing workspace flow inventory step): %s", string(readme))
+	if !strings.Contains(string(readme), "`breyta flows workspace search \"<integration or problem query>\" --limit 5`") {
+		t.Fatalf("unexpected readme content (missing workspace flow search step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows workspace examples step <type> \"<query>\" --limit 3`") {
+		t.Fatalf("unexpected readme content (missing workspace snippets step): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "`breyta docs find \"<idea or primitive>\"`") {
 		t.Fatalf("unexpected readme content (missing docs search step): %s", string(readme))
@@ -295,6 +304,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Authoring reads are compact by default. Use `--full` on `flows show`, `flows diff`, or `runs show`") {
 		t.Fatalf("unexpected readme content (missing compact authoring default guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only") {
+		t.Fatalf("unexpected readme content (missing configure-check run gate): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
 		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
@@ -332,8 +344,8 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(stdout, "Verify identity + workspace summary: breyta auth whoami") {
 		t.Fatalf("unexpected init stdout (missing whoami next step): %s", stdout)
 	}
-	if !strings.Contains(stdout, "Inspect nearby workspace flows: breyta flows list --limit 50") {
-		t.Fatalf("unexpected init stdout (missing flows list next step): %s", stdout)
+	if !strings.Contains(stdout, "Search nearby workspace flow patterns: breyta flows workspace search \"<integration or problem query>\" --limit 5") {
+		t.Fatalf("unexpected init stdout (missing workspace search next step): %s", stdout)
 	}
 	if !strings.Contains(stdout, "Search docs: breyta docs find \"<idea or primitive>\"") {
 		t.Fatalf("unexpected init stdout (missing docs search next step): %s", stdout)

@@ -84,7 +84,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"`current state -> docs search -> template search -> full template inspect -> compare -> edit -> draft proof -> live/install proof`.",
-			"`current state -> docs search -> approved example metadata -> primitive snippet -> referenced dependencies -> full template only if needed -> compare -> edit -> draft proof -> live/install proof`.",
+			"`current state -> workspace search -> private snippet -> docs snippets -> approved example metadata -> approved primitive snippet -> referenced dependencies -> full template only if needed -> compare -> edit -> draft proof -> live/install proof`.",
 		},
 		{
 			"- Treat flow grouping as mutable metadata, not authored source. Verify grouping with `breyta flows list --pretty` or `breyta flows show <slug> --pretty`.",
@@ -92,11 +92,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating or editing a flow, pick a task mode, inspect current state, search docs for touched primitives, and search approved examples with `breyta flows search \"<problem or integration query>\" --limit 5`.\n- Use primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, inspect nearby workspace flows with `breyta flows list --limit 50` before example selection.\n- For existing flows, inspect the target with `breyta flows show <slug>` or `breyta flows pull <slug>` before editing.",
+			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows workspace search \"<integration or problem query>\" --limit 5`, search docs snippets for touched primitives, and search approved examples with `breyta flows search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target with `breyta flows show <slug>` or `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace flows: `breyta flows list --limit 50`\n   - Docs: `breyta docs find \"<problem or primitive>\"`\n   - Approved example discovery: `breyta flows search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` or `breyta flows pull <slug>`",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows workspace search \"<integration or problem query>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\"`\n   - Approved example discovery: `breyta flows search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` or `breyta flows pull <slug>`",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -120,7 +120,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, re-check grouping after metadata changes with `breyta flows show <slug> --pretty`\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`",
-			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug>` so `groupFlows` is visible\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
+			"- `breyta flows push --file ./tmp/flows/<slug>.clj`\n- `breyta flows configure <slug> ...` (when required)\n- `breyta flows configure check <slug>`\n- Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only\n- If the flow belongs to a bundle of dependent flows, set explicit order with `breyta flows update <slug> --group-order <n>` and re-check ordered siblings with `breyta flows show <slug>` so `groupFlows` is visible\n- Live target updates after slot changes: use `--target live --version <n|latest>` (and `--from-draft` when promoting draft bindings)\n- Optional read-only verification: `breyta flows validate <slug>`\n- Inspect draft-vs-live changes before release: `breyta flows diff <slug>`",
 		},
 		{
 			"- `breyta flows release <slug>`\n- `breyta flows promote <slug>`\n- `breyta flows installations configure <installation-id> --input '{...}'`",
@@ -202,7 +202,7 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
   - from :name, :description, :triggers, and first few step ids/titles, a new operator should infer flow behavior in ~10 seconds
 - CLI search clarity
   - breyta flows search <query> is for approved template discovery, not workspace flow lookup
-  - for workspace lookup, use breyta flows list output with explicit keywords and grep/filter locally
+  - for workspace lookup, use breyta flows workspace search <query> instead of broad flow lists
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example invoice, approval, webhook, billing)`
 
 const solutionSurfacesSection = `## Solution surfaces first (Required before editing)
@@ -257,8 +257,9 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
 
 - pick a task mode before running commands: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, or release
 - for new flows:
-  - inspect nearby workspace flows first with ` + "`breyta flows list --limit 50`" + `
-  - search docs for the problem, primitive, and integration
+  - search nearby workspace patterns first with ` + "`breyta flows workspace search \"<integration or problem query>\" --limit 5`" + `
+  - inspect private primitive snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
+  - search docs snippets for the problem, primitive, and integration
   - search approved examples with ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + `
 - for existing flows:
   - inspect the current flow first with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
@@ -266,6 +267,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - compare the touched surface against the closest approved example before editing
 - primitive-first ladder:
   - review metadata: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
+  - inspect matching private workspace snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + ` when available
   - inspect matching primitive snippets with ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` when available
   - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
   - inspect one full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
@@ -274,6 +276,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - authenticate once unless auth/workspace state changes
   - do not repeat identical commands unless state changed
   - use one docs search per changed primitive before opening docs pages
+  - open full docs pages only after docs search identifies the narrow page needed
   - use one full template inspection at most for normal create/edit work
   - test only the connection you plan to bind or debug, not ` + "`breyta connections test --all`" + `
   - after two failed edit/run cycles, stop and re-plan
@@ -444,7 +447,7 @@ runtime semantics.
 - search error text when debugging
   - ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
   - ` + "`breyta docs find \"\\\"missing api base url\\\"\"`" + `
-- then open the best hit with ` + "`breyta docs show <slug>`" + `
+- then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `
 - if the question is command shape or flags, finish with ` + "`breyta help <command...>`" + ` instead of guessing
 
 Escalation path when the first search misses:

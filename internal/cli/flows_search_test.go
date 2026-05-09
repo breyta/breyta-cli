@@ -224,6 +224,135 @@ func TestFlowsExamplesStep_BuildsWorkspacePayload(t *testing.T) {
 	}
 }
 
+func TestFlowsWorkspaceSearch_BuildsWorkspacePayload(t *testing.T) {
+	var gotWorkspaceHeader string
+	var gotBody map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		gotWorkspaceHeader = r.Header.Get("X-Breyta-Workspace")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"result": map[string]any{"hits": []any{}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsWorkspaceSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail", "--step-type", "http", "--flow", "gmail-support-agent", "--target", "draft", "--limit", "5", "--from", "2", "--include-archived"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotWorkspaceHeader != "ws-test" {
+		t.Fatalf("expected workspace header ws-test, got %q", gotWorkspaceHeader)
+	}
+	if gotBody["command"] != "flows.workspace.search" {
+		t.Fatalf("expected flows.workspace.search, got %#v", gotBody["command"])
+	}
+	args, _ := gotBody["args"].(map[string]any)
+	if args["query"] != "gmail" || args["stepType"] != "http" || args["flowSlug"] != "gmail-support-agent" || args["target"] != "draft" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+	if args["limit"] != float64(5) || args["from"] != float64(2) || args["includeArchived"] != true {
+		t.Fatalf("unexpected pagination/archive args: %#v", args)
+	}
+}
+
+func TestFlowsWorkspaceSearch_RejectsFullFlag(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsWorkspaceSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail", "--full"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "unknown flag: --full") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFlowsWorkspaceExamplesStep_BuildsWorkspacePayload(t *testing.T) {
+	var gotWorkspaceHeader string
+	var gotBody map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		gotWorkspaceHeader = r.Header.Get("X-Breyta-Workspace")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"examples": map[string]any{"items": []any{}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsWorkspaceExamplesStepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"http", "gmail", "--flow", "gmail-support-agent", "--target", "live", "--limit", "3", "--full", "--include-archived"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotWorkspaceHeader != "ws-test" {
+		t.Fatalf("expected workspace header ws-test, got %q", gotWorkspaceHeader)
+	}
+	if gotBody["command"] != "flows.workspace.examples.step" {
+		t.Fatalf("expected flows.workspace.examples.step, got %#v", gotBody["command"])
+	}
+	args, _ := gotBody["args"].(map[string]any)
+	if args["stepType"] != "http" || args["query"] != "gmail" || args["flowSlug"] != "gmail-support-agent" || args["target"] != "live" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+	if args["limit"] != float64(3) || args["full"] != true || args["includeArchived"] != true {
+		t.Fatalf("unexpected full/archive args: %#v", args)
+	}
+}
+
+func TestFlowsWorkspaceHelp_SeparatesPrivateSearchFromApprovedCatalog(t *testing.T) {
+	cmd := newFlowsWorkspaceCmd(&App{})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+	err := cmd.Execute()
+	stdout := out.String()
+	if err != nil {
+		t.Fatalf("flows workspace --help failed: %v\n%s", err, stdout)
+	}
+	for _, want := range []string{"private", "actual flows", "breyta flows search", "approved"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected flows workspace help to include %q, got:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestFlowsDoctorAndPublicPreflightCommands(t *testing.T) {
 	seenCommands := []string{}
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
