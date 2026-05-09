@@ -77,6 +77,16 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
     return commands, output_chars
 
 
+TARGET_FLAG = re.compile(r"--target(?:=|\s+)(\S+)")
+
+
+def target_value(command: str) -> str:
+    match = TARGET_FLAG.search(command)
+    if not match:
+        return ""
+    return match.group(1).strip("\"'").lower()
+
+
 def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
     counts = Counter(commands)
     docs_reads = [c for c in commands if " docs show " in f" {c} "]
@@ -100,7 +110,8 @@ def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
         c
         for c in commands
         if (" flows run " in f" {c} " or " runs start " in f" {c} ")
-        and ("--target draft" in c or "--wait" in c)
+        and (target_value(c) in ("", "draft"))
+        and ("--target draft" in c or "--target=draft" in c or "--wait" in c)
     ]
 
     return {
