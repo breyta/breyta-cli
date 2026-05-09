@@ -48,13 +48,15 @@ breyta auth whoami
 breyta flows list --limit 50
 breyta docs find "<idea or primitive>"
 breyta flows search "<problem or integration query>" --limit 5
+breyta flows examples step <type> "<problem or integration query>" --limit 3
 ```
 
 For new flows, inspect nearby workspace flows first, search docs, then search
 approved examples. For edits, inspect the current flow with
 `breyta flows show <slug>` or `breyta flows pull <slug>` before the docs/example
 search, then compare the touched surface against the closest approved example
-before changing structure. Keep reuse primitive-first: use matching snippets and
+before changing structure. Keep reuse primitive-first: use
+`breyta flows examples step <type> "<query>"` for matching snippets and
 referenced dependencies when available, and inspect a full template only for
 architecture-level reuse, public install patterns, multi-flow orchestration,
 fanout/child-flow behavior, unclear snippet dependencies, or copying overall
@@ -84,6 +86,15 @@ local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
 The skill bundle can include `SKILL.md` plus bundled `references/` files; agents
 should read `SKILL.md` first and load the referenced file for the task surface
 they are editing.
+
+Compact diagnostics for agent loops:
+
+```bash
+breyta flows doctor <slug> --target draft
+breyta flows public preflight <slug>
+breyta runs show <workflow-id> --errors
+breyta resources table verify <res://table-uri>
+```
 
 If `breyta auth whoami` shows multiple workspaces or no default workspace
 selected, use:

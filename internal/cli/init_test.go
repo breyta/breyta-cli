@@ -199,7 +199,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
 		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Search docs and approved examples, inspect primitive snippets first, and pull a full template only when structure matters") {
+	if !strings.Contains(string(agents), "Search docs and approved examples, inspect primitive snippets with `breyta flows examples step <type> \"<query>\"`") {
 		t.Fatalf("unexpected agents content (missing authoring loop primitive-first step): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {

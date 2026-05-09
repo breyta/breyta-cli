@@ -259,7 +259,7 @@ Suggested line to paste into your agent's persistent project instructions:
 - Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
 
 ## Primitive-first reuse (required for create/edit)
-- New flow sequence: ` + "`breyta flows list`" + ` -> docs search -> ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + ` -> primitive snippet or dependencies -> full template only for architecture-level reuse.
+- New flow sequence: ` + "`breyta flows list`" + ` -> docs search -> ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + ` -> ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` -> referenced dependencies -> full template only for architecture-level reuse.
 - Existing flow sequence: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + ` -> docs search -> approved example metadata -> primitive snippet -> compare the touched surface before changing structure.
 - Review approved example metadata before choosing a pattern: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `.
 - Do not pull a full template for a primitive/step edit unless snippet context and referenced ` + "`:requires`" + ` / ` + "`:templates`" + ` / ` + "`:functions`" + ` are insufficient.
@@ -340,7 +340,7 @@ Suggested line to paste into your agent's persistent project instructions:
 
 ## Authoring loop (agent-friendly, draft-first)
 1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
-2) Search docs and approved examples, inspect primitive snippets first, and pull a full template only when structure matters
+2) Search docs and approved examples, inspect primitive snippets with ` + "`breyta flows examples step <type> \"<query>\"`" + `, and pull a full template only when structure matters
 3) Edit ` + "`./flows/<slug>.clj`" + `
 4) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
 5) Check required draft config: ` + "`breyta flows configure check <slug>`" + `

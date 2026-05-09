@@ -235,6 +235,7 @@ func newRunsShowCmd(app *App) *cobra.Command {
 	var includeSteps bool
 	var includeResult bool
 	var full bool
+	var errorsOnly bool
 	cmd := &cobra.Command{
 		Use:   "show <workflow-id>",
 		Short: "Show run detail",
@@ -255,14 +256,27 @@ To access run resources, use the resources command:
 				if effectiveInstallationID != "" {
 					payload["installationId"] = effectiveInstallationID
 				}
-				if full {
+				if errorsOnly {
+					payload["includeSteps"] = true
+					payload["includeResult"] = full
+				} else if full {
 					payload["includeSteps"] = true
 					payload["includeResult"] = true
 				} else {
 					payload["includeSteps"] = includeSteps
 					payload["includeResult"] = includeResult
 				}
-				return doAPICommand(cmd, app, "runs.get", payload)
+				out, status, err := runAPICommand(app, "runs.get", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if errorsOnly {
+					filterRunErrorsOnly(out, args[0])
+				}
+				if err := writeAPIResult(cmd, app, out, status); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -296,8 +310,61 @@ To access run resources, use the resources command:
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in API mode")
 	cmd.Flags().BoolVar(&includeResult, "include-result", false, "Include full result payload in API mode")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full steps and result payload in API mode")
+	cmd.Flags().BoolVar(&errorsOnly, "errors", false, "Show only run-level and failed step errors in API mode")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	return cmd
+}
+
+func filterRunErrorsOnly(out map[string]any, workflowID string) {
+	if out == nil {
+		return
+	}
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return
+	}
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return
+	}
+	steps := sliceAny(run["steps"])
+	errorSteps := make([]any, 0, len(steps))
+	for _, item := range steps {
+		step := mapStringAny(item)
+		if runStepHasError(step) {
+			errorSteps = append(errorSteps, item)
+		}
+	}
+	filteredRun := make(map[string]any, len(run)+2)
+	for key, value := range run {
+		filteredRun[key] = value
+	}
+	filteredRun["steps"] = errorSteps
+	filteredRun["errorStepsCount"] = len(errorSteps)
+	data["run"] = filteredRun
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["errorsOnly"] = true
+	meta["nextCommands"] = []string{
+		"breyta runs show " + strings.TrimSpace(workflowID) + " --full",
+		"breyta resources workflow list " + strings.TrimSpace(workflowID),
+	}
+}
+
+func runStepHasError(step map[string]any) bool {
+	if step == nil {
+		return false
+	}
+	status := strings.ToLower(firstNonBlankString(step["status"]))
+	if strings.Contains(status, "fail") || strings.Contains(status, "error") {
+		return true
+	}
+	if errMap := mapStringAny(step["error"]); errMap != nil && len(errMap) > 0 {
+		return true
+	}
+	return firstNonBlankString(step["error"], step["errorMessage"], step["error-message"]) != ""
 }
 
 func newRunsStartCmd(app *App) *cobra.Command {

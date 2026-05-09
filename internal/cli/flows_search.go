@@ -10,6 +10,7 @@ import (
 func newFlowsSearchCmd(app *App) *cobra.Command {
 	var catalogScope string
 	var provider string
+	var stepType string
 	var limit int
 	var from int
 	var full bool
@@ -66,6 +67,9 @@ and/or --catalog-scope).
 			if strings.TrimSpace(provider) != "" {
 				payload["provider"] = strings.TrimSpace(provider)
 			}
+			if strings.TrimSpace(stepType) != "" {
+				payload["stepType"] = strings.TrimSpace(stepType)
+			}
 
 			if workspaceID == "" && effectiveScope == "all" {
 				return doGlobalAPICommand(cmd, app, "flows.search", payload)
@@ -79,6 +83,7 @@ and/or --catalog-scope).
 
 	cmd.Flags().StringVar(&catalogScope, "catalog-scope", "all", "Catalog scope: all|workspace")
 	cmd.Flags().StringVar(&provider, "provider", "", "Filter by provider token (e.g. stripe, slack)")
+	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type (e.g. http, llm, search)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed definition literal (definitionEdn)")
