@@ -554,6 +554,7 @@ func newResourcesTableCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newResourcesTableGetRowCmd(app))
 	cmd.AddCommand(newResourcesTableAggregateCmd(app))
 	cmd.AddCommand(newResourcesTableSchemaCmd(app))
+	cmd.AddCommand(newResourcesTableVerifyCmd(app))
 	cmd.AddCommand(newResourcesTableExportCmd(app))
 	cmd.AddCommand(newResourcesTableImportCmd(app))
 	cmd.AddCommand(newResourcesTableUpdateCellCmd(app))
@@ -633,6 +634,154 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Target a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Target a comma-separated subset of table partitions")
 	return cmd
+}
+
+func newResourcesTableVerifyCmd(app *App) *cobra.Command {
+	var limit int
+	var partitionKey string
+
+	cmd := &cobra.Command{
+		Use:   "verify <uri>",
+		Short: "Verify table metadata and bounded readback",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+
+			metaQuery := url.Values{}
+			metaQuery.Set("uri", uri)
+			metadataOut, metadataStatus, err := apiClient(app).DoREST(
+				context.Background(),
+				http.MethodGet,
+				"/api/resources/by-uri",
+				metaQuery,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			metadataOutMap := mapStringAny(metadataOut)
+			if !restPayloadOK(metadataStatus, metadataOutMap) {
+				return writeREST(cmd, app, metadataStatus, metadataOut)
+			}
+
+			contentQuery := url.Values{}
+			contentQuery.Set("uri", uri)
+			contentQuery.Set("limit", strconv.Itoa(limit))
+			if strings.TrimSpace(partitionKey) != "" {
+				contentQuery.Set("tablePartition", strings.TrimSpace(partitionKey))
+			}
+			previewOut, previewStatus, err := apiClient(app).DoREST(
+				context.Background(),
+				http.MethodGet,
+				"/api/resources/content",
+				contentQuery,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			previewOutMap := mapStringAny(previewOut)
+			if !restPayloadOK(previewStatus, previewOutMap) {
+				return writeREST(cmd, app, previewStatus, previewOut)
+			}
+
+			metadata := restDataPayload(metadataOutMap)
+			preview := restDataPayload(previewOutMap)
+			verification := map[string]any{
+				"uri":              uri,
+				"contentType":      firstNonBlankString(metadata["contentType"], metadata["content-type"]),
+				"tableName":        firstNonBlankString(preview["table-name"], preview["tableName"], metadata["tableName"], metadata["table-name"]),
+				"readback":         true,
+				"previewRows":      tableVerifyPreviewRows(preview),
+				"rowsWritten":      tableVerifyRowsWritten(preview),
+				"selectedTableKey": firstNonBlankString(preview["selected-table-key"], preview["selectedTableKey"]),
+			}
+			out := map[string]any{
+				"ok":          true,
+				"workspaceId": app.WorkspaceID,
+				"meta": map[string]any{
+					"nextCommands": []string{
+						"breyta resources read " + uri,
+						"breyta resources table query " + uri + " --page-mode offset --limit " + strconv.Itoa(limit),
+						"breyta resources url " + uri,
+					},
+				},
+				"data": map[string]any{
+					"verification": verification,
+					"metadata":     metadata,
+					"preview":      preview,
+				},
+			}
+			enrichEnvelopeWebLinks(app, out)
+			return writeOut(cmd, app, out)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 25, "Readback preview row limit")
+	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
+	return cmd
+}
+
+func tableVerifyPreviewRows(preview map[string]any) int {
+	query := mapStringAny(preview["query"])
+	rows := sliceAny(query["rows"])
+	if len(rows) == 0 {
+		rows = sliceAny(query["items"])
+	}
+	if len(rows) > 0 {
+		return len(rows)
+	}
+	if count := asInt(query["count"]); count > 0 {
+		return count
+	}
+	return 0
+}
+
+func tableVerifyRowsWritten(preview map[string]any) any {
+	query := mapStringAny(preview["query"])
+	if page := mapStringAny(query["page"]); page != nil {
+		if total := firstPresentAny(page["total-count"], page["totalCount"]); total != nil {
+			return total
+		}
+	}
+	if count := firstPresentAny(query["total-count"], query["totalCount"], query["count"]); count != nil {
+		return count
+	}
+	return nil
+}
+
+func firstPresentAny(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func restPayloadOK(status int, out map[string]any) bool {
+	if status >= 400 {
+		return false
+	}
+	if _, hasOK := out["ok"]; hasOK {
+		return isOK(out)
+	}
+	return true
+}
+
+func restDataPayload(out map[string]any) map[string]any {
+	if data := mapStringAny(out["data"]); data != nil {
+		return data
+	}
+	if out == nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 func buildTableQueryPage(cmd *cobra.Command, mode string, limit int, offset int, cursor string, includeTotalCount bool, sortValue any) (map[string]any, error) {

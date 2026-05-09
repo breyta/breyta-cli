@@ -266,7 +266,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - compare the touched surface against the closest approved example before editing
 - primitive-first ladder:
   - review metadata: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
-  - inspect matching primitive snippets when available
+  - inspect matching primitive snippets with ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` when available
   - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
   - inspect one full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
 - if no useful approved example exists, say so explicitly and continue from docs
