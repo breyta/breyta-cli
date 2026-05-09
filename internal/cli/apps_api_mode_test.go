@@ -2302,6 +2302,11 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected diff args"}})
 			return
 		}
+		if args["view"] != "summary" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing view=summary"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
@@ -2319,6 +2324,41 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows diff failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDiff_FullRequestsUnifiedDiff(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.diff" || args["view"] != "full" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected flows.diff view=full"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-release", "changed": true, "diff": "@@ -1 +1 @@\n-old\n+new"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "diff", "flow-release",
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("flows diff --full failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -2625,6 +2665,11 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
 				return
 			}
+			if args["includeSteps"] != false || args["includeResult"] != false {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "wait polling should request compact runs.get"}})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
@@ -2700,6 +2745,11 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
 				return
 			}
+			if args["includeSteps"] != false || args["includeResult"] != false {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "wait polling should request compact runs.get"}})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"data": map[string]any{
@@ -2737,6 +2787,9 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 	for _, payload := range runsGetPayloads {
 		if payload["installationId"] != "prof-consumer" {
 			t.Fatalf("expected runs.get payload to include installationId, got %#v", payload)
+		}
+		if payload["includeSteps"] != false || payload["includeResult"] != false {
+			t.Fatalf("expected compact runs.get payload, got %#v", payload)
 		}
 	}
 }
@@ -2791,6 +2844,53 @@ func TestRunsShow_ForwardsInstallationIDInAPIMode(t *testing.T) {
 	}
 	if capturedArgs["installationId"] != "prof-consumer" {
 		t.Fatalf("expected installationId prof-consumer, got %#v", capturedArgs["installationId"])
+	}
+	if capturedArgs["includeSteps"] != false || capturedArgs["includeResult"] != false {
+		t.Fatalf("expected default compact runs.get flags, got %#v", capturedArgs)
+	}
+}
+
+func TestRunsShow_FullRequestsStepsAndResultInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capturedArgs, _ = body["args"].(map[string]any)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-full",
+					"status":     "completed",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "show", "wf-full",
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("runs show --full failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != true {
+		t.Fatalf("expected --full to request steps and result, got %#v", capturedArgs)
 	}
 }
 
@@ -3072,6 +3172,11 @@ func TestFlowsShow_DefaultsToDraftSource(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing source=draft"}})
 			return
 		}
+		if args["view"] != "summary" || args["includeFlowLiteral"] != false || args["includeTemplates"] != false || args["includeFunctions"] != false {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected compact flows.get defaults"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
@@ -3089,6 +3194,46 @@ func TestFlowsShow_DefaultsToDraftSource(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows show failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsShow_FullRequestsVerboseFields(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.get" || args["view"] != "full" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected flows.get view=full"}})
+			return
+		}
+		if args["includeFlowLiteral"] != true || args["includeTemplates"] != true || args["includeFunctions"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected full include flags"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flow": map[string]any{"slug": "flow-show", "version": 7}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "show", "flow-show",
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("flows show --full failed: %v\n%s", err, stdout)
 	}
 }
 

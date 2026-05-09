@@ -356,6 +356,7 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 	var offset int
 	var partitionKey string
 	var partitionKeys string
+	var full bool
 
 	cmd := &cobra.Command{
 		Use:   "read <uri>",
@@ -374,6 +375,8 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			q.Set("uri", uri)
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
+			} else if !full {
+				q.Set("limit", "25")
 			}
 			if offset > 0 {
 				q.Set("offset", strconv.Itoa(offset))
@@ -395,8 +398,9 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			return writeREST(cmd, app, status, out)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (1-1000)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (default 25, 1-1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Table preview offset when reading table resources")
+	cmd.Flags().BoolVar(&full, "full", false, "Do not apply the default compact table preview limit")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd

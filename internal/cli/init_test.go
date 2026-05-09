@@ -205,7 +205,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {
 		t.Fatalf("unexpected agents content (missing group ordering guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug> --pretty`") {
+	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug>`") {
 		t.Fatalf("unexpected agents content (missing ordered siblings verification guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
@@ -293,6 +293,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "compare the touched surface against the closest approved example before changing structure") {
 		t.Fatalf("unexpected readme content (missing example comparison guidance): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "Authoring reads are compact by default. Use `--full` on `flows show`, `flows diff`, or `runs show`") {
+		t.Fatalf("unexpected readme content (missing compact authoring default guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
 		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
 	}
@@ -320,7 +323,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Delete flows only for permanent cleanup: `breyta flows delete <slug> --yes`") {
 		t.Fatalf("unexpected readme content (missing delete workflow): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug> --pretty`") {
+	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug>`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
