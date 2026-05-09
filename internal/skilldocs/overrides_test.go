@@ -27,6 +27,12 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows workspace search \"<integration or problem query>\" --limit 5") {
+		t.Fatalf("expected workspace search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows workspace examples step <type> \"<query>\" --limit 3") {
+		t.Fatalf("expected private primitive example extraction guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows examples step <type> \"<query>\" --limit 3") {
 		t.Fatalf("expected primitive example extraction guidance in override, got:\n%s", body)
 	}
@@ -248,6 +254,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "for workspace lookup, use breyta flows workspace search <query> instead of broad flow lists") {
+		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
 		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
