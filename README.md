@@ -119,6 +119,11 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+Authoring commands return compact JSON by default. Use `--full` on `flows show`,
+`flows diff`, and `runs show` only when you need full source, unified diff text,
+step arrays, or result payloads. `resources read` defaults to a bounded table
+preview; pass `--full` to omit the default preview limit.
+
 If the flow should appear in public discover/install surfaces, make that explicit:
 
 ```bash

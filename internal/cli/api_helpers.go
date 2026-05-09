@@ -365,6 +365,58 @@ func ensureMeta(out map[string]any) map[string]any {
 	return m
 }
 
+func applyCompactFlowsGetPayload(payload map[string]any) {
+	payload["view"] = "summary"
+	payload["includeFlowLiteral"] = false
+	payload["includeTemplates"] = false
+	payload["includeFunctions"] = false
+}
+
+func applyFullFlowsGetPayload(payload map[string]any) {
+	payload["view"] = "full"
+	payload["includeFlowLiteral"] = true
+	payload["includeTemplates"] = true
+	payload["includeFunctions"] = true
+}
+
+func applyFlowsGetVerbosityPayload(payload map[string]any, full bool, include string) {
+	if full {
+		applyFullFlowsGetPayload(payload)
+		return
+	}
+	include = strings.TrimSpace(include)
+	if include == "" {
+		applyCompactFlowsGetPayload(payload)
+		return
+	}
+
+	payload["view"] = "full"
+	payload["includeFlowLiteral"] = false
+	payload["includeTemplates"] = false
+	payload["includeFunctions"] = false
+	for _, raw := range splitNonEmpty(include) {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "all", "full", "definition":
+			applyFullFlowsGetPayload(payload)
+			return
+		case "flow", "flow-literal", "flowliteral", "source":
+			payload["includeFlowLiteral"] = true
+		case "templates", "template":
+			payload["includeTemplates"] = true
+		case "functions", "function":
+			payload["includeFunctions"] = true
+		}
+	}
+}
+
+func compactRunsGetPayload(workflowID string) map[string]any {
+	return map[string]any{
+		"workflowId":    workflowID,
+		"includeSteps":  false,
+		"includeResult": false,
+	}
+}
+
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
 	url := activationURL(app, flowSlug)
 	meta := ensureMeta(out)
@@ -481,10 +533,12 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 			addActivationHint(app, out, slug)
 		} else {
 			client := apiClient(app)
+			getPayload := map[string]any{"flowSlug": slug}
+			applyCompactFlowsGetPayload(getPayload)
 			getOut, getStatus, getErr := client.DoCommand(
 				context.Background(),
 				"flows.get",
-				map[string]any{"flowSlug": slug},
+				getPayload,
 			)
 			if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
 				addActivationHint(app, out, slug)
@@ -495,10 +549,12 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 			addActivationHint(app, out, slug)
 		} else {
 			client := apiClient(app)
+			getPayload := map[string]any{"flowSlug": slug}
+			applyCompactFlowsGetPayload(getPayload)
 			getOut, getStatus, getErr := client.DoCommand(
 				context.Background(),
 				"flows.get",
-				map[string]any{"flowSlug": slug},
+				getPayload,
 			)
 			if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
 				addActivationHint(app, out, slug)
@@ -530,6 +586,26 @@ func flowLiteralDeclaresRequires(out map[string]any) bool {
 	data, ok := dataAny.(map[string]any)
 	if !ok {
 		return false
+	}
+	if flowAny, ok := data["flow"]; ok {
+		if flow, ok := flowAny.(map[string]any); ok {
+			if requiresAny, ok := flow["requires"]; ok {
+				switch requires := requiresAny.(type) {
+				case []any:
+					if len(requires) > 0 {
+						return true
+					}
+				case []map[string]any:
+					if len(requires) > 0 {
+						return true
+					}
+				case map[string]any:
+					if len(requires) > 0 {
+						return true
+					}
+				}
+			}
+		}
 	}
 	flowLiteral, _ := data["flowLiteral"].(string)
 	if strings.TrimSpace(flowLiteral) == "" {

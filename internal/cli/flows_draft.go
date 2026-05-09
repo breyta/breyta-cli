@@ -24,6 +24,7 @@ func newFlowsDraftCmd(app *App) *cobra.Command {
 }
 
 func newFlowsDraftShowCmd(app *App) *cobra.Command {
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug>",
 		Short: "Show the draft version of a flow",
@@ -32,12 +33,15 @@ func newFlowsDraftShowCmd(app *App) *cobra.Command {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Draft show requires --api/BREYTA_API_URL")
 			}
-			return doAPICommand(cmd, app, "flows.get", map[string]any{
+			payload := map[string]any{
 				"flowSlug": args[0],
 				"source":   "draft",
-			})
+			}
+			applyFlowsGetVerbosityPayload(payload, full, "")
+			return doAPICommand(cmd, app, "flows.get", payload)
 		},
 	}
+	cmd.Flags().BoolVar(&full, "full", false, "Include full flow definition, templates, functions, and source literal")
 	return cmd
 }
 
@@ -91,7 +95,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 			}
 			deadline := time.Now().Add(timeout)
 			for {
-				execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": workflowID})
+				execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", compactRunsGetPayload(workflowID))
 				if err != nil {
 					return writeErr(cmd, err)
 				}

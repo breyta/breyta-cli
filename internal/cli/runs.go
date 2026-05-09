@@ -232,6 +232,9 @@ func newRunsShowCmd(app *App) *cobra.Command {
 	var steps int
 	var installationID string
 	var profileID string
+	var includeSteps bool
+	var includeResult bool
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "show <workflow-id>",
 		Short: "Show run detail",
@@ -251,6 +254,13 @@ To access run resources, use the resources command:
 				}
 				if effectiveInstallationID != "" {
 					payload["installationId"] = effectiveInstallationID
+				}
+				if full {
+					payload["includeSteps"] = true
+					payload["includeResult"] = true
+				} else {
+					payload["includeSteps"] = includeSteps
+					payload["includeResult"] = includeResult
 				}
 				return doAPICommand(cmd, app, "runs.get", payload)
 			}
@@ -283,6 +293,9 @@ To access run resources, use the resources command:
 	cmd.Flags().IntVar(&steps, "steps", 20, "Number of steps to include (0 = all)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: lookup run using a specific installation id (API mode only)")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
+	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in API mode")
+	cmd.Flags().BoolVar(&includeResult, "include-result", false, "Include full result payload in API mode")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full steps and result payload in API mode")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	return cmd
 }
@@ -372,7 +385,7 @@ Use runs start only when integrating with older scripts.
 
 				deadline := time.Now().Add(timeout)
 				for {
-					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": workflowID})
+					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", compactRunsGetPayload(workflowID))
 					if err != nil {
 						return writeErr(cmd, err)
 					}
