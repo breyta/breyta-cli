@@ -141,6 +141,77 @@ func TestResourcesTableVerify_ReadsMetadataAndPreview(t *testing.T) {
 	}
 }
 
+func TestResourcesTableVerify_TreatsOKFalseRESTPayloadsAsErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		failPath    string
+		expectQuery bool
+	}{
+		{name: "metadata", failPath: "/api/resources/by-uri", expectQuery: false},
+		{name: "preview", failPath: "/api/resources/content", expectQuery: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sawPreview bool
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/resources/by-uri":
+					if tt.failPath == r.URL.Path {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"ok":    false,
+							"error": map[string]any{"message": "metadata unavailable"},
+						})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"ok": true,
+						"data": map[string]any{
+							"uri":         "res://v1/ws/ws-acme/result/table/tbl_1",
+							"contentType": "application/vnd.breyta.table+json",
+						},
+					})
+				case "/api/resources/content":
+					sawPreview = true
+					if tt.failPath == r.URL.Path {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"ok":    false,
+							"error": map[string]any{"message": "preview unavailable"},
+						})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"ok": true,
+						"data": map[string]any{
+							"query": map[string]any{"rows": []any{}},
+						},
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			stdout, _, err := runCLIArgs(t,
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", srv.URL,
+				"--token", "user-dev",
+				"resources", "table", "verify", "res://v1/ws/ws-acme/result/table/tbl_1",
+			)
+			if err == nil {
+				t.Fatalf("expected resources table verify to fail for ok=false payload\n%s", stdout)
+			}
+			if sawPreview != tt.expectQuery {
+				t.Fatalf("unexpected preview request state: got %v want %v", sawPreview, tt.expectQuery)
+			}
+			if !strings.Contains(stdout, `"ok":false`) {
+				t.Fatalf("expected ok=false output, got:\n%s", stdout)
+			}
+		})
+	}
+}
+
 func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/content" {

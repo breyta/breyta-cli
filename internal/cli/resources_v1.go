@@ -667,7 +667,7 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 			}
 			metadataOutMap := mapStringAny(metadataOut)
 			if !restPayloadOK(metadataStatus, metadataOutMap) {
-				return writeREST(cmd, app, metadataStatus, metadataOut)
+				return writeRESTPayloadFailure(cmd, app, metadataStatus, metadataOut)
 			}
 
 			contentQuery := url.Values{}
@@ -688,7 +688,7 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 			}
 			previewOutMap := mapStringAny(previewOut)
 			if !restPayloadOK(previewStatus, previewOutMap) {
-				return writeREST(cmd, app, previewStatus, previewOut)
+				return writeRESTPayloadFailure(cmd, app, previewStatus, previewOut)
 			}
 
 			metadata := restDataPayload(metadataOutMap)
@@ -772,6 +772,18 @@ func restPayloadOK(status int, out map[string]any) bool {
 		return isOK(out)
 	}
 	return true
+}
+
+func writeRESTPayloadFailure(cmd *cobra.Command, app *App, status int, out any) error {
+	outMap := mapStringAny(out)
+	if status < 400 && outMap != nil {
+		if okAny, hasOK := outMap["ok"]; hasOK {
+			if okb, ok := okAny.(bool); ok && !okb {
+				return writeAPIResult(cmd, app, outMap, status)
+			}
+		}
+	}
+	return writeREST(cmd, app, status, out)
 }
 
 func restDataPayload(out map[string]any) map[string]any {
