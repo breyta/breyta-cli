@@ -134,6 +134,12 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, "## Output Guidance") {
 		t.Fatalf("expected canonical sections preserved, got:\n%s", body)
 	}
+	if !strings.Contains(body, "normal bounded inspection path for agents") {
+		t.Fatalf("expected bounded resource-read guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
+		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
+	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")
 	}
@@ -236,6 +242,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "pass signed URLs/blob refs for large artifacts") {
 		t.Fatalf("expected large artifact reference guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
+		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "never advance cursors/checkpoints past failed work") {
 		t.Fatalf("expected cursor safety guidance, got:\n%s", body)

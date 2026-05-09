@@ -17,6 +17,12 @@ from typing import Any
 
 
 COMMAND_KEYS = ("command", "cmd", "args", "argv")
+COMPACTION_HISTORY_KEYS = ("replacement_history", "replacementHistory")
+TOKEN_USAGE_KEYS = ("last_token_usage", "lastTokenUsage")
+LARGE_ITEM_CHARS = 500
+TOP_ITEM_LIMIT = 5
+FLOW_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]+(?:-[a-z0-9]+)+\b")
+RESOURCE_REF_RE = re.compile(r"res://[^\s\"')]+")
 
 
 def flatten_strings(value: Any) -> list[str]:
@@ -50,9 +56,183 @@ def extract_command(obj: Any) -> str | None:
     return None
 
 
-def parse_lines(path: Path) -> tuple[list[str], int]:
+def nested_values(value: Any) -> list[Any]:
+    if isinstance(value, dict):
+        out: list[Any] = [value]
+        for item in value.values():
+            out.extend(nested_values(item))
+        return out
+    if isinstance(value, list):
+        out = [value]
+        for item in value:
+            out.extend(nested_values(item))
+        return out
+    return [value]
+
+
+def is_compaction_record(obj: Any) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    type_value = str(obj.get("type") or obj.get("event_type") or obj.get("eventType") or "").lower()
+    return type_value == "compacted" or "compaction" in type_value
+
+
+def replacement_history(obj: Any) -> list[Any]:
+    histories: list[Any] = []
+    for value in nested_values(obj):
+        if not isinstance(value, dict):
+            continue
+        for key in COMPACTION_HISTORY_KEYS:
+            history = value.get(key)
+            if isinstance(history, list):
+                histories.extend(history)
+    return histories
+
+
+def token_values(obj: Any) -> tuple[list[int], list[int]]:
+    all_tokens: list[int] = []
+    input_tokens: list[int] = []
+    for value in nested_values(obj):
+        if not isinstance(value, dict):
+            continue
+        for key, raw in value.items():
+            key_normalized = str(key).replace("-", "_").lower()
+            if "token" not in key_normalized or not isinstance(raw, (int, float)):
+                continue
+            token_value = int(raw)
+            all_tokens.append(token_value)
+            if "input" in key_normalized or "prompt" in key_normalized:
+                input_tokens.append(token_value)
+    return all_tokens, input_tokens
+
+
+def number_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def map_number(d: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = number_value(d.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def token_usage_events(obj: Any) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for value in nested_values(obj):
+        if not isinstance(value, dict):
+            continue
+        for usage_key in TOKEN_USAGE_KEYS:
+            usage = value.get(usage_key)
+            if not isinstance(usage, dict):
+                continue
+            input_tokens = map_number(usage, "input_tokens", "inputTokens", "prompt_tokens", "promptTokens")
+            if input_tokens is None:
+                continue
+            output_tokens = map_number(usage, "output_tokens", "outputTokens", "completion_tokens", "completionTokens")
+            total_tokens = map_number(usage, "total_tokens", "totalTokens")
+            event = {
+                "inputTokens": input_tokens,
+                **({"outputTokens": output_tokens} if output_tokens is not None else {}),
+                **({"totalTokens": total_tokens} if total_tokens is not None else {}),
+            }
+            model_context_window = map_number(value, "model_context_window", "modelContextWindow")
+            if model_context_window is not None:
+                event["modelContextWindow"] = model_context_window
+                event["contextUsedPercent"] = round(input_tokens / model_context_window * 100, 1)
+            events.append(event)
+    return events
+
+
+def source_hint(item: Any) -> str:
+    if not isinstance(item, dict):
+        return "unknown"
+    candidates: list[str] = []
+    for value in nested_values(item):
+        if not isinstance(value, dict):
+            continue
+        for key in ("role", "source", "type", "name"):
+            raw = value.get(key)
+            if isinstance(raw, str):
+                candidates.append(raw.lower())
+    joined = " ".join(candidates)
+    if "user" in joined:
+        return "user"
+    if any(token in joined for token in ("tool", "function", "shell", "command")):
+        return "tool"
+    if "assistant" in joined:
+        return "assistant"
+    return "unknown"
+
+
+def primary_text(item: Any) -> str:
+    strings = flatten_strings(item)
+    if not strings:
+        return ""
+    return max(strings, key=len)
+
+
+def compact_preview(text: str, limit: int = 220) -> str:
+    preview = re.sub(r"\s+", " ", text).strip()
+    if len(preview) <= limit:
+        return preview
+    return preview[: limit - 3] + "..."
+
+
+def flow_slugs(text: str) -> list[str]:
+    counts = Counter(FLOW_SLUG_RE.findall(text))
+    return [slug for slug, _ in counts.most_common(5)]
+
+
+def resource_refs(text: str) -> list[str]:
+    counts = Counter(RESOURCE_REF_RE.findall(text))
+    return [ref for ref, _ in counts.most_common(3)]
+
+
+def large_item_summary(item: Any, origin: str) -> dict[str, Any] | None:
+    text = primary_text(item)
+    if len(text) < LARGE_ITEM_CHARS:
+        return None
+    command = extract_command(item)
+    return {
+        "source": source_hint(item),
+        "origin": origin,
+        "chars": len(text),
+        "preview": compact_preview(text),
+        "flowSlugs": flow_slugs(text),
+        "resourceRefs": resource_refs(text),
+        **({"command": command} if command else {}),
+    }
+
+
+def parse_compaction(obj: dict[str, Any]) -> dict[str, Any]:
+    history = replacement_history(obj)
+    all_tokens, input_tokens = token_values(obj)
+    large_items = [
+        summary
+        for item in history
+        if (summary := large_item_summary(item, "replacementHistory"))
+    ]
+    return {
+        "replacementItems": len(history),
+        "replacementChars": sum(len(primary_text(item)) for item in history),
+        "maxTokenCount": max(all_tokens) if all_tokens else None,
+        "inputTokens": max(input_tokens) if input_tokens else None,
+        "largeItems": large_items,
+    }
+
+
+def parse_lines(path: Path) -> tuple[list[str], int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     commands: list[str] = []
     output_chars = 0
+    compactions: list[dict[str, Any]] = []
+    large_items: list[dict[str, Any]] = []
+    token_events: list[dict[str, Any]] = []
     command_line = re.compile(r"\bbreyta\s+[^\r\n]+")
 
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -65,9 +245,17 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
         except json.JSONDecodeError:
             obj = None
         if obj is not None:
+            token_events.extend(token_usage_events(obj))
+            if is_compaction_record(obj):
+                compaction = parse_compaction(obj)
+                compactions.append(compaction)
+                large_items.extend(compaction["largeItems"])
+                continue
             cmd = extract_command(obj)
             if cmd:
                 commands.append(cmd)
+            if summary := large_item_summary(obj, "record"):
+                large_items.append(summary)
             output_chars += sum(len(s) for s in flatten_strings(obj))
             continue
         output_chars += len(raw)
@@ -75,7 +263,7 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
         if match:
             commands.append(match.group(0).strip())
 
-    return commands, output_chars
+    return commands, output_chars, compactions, large_items, token_events
 
 
 TARGET_FLAG = re.compile(r"--target(?:=|\s+)(\S+)")
@@ -89,7 +277,20 @@ def target_value(command: str) -> str:
     return match.group(1).strip("\"'").lower()
 
 
-def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
+def top_counter_values(counter: Counter[str], limit: int = TOP_ITEM_LIMIT) -> dict[str, int]:
+    return {key: count for key, count in counter.most_common(limit)}
+
+
+def analyze(
+    commands: list[str],
+    output_chars: int,
+    compactions: list[dict[str, Any]] | None = None,
+    large_items: list[dict[str, Any]] | None = None,
+    token_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    compactions = compactions or []
+    large_items = large_items or []
+    token_events = token_events or []
     counts = Counter(commands)
     docs_reads = [c for c in commands if " docs show " in f" {c} "]
     docs_searches = [c for c in commands if " docs find " in f" {c} "]
@@ -115,6 +316,34 @@ def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
         and (target_value(c) in ("", "draft"))
         and ("--target draft" in c or "--target=draft" in c or "--wait" in c)
     ]
+    flow_counter: Counter[str] = Counter()
+    resource_counter: Counter[str] = Counter()
+    for item in large_items:
+        flow_counter.update(item.get("flowSlugs") or [])
+        resource_counter.update(item.get("resourceRefs") or [])
+    telemetry_high_water = max(token_events, key=lambda event: event["inputTokens"], default=None)
+    compaction_high_water_input = max(
+        [c["inputTokens"] for c in compactions if c.get("inputTokens") is not None],
+        default=None,
+    )
+    compaction_high_water_token_count = max(
+        [c["maxTokenCount"] for c in compactions if c.get("maxTokenCount") is not None],
+        default=None,
+    )
+    if telemetry_high_water and (
+        compaction_high_water_input is None
+        or telemetry_high_water["inputTokens"] >= compaction_high_water_input
+    ):
+        high_water_input_tokens = telemetry_high_water["inputTokens"]
+        high_water_token_count = telemetry_high_water.get("totalTokens")
+        model_context_window = telemetry_high_water.get("modelContextWindow")
+        context_used_percent = telemetry_high_water.get("contextUsedPercent")
+    else:
+        high_water_input_tokens = compaction_high_water_input
+        high_water_token_count = compaction_high_water_token_count
+        model_context_window = None
+        context_used_percent = None
+    sorted_large_items = sorted(large_items, key=lambda item: item["chars"], reverse=True)
 
     return {
         "commands": len(commands),
@@ -123,6 +352,22 @@ def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
             cmd: count for cmd, count in counts.items() if count > 1
         },
         "outputChars": output_chars,
+        "normalOutputChars": output_chars,
+        "compactions": len(compactions),
+        "compactionReplacementChars": sum(c["replacementChars"] for c in compactions),
+        "highWaterInputTokens": high_water_input_tokens,
+        "highWaterTokenCount": high_water_token_count,
+        "modelContextWindow": model_context_window,
+        "contextUsedPercent": context_used_percent,
+        "topReplacementItems": sorted_large_items[:TOP_ITEM_LIMIT],
+        "largeUserPastes": [
+            item for item in sorted_large_items if item["source"] == "user"
+        ][:TOP_ITEM_LIMIT],
+        "largeToolOutputs": [
+            item for item in sorted_large_items if item["source"] == "tool"
+        ][:TOP_ITEM_LIMIT],
+        "suspectedFlowSlugs": top_counter_values(flow_counter),
+        "suspectedResourceRefs": top_counter_values(resource_counter),
         "docsFinds": len(docs_searches),
         "docsShows": len(docs_reads),
         "fullOrPrettyReads": len(full_pulls),
@@ -141,6 +386,11 @@ def print_markdown(summary: dict[str, Any]) -> None:
         "commands",
         "uniqueCommands",
         "outputChars",
+        "compactions",
+        "compactionReplacementChars",
+        "highWaterInputTokens",
+        "modelContextWindow",
+        "contextUsedPercent",
         "docsFinds",
         "docsShows",
         "fullOrPrettyReads",
@@ -158,6 +408,18 @@ def print_markdown(summary: dict[str, Any]) -> None:
         print("## Duplicates")
         for cmd, count in sorted(duplicates.items(), key=lambda item: (-item[1], item[0])):
             print(f"- {count}x `{cmd}`")
+    if summary["compactions"]:
+        print()
+        print("## Compaction Causes")
+        print(f"- highWaterTokenCount: {summary['highWaterTokenCount']}")
+        print(f"- suspectedFlowSlugs: {summary['suspectedFlowSlugs']}")
+        print(f"- largeUserPastes: {len(summary['largeUserPastes'])}")
+        print(f"- largeToolOutputs: {len(summary['largeToolOutputs'])}")
+        if summary["topReplacementItems"]:
+            print()
+            print("### Top Retained Items")
+            for item in summary["topReplacementItems"]:
+                print(f"- {item['chars']} chars {item['source']} {item['origin']}: {item['preview']}")
 
 
 def main(argv: list[str]) -> int:
@@ -171,8 +433,8 @@ def main(argv: list[str]) -> int:
         print(f"session not found: {path}", file=sys.stderr)
         return 2
 
-    commands, output_chars = parse_lines(path)
-    summary = analyze(commands, output_chars)
+    commands, output_chars, compactions, large_items, token_events = parse_lines(path)
+    summary = analyze(commands, output_chars, compactions, large_items, token_events)
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:

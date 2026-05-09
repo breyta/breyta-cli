@@ -221,6 +221,9 @@ func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 		if got := r.URL.Query().Get("uri"); got != "res://v1/ws/ws-acme/result/table/tbl_1" {
 			t.Fatalf("expected uri query param, got %q", got)
 		}
+		if got := r.URL.Query().Get("view"); got != "summary" {
+			t.Fatalf("expected default view=summary, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "25" {
 			t.Fatalf("expected default compact limit=25, got %q", got)
 		}
@@ -255,6 +258,9 @@ func TestResourcesRead_FullOmitsDefaultPreviewLimit(t *testing.T) {
 		if got := r.URL.Query().Get("limit"); got != "" {
 			t.Fatalf("expected --full to omit default limit, got %q", got)
 		}
+		if got := r.URL.Query().Get("view"); got != "" {
+			t.Fatalf("expected --full to omit summary view, got %q", got)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"resourceUri": "res://v1/ws/ws-acme/result/table/tbl_1",
 			"tableName":   "orders",
@@ -272,6 +278,38 @@ func TestResourcesRead_FullOmitsDefaultPreviewLimit(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("resources read --full failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestResourcesRead_PrettyKeepsCompactSummaryPreview(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/content" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("view"); got != "summary" {
+			t.Fatalf("expected --pretty to keep view=summary, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "25" {
+			t.Fatalf("expected --pretty to keep default compact limit=25, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resourceUri": "res://v1/ws/ws-acme/result/table/tbl_1",
+			"tableName":   "orders",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"--pretty",
+		"resources", "read", "res://v1/ws/ws-acme/result/table/tbl_1",
+	)
+	if err != nil {
+		t.Fatalf("resources read --pretty failed: %v\n%s", err, stdout)
 	}
 }
 
