@@ -96,6 +96,9 @@ breyta runs show <workflow-id> --errors
 breyta resources table verify <res://table-uri>
 ```
 
+`flows doctor` folds in `flows configure check` readiness and only suggests run
+commands when required bindings and activation inputs are ready.
+
 If `breyta auth whoami` shows multiple workspaces or no default workspace
 selected, use:
 
