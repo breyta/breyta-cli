@@ -117,7 +117,12 @@ func mergeFlowsDoctorConfigureReadiness(doctorOut map[string]any, checkOut map[s
 		return
 	}
 	meta["hint"] = "Required configuration is not ready; resolve `breyta flows configure check` before running this flow."
-	meta["nextCommands"] = flowsDoctorBlockedNextCommands(flowSlug, target)
+	blockedNextCommands := flowsDoctorBlockedNextCommands(flowSlug, target)
+	if definitionReady {
+		meta["nextCommands"] = blockedNextCommands
+		return
+	}
+	meta["nextCommands"] = appendUniqueStrings(stringSlice(meta["nextCommands"]), blockedNextCommands)
 }
 
 func flowsDoctorBody(out map[string]any) map[string]any {
@@ -151,6 +156,39 @@ func flowsDoctorBlockedNextCommands(flowSlug, target string) []string {
 		fmt.Sprintf("breyta flows configure suggest %s%s", flowSlug, targetFlag),
 		"breyta connections list",
 	}
+}
+
+func stringSlice(value any) []string {
+	items := sliceAny(value)
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		s := strings.TrimSpace(scalarString(item))
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func appendUniqueStrings(base []string, additions []string) []string {
+	out := make([]string, 0, len(base)+len(additions))
+	seen := map[string]struct{}{}
+	for _, item := range append(base, additions...) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func boolValue(v any) bool {

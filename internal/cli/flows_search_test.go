@@ -465,3 +465,90 @@ func TestFlowsDoctorPreservesReadinessWhenConfigureCheckUnsupported(t *testing.T
 		t.Fatalf("did not expect configure remediation for unsupported check:\n%s", out.String())
 	}
 }
+
+func TestFlowsDoctorPreservesDefinitionGuidanceWhenConfigurationBlocked(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "broken-flow",
+						"target":   "draft",
+						"ready":    false,
+						"checks": []map[string]any{
+							{"id": "definition", "label": "Flow definition", "pass": false},
+						},
+					},
+				},
+				"meta": map[string]any{
+					"nextCommands": []string{
+						"breyta flows validate broken-flow",
+						"breyta flows diff broken-flow",
+					},
+				},
+			})
+		case "flows.configure.check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug":                  "broken-flow",
+					"target":                    "draft",
+					"ready":                     false,
+					"missingConnectionSlots":    []string{"gmail"},
+					"invalidConnectionBindings": []string{},
+				},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", command)
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsDoctorCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"broken-flow", "--target", "draft"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor execute: %v\n%s", err, out.String())
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	doctor := mapStringAny(mapStringAny(envelope["data"])["doctor"])
+	if doctor["ready"] != false {
+		t.Fatalf("expected doctor ready=false, got %#v", doctor["ready"])
+	}
+	if doctor["definitionReady"] != false {
+		t.Fatalf("expected definitionReady=false, got %#v", doctor["definitionReady"])
+	}
+	if doctor["configurationReady"] != false {
+		t.Fatalf("expected configurationReady=false, got %#v", doctor["configurationReady"])
+	}
+	nextJoined := strings.TrimSpace(out.String())
+	for _, want := range []string{
+		"breyta flows validate broken-flow",
+		"breyta flows diff broken-flow",
+		"breyta flows configure check broken-flow --target draft",
+		"breyta flows configure suggest broken-flow --target draft",
+	} {
+		if !strings.Contains(nextJoined, want) {
+			t.Fatalf("expected nextCommands to include %q:\n%s", want, out.String())
+		}
+	}
+}
