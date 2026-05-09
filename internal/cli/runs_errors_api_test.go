@@ -32,6 +32,8 @@ func TestRunsShowErrors_FiltersFailedSteps(t *testing.T) {
 					"steps": []any{
 						map[string]any{"stepId": "ok", "status": "completed"},
 						map[string]any{"stepId": "bad", "status": "failed", "error": map[string]any{"message": "Boom"}},
+						map[string]any{"stepId": "canceled-ok", "status": "canceled"},
+						map[string]any{"stepId": "canceled-bad", "status": "canceled", "errorMessage": "Canceled after upstream failure"},
 					},
 				},
 			},
@@ -63,12 +65,13 @@ func TestRunsShowErrors_FiltersFailedSteps(t *testing.T) {
 	data, _ := out["data"].(map[string]any)
 	run, _ := data["run"].(map[string]any)
 	steps, _ := run["steps"].([]any)
-	if len(steps) != 1 {
-		t.Fatalf("expected one failed step, got %#v", steps)
+	if len(steps) != 2 {
+		t.Fatalf("expected failed/error-bearing steps only, got %#v", steps)
 	}
-	step, _ := steps[0].(map[string]any)
-	if step["stepId"] != "bad" {
-		t.Fatalf("unexpected failed step: %#v", step)
+	first, _ := steps[0].(map[string]any)
+	second, _ := steps[1].(map[string]any)
+	if first["stepId"] != "bad" || second["stepId"] != "canceled-bad" {
+		t.Fatalf("unexpected error steps: %#v", steps)
 	}
 	meta, _ := out["meta"].(map[string]any)
 	if meta["errorsOnly"] != true {

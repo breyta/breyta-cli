@@ -358,7 +358,7 @@ func runStepHasError(step map[string]any) bool {
 		return false
 	}
 	status := strings.ToLower(firstNonBlankString(step["status"]))
-	if strings.Contains(status, "fail") || strings.Contains(status, "error") || strings.Contains(status, "cancel") {
+	if strings.Contains(status, "fail") || strings.Contains(status, "error") {
 		return true
 	}
 	if errMap := mapStringAny(step["error"]); errMap != nil && len(errMap) > 0 {
