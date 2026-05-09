@@ -261,7 +261,123 @@ func TestFlowsDoctorAndPublicPreflightCommands(t *testing.T) {
 			t.Fatalf("%s execute: %v\n%s", tc.name, err, out.String())
 		}
 	}
-	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.public.preflight" {
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight" {
 		t.Fatalf("unexpected commands: %s", got)
+	}
+}
+
+func TestFlowsDoctorIncludesConfigureCheckReadiness(t *testing.T) {
+	seenCommands := []string{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		seenCommands = append(seenCommands, command)
+		if args["flowSlug"] != "gmail-memory-draft-reply-agent" {
+			t.Fatalf("unexpected flowSlug for %s: %#v", command, args["flowSlug"])
+		}
+		if args["target"] != "draft" {
+			t.Fatalf("unexpected target for %s: %#v", command, args["target"])
+		}
+		switch command {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "gmail-memory-draft-reply-agent",
+						"target":   "draft",
+						"ready":    true,
+						"checks": []map[string]any{
+							{"id": "definition", "label": "Flow definition", "pass": true},
+						},
+					},
+				},
+				"meta": map[string]any{
+					"nextCommands": []string{
+						"breyta flows validate gmail-memory-draft-reply-agent",
+						"breyta flows run gmail-memory-draft-reply-agent --target draft --wait",
+						"breyta flows diff gmail-memory-draft-reply-agent",
+					},
+				},
+			})
+		case "flows.configure.check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug":                    "gmail-memory-draft-reply-agent",
+					"target":                      "draft",
+					"ready":                       false,
+					"requiredConnectionSlots":     []string{"gmail", "ai"},
+					"configuredConnectionSlots":   []string{"gmail", "ai"},
+					"missingConnectionSlots":      []string{},
+					"missingActivationInputs":     []string{},
+					"invalidConnectionBindings":   []map[string]any{{"slot": "gmail", "connectionId": "conn-gmail", "error": "OAuth requirements not met"}},
+					"unhealthyConnectionBindings": []string{},
+				},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", command)
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsDoctorCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail-memory-draft-reply-agent", "--target", "draft"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor execute: %v\n%s", err, out.String())
+	}
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check" {
+		t.Fatalf("unexpected commands: %s", got)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	doctor := mapStringAny(mapStringAny(envelope["data"])["doctor"])
+	if doctor["ready"] != false {
+		t.Fatalf("expected doctor ready=false when configure check blocks, got %#v", doctor["ready"])
+	}
+	if doctor["definitionReady"] != true {
+		t.Fatalf("expected definitionReady=true, got %#v", doctor["definitionReady"])
+	}
+	if doctor["configurationReady"] != false {
+		t.Fatalf("expected configurationReady=false, got %#v", doctor["configurationReady"])
+	}
+	config := mapStringAny(doctor["configuration"])
+	if config["ready"] != false {
+		t.Fatalf("expected configuration.ready=false, got %#v", config["ready"])
+	}
+	invalidBindings := sliceAny(config["invalidConnectionBindings"])
+	if len(invalidBindings) != 1 || mapStringAny(invalidBindings[0])["slot"] != "gmail" {
+		t.Fatalf("expected gmail invalid binding, got %#v", invalidBindings)
+	}
+	meta := mapStringAny(envelope["meta"])
+	nextCommands := sliceAny(meta["nextCommands"])
+	nextJoined := strings.TrimSpace(out.String())
+	if len(nextCommands) == 0 {
+		t.Fatalf("expected blocked next commands, got %#v", meta["nextCommands"])
+	}
+	if strings.Contains(nextJoined, "flows run gmail-memory-draft-reply-agent") {
+		t.Fatalf("doctor should not suggest run while configure check is blocked:\n%s", out.String())
+	}
+	if !strings.Contains(nextJoined, "flows configure check gmail-memory-draft-reply-agent --target draft") {
+		t.Fatalf("expected configure check recovery command:\n%s", out.String())
+	}
+	if !strings.Contains(nextJoined, "flows configure suggest gmail-memory-draft-reply-agent --target draft") {
+		t.Fatalf("expected configure suggest recovery command:\n%s", out.String())
 	}
 }
