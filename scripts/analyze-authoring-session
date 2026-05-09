@@ -78,6 +78,7 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
 
 
 TARGET_FLAG = re.compile(r"--target(?:=|\s+)(\S+)")
+BROAD_LIST_LIMIT_FLAG = re.compile(r"--limit(?:=|\s+)(50|100|\d{3,})\b")
 
 
 def target_value(command: str) -> str:
@@ -99,7 +100,7 @@ def analyze(commands: list[str], output_chars: int) -> dict[str, Any]:
     broad_lists = [
         c
         for c in commands
-        if " flows list " in f" {c} " and re.search(r"--limit\s+(50|100|\d{3,})", c)
+        if " flows list " in f" {c} " and BROAD_LIST_LIMIT_FLAG.search(c)
     ]
     workspace_searches = [c for c in commands if " flows workspace search " in f" {c} "]
     workspace_examples = [
