@@ -56,9 +56,9 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
     command_line = re.compile(r"\bbreyta\s+[^\r\n]+")
 
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        output_chars += len(raw)
         line = raw.strip()
         if not line:
+            output_chars += len(raw)
             continue
         try:
             obj = json.loads(line)
@@ -70,6 +70,7 @@ def parse_lines(path: Path) -> tuple[list[str], int]:
                 commands.append(cmd)
             output_chars += sum(len(s) for s in flatten_strings(obj))
             continue
+        output_chars += len(raw)
         match = command_line.search(line)
         if match:
             commands.append(match.group(0).strip())
