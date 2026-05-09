@@ -64,6 +64,154 @@ func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
 	}
 }
 
+func TestResourcesTableVerify_ReadsMetadataAndPreview(t *testing.T) {
+	var sawMetadata bool
+	var sawPreview bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/resources/by-uri":
+			sawMetadata = true
+			if got := r.URL.Query().Get("uri"); got != "res://v1/ws/ws-acme/result/table/tbl_1" {
+				t.Fatalf("expected metadata uri query param, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"uri":         "res://v1/ws/ws-acme/result/table/tbl_1",
+				"contentType": "application/vnd.breyta.table+json",
+			})
+		case "/api/resources/content":
+			sawPreview = true
+			if got := r.URL.Query().Get("uri"); got != "res://v1/ws/ws-acme/result/table/tbl_1" {
+				t.Fatalf("expected preview uri query param, got %q", got)
+			}
+			if got := r.URL.Query().Get("limit"); got != "7" {
+				t.Fatalf("expected limit=7, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource-uri": "res://v1/ws/ws-acme/result/table/tbl_1",
+				"table-name":   "orders",
+				"query": map[string]any{
+					"rows": []any{
+						map[string]any{"order-id": "ord-1"},
+						map[string]any{"order-id": "ord-2"},
+					},
+					"count": float64(2),
+					"page": map[string]any{
+						"total-count": float64(12),
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "verify", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--limit", "7",
+	)
+	if err != nil {
+		t.Fatalf("resources table verify failed: %v\n%s", err, stdout)
+	}
+	if !sawMetadata || !sawPreview {
+		t.Fatalf("expected metadata and preview requests, saw metadata=%v preview=%v", sawMetadata, sawPreview)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	verification, _ := data["verification"].(map[string]any)
+	if verification["contentType"] != "application/vnd.breyta.table+json" {
+		t.Fatalf("unexpected contentType: %#v", verification["contentType"])
+	}
+	if verification["previewRows"] != float64(2) {
+		t.Fatalf("unexpected previewRows: %#v", verification["previewRows"])
+	}
+	if verification["rowsWritten"] != float64(12) {
+		t.Fatalf("unexpected rowsWritten: %#v", verification["rowsWritten"])
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if _, ok := meta["nextCommands"].([]any); !ok {
+		t.Fatalf("expected nextCommands, got %#v", meta["nextCommands"])
+	}
+}
+
+func TestResourcesTableVerify_TreatsOKFalseRESTPayloadsAsErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		failPath    string
+		expectQuery bool
+	}{
+		{name: "metadata", failPath: "/api/resources/by-uri", expectQuery: false},
+		{name: "preview", failPath: "/api/resources/content", expectQuery: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sawPreview bool
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/resources/by-uri":
+					if tt.failPath == r.URL.Path {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"ok":    false,
+							"error": map[string]any{"message": "metadata unavailable"},
+						})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"ok": true,
+						"data": map[string]any{
+							"uri":         "res://v1/ws/ws-acme/result/table/tbl_1",
+							"contentType": "application/vnd.breyta.table+json",
+						},
+					})
+				case "/api/resources/content":
+					sawPreview = true
+					if tt.failPath == r.URL.Path {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"ok":    false,
+							"error": map[string]any{"message": "preview unavailable"},
+						})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"ok": true,
+						"data": map[string]any{
+							"query": map[string]any{"rows": []any{}},
+						},
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			stdout, _, err := runCLIArgs(t,
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", srv.URL,
+				"--token", "user-dev",
+				"resources", "table", "verify", "res://v1/ws/ws-acme/result/table/tbl_1",
+			)
+			if err == nil {
+				t.Fatalf("expected resources table verify to fail for ok=false payload\n%s", stdout)
+			}
+			if sawPreview != tt.expectQuery {
+				t.Fatalf("unexpected preview request state: got %v want %v", sawPreview, tt.expectQuery)
+			}
+			if !strings.Contains(stdout, `"ok":false`) {
+				t.Fatalf("expected ok=false output, got:\n%s", stdout)
+			}
+		})
+	}
+}
+
 func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/content" {

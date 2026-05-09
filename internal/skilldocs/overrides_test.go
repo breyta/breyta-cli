@@ -27,6 +27,9 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows examples step <type> \"<query>\" --limit 3") {
+		t.Fatalf("expected primitive example extraction guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates") {
 		t.Fatalf("expected primitive-first reuse guidance in override, got:\n%s", body)
 	}
