@@ -131,6 +131,20 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	for _, pair := range replacements {
 		updated = strings.ReplaceAll(updated, pair[0], pair[1])
 	}
+	if !strings.Contains(updated, "Do not put full report bodies in table cells such as `report_markdown`") {
+		beforeLargeArtifactPatch := updated
+		updated = strings.ReplaceAll(
+			updated,
+			"- Prefer CLI-returned URLs such as `data.flow.webUrl`, `data.run.webUrl`, `run.webUrl`, `outputWebUrl`, `data.webUrl`, or `meta.webUrl`.",
+			"- Prefer CLI-returned URLs such as `data.flow.webUrl`, `data.run.webUrl`, `run.webUrl`, `outputWebUrl`, `data.webUrl`, or `meta.webUrl`.\n"+largeArtifactHygieneBullets,
+		)
+		if updated == beforeLargeArtifactPatch {
+			updated = strings.ReplaceAll(updated, "## Output Guidance\n", "## Output Guidance\n\n"+largeArtifactHygieneBullets+"\n")
+		}
+		if updated == beforeLargeArtifactPatch {
+			updated = strings.TrimRight(updated, "\n") + "\n\n## Large Artifact Hygiene\n\n" + largeArtifactHygieneBullets + "\n"
+		}
+	}
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -281,6 +295,11 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - test only the connection you plan to bind or debug, not ` + "`breyta connections test --all`" + `
   - after two failed edit/run cycles, stop and re-plan
 - final handoff must include approved example queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored`
+
+const largeArtifactHygieneBullets = `- For large artifacts, keep chat and run summaries small: report resource refs, signed URLs, and short previews instead of pasting full table/resource content.
+- ` + "`breyta resources read <uri>`" + ` is the normal bounded inspection path for agents. It returns compact table row and cell previews by default; use ` + "`--full`" + ` only when the whole payload is required.
+- Treat ` + "`--pretty`" + ` as formatting only. It must not be used as a shortcut for full payload access.
+- When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.`
 
 const workflowQualityContractSection = `## Workflow quality contract (Required)
 

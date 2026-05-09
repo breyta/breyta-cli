@@ -135,7 +135,10 @@ breyta flows run <slug> --target live --wait
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to a bounded table
-preview; pass `--full` to omit the default preview limit.
+row and cell preview; pass `--full` only when the full resource payload is
+required. `--pretty` changes formatting only; it does not request full payloads.
+For large reports and research artifacts, store full bodies as resources and
+move refs, URLs, short summaries, and previews through tables or run output.
 
 If the flow should appear in public discover/install surfaces, make that explicit:
 

@@ -305,6 +305,15 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Authoring reads are compact by default. Use `--full` on `flows show`, `flows diff`, or `runs show`") {
 		t.Fatalf("unexpected readme content (missing compact authoring default guidance): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`breyta resources read <uri>` defaults to bounded table row and cell previews") {
+		t.Fatalf("unexpected readme content (missing bounded resource-read guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Treat `--pretty` as formatting only") {
+		t.Fatalf("unexpected readme content (missing pretty formatting-only guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "persist the full body as a resource") {
+		t.Fatalf("unexpected readme content (missing large artifact resource guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only") {
 		t.Fatalf("unexpected readme content (missing configure-check run gate): %s", string(readme))
 	}

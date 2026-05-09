@@ -373,6 +373,9 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 
 			q := url.Values{}
 			q.Set("uri", uri)
+			if !full {
+				q.Set("view", "summary")
+			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			} else if !full {
@@ -400,7 +403,7 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (default 25, 1-1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Table preview offset when reading table resources")
-	cmd.Flags().BoolVar(&full, "full", false, "Do not apply the default compact table preview limit")
+	cmd.Flags().BoolVar(&full, "full", false, "Read the full resource payload instead of the default compact table row/cell preview")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd

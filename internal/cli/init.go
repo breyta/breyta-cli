@@ -462,6 +462,9 @@ Advanced ideas:
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads.
+- ` + "`breyta resources read <uri>`" + ` defaults to bounded table row and cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
+- Treat ` + "`--pretty`" + ` as formatting only; it must not imply full payload access.
+- For large reports and research artifacts, persist the full body as a resource and move refs, URLs, short summaries, and previews through tables or run output.
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug>`" + ` so ` + "`groupFlows`" + ` is visible
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
