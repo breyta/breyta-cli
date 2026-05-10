@@ -141,7 +141,7 @@ approved-template search surface.
 			}
 
 			workspaceID := strings.TrimSpace(app.WorkspaceID)
-			legacyTemplateSearch := workspaceID == "" || cmd.Flags().Changed("catalog-scope") || cmd.Flags().Changed("full")
+			legacyTemplateSearch := workspaceID == "" || cmd.Flags().Changed("catalog-scope") || full
 			if legacyTemplateSearch {
 				if strings.TrimSpace(flowSlug) != "" {
 					return writeErr(cmd, errors.New("--flow only applies to workspace search; use `breyta flows search` with a workspace, or remove --flow for template search"))
@@ -272,6 +272,7 @@ synonym expansion.
 			templatePayload := map[string]any{
 				"definitionSearch": true,
 				"scope":            "all",
+				"surface":          "templates",
 				"limit":            limit,
 				"from":             from,
 			}
