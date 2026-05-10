@@ -311,6 +311,8 @@ Public discover notes:
 
 	cmd.AddCommand(newFlowsListCmd(app))
 	cmd.AddCommand(newFlowsSearchCmd(app))
+	cmd.AddCommand(newFlowsGrepCmd(app))
+	cmd.AddCommand(newFlowsTemplatesCmd(app))
 	cmd.AddCommand(newFlowsExamplesCmd(app))
 	cmd.AddCommand(newFlowsWorkspaceCmd(app))
 	cmd.AddCommand(newFlowsDoctorCmd(app))

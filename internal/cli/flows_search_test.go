@@ -66,7 +66,7 @@ func TestFlowsSearch_BuildsPayload(t *testing.T) {
 	}
 }
 
-func TestFlowsSearch_BrowseWithoutQuery(t *testing.T) {
+func TestFlowsSearch_DefaultsToWorkspaceMetadataSearch(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn
 	t.Cleanup(func() {
@@ -90,23 +90,26 @@ func TestFlowsSearch_BrowseWithoutQuery(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--provider", "stripe", "--limit", "25"})
+	cmd.SetArgs([]string{"gmail", "--provider", "google", "--step-type", "http", "--tool-name", "web_search", "--connection", "gmail", "--flow", "gmail-support-agent", "--limit", "25"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
 
-	if gotMethod != "flows.search" {
-		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	if gotMethod != "flows.workspace.search" {
+		t.Fatalf("expected method flows.workspace.search, got %q", gotMethod)
 	}
-	if _, ok := gotPayload["query"]; ok {
-		t.Fatalf("expected query omitted for browse, got %#v", gotPayload["query"])
+	if gotPayload["query"] != "gmail" {
+		t.Fatalf("expected query=gmail, got %#v", gotPayload["query"])
 	}
-	if gotPayload["provider"] != "stripe" {
-		t.Fatalf("expected provider=stripe, got %#v", gotPayload["provider"])
+	if gotPayload["provider"] != "google" || gotPayload["stepType"] != "http" || gotPayload["toolName"] != "web_search" || gotPayload["connection"] != "gmail" || gotPayload["flowSlug"] != "gmail-support-agent" {
+		t.Fatalf("unexpected filters: %#v", gotPayload)
 	}
 	if gotPayload["limit"] != 25 {
 		t.Fatalf("expected limit=25, got %#v", gotPayload["limit"])
+	}
+	if gotPayload["target"] != "latest" || gotPayload["includeArchived"] != false {
+		t.Fatalf("unexpected workspace defaults: %#v", gotPayload)
 	}
 }
 
@@ -169,7 +172,142 @@ func TestFlowsSearch_WorkspaceScopeRequiresWorkspaceLocally(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got success")
 	}
-	if !strings.Contains(err.Error(), "workspace-scoped catalog search requires --workspace or BREYTA_WORKSPACE") {
+	if !strings.Contains(err.Error(), "workspace-scoped template search requires --workspace or BREYTA_WORKSPACE") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFlowsTemplatesSearch_BuildsApprovedTemplatePayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"vision", "--step-type", "llm", "--tool-name", "web_search", "--limit", "4"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "flows.search" {
+		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	}
+	if gotPayload["query"] != "vision" || gotPayload["scope"] != "all" || gotPayload["surface"] != "templates" || gotPayload["stepType"] != "llm" || gotPayload["toolName"] != "web_search" {
+		t.Fatalf("unexpected payload: %#v", gotPayload)
+	}
+}
+
+func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--or", "web_search_preview", "--step-type", "agent", "--tool-name", "web_search", "--connection", "openai", "--target", "draft", "--limit", "3"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "flows.workspace.search" {
+		t.Fatalf("expected method flows.workspace.search, got %q", gotMethod)
+	}
+	if gotPayload["definitionSearch"] != true || gotPayload["query"] != "web_search" || gotPayload["target"] != "draft" {
+		t.Fatalf("unexpected grep payload: %#v", gotPayload)
+	}
+	patterns, _ := gotPayload["patterns"].([]string)
+	if len(patterns) != 1 || patterns[0] != "web_search_preview" {
+		t.Fatalf("unexpected patterns: %#v", gotPayload["patterns"])
+	}
+	if gotPayload["stepType"] != "agent" || gotPayload["toolName"] != "web_search" || gotPayload["connection"] != "openai" {
+		t.Fatalf("unexpected filters: %#v", gotPayload)
+	}
+}
+
+func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"image/*", "--or", ":multiple true", "--step-type", "llm", "--full"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "flows.search" {
+		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	}
+	if gotPayload["definitionSearch"] != true || gotPayload["query"] != "image/*" || gotPayload["scope"] != "all" || gotPayload["surface"] != "templates" || gotPayload["includeDefinition"] != true {
+		t.Fatalf("unexpected template grep payload: %#v", gotPayload)
+	}
+}
+
+func TestFlowsGrep_RejectsNoPatternOrFilter(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "provide a grep pattern") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -335,7 +473,7 @@ func TestFlowsWorkspaceExamplesStep_BuildsWorkspacePayload(t *testing.T) {
 	}
 }
 
-func TestFlowsWorkspaceHelp_SeparatesPrivateSearchFromApprovedCatalog(t *testing.T) {
+func TestFlowsWorkspaceHelp_PointsToNewSearchTaxonomy(t *testing.T) {
 	cmd := newFlowsWorkspaceCmd(&App{})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -346,7 +484,7 @@ func TestFlowsWorkspaceHelp_SeparatesPrivateSearchFromApprovedCatalog(t *testing
 	if err != nil {
 		t.Fatalf("flows workspace --help failed: %v\n%s", err, stdout)
 	}
-	for _, want := range []string{"private", "actual flows", "breyta flows search", "approved"} {
+	for _, want := range []string{"actual flows", "breyta flows search", "breyta flows grep", "templates"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected flows workspace help to include %q, got:\n%s", want, stdout)
 		}
