@@ -268,7 +268,9 @@ Flow file format (minimal):
  :requires nil
  :templates nil
  :functions nil
- :triggers nil
+ :invocations nil
+ :interfaces nil
+ :schedules nil
  :flow '(let [input (flow/input)]
           (flow/step :function :do {:code '(fn [x] x)} :input input))}
 
@@ -299,7 +301,7 @@ Advanced install lifecycle:
 - Search public installables for this workspace: breyta flows discover search <query>
 - Update public discover visibility explicitly: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
-- List installation triggers: breyta flows installations triggers <installation-id>
+- List legacy installation triggers: breyta flows installations triggers <installation-id>
 
 Public discover notes:
 - :discover {:public true} authored in a flow file persists as stored metadata on push.
@@ -325,6 +327,8 @@ Public discover notes:
 	cmd.AddCommand(newFlowsReleaseCmd(app))
 	cmd.AddCommand(newFlowsPromoteCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
+	cmd.AddCommand(newFlowsMetricsCmd(app))
+	cmd.AddCommand(newFlowsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
 	cmd.AddCommand(newFlowsDiscoverCmd(app))
@@ -531,10 +535,10 @@ func newFlowsActivateCmd(app *App) *cobra.Command {
 func newFlowsDraftBindingsURLCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "draft-bindings-url <flow-slug>",
-		Short: "Print the draft bindings URL for working-copy runs",
+		Short: "Print the draft setup URL for working-copy runs",
 		Long: strings.TrimSpace(`
 Working-copy runs use a user-scoped draft profile. Bind credentials here:
-- Draft bindings: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
+- Draft setup: http://localhost:8090/<workspace>/flows/<slug>/draft-bindings
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -912,7 +916,7 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				// Create a minimal draft (version) on the server.
 				// Users/agents can then pull/edit/push and deploy explicitly.
-				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency {:type :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :triggers [{:type :manual :label \"Run\" :enabled true :config {}}]\n :flow '(let [input (flow/input)]\n          input)}\n", slug, name, description)
+				flowLiteral := fmt.Sprintf("{:slug :%s\n :name %q\n :description %q\n :tags [\"draft\"]\n :concurrency {:type :singleton :on-new-version :supersede}\n :requires nil\n :templates nil\n :functions nil\n :invocations {:default {:label \"Run\" :inputs []}}\n :interfaces {:manual [{:id :run :label \"Run\" :invocation :default}]}\n :schedules nil\n :flow '(let [input (flow/input)]\n          input)}\n", slug, name, description)
 				payload := map[string]any{"flowLiteral": flowLiteral}
 				if useDoAPICommandFn {
 					return doAPICommandFn(cmd, app, "flows.put_draft", payload)

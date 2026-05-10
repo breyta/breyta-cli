@@ -185,7 +185,7 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "upload <installation-id> --file <path> [--file <path> ...]",
-		Short: "Upload one or more files to an installation-scoped webhook trigger",
+		Short: "Upload one or more files to an installation-scoped webhook interface",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
@@ -265,17 +265,17 @@ func newFlowsInstallationsUploadCmd(app *App) *cobra.Command {
 			client.Token = ""
 			out, status, err := client.DoRootRESTBytes(context.Background(), http.MethodPost, endpoint, url.Values{}, payload.Body, headers)
 			if err != nil {
-				return writeFailure(cmd, app, "upload_failed", err, "Check connectivity and trigger configuration.", map[string]any{
-					"profileId": profileID,
-					"eventPath": chosen.EventPath,
-					"endpoint":  endpoint,
+				return writeFailure(cmd, app, "upload_failed", err, "Check connectivity and webhook interface configuration.", map[string]any{
+					"installationId": profileID,
+					"eventPath":      chosen.EventPath,
+					"endpoint":       endpoint,
 				})
 			}
 			return writeREST(cmd, app, status, out)
 		},
 	}
 
-	cmd.Flags().StringVar(&triggerSelector, "trigger", "", "Trigger to use (eventName or triggerId). Required if multiple.")
+	cmd.Flags().StringVar(&triggerSelector, "trigger", "", "Webhook interface or legacy trigger to use (eventName or triggerId). Required if multiple.")
 	cmd.Flags().StringArrayVar(&fields, "field", nil, "Multipart form field key=value (repeatable)")
 	cmd.Flags().StringArrayVar(&files, "file", nil, "File path to upload (repeatable; uses --file-field)")
 	cmd.Flags().StringVar(&fileField, "file-field", "", "Field name to use for --file (defaults to inferred webhook file field, else 'file')")

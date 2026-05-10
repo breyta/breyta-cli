@@ -85,7 +85,7 @@ In API mode, prefer the structured query syntax used by the web runs list:
 Supported query tokens:
   - status:<running|completed|failed|waiting>
   - flow:<slug>
-  - installation:<profile-id>
+  - installation:<installation-id>
   - version:<n>
 
 Legacy discrete flags remain available and override matching --query tokens.`,
@@ -373,6 +373,7 @@ func newRunsStartCmd(app *App) *cobra.Command {
 	var profileID string
 	var source string
 	var version int
+	var invocation string
 	var inputJSON string
 	var wait bool
 	var timeout time.Duration
@@ -399,6 +400,9 @@ Use runs start only when integrating with older scripts.
 				}
 				if version > 0 {
 					payload["version"] = version
+				}
+				if strings.TrimSpace(invocation) != "" {
+					payload["invocation"] = strings.TrimSpace(invocation)
 				}
 				effectiveInstallationID := strings.TrimSpace(installationID)
 				legacyProfileID := strings.TrimSpace(profileID)
@@ -522,6 +526,8 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&source, "source", "", "Deprecated source selector (API mode only)")
 	_ = cmd.Flags().MarkHidden("source")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (default active)")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Named invocation input contract (API mode only)")
+	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Named invocation input contract (API mode only)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")

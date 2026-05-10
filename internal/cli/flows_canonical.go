@@ -65,13 +65,17 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		return nil
 	}
 
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll)
+}
+
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration) error {
+	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
 	if strings.TrimSpace(workflowID) == "" {
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
-
 	deadline := time.Now().Add(timeout)
 	for {
 		payload := compactRunsGetPayload(workflowID)
@@ -108,11 +112,11 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 				"product":     "flows",
 				"channel":     "cli",
 				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   strings.TrimSpace(flowSlug),
+				"flow_slug":   flowSlug,
 				"command":     strings.TrimSpace(command),
 				"workflow_id": workflowID,
 				"run_status":  s,
-				"wait":        wait,
+				"wait":        true,
 			})
 			if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
 				return writeErr(cmd, err)
@@ -125,10 +129,10 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 				"product":     "flows",
 				"channel":     "cli",
 				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   strings.TrimSpace(flowSlug),
+				"flow_slug":   flowSlug,
 				"command":     strings.TrimSpace(command),
 				"workflow_id": workflowID,
-				"wait":        wait,
+				"wait":        true,
 			})
 			timeoutOut := map[string]any{
 				"ok": false,
@@ -163,6 +167,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var installationID string
 	var target string
 	var version int
+	var invocation string
 	var triggerID string
 	var inputJSON string
 	var wait bool
@@ -179,6 +184,7 @@ Default:
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
+	- --invocation <id> : select a named invocation input contract
 	- --target draft|live : select run target explicitly (default draft)
 	- --version <n> : force a specific release version for this invocation
 	- --trigger-id <id> : select a manual trigger when the flow has trigger-specific fields
@@ -190,9 +196,10 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	# Advanced
 	breyta flows run order-ingest --target live --wait
 	breyta flows run order-ingest --target draft --wait
+	breyta flows run order-ingest --invocation import-orders --input '{"region":"EU"}' --wait
 	breyta triggers order-ingest --type manual
 	breyta flows run order-ingest --target draft --trigger-id manual-import --input '{"limit":5}' --wait
-	breyta flows run order-ingest --installation-id prof_123 --wait
+	breyta flows run order-ingest --installation-id inst_123 --wait
 	`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -210,10 +217,14 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 			payload := map[string]any{"flowSlug": args[0], "target": resolvedTarget}
 			installationID = strings.TrimSpace(installationID)
 			if installationID != "" {
-				payload["profileId"] = installationID
+				payload["installationId"] = installationID
 			}
 			if version > 0 {
 				payload["version"] = version
+			}
+			invocation = strings.TrimSpace(invocation)
+			if invocation != "" {
+				payload["invocation"] = invocation
 			}
 			triggerID = strings.TrimSpace(triggerID)
 			if triggerID != "" {
@@ -233,6 +244,8 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
 	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
+	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&triggerID, "trigger-id", "", "Manual trigger id for flows with trigger-specific fields")
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")

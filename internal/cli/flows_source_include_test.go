@@ -36,7 +36,8 @@ func TestExpandFlowSourceIncludes_RecursiveAndCommentSafe(t *testing.T) {
  :name "Flow Include"
  :functions [#flow/include "functions/normalize.edn"]
  :concurrency {:type :singleton :on-new-version :supersede}
- :triggers [{:type :manual :label "Run" :enabled true :config {}}]
+ :invocations {:default {:label "Run" :inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  ; #flow/include "ignored-comment.edn"
  :flow '(let [example "#flow/include \"ignored-string.edn\""]
           example)}`
@@ -221,7 +222,8 @@ func TestFlowsPush_LocalIncludeExpandsPayloadWithoutRewritingSource(t *testing.T
  :name "Flow Include"
  :concurrency {:type :singleton :on-new-version :supersede}
  :templates [#flow/include "templates/reviewer.edn"]
- :triggers [{:type :manual :label "Run" :enabled true :config {}}]
+ :invocations {:default {:label "Run" :inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :flow '(let [schema #flow/include "review-schema.edn"]
           schema)}`
 	if err := os.WriteFile(flowFile, []byte(flowSource), 0o644); err != nil {

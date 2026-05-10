@@ -34,6 +34,7 @@ config/triggers, or controlled promotion.
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDeleteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
+	cmd.AddCommand(newFlowsInstallationsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
 }

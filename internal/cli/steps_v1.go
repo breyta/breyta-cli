@@ -645,7 +645,8 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
-	var profileID string
+	var installationID string
+	var legacyProfileID string
 	var recordExample bool
 	var recordTest bool
 	var recordNote string
@@ -716,8 +717,12 @@ Examples:
 			if strings.TrimSpace(traceID) != "" {
 				payload["traceId"] = strings.TrimSpace(traceID)
 			}
-			if strings.TrimSpace(profileID) != "" {
-				payload["profileId"] = strings.TrimSpace(profileID)
+			effectiveInstallationID := strings.TrimSpace(installationID)
+			if effectiveInstallationID == "" {
+				effectiveInstallationID = strings.TrimSpace(legacyProfileID)
+			}
+			if effectiveInstallationID != "" {
+				payload["profileId"] = effectiveInstallationID
 			}
 
 			client := apiClient(app)
@@ -725,7 +730,7 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, profileID, recordExample, recordTest)
+			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, effectiveInstallationID, recordExample, recordTest)
 			if isOK(out) {
 				addStepSidecarHint(out, flowSlug, id)
 			}
@@ -739,7 +744,9 @@ Examples:
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Optional flow slug (for logging/templates)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
+	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().BoolVar(&recordExample, "record-example", false, "After a successful run, store the observed input/output as a step example (requires --flow)")
 	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
 	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")
@@ -754,7 +761,8 @@ func newStepsRecordCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
-	var profileID string
+	var installationID string
+	var legacyProfileID string
 	var note string
 	var testName string
 	var noExample bool
@@ -823,8 +831,12 @@ Examples:
 			if strings.TrimSpace(traceID) != "" {
 				payload["traceId"] = strings.TrimSpace(traceID)
 			}
-			if strings.TrimSpace(profileID) != "" {
-				payload["profileId"] = strings.TrimSpace(profileID)
+			effectiveInstallationID := strings.TrimSpace(installationID)
+			if effectiveInstallationID == "" {
+				effectiveInstallationID = strings.TrimSpace(legacyProfileID)
+			}
+			if effectiveInstallationID != "" {
+				payload["profileId"] = effectiveInstallationID
 			}
 
 			client := apiClient(app)
@@ -832,7 +844,7 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), note, testName, traceID, profileID, !noExample, !noTest)
+			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), note, testName, traceID, effectiveInstallationID, !noExample, !noTest)
 			if isOK(out) {
 				addStepSidecarHint(out, fs, id)
 			}
@@ -846,7 +858,9 @@ Examples:
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional profile id (for slot-based connections)")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
+	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&note, "note", "", "Optional note for the recorded example/test")
 	cmd.Flags().StringVar(&testName, "test-name", "", "Optional test name for the recorded snapshot test")
 	cmd.Flags().BoolVar(&noExample, "no-example", false, "Do not record an example")

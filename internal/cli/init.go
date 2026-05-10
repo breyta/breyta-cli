@@ -376,7 +376,7 @@ Suggested line to paste into your agent's persistent project instructions:
 - Product docs: ` + "`breyta docs`" + `
 - Search docs with several patterns before inferring implementation details:
   - primitive name: ` + "`breyta docs find \"files materialize\"`" + `
-  - exact phrase: ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
+  - exact phrase: ` + "`breyta docs find \"\\\"draft setup\\\"\"`" + `
   - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
@@ -486,7 +486,7 @@ Advanced ideas:
 - Product docs: ` + "`breyta docs`" + `
 - Search patterns to avoid guessing:
   - primitive name: ` + "`breyta docs find \"files materialize\"`" + `
-  - exact phrase: ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
+  - exact phrase: ` + "`breyta docs find \"\\\"draft setup\\\"\"`" + `
   - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `

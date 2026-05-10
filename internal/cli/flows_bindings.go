@@ -108,7 +108,7 @@ func newFlowsBindingsApplyCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&profileArg, "profile", "", "Bindings profile (@profile.edn or inline EDN)")
 	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
-	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote the current user's draft bindings to prod")
+	cmd.Flags().BoolVar(&fromDraft, "from-draft", false, "Promote the current user's draft setup to prod")
 	cmd.Flags().StringVar(&version, "version", "", "Flow version override (positive integer or latest)")
 	return cmd
 }
