@@ -86,6 +86,9 @@ func TestResourcesTableVerify_ReadsMetadataAndPreview(t *testing.T) {
 			if got := r.URL.Query().Get("limit"); got != "7" {
 				t.Fatalf("expected limit=7, got %q", got)
 			}
+			if got := r.URL.Query().Get("view"); got != "summary" {
+				t.Fatalf("expected compact verify to request view=summary, got %q", got)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"resource-uri": "res://v1/ws/ws-acme/result/table/tbl_1",
 				"table-name":   "orders",
@@ -135,9 +138,89 @@ func TestResourcesTableVerify_ReadsMetadataAndPreview(t *testing.T) {
 	if verification["rowsWritten"] != float64(12) {
 		t.Fatalf("unexpected rowsWritten: %#v", verification["rowsWritten"])
 	}
+	metadata, _ := data["metadata"].(map[string]any)
+	if metadata["tableName"] != "orders" {
+		t.Fatalf("unexpected compact metadata tableName: %#v", metadata["tableName"])
+	}
+	if metadata["rowCount"] != float64(12) {
+		t.Fatalf("unexpected compact metadata rowCount: %#v", metadata["rowCount"])
+	}
+	preview, _ := data["preview"].(map[string]any)
+	if preview["rowsPreviewed"] != float64(2) {
+		t.Fatalf("unexpected compact preview rowsPreviewed: %#v", preview["rowsPreviewed"])
+	}
+	if _, ok := preview["query"]; ok {
+		t.Fatalf("expected compact preview to omit raw query payload, got %#v", preview["query"])
+	}
 	meta, _ := out["meta"].(map[string]any)
 	if _, ok := meta["nextCommands"].([]any); !ok {
 		t.Fatalf("expected nextCommands, got %#v", meta["nextCommands"])
+	}
+}
+
+func TestResourcesTableVerify_FullKeepsRawPayloads(t *testing.T) {
+	var sawPreview bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/resources/by-uri":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"uri":         "res://v1/ws/ws-acme/result/table/tbl_1",
+					"contentType": "application/vnd.breyta.table+json",
+					"schema":      map[string]any{"columns": []any{"order-id"}},
+				},
+			})
+		case "/api/resources/content":
+			sawPreview = true
+			if got := r.URL.Query().Get("view"); got != "" {
+				t.Fatalf("expected --full verify to omit view=summary, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"resource-uri": "res://v1/ws/ws-acme/result/table/tbl_1",
+					"query": map[string]any{
+						"rows": []any{
+							map[string]any{"order-id": "ord-1"},
+						},
+						"count": float64(1),
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "verify", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("resources table verify --full failed: %v\n%s", err, stdout)
+	}
+	if !sawPreview {
+		t.Fatalf("expected preview request")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	metadata, _ := data["metadata"].(map[string]any)
+	if _, ok := metadata["schema"].(map[string]any); !ok {
+		t.Fatalf("expected raw metadata schema in --full output, got %#v", metadata["schema"])
+	}
+	preview, _ := data["preview"].(map[string]any)
+	query, _ := preview["query"].(map[string]any)
+	if rows, ok := query["rows"].([]any); !ok || len(rows) != 1 {
+		t.Fatalf("expected raw preview query rows in --full output, got %#v", query["rows"])
 	}
 }
 
