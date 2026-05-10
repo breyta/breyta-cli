@@ -373,6 +373,9 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 
 			q := url.Values{}
 			q.Set("uri", uri)
+			if !full {
+				q.Set("view", "summary")
+			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			} else if !full {
@@ -400,7 +403,7 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (default 25, 1-1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Table preview offset when reading table resources")
-	cmd.Flags().BoolVar(&full, "full", false, "Do not apply the default compact table preview limit")
+	cmd.Flags().BoolVar(&full, "full", false, "Read the full resource payload instead of the default compact table row/cell preview")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd
@@ -639,6 +642,7 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 	var limit int
 	var partitionKey string
+	var full bool
 
 	cmd := &cobra.Command{
 		Use:   "verify <uri>",
@@ -673,6 +677,9 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 			contentQuery := url.Values{}
 			contentQuery.Set("uri", uri)
 			contentQuery.Set("limit", strconv.Itoa(limit))
+			if !full {
+				contentQuery.Set("view", "summary")
+			}
 			if strings.TrimSpace(partitionKey) != "" {
 				contentQuery.Set("tablePartition", strings.TrimSpace(partitionKey))
 			}
@@ -702,6 +709,16 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 				"rowsWritten":      tableVerifyRowsWritten(preview),
 				"selectedTableKey": firstNonBlankString(preview["selected-table-key"], preview["selectedTableKey"]),
 			}
+			data := map[string]any{
+				"verification": verification,
+			}
+			if full {
+				data["metadata"] = metadata
+				data["preview"] = preview
+			} else {
+				data["metadata"] = compactTableVerifyMetadata(uri, metadata, preview)
+				data["preview"] = compactTableVerifyPreview(preview, limit, partitionKey)
+			}
 			out := map[string]any{
 				"ok":          true,
 				"workspaceId": app.WorkspaceID,
@@ -712,11 +729,7 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 						"breyta resources url " + uri,
 					},
 				},
-				"data": map[string]any{
-					"verification": verification,
-					"metadata":     metadata,
-					"preview":      preview,
-				},
+				"data": data,
 			}
 			enrichEnvelopeWebLinks(app, out)
 			return writeOut(cmd, app, out)
@@ -724,7 +737,63 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 25, "Readback preview row limit")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
+	cmd.Flags().BoolVar(&full, "full", false, "Include raw metadata and preview payloads")
 	return cmd
+}
+
+func compactTableVerifyMetadata(uri string, metadata map[string]any, preview map[string]any) map[string]any {
+	schema := mapStringAny(firstPresentAny(metadata["schema"], preview["schema"]))
+	return compactNonEmptyFields(map[string]any{
+		"uri":         firstNonBlankString(metadata["uri"], metadata["resourceUri"], metadata["resource-uri"], uri),
+		"contentType": firstNonBlankString(metadata["contentType"], metadata["content-type"]),
+		"tableName":   firstNonBlankString(preview["table-name"], preview["tableName"], metadata["tableName"], metadata["table-name"]),
+		"tableId":     firstNonBlankString(preview["table-id"], preview["tableId"], metadata["tableId"], metadata["table-id"]),
+		"rowCount": firstPresentAny(
+			metadata["rowCount"],
+			metadata["row-count"],
+			metadata["rowsWritten"],
+			metadata["rows-written"],
+			tableVerifyRowsWritten(preview),
+		),
+		"sizeBytes": firstPresentAny(
+			metadata["sizeBytes"],
+			metadata["size-bytes"],
+			metadata["bytes"],
+			metadata["length"],
+		),
+		"schemaMode": firstNonBlankString(metadata["schemaMode"], metadata["schema-mode"], schema["mode"]),
+		"updatedAt":  firstNonBlankString(metadata["updatedAt"], metadata["updated-at"], metadata["createdAt"], metadata["created-at"]),
+	})
+}
+
+func compactTableVerifyPreview(preview map[string]any, limit int, partitionKey string) map[string]any {
+	query := mapStringAny(preview["query"])
+	page := mapStringAny(query["page"])
+	return compactNonEmptyFields(map[string]any{
+		"rowsPreviewed":    tableVerifyPreviewRows(preview),
+		"limit":            firstPresentAny(query["limit"], page["limit"], limit),
+		"offset":           firstPresentAny(query["offset"], page["offset"]),
+		"hasMore":          firstPresentAny(query["hasMore"], query["has-more"], page["hasMore"], page["has-more"]),
+		"nextOffset":       firstPresentAny(query["nextOffset"], query["next-offset"], page["nextOffset"], page["next-offset"]),
+		"totalCount":       firstPresentAny(query["totalCount"], query["total-count"], page["totalCount"], page["total-count"]),
+		"selectedTableKey": firstNonBlankString(preview["selected-table-key"], preview["selectedTableKey"], partitionKey),
+	})
+}
+
+func compactNonEmptyFields(fields map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range fields {
+		if value == nil {
+			continue
+		}
+		if s, ok := value.(string); ok {
+			if strings.TrimSpace(s) == "" {
+				continue
+			}
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func tableVerifyPreviewRows(preview map[string]any) int {

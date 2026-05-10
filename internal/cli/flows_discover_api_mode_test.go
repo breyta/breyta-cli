@@ -233,7 +233,7 @@ func TestFlowsDiscoverUpdate_ForwardsPublicFalse(t *testing.T) {
 	}
 }
 
-func TestFlowsSearchHelp_ClarifiesApprovedExamples(t *testing.T) {
+func TestFlowsSearchHelp_ClarifiesWorkspaceAndTemplateSearch(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", tmp)
@@ -244,8 +244,10 @@ func TestFlowsSearchHelp_ClarifiesApprovedExamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flows search --help failed: %v\n%s", err, stdout)
 	}
-	if !strings.Contains(stdout, "approved") || !strings.Contains(stdout, "copy from") {
-		t.Fatalf("expected flows search help to distinguish approved examples, got:\n%s", stdout)
+	for _, want := range []string{"workspace", "flows grep", "flows templates search", "approved-template"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected flows search help to include %q, got:\n%s", want, stdout)
+		}
 	}
 }
 

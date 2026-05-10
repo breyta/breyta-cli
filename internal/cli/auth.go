@@ -158,14 +158,14 @@ func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]
 	out, status, err := authClient(app).DoRootREST(ctx, http.MethodGet, "/api/me", nil, nil)
 	if err != nil {
 		if meta != nil {
-			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows search <query>`."
+			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows templates search <query>`."
 			meta["hint"] = authWhoamiFallbackHint(workspaceID)
 		}
 		return
 	}
 	if status >= http.StatusBadRequest {
 		if meta != nil {
-			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows search <query>`."
+			meta["workspaceHint"] = "Could not load workspace summary. You can still start with `breyta flows templates search <query>`."
 			meta["hint"] = authWhoamiFallbackHint(workspaceID)
 		}
 		return
@@ -174,7 +174,7 @@ func enrichWhoamiWorkspaceSummary(cmd *cobra.Command, app *App, data map[string]
 	body := mapStringAny(out)
 	if body == nil {
 		if meta != nil {
-			meta["workspaceHint"] = "Unexpected workspace summary response. You can still start with `breyta flows search <query>`."
+			meta["workspaceHint"] = "Unexpected workspace summary response. You can still start with `breyta flows templates search <query>`."
 			meta["hint"] = authWhoamiFallbackHint(workspaceID)
 		}
 		return
@@ -258,23 +258,23 @@ func whoamiWorkspaceSelection(cmd *cobra.Command, app *App) (string, string) {
 func authWhoamiHint(workspaceID string, workspaceCount int, hasCurrent bool) string {
 	switch {
 	case workspaceCount == 0:
-		return "Auth is working. Start by browsing approved templates with `breyta flows search <query>`. When you're ready to build or adopt one, create or join a workspace in Breyta."
+		return "Auth is working. Start with approved templates using `breyta flows templates search <query>`. When you're ready to build or adopt one, create or join a workspace in Breyta."
 	case workspaceID != "" && hasCurrent:
-		return "Auth is working. Next: browse approved templates with `breyta flows search <query>`."
+		return "Auth is working. Next: search workspace flows with `breyta flows search <query>` or approved templates with `breyta flows templates search <query>`."
 	case workspaceID != "" && !hasCurrent:
-		return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need a different default workspace, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+		return "Auth is working. Search workspace flows with `breyta flows search <query>` or approved templates with `breyta flows templates search <query>`. If you need a different default workspace, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 	case workspaceCount == 1:
-		return "Auth is working. You have one workspace. Browse approved templates with `breyta flows search <query>`. Set a default later with `breyta workspaces use <workspace-id>` when you're ready to adopt or build."
+		return "Auth is working. You have one workspace. Search workspace flows with `breyta flows search <query>` or approved templates with `breyta flows templates search <query>`. Set a default later with `breyta workspaces use <workspace-id>` when you're ready to adopt or build."
 	default:
-		return "Auth is working. Browse approved templates with `breyta flows search <query>`. When you're ready to adopt or build, pick a default with `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+		return "Auth is working. Search approved templates with `breyta flows templates search <query>` until you pick a workspace. When you're ready to adopt or build, pick a default with `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 	}
 }
 
 func authWhoamiFallbackHint(workspaceID string) string {
 	if workspaceID != "" {
-		return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need a different default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+		return "Auth is working. Search workspace flows with `breyta flows search <query>` or approved templates with `breyta flows templates search <query>`. If you need a different default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 	}
-	return "Auth is working. Browse approved templates with `breyta flows search <query>`. If you need to choose a default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
+	return "Auth is working. Browse approved templates with `breyta flows templates search <query>`. If you need to choose a default workspace later, run `breyta workspaces list` and `breyta workspaces use <workspace-id>`."
 }
 
 func authWhoamiVerifyFailedHint() string {
@@ -424,9 +424,9 @@ via flows-api (/api/auth/token). Prefer browser login.
 					"source":     tokenSource,
 				}
 				if strings.TrimSpace(refreshToken) != "" {
-					meta["hint"] = "Token is stored locally with a refresh token; future commands will auto-refresh. Next: run `breyta auth whoami`, then `breyta flows search <query>`."
+					meta["hint"] = "Token is stored locally with a refresh token; future commands will auto-refresh. Next: run `breyta auth whoami`, then `breyta flows search <query>` or `breyta flows templates search <query>`."
 				} else {
-					meta["hint"] = "Token is stored locally for future commands. Next: run `breyta auth whoami`, then `breyta flows search <query>`."
+					meta["hint"] = "Token is stored locally for future commands. Next: run `breyta auth whoami`, then `breyta flows search <query>` or `breyta flows templates search <query>`."
 				}
 				if app.DevMode {
 					if line := shellExportTokenLine(token); line != "" {

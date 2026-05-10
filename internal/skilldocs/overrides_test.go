@@ -24,8 +24,17 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Before creating or editing a flow, pick a task mode, inspect current state") {
 		t.Fatalf("expected search-first guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5") {
+	if !strings.Contains(body, "breyta flows templates search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows search \"<integration or problem query>\" --limit 5") {
+		t.Fatalf("expected workspace search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows grep \"<literal>\" --or \"<variant>\"") {
+		t.Fatalf("expected workspace grep guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows workspace examples step <type> \"<query>\" --limit 3") {
+		t.Fatalf("expected private primitive example extraction guidance in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "breyta flows examples step <type> \"<query>\" --limit 3") {
 		t.Fatalf("expected primitive example extraction guidance in override, got:\n%s", body)
@@ -127,6 +136,12 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	}
 	if !strings.Contains(body, "## Output Guidance") {
 		t.Fatalf("expected canonical sections preserved, got:\n%s", body)
+	}
+	if !strings.Contains(body, "normal bounded inspection path for agents") {
+		t.Fatalf("expected bounded resource-read guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
+		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
 	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")
@@ -231,6 +246,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "pass signed URLs/blob refs for large artifacts") {
 		t.Fatalf("expected large artifact reference guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
+		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "never advance cursors/checkpoints past failed work") {
 		t.Fatalf("expected cursor safety guidance, got:\n%s", body)
 	}
@@ -248,6 +266,10 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows search <query> searches actual workspace flow metadata") ||
+		!strings.Contains(body, "breyta flows grep <literal> searches actual workspace flow source/config") {
+		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
 		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
