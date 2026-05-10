@@ -37,7 +37,7 @@ The usual path is:
 2. Bootstrap a local agent workspace
 3. Authenticate
 4. Verify your account and workspace summary
-5. Search nearby workspace flow patterns, docs, and approved examples before designing
+5. Search nearby workspace flow patterns, docs, and approved templates before designing
 6. Pick a workspace later when you are ready to adopt or build
 
 ```bash
@@ -45,20 +45,24 @@ breyta init --provider <codex|cursor|claude|gemini>
 cd breyta-workspace
 breyta auth login
 breyta auth whoami
-breyta flows workspace search "<integration or problem query>" --limit 5
+breyta flows search "<integration or problem query>" --limit 5
+breyta flows grep "<literal config or tool name>" --or "<variant>" --limit 5
 breyta flows workspace examples step <type> "<integration or problem query>" --limit 3
 breyta docs find "<idea or primitive>"
-breyta flows search "<problem or integration query>" --limit 5
+breyta flows templates search "<problem or integration query>" --limit 5
+breyta flows templates grep "<literal config or tool name>" --limit 5
 breyta flows examples step <type> "<problem or integration query>" --limit 3
 ```
 
 For new flows, search nearby workspace flows first instead of listing every
-flow, then search docs snippets and approved examples. For edits, inspect the
+flow, use `breyta flows grep` when you need source/config literals, then search
+docs snippets and approved templates. For edits, inspect the
 current flow with `breyta flows show <slug>` or `breyta flows pull <slug>`
 before docs/example search. Keep reuse primitive-first: use
 `breyta flows workspace examples step <type> "<query>"` for local private
 snippets, then `breyta flows examples step <type> "<query>"` for approved
-snippets. Inspect a full template only for architecture-level reuse, public
+snippets. Use `breyta flows templates search/grep` for approved reusable
+templates. Inspect a full template only for architecture-level reuse, public
 install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear
 snippet dependencies, or copying overall flow structure. `breyta flows list` is
 for inventory, slug checks, or explicit user requests, not pattern discovery.
@@ -155,8 +159,9 @@ breyta flows discover update <slug> --public=true
 
 Public discover visibility is stored flow metadata. A released version and the
 `end-user` tag are both required before the flow can be exposed in discover.
-This discover catalog is separate from `breyta flows search`, which is only for
-approved example flows to inspect and copy from.
+This discover catalog is separate from `breyta flows search`, which searches
+actual workspace flow metadata, and from `breyta flows templates search`, which
+searches approved reusable templates to inspect and copy from.
 
 If the flow should look polished on public cards, add curated discover card media:
 

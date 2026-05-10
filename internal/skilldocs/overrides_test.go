@@ -24,11 +24,14 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Before creating or editing a flow, pick a task mode, inspect current state") {
 		t.Fatalf("expected search-first guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows search \"<problem or integration query>\" --limit 5") {
+	if !strings.Contains(body, "breyta flows templates search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows workspace search \"<integration or problem query>\" --limit 5") {
+	if !strings.Contains(body, "breyta flows search \"<integration or problem query>\" --limit 5") {
 		t.Fatalf("expected workspace search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows grep \"<literal>\" --or \"<variant>\"") {
+		t.Fatalf("expected workspace grep guidance in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "breyta flows workspace examples step <type> \"<query>\" --limit 3") {
 		t.Fatalf("expected private primitive example extraction guidance in override, got:\n%s", body)
@@ -264,7 +267,8 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "for workspace lookup, use breyta flows workspace search <query> instead of broad flow lists") {
+	if !strings.Contains(body, "breyta flows search <query> searches actual workspace flow metadata") ||
+		!strings.Contains(body, "breyta flows grep <literal> searches actual workspace flow source/config") {
 		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {

@@ -162,9 +162,10 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout(), "- Authenticate: breyta auth login")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Verify identity + workspace summary: breyta auth whoami")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Inventory reusable connections: breyta connections list")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Search nearby workspace flow patterns: breyta flows workspace search \"<integration or problem query>\" --limit 5")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Search nearby workspace flow patterns: breyta flows search \"<integration or problem query>\" --limit 5")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Search workspace source/config literals: breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search docs: breyta docs find \"<idea or primitive>\"")
-			fmt.Fprintln(cmd.OutOrStdout(), "- Search approved examples: breyta flows search \"<problem or integration query>\" --limit 5")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Search approved templates: breyta flows templates search \"<problem or integration query>\" --limit 5")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			return nil
 		},
@@ -217,7 +218,7 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
 ## Durable discovery defaults
 - Before meaningful Breyta flow work, state the loaded Breyta skill path and the bundled reference files read for the task.
 - Pick a task mode before running commands: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, or release.
-- Start new work by inspecting the smallest current state needed, then use docs and approved examples at the primitive level; do not invent structure from a name alone.
+- Start new work by inspecting the smallest current state needed, then use workspace search/grep, docs, and approved templates at the primitive level; do not invent structure from a name alone.
 - When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
 - Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
 - Use ` + "`breyta docs find <query>`" + ` first; open ` + "`breyta docs show <slug>`" + ` only for the narrow doc page needed
@@ -227,7 +228,7 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
   - command path
   - source filter
   - error text
-- Cache inspected workspace search hits, flow snippets, docs hits, approved example snippets, resource reads, and run ids within the session.
+- Cache inspected workspace search/grep hits, flow snippets, docs hits, approved template/example snippets, resource reads, and run ids within the session.
 - For external APIs and LLM models, do a quick source-of-truth check against current official provider docs/API references or model-list endpoints before choosing endpoints, request shapes, auth assumptions, limits, or model ids.
 
 ## Where to keep flow files
@@ -259,14 +260,14 @@ Suggested line to paste into your agent's persistent project instructions:
 - Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
 
 ## Primitive-first reuse (required for create/edit)
-- New flow sequence: ` + "`breyta flows workspace search \"<integration or problem query>\" --limit 5`" + ` -> ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + ` -> docs snippets -> approved example metadata -> approved primitive snippet -> full template only for architecture-level reuse.
-- Existing flow sequence: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + ` -> workspace search only for nearby patterns -> docs search snippets -> approved example metadata -> primitive snippet -> compare the touched surface before changing structure.
-- Review approved example metadata before choosing a pattern: name, description, tags, providers, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `.
+- New flow sequence: ` + "`breyta flows search \"<integration or problem query>\" --limit 5`" + ` -> ` + "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`" + ` when metadata is insufficient -> private snippets -> docs snippets -> approved template metadata -> approved primitive snippet -> full template only for architecture-level reuse.
+- Existing flow sequence: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + ` -> workspace search/grep only for nearby patterns -> docs search snippets -> approved template metadata -> primitive snippet -> compare the touched surface before changing structure.
+- Review approved template metadata before choosing a pattern: name, description, tags, providers, tool names, connection slots, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `.
 - Do not pull a full template for a primitive/step edit unless snippet context and referenced ` + "`:requires`" + ` / ` + "`:templates`" + ` / ` + "`:functions`" + ` are insufficient.
-- Do not use ` + "`breyta flows list`" + ` for pattern discovery; use ` + "`breyta flows workspace search <query>`" + ` and reserve list for inventory, slug checks, or explicit user requests.
+- Do not use ` + "`breyta flows list`" + ` for pattern discovery; use ` + "`breyta flows search <query>`" + ` or ` + "`breyta flows grep <literal>`" + ` and reserve list for inventory, slug checks, or explicit user requests.
 - Full template inspection is reserved for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.
-- If no useful approved example exists, say so explicitly and continue from docs.
-- Final handoff must include approved example queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored.
+- If no useful approved template exists, say so explicitly and continue from docs.
+- Final handoff must include workspace/template queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored.
 
 ## Command budget
 - Authenticate once per session unless auth/workspace state changes.
@@ -417,11 +418,12 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - ` + "`breyta connections list`" + `
    - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
    - ` + "`breyta connections test <id>`" + ` only when you plan to bind or debug that connection
-6. Pick a task mode and search nearby workspace flow patterns, docs, and approved examples:
-   - ` + "`breyta flows workspace search \"<integration or problem query>\" --limit 5`" + `
+6. Pick a task mode and search nearby workspace flow patterns, docs, and approved templates:
+   - ` + "`breyta flows search \"<integration or problem query>\" --limit 5`" + `
+   - ` + "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`" + `
    - ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
    - ` + "`breyta docs find \"<idea or primitive>\"`" + `
-   - ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + `
+   - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
 7. Keep reuse primitive-first:
    - use matching primitive snippets and referenced dependencies when available
    - inspect one full template only for architecture-level reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
@@ -443,16 +445,17 @@ Advanced ideas:
 - If you intentionally want to skip the stop gate, do it knowingly.
 
 ## After the stop gate
-- Start with current state, workspace search, docs snippets, and approved example discovery:
-  - new flow: search nearby workspace patterns with ` + "`breyta flows workspace search \"<integration or problem query>\" --limit 5`" + `
+- Start with current state, workspace search/grep, docs snippets, and approved template discovery:
+  - new flow: search nearby workspace patterns with ` + "`breyta flows search \"<integration or problem query>\" --limit 5`" + `
+  - source/config lookup: use ` + "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`" + `
   - primitive reuse: extract local snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
   - existing flow: inspect it with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
   - ` + "`breyta docs find \"<chosen idea or primitive>\"`" + `
-  - ` + "`breyta flows search \"<problem or integration query>\" --limit 5`" + `
+  - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
   - use primitive snippets and referenced dependencies before a full template
   - inspect one full template only when architecture-level reuse is needed
-  - compare the touched surface against the closest approved example before changing structure
-  - final handoff should list approved example queries, chosen/rejected snippets or templates, and reused/ignored structure
+  - compare the touched surface against the closest local or approved template example before changing structure
+  - final handoff should list workspace/template queries, chosen/rejected snippets or templates, and reused/ignored structure
 - Then inventory targeted reusable connections before authoring behavior:
   - ` + "`breyta connections list`" + `
   - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
