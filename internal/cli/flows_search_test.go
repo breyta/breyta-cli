@@ -177,6 +177,23 @@ func TestFlowsSearch_WorkspaceScopeRequiresWorkspaceLocally(t *testing.T) {
 	}
 }
 
+func TestFlowsSearch_RejectsFlowFilterOnTemplateFallback(t *testing.T) {
+	app := &App{APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail", "--flow", "gmail-support-agent"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "--flow only applies to workspace search") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFlowsTemplatesSearch_BuildsApprovedTemplatePayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn
@@ -308,6 +325,23 @@ func TestFlowsGrep_RejectsNoPatternOrFilter(t *testing.T) {
 		t.Fatalf("expected error, got success")
 	}
 	if !strings.Contains(err.Error(), "provide a grep pattern") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFlowsGrep_RejectsFlowFilterOutsideWorkspaceScope(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--scope", "templates", "--flow", "gmail-support-agent"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "--flow only applies to workspace grep") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

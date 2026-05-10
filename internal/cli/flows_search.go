@@ -143,6 +143,9 @@ approved-template search surface.
 			workspaceID := strings.TrimSpace(app.WorkspaceID)
 			legacyTemplateSearch := workspaceID == "" || cmd.Flags().Changed("catalog-scope") || cmd.Flags().Changed("full")
 			if legacyTemplateSearch {
+				if strings.TrimSpace(flowSlug) != "" {
+					return writeErr(cmd, errors.New("--flow only applies to workspace search; use `breyta flows search` with a workspace, or remove --flow for template search"))
+				}
 				effectiveScope, err := searchScopeValue(catalogScope)
 				if err != nil {
 					return writeErr(cmd, err)
@@ -241,6 +244,9 @@ synonym expansion.
 			effectiveScope, err := grepScopeValue(scope)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(flowSlug) != "" && effectiveScope != "workspace" {
+				return writeErr(cmd, errors.New("--flow only applies to workspace grep; use --scope workspace or remove --flow for template/all grep"))
 			}
 			effectiveTarget, err := validFlowSearchTarget(target)
 			if err != nil {
