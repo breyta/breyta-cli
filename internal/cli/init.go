@@ -464,7 +464,7 @@ Advanced ideas:
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
-- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads.
+- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. ` + "`flows show`" + ` includes a non-editable ` + "`flowLiteralPreview`" + ` when source is available; use ` + "`flows pull`" + ` for editable source.
 - ` + "`breyta resources read <uri>`" + ` defaults to bounded table row and cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only; it must not imply full payload access.
 - For large reports and research artifacts, persist the full body as a resource and move refs, URLs, short summaries, and previews through tables or run output.
