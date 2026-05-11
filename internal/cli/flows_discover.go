@@ -16,6 +16,7 @@ func newFlowsDiscoverCmd(app *App) *cobra.Command {
 Use ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + ` to browse installables.
 Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` to control whether your own end-user flow
 appears there.
+Add ` + "`--include-own`" + ` to list/search only when debugging whether your own public flow is indexed.
 
 Checklist to make your flow show up in Discover:
 1. Add ` + "`:discover {:public true}`" + ` to the flow definition (or run ` + "`breyta flows discover update <slug> --public=true`" + ` after push)
@@ -38,6 +39,7 @@ func newFlowsDiscoverListCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var full bool
+	var includeOwn bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -45,6 +47,8 @@ func newFlowsDiscoverListCmd(app *App) *cobra.Command {
 		Long: `Browse public end-user flows that can be installed from the current workspace.
 
 This uses the same public discover/install catalog as the web app.
+It excludes flows owned by the current workspace by default because those flows are not installable from itself.
+Use ` + "`--include-own`" + ` only to debug whether your own public flow is indexed.
 It is different from ` + "`breyta flows search`" + `, which only returns approved reusable examples.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,6 +63,9 @@ It is different from ` + "`breyta flows search`" + `, which only returns approve
 			if strings.TrimSpace(provider) != "" {
 				payload["provider"] = strings.TrimSpace(provider)
 			}
+			if includeOwn {
+				payload["includeOwn"] = true
+			}
 			return doAPICommand(cmd, app, "flows.discover.list", payload)
 		},
 	}
@@ -66,6 +73,7 @@ It is different from ` + "`breyta flows search`" + `, which only returns approve
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed definition literal (definitionEdn)")
+	cmd.Flags().BoolVar(&includeOwn, "include-own", false, "Include current workspace-owned public flows for debugging indexing")
 	return cmd
 }
 
@@ -74,13 +82,16 @@ func newFlowsDiscoverSearchCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var full bool
+	var includeOwn bool
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search public installable flows for this workspace",
 		Long: `Search public end-user flows that can be installed from the current workspace.
 
-This uses the public discover/install catalog, not the approved-example catalog behind ` + "`breyta flows search`" + `.`,
+This uses the public discover/install catalog, not the approved-example catalog behind ` + "`breyta flows search`" + `.
+It excludes flows owned by the current workspace by default because those flows are not installable from itself.
+Use ` + "`--include-own`" + ` only to debug whether your own public flow is indexed.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
@@ -95,6 +106,9 @@ This uses the public discover/install catalog, not the approved-example catalog 
 			if strings.TrimSpace(provider) != "" {
 				payload["provider"] = strings.TrimSpace(provider)
 			}
+			if includeOwn {
+				payload["includeOwn"] = true
+			}
 			return doAPICommand(cmd, app, "flows.discover.search", payload)
 		},
 	}
@@ -102,6 +116,7 @@ This uses the public discover/install catalog, not the approved-example catalog 
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed definition literal (definitionEdn)")
+	cmd.Flags().BoolVar(&includeOwn, "include-own", false, "Include current workspace-owned public flows for debugging indexing")
 	return cmd
 }
 
