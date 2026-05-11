@@ -112,6 +112,7 @@ func newFlowsSearchCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var full bool
+	var rawDefinition bool
 	var includeArchived bool
 
 	cmd := &cobra.Command{
@@ -127,7 +128,8 @@ tool envelopes, uploaded-resource fields, prompts, or step configuration literal
 Compatibility: approved reusable-template search has moved to
 ` + "`breyta flows templates search`" + `. For one release, ` + "`breyta flows search --catalog-scope ...`" + `,
 ` + "`breyta flows search --full`" + `, and no-workspace ` + "`breyta flows search`" + ` still use the old
-approved-template search surface.
+approved-template search surface. ` + "`--full`" + ` includes a bounded source preview by default; use
+` + "`--raw-definition`" + ` only when an inline full definition is required.
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -141,6 +143,9 @@ approved-template search surface.
 			}
 
 			workspaceID := strings.TrimSpace(app.WorkspaceID)
+			if rawDefinition && !full {
+				return writeErr(cmd, errors.New("--raw-definition requires --full"))
+			}
 			legacyTemplateSearch := workspaceID == "" || cmd.Flags().Changed("catalog-scope") || full
 			if legacyTemplateSearch {
 				if strings.TrimSpace(flowSlug) != "" {
@@ -158,6 +163,7 @@ approved-template search surface.
 					"limit":             limit,
 					"from":              from,
 					"includeDefinition": full,
+					"rawDefinition":     rawDefinition,
 				}
 				if query != "" {
 					payload["query"] = query
@@ -199,7 +205,8 @@ approved-template search surface.
 	cmd.Flags().StringVar(&target, "target", "latest", "Workspace source target: latest|draft|live")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
-	cmd.Flags().BoolVar(&full, "full", false, "Deprecated compatibility: include full approved template definition literal")
+	cmd.Flags().BoolVar(&full, "full", false, "Deprecated compatibility: include bounded approved template source preview")
+	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include the raw full source definition inline; verbose")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived workspace flows")
 	return cmd
 }
@@ -375,6 +382,7 @@ func newFlowsTemplatesSearchCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var full bool
+	var rawDefinition bool
 
 	cmd := &cobra.Command{
 		Use:   "search [query]",
@@ -401,12 +409,16 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 			if effectiveScope == "workspace" && strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("workspace-scoped template search requires --workspace or BREYTA_WORKSPACE"))
 			}
+			if rawDefinition && !full {
+				return writeErr(cmd, errors.New("--raw-definition requires --full"))
+			}
 			payload := map[string]any{
 				"scope":             effectiveScope,
 				"surface":           "templates",
 				"limit":             limit,
 				"from":              from,
 				"includeDefinition": full,
+				"rawDefinition":     rawDefinition,
 			}
 			if query != "" {
 				payload["query"] = query
@@ -423,7 +435,8 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
-	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed template definition literal")
+	cmd.Flags().BoolVar(&full, "full", false, "Include bounded indexed template source preview")
+	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include the raw full source definition inline; verbose")
 	return cmd
 }
 
@@ -437,6 +450,7 @@ func newFlowsTemplatesGrepCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var full bool
+	var rawDefinition bool
 
 	cmd := &cobra.Command{
 		Use:   "grep [pattern]",
@@ -465,6 +479,9 @@ hidden semantic or synonym expansion.
 			if effectiveScope == "workspace" && strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("workspace-scoped template grep requires --workspace or BREYTA_WORKSPACE"))
 			}
+			if rawDefinition && !full {
+				return writeErr(cmd, errors.New("--raw-definition requires --full"))
+			}
 			payload := map[string]any{
 				"definitionSearch":  true,
 				"scope":             effectiveScope,
@@ -472,6 +489,7 @@ hidden semantic or synonym expansion.
 				"limit":             limit,
 				"from":              from,
 				"includeDefinition": full,
+				"rawDefinition":     rawDefinition,
 			}
 			addPatternPayload(payload, pattern, ors)
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
@@ -487,6 +505,7 @@ hidden semantic or synonym expansion.
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
-	cmd.Flags().BoolVar(&full, "full", false, "Include source definition EDN for matched templates")
+	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched templates")
+	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include raw source definition EDN inline; verbose")
 	return cmd
 }
