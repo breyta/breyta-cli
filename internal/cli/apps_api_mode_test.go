@@ -3059,6 +3059,16 @@ func TestFlowsInterfacesShow_FindsMcpTool(t *testing.T) {
 	if iface["family"] != "mcp" || iface["toolName"] != "enrich_company" || iface["invocationId"] != "default" {
 		t.Fatalf("unexpected interface: %#v", iface)
 	}
+	if iface["runtimeStatus"] != "available" {
+		t.Fatalf("expected MCP runtime to be available: %#v", iface)
+	}
+	endpoint, _ := iface["endpoint"].(map[string]any)
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["protocol"] != "mcp" || endpoint["transport"] != "streamable-http" {
+		t.Fatalf("expected MCP endpoint metadata, got %#v", endpoint)
+	}
+	if endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/enrich_company" {
+		t.Fatalf("unexpected MCP endpoint URL: %#v", endpoint)
+	}
 	if iface["invocation"] == nil {
 		t.Fatalf("expected invocation contract in interface: %#v", iface)
 	}

@@ -488,6 +488,18 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 				}
 			}
 		}
+		if strings.EqualFold(firstNonBlankString(item["family"]), "mcp") {
+			interfaceID := firstNonBlankString(item["id"], item["toolName"])
+			if interfaceID != "" {
+				item["endpoint"] = map[string]any{
+					"method":    "POST",
+					"url":       flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
+					"auth":      "workspace-api-auth",
+					"protocol":  "mcp",
+					"transport": "streamable-http",
+				}
+			}
+		}
 		out = append(out, pruneEmptyStrings(item))
 	}
 	return out
@@ -622,14 +634,16 @@ func flowInterfaceItems(flow map[string]any, target string) []any {
 	for _, raw := range sliceAny(interfaces["mcp"]) {
 		iface := mapStringAny(raw)
 		invocationID := firstNonBlankString(iface["invocation"])
+		toolName := firstNonBlankString(iface["toolName"], iface["tool-name"])
 		item := map[string]any{
 			"family":        "mcp",
-			"toolName":      firstNonBlankString(iface["toolName"], iface["tool-name"]),
+			"id":            toolName,
+			"toolName":      toolName,
 			"invocationId":  invocationID,
 			"target":        target,
 			"description":   firstNonBlankString(iface["description"]),
 			"invocation":    invocationContract(invocations, invocationID),
-			"runtimeStatus": "not_implemented",
+			"runtimeStatus": "available",
 		}
 		items = append(items, pruneEmptyStrings(item))
 	}
