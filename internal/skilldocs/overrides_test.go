@@ -42,7 +42,7 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates") {
 		t.Fatalf("expected primitive-first reuse guidance in override, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug>` or `breyta flows pull <slug>`") {
+	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source") {
 		t.Fatalf("expected workspace flow guidance in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Primitive-first reuse for create/edit (Required)") {
