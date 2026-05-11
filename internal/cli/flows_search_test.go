@@ -34,7 +34,7 @@ func TestFlowsSearch_BuildsPayload(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"stripe", "--catalog-scope", "workspace", "--provider", "stripe", "--step-type", "http", "--limit", "5", "--from", "10", "--full=true"})
+	cmd.SetArgs([]string{"stripe", "--catalog-scope", "workspace", "--provider", "stripe", "--step-type", "http", "--limit", "5", "--from", "10", "--full=true", "--raw-definition"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
@@ -63,6 +63,9 @@ func TestFlowsSearch_BuildsPayload(t *testing.T) {
 	}
 	if gotPayload["includeDefinition"] != true {
 		t.Fatalf("expected includeDefinition=true, got %#v", gotPayload["includeDefinition"])
+	}
+	if gotPayload["rawDefinition"] != true {
+		t.Fatalf("expected rawDefinition=true, got %#v", gotPayload["rawDefinition"])
 	}
 }
 
@@ -251,6 +254,23 @@ func TestFlowsSearch_RejectsFlowFilterWithFullTemplateMode(t *testing.T) {
 	}
 }
 
+func TestFlowsSearch_RejectsRawDefinitionWithoutFull(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail", "--raw-definition"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "--raw-definition requires --full") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFlowsTemplatesSearch_BuildsApprovedTemplatePayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn
@@ -366,6 +386,9 @@ func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) 
 	}
 	if gotPayload["definitionSearch"] != true || gotPayload["query"] != "image/*" || gotPayload["scope"] != "all" || gotPayload["surface"] != "templates" || gotPayload["includeDefinition"] != true {
 		t.Fatalf("unexpected template grep payload: %#v", gotPayload)
+	}
+	if gotPayload["rawDefinition"] != false {
+		t.Fatalf("expected rawDefinition=false, got %#v", gotPayload["rawDefinition"])
 	}
 }
 
