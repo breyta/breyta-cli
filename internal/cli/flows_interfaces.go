@@ -251,7 +251,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
 			}
-			path := flowInterfaceCallPath(app.WorkspaceID, args[0], args[1], installationID, resolvedTarget)
+			path := flowInterfaceCallPath(args[0], args[1], installationID, resolvedTarget)
 			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
 			if err != nil {
 				return writeErr(cmd, err)
@@ -537,7 +537,7 @@ func flowInterfaceSourceRuntimeURL(app *App, target string, flowSlug string, int
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
-func flowInterfaceCallPath(workspaceID string, flowSlug string, interfaceID string, installationID string, target string) string {
+func flowInterfaceCallPath(flowSlug string, interfaceID string, installationID string, target string) string {
 	if strings.TrimSpace(installationID) != "" {
 		return fmt.Sprintf("/api/flows/%s/installations/%s/interfaces/%s",
 			url.PathEscape(strings.TrimSpace(flowSlug)),
