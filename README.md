@@ -84,6 +84,11 @@ breyta flows discover list
 breyta flows discover search "<idea>"
 ```
 
+Discover list/search excludes flows owned by the current workspace by default
+because it shows what this workspace can install. Add `--include-own` only when
+debugging whether your own public flow is indexed; verify buyer/install behavior
+from another workspace.
+
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
 The skill bundle can include `SKILL.md` plus bundled `references/` files; agents

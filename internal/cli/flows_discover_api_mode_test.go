@@ -15,6 +15,7 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 	t.Setenv("APPDATA", tmp)
 	t.Setenv("LOCALAPPDATA", tmp)
 
+	var sawIncludeOwn atomic.Value
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -33,6 +34,10 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 			})
 			return
 		}
+		args, _ := body["args"].(map[string]any)
+		if includeOwn, _ := args["includeOwn"].(bool); includeOwn {
+			sawIncludeOwn.Store(includeOwn)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
@@ -49,10 +54,14 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "discover", "list",
+		"--include-own",
 		"--pretty",
 	)
 	if err != nil {
 		t.Fatalf("flows discover list failed: %v\n%s", err, stdout)
+	}
+	if got, _ := sawIncludeOwn.Load().(bool); !got {
+		t.Fatalf("expected discover list includeOwn to be forwarded")
 	}
 }
 
@@ -64,6 +73,7 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 
 	var sawQuery atomic.Value
+	var sawIncludeOwn atomic.Value
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -86,6 +96,9 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 		if q, _ := args["query"].(string); q != "" {
 			sawQuery.Store(q)
 		}
+		if includeOwn, _ := args["includeOwn"].(bool); includeOwn {
+			sawIncludeOwn.Store(includeOwn)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
@@ -102,6 +115,7 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "discover", "search", "reverse",
+		"--include-own",
 		"--pretty",
 	)
 	if err != nil {
@@ -109,6 +123,9 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 	}
 	if got, _ := sawQuery.Load().(string); got != "reverse" {
 		t.Fatalf("expected discover query to be forwarded, got %q", got)
+	}
+	if got, _ := sawIncludeOwn.Load().(bool); !got {
+		t.Fatalf("expected discover search includeOwn to be forwarded")
 	}
 }
 
@@ -267,6 +284,7 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 		":discover {:public true}",
 		"end-user",
 		"Release/promote it",
+		"--include-own",
 		"from another workspace",
 	} {
 		if !strings.Contains(stdout, want) {
