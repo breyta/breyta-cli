@@ -141,6 +141,13 @@ breyta flows show <slug> --target live
 breyta flows run <slug> --target live --wait
 ```
 
+To smoke test a specific installed public/end-user flow, use the installation id
+instead of `--target`:
+
+```bash
+breyta flows run <slug> --installation-id <installation-id> --wait
+```
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to a bounded table

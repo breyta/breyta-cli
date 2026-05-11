@@ -185,7 +185,7 @@ Default:
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
 	- --invocation <id> : select a named invocation input contract
-	- --target draft|live : select run target explicitly (default draft)
+	- --target draft|live : select workspace draft/live when not using --installation-id
 	- --version <n> : force a specific release version for this invocation
 	- --trigger-id <id> : select a manual trigger when the flow has trigger-specific fields
 	`),
@@ -206,15 +206,20 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
-			resolvedTarget := "draft"
+			resolvedTarget := ""
 			if cmd.Flags().Changed("target") {
 				var err error
 				resolvedTarget, err = normalizeInstallTarget(target)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
+			} else if strings.TrimSpace(installationID) == "" {
+				resolvedTarget = "draft"
 			}
-			payload := map[string]any{"flowSlug": args[0], "target": resolvedTarget}
+			payload := map[string]any{"flowSlug": args[0]}
+			if resolvedTarget != "" {
+				payload["target"] = resolvedTarget
+			}
 			installationID = strings.TrimSpace(installationID)
 			if installationID != "" {
 				payload["installationId"] = installationID

@@ -2480,9 +2480,9 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if args["target"] != "draft" {
+		if _, ok := args["target"]; ok {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing target=draft"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "target should be omitted for installation runs"}})
 			return
 		}
 		if args["installationId"] != "prof-123" {
