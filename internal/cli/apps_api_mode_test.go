@@ -2616,8 +2616,11 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 		t.Fatalf("unexpected webhook interface item: %#v", second)
 	}
 	endpoint, _ := second["endpoint"].(map[string]any)
-	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/stripe" {
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/flows/flow-release/interfaces/draft/stripe" {
 		t.Fatalf("expected source webhook endpoint to use interface id, got %#v", endpoint)
+	}
+	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/stripe" {
+		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
 	}
 }
 
@@ -2682,8 +2685,11 @@ func TestFlowsInterfacesList_TargetLiveUsesAuthorLiveEndpoint(t *testing.T) {
 	}
 	item, _ := items[0].(map[string]any)
 	endpoint, _ := item["endpoint"].(map[string]any)
-	if endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich" {
+	if endpoint["url"] != srv.URL+"/api/flows/flow-release/interfaces/live/enrich" {
 		t.Fatalf("expected live source endpoint, got %#v", endpoint)
+	}
+	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich" {
+		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
 	}
 }
 
@@ -2985,8 +2991,11 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 	}
 	first, _ := items[1].(map[string]any)
 	endpoint, _ := first["endpoint"].(map[string]any)
-	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
+	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["url"] != srv.URL+"/api/flows/flow-release/installations/prof-live/interfaces/enrich" {
 		t.Fatalf("expected runtime endpoint metadata, got %#v", endpoint)
+	}
+	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
+		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
 	}
 	second, _ := items[2].(map[string]any)
 	webhookEndpoint, _ := second["endpoint"].(map[string]any)
@@ -3066,8 +3075,11 @@ func TestFlowsInterfacesShow_FindsMcpTool(t *testing.T) {
 	if endpoint["method"] != "POST" || endpoint["auth"] != "workspace-api-auth" || endpoint["protocol"] != "mcp" || endpoint["transport"] != "streamable-http" {
 		t.Fatalf("expected MCP endpoint metadata, got %#v", endpoint)
 	}
-	if endpoint["url"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/enrich_company" {
+	if endpoint["url"] != srv.URL+"/api/flows/flow-release/interfaces/draft/enrich_company" {
 		t.Fatalf("unexpected MCP endpoint URL: %#v", endpoint)
+	}
+	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/enrich_company" {
+		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
 	}
 	if iface["invocation"] == nil {
 		t.Fatalf("expected invocation contract in interface: %#v", iface)
@@ -3076,7 +3088,7 @@ func TestFlowsInterfacesShow_FindsMcpTool(t *testing.T) {
 
 func TestFlowsInterfacesCall_PostsToHTTPInterfaceRoute(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich" {
+		if r.URL.Path != "/api/flows/flow-release/installations/prof-live/interfaces/enrich" {
 			http.NotFound(w, r)
 			return
 		}
@@ -3198,7 +3210,7 @@ func TestFlowsInterfacesCurl_InstallationBuildsRuntimeCommand(t *testing.T) {
 		t.Fatalf("expected installation metadata, got %#v", out.Data)
 	}
 	curl, _ := out.Data["curl"].(string)
-	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich") ||
+	if !strings.Contains(curl, srv.URL+"/api/flows/flow-release/installations/prof-live/interfaces/enrich") ||
 		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
 		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
 		t.Fatalf("unexpected curl command: %s", curl)
@@ -3210,7 +3222,7 @@ func TestFlowsInterfacesCurl_InstallationBuildsRuntimeCommand(t *testing.T) {
 
 func TestFlowsInterfacesCall_TargetLiveCallsAuthorSourceEndpoint(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich" {
+		if r.URL.Path != "/api/flows/flow-release/interfaces/live/enrich" {
 			http.NotFound(w, r)
 			return
 		}
@@ -3256,7 +3268,7 @@ func TestFlowsInterfacesCall_WaitPollsRunCompletion(t *testing.T) {
 	var runsGetPayloads []map[string]any
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/enrich":
+		case "/api/flows/flow-release/installations/prof-live/interfaces/enrich":
 			if r.Method != http.MethodPost {
 				w.WriteHeader(405)
 				return
@@ -3377,7 +3389,7 @@ func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 	}
 	out := decodeEnvelope(t, stdout)
 	curl, _ := out.Data["curl"].(string)
-	if !strings.Contains(curl, srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/live/enrich") ||
+	if !strings.Contains(curl, srv.URL+"/api/flows/flow-release/interfaces/live/enrich") ||
 		!strings.Contains(curl, "Authorization: Bearer ${BREYTA_TOKEN}") ||
 		!strings.Contains(curl, `{"input":{"domain":"example.com"}}`) {
 		t.Fatalf("unexpected curl command: %s", curl)
@@ -3389,7 +3401,7 @@ func TestFlowsInterfacesCurl_TargetLiveBuildsCommand(t *testing.T) {
 
 func TestFlowsInterfacesCall_DefaultsToDraftAuthorSourceEndpoint(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/enrich" {
+		if r.URL.Path != "/api/flows/flow-release/interfaces/draft/enrich" {
 			http.NotFound(w, r)
 			return
 		}
@@ -3423,7 +3435,7 @@ func TestFlowsInterfacesCall_DefaultsToDraftAuthorSourceEndpoint(t *testing.T) {
 
 func TestFlowsInterfacesCall_ErrorAddsRecoveryHints(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/workspaces/ws-acme/flows/flow-release/installations/prof-live/interfaces/missing" {
+		if r.URL.Path != "/api/flows/flow-release/installations/prof-live/interfaces/missing" {
 			http.NotFound(w, r)
 			return
 		}
