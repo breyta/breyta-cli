@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/updatecheck"
@@ -46,6 +47,35 @@ func TestWriteFailureIncludesUpdateNotice(t *testing.T) {
 	}
 	if got, _ := update["latestVersion"].(string); got != "v2026.1.2" {
 		t.Fatalf("expected latestVersion v2026.1.2, got %q", got)
+	}
+}
+
+func TestEmitUpdateReminderUsesManualCopyForUnknownInstallMethod(t *testing.T) {
+	cmd := &cobra.Command{}
+	errOut := new(bytes.Buffer)
+	cmd.SetErr(errOut)
+
+	app := &App{
+		updateNotice: &updatecheck.Notice{
+			Available:      true,
+			CurrentVersion: "v2026.1.1",
+			LatestVersion:  "v2026.1.2",
+			InstallMethod:  updatecheck.InstallMethodUnknown,
+			FixCommand:     updatecheck.ManualFixCommand,
+		},
+	}
+
+	app.emitUpdateReminder(cmd)
+
+	got := errOut.String()
+	if !strings.Contains(got, "Manual upgrade required for install method unknown") {
+		t.Fatalf("expected manual upgrade copy, got %q", got)
+	}
+	if strings.Contains(got, updatecheck.DefaultFixCommand) {
+		t.Fatalf("manual reminder should not recommend %q, got %q", updatecheck.DefaultFixCommand, got)
+	}
+	if !strings.Contains(got, updatecheck.ManualFixCommand) {
+		t.Fatalf("expected manual fix command %q, got %q", updatecheck.ManualFixCommand, got)
 	}
 }
 

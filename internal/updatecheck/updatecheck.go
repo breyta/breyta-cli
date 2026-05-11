@@ -14,12 +14,13 @@ type InstallMethod string
 const (
 	InstallMethodUnknown InstallMethod = "unknown"
 	InstallMethodBrew    InstallMethod = "brew"
+	InstallMethodGo      InstallMethod = "go"
 )
 
 const (
 	testLatestTagEnv       = "BREYTA_UPDATE_TEST_LATEST_TAG"
 	testForceUpdateEnv     = "BREYTA_UPDATE_TEST_FORCE"
-	testInstallMethodEnv   = "BREYTA_UPDATE_TEST_INSTALL_METHOD" // "brew"|"unknown"
+	testInstallMethodEnv   = "BREYTA_UPDATE_TEST_INSTALL_METHOD" // "brew"|"go"|"unknown"
 	testBrewAvailableEnv   = "BREYTA_UPDATE_TEST_BREW_AVAILABLE" // "1"|"0"
 	defaultForcedLatestTag = "v3000.12.9999"
 )
@@ -30,37 +31,122 @@ type Notice struct {
 	LatestVersion  string        `json:"latestVersion,omitempty"`
 	CheckedAt      time.Time     `json:"checkedAt,omitempty"`
 	InstallMethod  InstallMethod `json:"installMethod,omitempty"`
+	InstallPath    string        `json:"installPath,omitempty"`
 	ReleaseURL     string        `json:"releaseUrl,omitempty"`
 	Upgrade        []string      `json:"upgrade,omitempty"`
 	FixCommand     string        `json:"fixCommand,omitempty"`
 }
 
 const DefaultFixCommand = "breyta upgrade --all --yes"
+const ManualFixCommand = "breyta upgrade --open"
+const GoInstallPackage = "github.com/breyta/breyta-cli/cmd/breyta@latest"
 
 func DetectInstallMethod() InstallMethod {
 	if v := strings.TrimSpace(os.Getenv(testInstallMethodEnv)); v != "" {
 		switch strings.ToLower(v) {
 		case "brew":
 			return InstallMethodBrew
+		case "go", "go-install", "goinstall":
+			return InstallMethodGo
 		case "unknown":
 			return InstallMethodUnknown
 		}
 	}
+	return detectInstallMethodForPath(DetectInstallPath())
+}
 
+func DetectInstallPath() string {
 	exe, err := os.Executable()
 	if err != nil || strings.TrimSpace(exe) == "" {
-		return InstallMethodUnknown
+		return ""
 	}
 	resolved := exe
 	if p, err := filepath.EvalSymlinks(exe); err == nil && strings.TrimSpace(p) != "" {
 		resolved = p
+	}
+	return resolved
+}
+
+func detectInstallMethodForPath(resolved string) InstallMethod {
+	resolved = strings.TrimSpace(resolved)
+	if resolved == "" {
+		return InstallMethodUnknown
 	}
 	// Homebrew installs formulas under .../Cellar/<name>/<version>/...
 	sep := string(filepath.Separator)
 	if strings.Contains(resolved, sep+"Cellar"+sep+"breyta"+sep) {
 		return InstallMethodBrew
 	}
+	if isGoInstallPath(resolved) {
+		return InstallMethodGo
+	}
 	return InstallMethodUnknown
+}
+
+func isGoInstallPath(resolved string) bool {
+	resolved = filepath.Clean(strings.TrimSpace(resolved))
+	if resolved == "." {
+		return false
+	}
+	dir := filepath.Dir(resolved)
+	for _, candidate := range goBinDirs() {
+		if candidate != "" && dir == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func goBinDirs() []string {
+	seen := map[string]bool{}
+	var dirs []string
+	add := func(dir string) {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return
+		}
+		dir = filepath.Clean(dir)
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	add(os.Getenv("GOBIN"))
+	for _, gp := range filepath.SplitList(os.Getenv("GOPATH")) {
+		if strings.TrimSpace(gp) != "" {
+			add(filepath.Join(gp, "bin"))
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		add(filepath.Join(home, "go", "bin"))
+	}
+	return dirs
+}
+
+func upgradeCommandForInstallMethod(method InstallMethod) []string {
+	switch method {
+	case InstallMethodBrew:
+		return []string{"brew", "upgrade", "breyta"}
+	case InstallMethodGo:
+		return []string{"go", "install", GoInstallPackage}
+	default:
+		return nil
+	}
+}
+
+func fixCommandForInstallMethod(method InstallMethod) string {
+	if len(upgradeCommandForInstallMethod(method)) > 0 {
+		return DefaultFixCommand
+	}
+	return ManualFixCommand
+}
+
+func fillNoticeUpgrade(n *Notice) {
+	if n == nil {
+		return
+	}
+	n.Upgrade = upgradeCommandForInstallMethod(n.InstallMethod)
+	n.FixCommand = fixCommandForInstallMethod(n.InstallMethod)
 }
 
 func BrewAvailable() bool {
@@ -93,12 +179,10 @@ func CachedNotice(currentVersion string) *Notice {
 			LatestVersion:  latest,
 			CheckedAt:      time.Now(),
 			InstallMethod:  DetectInstallMethod(),
+			InstallPath:    DetectInstallPath(),
 			ReleaseURL:     ReleasePageURL,
-			FixCommand:     DefaultFixCommand,
 		}
-		if n.InstallMethod == InstallMethodBrew {
-			n.Upgrade = []string{"brew", "upgrade", "breyta"}
-		}
+		fillNoticeUpgrade(n)
 		return n
 	}
 
@@ -119,12 +203,10 @@ func CachedNotice(currentVersion string) *Notice {
 		LatestVersion:  c.LatestTag,
 		CheckedAt:      c.CheckedAt,
 		InstallMethod:  DetectInstallMethod(),
+		InstallPath:    DetectInstallPath(),
 		ReleaseURL:     ReleasePageURL,
-		FixCommand:     DefaultFixCommand,
 	}
-	if n.InstallMethod == InstallMethodBrew {
-		n.Upgrade = []string{"brew", "upgrade", "breyta"}
-	}
+	fillNoticeUpgrade(n)
 	return n
 }
 

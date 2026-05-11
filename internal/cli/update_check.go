@@ -85,6 +85,22 @@ func (a *App) emitUpdateReminder(cmd *cobra.Command) {
 	if latest == "" {
 		return
 	}
+	if len(a.updateNotice.Upgrade) == 0 {
+		method := strings.TrimSpace(string(a.updateNotice.InstallMethod))
+		if method == "" {
+			method = string(updatecheck.InstallMethodUnknown)
+		}
+		_, _ = fmt.Fprintf(
+			cmd.ErrOrStderr(),
+			"New Breyta version is available: %s -> %s. Manual upgrade required for install method %s. Run `%s` to view release artifacts.\n",
+			current,
+			latest,
+			method,
+			updatecheck.ManualFixCommand,
+		)
+		a.updateReminderShown = true
+		return
+	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
 		"New Breyta version is available: %s -> %s. Run `%s`.\n",

@@ -544,6 +544,22 @@ Apply an update automatically when supported:
 breyta upgrade --apply
 ```
 
+Upgrade the CLI and refresh installed skills:
+
+```bash
+breyta upgrade --all --yes
+```
+
+Automatic CLI upgrade is supported for Homebrew installs and common Go installs
+where the binary is in `$GOBIN`, `$GOPATH/bin`, or `~/go/bin`. Go installs run:
+
+```bash
+go install github.com/breyta/breyta-cli/cmd/breyta@latest
+```
+
+If Breyta cannot detect an automatic upgrade method, the command fails with a
+manual upgrade message instead of reporting a successful no-op.
+
 Open the latest release page:
 
 ```bash
