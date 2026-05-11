@@ -251,7 +251,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
 			}
-			path := flowInterfaceCallPath(app.WorkspaceID, args[0], args[1], installationID, resolvedTarget)
+			path := flowInterfaceCallPath(args[0], args[1], installationID, resolvedTarget)
 			out, status, err := apiClient(app).DoREST(cmd.Context(), http.MethodPost, path, nil, map[string]any{"input": input})
 			if err != nil {
 				return writeErr(cmd, err)
@@ -461,9 +461,10 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 					method = "POST"
 				}
 				item["endpoint"] = map[string]any{
-					"method": method,
-					"url":    flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
-					"auth":   "workspace-api-auth",
+					"method":       method,
+					"url":          flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
+					"alternateUrl": flowInterfaceWorkspaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
+					"auth":         "workspace-api-auth",
 				}
 			}
 		}
@@ -486,6 +487,24 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 					"url":    endpointURL,
 					"auth":   auth,
 				}
+				if installationID == "" {
+					itemEndpoint := mapStringAny(item["endpoint"])
+					itemEndpoint["alternateUrl"] = flowInterfaceWorkspaceRuntimeURL(app, installationID, flowSlug, interfaceID, target)
+					item["endpoint"] = itemEndpoint
+				}
+			}
+		}
+		if strings.EqualFold(firstNonBlankString(item["family"]), "mcp") {
+			interfaceID := firstNonBlankString(item["id"], item["toolName"])
+			if interfaceID != "" {
+				item["endpoint"] = map[string]any{
+					"method":       "POST",
+					"url":          flowInterfaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
+					"alternateUrl": flowInterfaceWorkspaceRuntimeURL(app, installationID, flowSlug, interfaceID, target),
+					"auth":         "workspace-api-auth",
+					"protocol":     "mcp",
+					"transport":    "streamable-http",
+				}
 			}
 		}
 		out = append(out, pruneEmptyStrings(item))
@@ -498,8 +517,7 @@ func flowInterfaceRuntimeURL(app *App, installationID string, flowSlug string, i
 		return flowInterfaceSourceRuntimeURL(app, target, flowSlug, interfaceID)
 	}
 	ensureAPIURL(app)
-	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
-		url.PathEscape(app.WorkspaceID),
+	path := fmt.Sprintf("/api/flows/%s/installations/%s/interfaces/%s",
 		url.PathEscape(strings.TrimSpace(flowSlug)),
 		url.PathEscape(strings.TrimSpace(installationID)),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
@@ -512,18 +530,16 @@ func flowInterfaceSourceRuntimeURL(app *App, target string, flowSlug string, int
 	if source == "" {
 		source = "draft"
 	}
-	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/interfaces/%s/%s",
-		url.PathEscape(app.WorkspaceID),
+	path := fmt.Sprintf("/api/flows/%s/interfaces/%s/%s",
 		url.PathEscape(strings.TrimSpace(flowSlug)),
 		url.PathEscape(source),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
 	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
-func flowInterfaceCallPath(workspaceID string, flowSlug string, interfaceID string, installationID string, target string) string {
+func flowInterfaceCallPath(flowSlug string, interfaceID string, installationID string, target string) string {
 	if strings.TrimSpace(installationID) != "" {
-		return fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
-			url.PathEscape(workspaceID),
+		return fmt.Sprintf("/api/flows/%s/installations/%s/interfaces/%s",
 			url.PathEscape(strings.TrimSpace(flowSlug)),
 			url.PathEscape(strings.TrimSpace(installationID)),
 			url.PathEscape(strings.TrimSpace(interfaceID)))
@@ -532,11 +548,32 @@ func flowInterfaceCallPath(workspaceID string, flowSlug string, interfaceID stri
 	if source == "" {
 		source = "draft"
 	}
-	return fmt.Sprintf("/api/workspaces/%s/flows/%s/interfaces/%s/%s",
-		url.PathEscape(workspaceID),
+	return fmt.Sprintf("/api/flows/%s/interfaces/%s/%s",
 		url.PathEscape(strings.TrimSpace(flowSlug)),
 		url.PathEscape(source),
 		url.PathEscape(strings.TrimSpace(interfaceID)))
+}
+
+func flowInterfaceWorkspaceRuntimeURL(app *App, installationID string, flowSlug string, interfaceID string, target string) string {
+	ensureAPIURL(app)
+	if strings.TrimSpace(installationID) != "" {
+		path := fmt.Sprintf("/api/workspaces/%s/flows/%s/installations/%s/interfaces/%s",
+			url.PathEscape(app.WorkspaceID),
+			url.PathEscape(strings.TrimSpace(flowSlug)),
+			url.PathEscape(strings.TrimSpace(installationID)),
+			url.PathEscape(strings.TrimSpace(interfaceID)))
+		return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
+	}
+	source := strings.TrimSpace(target)
+	if source == "" {
+		source = "draft"
+	}
+	path := fmt.Sprintf("/api/workspaces/%s/flows/%s/interfaces/%s/%s",
+		url.PathEscape(app.WorkspaceID),
+		url.PathEscape(strings.TrimSpace(flowSlug)),
+		url.PathEscape(source),
+		url.PathEscape(strings.TrimSpace(interfaceID)))
+	return strings.TrimRight(strings.TrimSpace(app.APIURL), "/") + path
 }
 
 func flowWebhookRuntimeURL(app *App, installationID string, flowSlug string, eventName string) string {
@@ -622,14 +659,16 @@ func flowInterfaceItems(flow map[string]any, target string) []any {
 	for _, raw := range sliceAny(interfaces["mcp"]) {
 		iface := mapStringAny(raw)
 		invocationID := firstNonBlankString(iface["invocation"])
+		toolName := firstNonBlankString(iface["toolName"], iface["tool-name"])
 		item := map[string]any{
 			"family":        "mcp",
-			"toolName":      firstNonBlankString(iface["toolName"], iface["tool-name"]),
+			"id":            toolName,
+			"toolName":      toolName,
 			"invocationId":  invocationID,
 			"target":        target,
 			"description":   firstNonBlankString(iface["description"]),
 			"invocation":    invocationContract(invocations, invocationID),
-			"runtimeStatus": "not_implemented",
+			"runtimeStatus": "available",
 		}
 		items = append(items, pruneEmptyStrings(item))
 	}
