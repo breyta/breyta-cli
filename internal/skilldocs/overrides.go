@@ -324,11 +324,14 @@ const publicFlowUIVerificationSection = `## Public/end-user UI verification (Req
 Goal: prove the installed end-user path, not only draft CLI execution.
 
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
+- do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
+- for installable/public flows, verify Discover install plus an installed run when install behavior matters
+- installable checklist: explicit author approval, ` + "`end-user`" + ` tag, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
 - for installed flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `
-- when browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page
+- when browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - if CLI works but UI fails, or draft works but setup page, run form fields, installed flow, resource picker, or old live version fails, send ` + "`breyta feedback send`" + ` with full run/output URLs`
 
 const workflowPlanningSection = `## Workflow architecture planning (Required before build)
@@ -492,6 +495,7 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - verify the exact model id with a draft run or isolated step run before release when feasible
 - for OpenAI-backed steps, use ` + "`gpt-5.4`" + ` as Breyta's current API default where a default is needed, but still verify availability in the target environment
 - do not claim or use unreleased provider models, such as ` + "`gpt-5.5`" + `, without provider/API proof
+- for OpenAI-backed ` + "`:llm`" + ` and ` + "`:agent`" + ` steps, use an ` + "`:http-api`" + ` requirement, backend ` + "`openai`" + `, base URL ` + "`https://api.openai.com/v1`" + `, API-key auth, and a non-null config map; use installer ownership when every installer brings their own OpenAI key
 - preserve explicit user requests, such as ` + "`gpt-5.4`" + ` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
 
