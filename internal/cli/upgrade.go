@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -33,6 +34,22 @@ var syncInstalledSkills = func(ctx context.Context, apiURL, token string) (skill
 	return skillsync.SyncInstalledNow(ctx, apiURL, token)
 }
 
+func manualCLIUpgradeError(notice *updatecheck.Notice) error {
+	method := updatecheck.InstallMethodUnknown
+	installPath := ""
+	if notice != nil {
+		if notice.InstallMethod != "" {
+			method = notice.InstallMethod
+		}
+		installPath = strings.TrimSpace(notice.InstallPath)
+	}
+	location := ""
+	if installPath != "" {
+		location = fmt.Sprintf(" at %s", installPath)
+	}
+	return fmt.Errorf("cannot auto-upgrade Breyta CLI: installed via %s%s. Reinstall Breyta using the source you installed from, or run `%s` to view release artifacts", method, location, updatecheck.ManualFixCommand)
+}
+
 func newUpgradeCmd(app *App) *cobra.Command {
 	var apply bool
 	var all bool
@@ -59,13 +76,18 @@ func newUpgradeCmd(app *App) *cobra.Command {
 					Available:      false,
 					CurrentVersion: strings.TrimSpace(cur),
 					InstallMethod:  updatecheck.DetectInstallMethod(),
+					InstallPath:    updatecheck.DetectInstallPath(),
 				}
 			}
 			if strings.TrimSpace(notice.ReleaseURL) == "" {
 				notice.ReleaseURL = updatecheck.ReleasePageURL
 			}
 			if strings.TrimSpace(notice.FixCommand) == "" {
-				notice.FixCommand = updatecheck.DefaultFixCommand
+				if len(notice.Upgrade) > 0 {
+					notice.FixCommand = updatecheck.DefaultFixCommand
+				} else {
+					notice.FixCommand = updatecheck.ManualFixCommand
+				}
 			}
 
 			meta := map[string]any{"checked": true}
@@ -92,6 +114,10 @@ func newUpgradeCmd(app *App) *cobra.Command {
 
 			runCLI := apply || all || cliOnly
 			runSkills := all || skillsOnly
+
+			if runCLI && notice.Available && len(notice.Upgrade) == 0 {
+				return writeErr(cmd, manualCLIUpgradeError(notice))
+			}
 
 			if runSkills {
 				skillsCtx, skillsCancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -137,16 +163,6 @@ func newUpgradeCmd(app *App) *cobra.Command {
 						"requested": true,
 						"applied":   false,
 						"reason":    "already_up_to_date",
-					}
-				} else if len(notice.Upgrade) == 0 {
-					if apply || cliOnly {
-						return writeErr(cmd, errors.New("no automatic upgrade command available; use --open to view release artifacts"))
-					}
-					data["cli"] = map[string]any{
-						"requested": true,
-						"applied":   false,
-						"reason":    "manual_upgrade_required",
-						"hint":      "run `breyta upgrade --open` to view release artifacts",
 					}
 				} else {
 					if err := runUpgradeCommand(cmd.Context(), notice.Upgrade, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
