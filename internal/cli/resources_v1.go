@@ -214,7 +214,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(pathPrefix) != "" {
 				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
 			}
-			if cmd.Flags().Changed("limit") {
+			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			}
 
@@ -228,7 +228,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			out = enrichResourceListPayload(out)
+			out = compactResourceListPayload(enrichResourceListPayload(out))
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -243,7 +243,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-1000)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-1000)")
 	return cmd
 }
 
@@ -303,7 +303,7 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			out = enrichResourceListPayload(out)
+			out = compactResourceListPayload(enrichResourceListPayload(out))
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -313,7 +313,7 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset (>=0)")
 	return cmd
 }
@@ -398,12 +398,15 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if !full {
+				out = compactResourceReadPayload(out, uri)
+			}
 			return writeREST(cmd, app, status, out)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 0, "Table preview page size when reading table resources (default 25, 1-1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Table preview offset when reading table resources")
-	cmd.Flags().BoolVar(&full, "full", false, "Read the full resource payload instead of the default compact table row/cell preview")
+	cmd.Flags().BoolVar(&full, "full", false, "Read the full resource payload instead of the default compact blob/table preview")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd
@@ -494,12 +497,12 @@ func newResourcesWorkflowListCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			out = enrichResourceListPayload(out)
+			out = compactResourceListPayload(enrichResourceListPayload(out))
 			return writeREST(cmd, app, status, out)
 		},
 	}
 
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	return cmd
 }
 
@@ -535,12 +538,12 @@ func newResourcesWorkflowStepCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			out = enrichResourceListPayload(out)
+			out = compactResourceListPayload(enrichResourceListPayload(out))
 			return writeREST(cmd, app, status, out)
 		},
 	}
 
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (1-100)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	return cmd
 }
 

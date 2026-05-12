@@ -283,7 +283,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - search docs and approved templates before changing structure
   - compare the touched surface against the closest local or approved template example before editing
 - primitive-first ladder:
-  - review metadata: name, description, tags, providers, tool names, connection slots, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `
+  - review metadata: name, description, tags, providers, tool names, connection slots, step types, step count, compact publish/steps previews, and ` + "`flow_web_url`" + `
   - inspect matching private workspace snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + ` when available
   - inspect matching primitive snippets with ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` when available
   - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
@@ -300,7 +300,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
 - final handoff must include workspace/template queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored`
 
 const largeArtifactHygieneBullets = `- For large artifacts, keep chat and run summaries small: report resource refs, signed URLs, and short previews instead of pasting full table/resource content.
-- ` + "`breyta resources read <uri>`" + ` is the normal bounded inspection path for agents. It returns compact table row and cell previews by default; use ` + "`--full`" + ` only when the whole payload is required.
+- ` + "`breyta resources read <uri>`" + ` is the normal bounded inspection path for agents. It returns compact blob previews and table row/cell previews by default; use ` + "`--full`" + ` only when the whole payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only. It must not be used as a shortcut for full payload access.
 - When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.`
 
@@ -472,7 +472,7 @@ runtime semantics.
 - search error text when debugging
   - ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
   - ` + "`breyta docs find \"\\\"missing api base url\\\"\"`" + `
-- then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `
+- then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `; default docs output is compact, and ` + "`--full`" + ` is the full-page escape hatch
 - if the question is command shape or flags, finish with ` + "`breyta help <command...>`" + ` instead of guessing
 
 Escalation path when the first search misses:

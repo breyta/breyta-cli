@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -101,6 +102,40 @@ func dispatchFlowAPICommand(cmd *cobra.Command, app *App, command string, payloa
 	return doAPICommand(cmd, app, command, payload)
 }
 
+func dispatchFlowAPICommandWithTransform(cmd *cobra.Command, app *App, command string, payload map[string]any, allowGlobal bool, transform func(map[string]any)) error {
+	if transform == nil {
+		return dispatchFlowAPICommand(cmd, app, command, payload, allowGlobal)
+	}
+	if useDoAPICommandFn {
+		return doAPICommandFn(cmd, app, command, payload)
+	}
+	if allowGlobal && strings.TrimSpace(app.WorkspaceID) == "" {
+		if err := requireAPI(app); err != nil {
+			return writeErr(cmd, err)
+		}
+		client := apiClient(app)
+		out, status, err := client.DoGlobalCommand(context.Background(), command, payload)
+		if err != nil {
+			return writeErr(cmd, err)
+		}
+		trackCommandTelemetry(app, command, payload, status, status < 400 && isOK(out))
+		transform(out)
+		if err := writeAPIResult(cmd, app, out, status); err != nil {
+			return writeErr(cmd, err)
+		}
+		return nil
+	}
+	out, status, err := runAPICommand(app, command, payload)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	transform(out)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
+}
+
 func newFlowsSearchCmd(app *App) *cobra.Command {
 	var catalogScope string
 	var provider string
@@ -169,7 +204,10 @@ approved-template search surface. ` + "`--full`" + ` includes a bounded source p
 					payload["query"] = query
 				}
 				appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, workspaceID == "" && effectiveScope == "all")
+				if full {
+					return dispatchFlowAPICommand(cmd, app, "flows.search", payload, workspaceID == "" && effectiveScope == "all")
+				}
+				return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, workspaceID == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
 			}
 
 			if query == "" && !hasFlowSearchFilter(provider, stepType, toolName, connection, flowSlug) {
@@ -203,7 +241,7 @@ approved-template search surface. ` + "`--full`" + ` includes a bounded source p
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit workspace search to one known flow slug")
 	cmd.Flags().StringVar(&target, "target", "latest", "Workspace source target: latest|draft|live")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Deprecated compatibility: include bounded approved template source preview")
 	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include the raw full source definition inline; verbose")
@@ -290,7 +328,7 @@ synonym expansion.
 			case "workspace":
 				return dispatchFlowAPICommand(cmd, app, "flows.workspace.search", workspacePayload, false)
 			case "templates":
-				return dispatchFlowAPICommand(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "")
+				return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "", compactTemplateSearchEnvelope)
 			default:
 				return runCombinedFlowGrep(cmd, app, workspacePayload, templatePayload, limit)
 			}
@@ -305,7 +343,7 @@ synonym expansion.
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit workspace search to one known flow slug")
 	cmd.Flags().StringVar(&target, "target", "latest", "Workspace source target: latest|draft|live")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results per scope (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results per scope (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived workspace flows")
 	return cmd
@@ -326,6 +364,7 @@ func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templat
 	if templateStatus >= 400 || !isOK(templateOut) {
 		return writeAPIResult(cmd, app, templateOut, templateStatus)
 	}
+	compactTemplateSearchEnvelope(templateOut)
 
 	hits := append(resultHits(workspaceOut), resultHits(templateOut)...)
 	meta := map[string]any{
@@ -424,7 +463,10 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 				payload["query"] = query
 			}
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			if full {
+				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
 		},
 	}
 
@@ -433,7 +475,7 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded indexed template source preview")
 	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include the raw full source definition inline; verbose")
@@ -493,7 +535,10 @@ hidden semantic or synonym expansion.
 			}
 			addPatternPayload(payload, pattern, ors)
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			if full {
+				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
 		},
 	}
 
@@ -503,7 +548,7 @@ hidden semantic or synonym expansion.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched templates")
 	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include raw source definition EDN inline; verbose")

@@ -232,6 +232,80 @@ func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	}
 }
 
+func TestDocsShow_CompactsLongMarkdownByDefault(t *testing.T) {
+	t.Parallel()
+
+	longBody := "# Long Doc\n\n" +
+		"Summary line for the long doc.\n\n" +
+		"## Setup\n\n" + strings.Repeat("setup detail ", 80) + "\n\n" +
+		"## Runtime\n\n" + strings.Repeat("runtime detail ", 80) + "\n\n" +
+		"FINAL_SENTINEL_TOKEN\n"
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/long-doc" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(longBody))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"long-doc", "--max-chars", "240"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Compact docs preview") {
+		t.Fatalf("expected compact docs hint, got: %q", got)
+	}
+	if strings.Contains(got, "FINAL_SENTINEL_TOKEN") {
+		t.Fatalf("expected default docs show to omit tail sentinel, got: %q", got)
+	}
+
+	cmd = newDocsShowCmd(&App{APIURL: srv.URL})
+	out.Reset()
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"long-doc", "--full"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute full: %v", err)
+	}
+	if !strings.Contains(out.String(), "FINAL_SENTINEL_TOKEN") {
+		t.Fatalf("expected --full docs show to include full markdown, got: %q", out.String())
+	}
+}
+
+func TestDocsShow_SectionNarrowsMarkdown(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/long-doc" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Long Doc\n\n## Setup\n\nSetup details.\n\n## Runtime\n\nRuntime details.\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"long-doc", "--section", "runtime"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "## Runtime") || strings.Contains(got, "Setup details") {
+		t.Fatalf("expected focused runtime section, got: %q", got)
+	}
+}
+
 func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 

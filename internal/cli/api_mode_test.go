@@ -943,6 +943,69 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 	}
 }
 
+func TestResourcesSearch_DefaultOutputIsCompact(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/search" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("limit"); got != "10" {
+			t.Fatalf("expected compact default limit=10, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"query": "invoice",
+			"items": []any{
+				map[string]any{
+					"uri":          "res://v1/ws/ws-acme/result/run/wf-123/flow-output",
+					"type":         "result",
+					"path":         "/very/long/internal/storage/path/persist/invoice-output.json",
+					"content-type": "application/json",
+					"snippet":      strings.Repeat("invoice summary ", 50),
+					"details": map[string]any{
+						"workflow-id": "wf-123",
+						"flow-slug":   "invoice-reader",
+						"step-id":     "summarize",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "search", "invoice",
+	)
+	if err != nil {
+		t.Fatalf("resources search failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", data["outputView"])
+	}
+	items, _ := data["items"].([]any)
+	item, _ := items[0].(map[string]any)
+	if _, ok := item["path"]; ok {
+		t.Fatalf("expected compact item to omit path, got %#v", item)
+	}
+	if _, ok := item["content-type"]; ok {
+		t.Fatalf("expected compact item to omit duplicate kebab content type, got %#v", item)
+	}
+	if item["displayName"] == "" || item["sourceLabel"] == "" || item["workflowId"] != "wf-123" || item["flowSlug"] != "invoice-reader" {
+		t.Fatalf("unexpected compact item fields: %#v", item)
+	}
+	if got, _ := item["snippet"].(string); got == "" || len(got) >= len(strings.Repeat("invoice summary ", 50)) {
+		t.Fatalf("expected truncated snippet, got %#v", item["snippet"])
+	}
+}
+
 func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources" {
@@ -1008,5 +1071,84 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 	}
 	if ok, _ := out["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", out)
+	}
+}
+
+func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T) {
+	uri := "res://v1/ws/ws-acme/result/blob/output-json"
+	longBody := strings.Repeat("payload ", 900)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/content" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("uri"); got != uri {
+			t.Fatalf("expected uri=%s, got %q", uri, got)
+		}
+		if r.URL.Query().Get("view") == "" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"uri":         uri,
+				"contentType": "application/json",
+				"body":        longBody,
+			})
+			return
+		}
+		if got := r.URL.Query().Get("view"); got != "summary" {
+			t.Fatalf("expected default read view=summary, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "25" {
+			t.Fatalf("expected default preview limit=25, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"uri":         uri,
+			"contentType": "application/json",
+			"body":        longBody,
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+	)
+	if err != nil {
+		t.Fatalf("resources read failed: %v\n%s", err, stdout)
+	}
+	var compactOut map[string]any
+	if err := json.Unmarshal([]byte(stdout), &compactOut); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	compactData, _ := compactOut["data"].(map[string]any)
+	if _, ok := compactData["body"]; ok {
+		t.Fatalf("expected compact read to omit raw body, got %#v", compactData)
+	}
+	if got, _ := compactData["preview"].(string); got == "" || len(got) >= len(longBody) {
+		t.Fatalf("expected truncated preview, got %#v", compactData["preview"])
+	}
+	if compactData["truncated"] != true {
+		t.Fatalf("expected truncated=true, got %#v", compactData["truncated"])
+	}
+
+	stdout, _, err = runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("resources read --full failed: %v\n%s", err, stdout)
+	}
+	var fullOut map[string]any
+	if err := json.Unmarshal([]byte(stdout), &fullOut); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	fullData, _ := fullOut["data"].(map[string]any)
+	if got, _ := fullData["body"].(string); got != longBody {
+		t.Fatalf("expected --full to keep raw body, got %#v", fullData["body"])
 	}
 }

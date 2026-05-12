@@ -308,6 +308,95 @@ func TestFlowsTemplatesSearch_BuildsApprovedTemplatePayload(t *testing.T) {
 	}
 }
 
+func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
+	var gotArgs map[string]any
+	longDescription := strings.Repeat("approved template description ", 40)
+	longStepsText := strings.Repeat("source step summary ", 70)
+	steps := []any{
+		map[string]any{"id": "s1"},
+		map[string]any{"id": "s2"},
+		map[string]any{"id": "s3"},
+		map[string]any{"id": "s4"},
+		map[string]any{"id": "s5"},
+		map[string]any{"id": "s6"},
+		map[string]any{"id": "s7"},
+	}
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["command"] != "flows.search" {
+			t.Fatalf("expected flows.search, got %#v", body["command"])
+		}
+		gotArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"result": map[string]any{
+					"hits": []any{
+						map[string]any{
+							"flow_slug":           "template-agent",
+							"publish_description": longDescription,
+							"steps_text":          longStepsText,
+							"step_list":           steps,
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"agent"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotArgs["limit"] != float64(5) || gotArgs["includeDefinition"] != false {
+		t.Fatalf("unexpected compact default args: %#v", gotArgs)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, out.String())
+	}
+	meta, _ := envelope["meta"].(map[string]any)
+	if meta["outputView"] != "compact" {
+		t.Fatalf("expected compact outputView, got %#v", meta)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	result, _ := data["result"].(map[string]any)
+	hits, _ := result["hits"].([]any)
+	hit, _ := hits[0].(map[string]any)
+	if _, ok := hit["publish_description"]; ok {
+		t.Fatalf("expected publish_description to be compacted: %#v", hit)
+	}
+	if _, ok := hit["steps_text"]; ok {
+		t.Fatalf("expected steps_text to be compacted: %#v", hit)
+	}
+	if got, _ := hit["publishDescriptionPreview"].(string); got == "" || len(got) >= len(longDescription) {
+		t.Fatalf("expected compact publishDescriptionPreview, got %#v", hit["publishDescriptionPreview"])
+	}
+	if got, _ := hit["stepsTextPreview"].(string); got == "" || len(got) >= len(longStepsText) {
+		t.Fatalf("expected compact stepsTextPreview, got %#v", hit["stepsTextPreview"])
+	}
+	stepList, _ := hit["step_list"].([]any)
+	if len(stepList) != 5 || hit["stepListOmitted"] != float64(2) {
+		t.Fatalf("expected truncated step list, got step_list=%#v omitted=%#v", stepList, hit["stepListOmitted"])
+	}
+}
+
 func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

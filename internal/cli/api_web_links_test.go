@@ -279,11 +279,11 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
-	if got, _ := first["display-name"].(string); got != "demo-result.json" {
-		t.Fatalf("unexpected item display-name: %q", got)
+	if got, _ := first["displayName"].(string); got != "demo-result.json" {
+		t.Fatalf("unexpected item displayName: %q", got)
 	}
-	if got, _ := first["source-label"].(string); got != "run wf-123" {
-		t.Fatalf("unexpected item source-label: %q", got)
+	if got, _ := first["sourceLabel"].(string); got != "run wf-123" {
+		t.Fatalf("unexpected item sourceLabel: %q", got)
 	}
 }
 
@@ -339,11 +339,11 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
-	if got, _ := first["display-name"].(string); got != "transcript-jan-02.txt" {
-		t.Fatalf("unexpected item display-name: %q", got)
+	if got, _ := first["displayName"].(string); got != "transcript-jan-02.txt" {
+		t.Fatalf("unexpected item displayName: %q", got)
 	}
-	if got, _ := first["source-label"].(string); got != "run wf-123" {
-		t.Fatalf("unexpected item source-label: %q", got)
+	if got, _ := first["sourceLabel"].(string); got != "run wf-123" {
+		t.Fatalf("unexpected item sourceLabel: %q", got)
 	}
 }
 

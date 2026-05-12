@@ -221,7 +221,7 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
 - Start new work by inspecting the smallest current state needed, then use workspace search/grep, docs, and approved templates at the primitive level; do not invent structure from a name alone.
 - When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
 - Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
-- Use ` + "`breyta docs find <query>`" + ` first; open ` + "`breyta docs show <slug>`" + ` only for the narrow doc page needed
+- Use ` + "`breyta docs find <query>`" + ` first; open ` + "`breyta docs show <slug>`" + ` only for the narrow doc page needed; default docs output is compact, and ` + "`--full`" + ` is the full-page escape hatch
 - Before inferring implementation details, search docs for each changed primitive with the narrowest useful query shape:
   - primitive name
   - exact phrase
@@ -263,7 +263,7 @@ Suggested line to paste into your agent's persistent project instructions:
 ## Primitive-first reuse (required for create/edit)
 - New flow sequence: ` + "`breyta flows search \"<integration or problem query>\" --limit 5`" + ` -> ` + "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`" + ` when metadata is insufficient -> private snippets -> docs snippets -> approved template metadata -> approved primitive snippet -> full template only for architecture-level reuse.
 - Existing flow sequence: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + ` -> workspace search/grep only for nearby patterns -> docs search snippets -> approved template metadata -> primitive snippet -> compare the touched surface before changing structure.
-- Review approved template metadata before choosing a pattern: name, description, tags, providers, tool names, connection slots, step types, step count, publish description, ` + "`steps_text`" + `, and ` + "`flow_web_url`" + `.
+- Review approved template metadata before choosing a pattern: name, description, tags, providers, tool names, connection slots, step types, step count, compact publish/steps previews, and ` + "`flow_web_url`" + `.
 - Do not pull a full template for a primitive/step edit unless snippet context and referenced ` + "`:requires`" + ` / ` + "`:templates`" + ` / ` + "`:functions`" + ` are insufficient.
 - Do not use ` + "`breyta flows list`" + ` for pattern discovery; use ` + "`breyta flows search <query>`" + ` or ` + "`breyta flows grep <literal>`" + ` and reserve list for inventory, slug checks, or explicit user requests.
 - Full template inspection is reserved for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.
@@ -381,7 +381,7 @@ Suggested line to paste into your agent's persistent project instructions:
   - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
-  - then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `
+  - then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `; default docs output is compact, and ` + "`--full`" + ` is the full-page escape hatch
 - External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
 - Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
 - Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
@@ -466,7 +466,7 @@ Advanced ideas:
 - Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. ` + "`flows show`" + ` includes a non-editable ` + "`flowLiteralPreview`" + ` when source is available; use ` + "`flows pull`" + ` for editable source.
-- ` + "`breyta resources read <uri>`" + ` defaults to bounded table row and cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
+- ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only; it must not imply full payload access.
 - For large reports and research artifacts, persist the full body as a resource and move refs, URLs, short summaries, and previews through tables or run output.
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug>`" + ` so ` + "`groupFlows`" + ` is visible
@@ -492,7 +492,7 @@ Advanced ideas:
   - command path: ` + "`breyta docs find \"source:cli flows configure check\"`" + `
   - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\"`" + `
   - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\"`" + `
-  - then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `
+  - then open only the best narrow hit with ` + "`breyta docs show <slug>`" + `; default docs output is compact, and ` + "`--full`" + ` is the full-page escape hatch
 - External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
 - OpenAI connection default: ` + "`:http-api`" + ` requirement, backend ` + "`openai`" + `, base URL ` + "`https://api.openai.com/v1`" + `, API-key auth, and a non-null config map.
 - Command help: ` + "`breyta help <command...>`" + `

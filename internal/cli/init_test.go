@@ -308,7 +308,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Authoring reads are compact by default. Use `--full` on `flows show`, `flows diff`, or `runs show`") {
 		t.Fatalf("unexpected readme content (missing compact authoring default guidance): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta resources read <uri>` defaults to bounded table row and cell previews") {
+	if !strings.Contains(string(readme), "`breyta resources read <uri>` defaults to compact blob previews and bounded table row/cell previews") {
 		t.Fatalf("unexpected readme content (missing bounded resource-read guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Treat `--pretty` as formatting only") {
