@@ -88,3 +88,55 @@ func TestDetectInstallMethodForPathRecognizesGoBin(t *testing.T) {
 		t.Fatalf("expected go install method for %s, got %q", path, got)
 	}
 }
+
+func TestDetectInstallMethodForPathRecognizesExplicitGoBin(t *testing.T) {
+	home := t.TempDir()
+	gobin := filepath.Join(home, "custom", "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("GOPATH", filepath.Join(home, "go"))
+	t.Setenv("GOBIN", gobin)
+
+	path := filepath.Join(gobin, "breyta")
+	if got := detectInstallMethodForPath(path); got != InstallMethodGo {
+		t.Fatalf("expected go install method for explicit GOBIN path %s, got %q", path, got)
+	}
+}
+
+func TestDetectInstallMethodForPathDoesNotUseGoPathBinWhenGoBinSet(t *testing.T) {
+	home := t.TempDir()
+	gopath := filepath.Join(home, "go")
+	gobin := filepath.Join(home, "custom", "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("GOPATH", gopath)
+	t.Setenv("GOBIN", gobin)
+
+	path := filepath.Join(gopath, "bin", "breyta")
+	if got := detectInstallMethodForPath(path); got != InstallMethodUnknown {
+		t.Fatalf("expected unknown install method for GOPATH/bin while GOBIN is set, got %q", got)
+	}
+}
+
+func TestDetectInstallMethodForPathRecognizesGoPathBinWhenGoBinUnset(t *testing.T) {
+	home := t.TempDir()
+	gopath := filepath.Join(home, "go")
+	t.Setenv("HOME", filepath.Join(home, "home"))
+	t.Setenv("GOPATH", gopath)
+	t.Setenv("GOBIN", "")
+
+	path := filepath.Join(gopath, "bin", "breyta")
+	if got := detectInstallMethodForPath(path); got != InstallMethodGo {
+		t.Fatalf("expected go install method for GOPATH/bin when GOBIN is unset, got %q", got)
+	}
+}
+
+func TestDetectInstallMethodForPathRejectsUnrelatedPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GOPATH", filepath.Join(home, "go"))
+	t.Setenv("GOBIN", filepath.Join(home, "custom", "bin"))
+
+	path := filepath.Join(home, "other", "bin", "breyta")
+	if got := detectInstallMethodForPath(path); got != InstallMethodUnknown {
+		t.Fatalf("expected unknown install method for unrelated path, got %q", got)
+	}
+}
