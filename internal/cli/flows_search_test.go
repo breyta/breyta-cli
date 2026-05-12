@@ -629,7 +629,7 @@ func TestFlowsWorkspaceSearch_BuildsWorkspacePayload(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"gmail", "--step-type", "http", "--flow", "gmail-support-agent", "--target", "draft", "--limit", "5", "--from", "2", "--include-archived"})
+	cmd.SetArgs([]string{"gmail", "--step-type", "http", "--flow", "gmail-support-agent", "--target", "draft", "--from", "2", "--include-archived"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())

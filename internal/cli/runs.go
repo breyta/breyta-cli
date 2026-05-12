@@ -222,7 +222,7 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 	_ = cmd.Flags().MarkHidden("profile-id")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
 	cmd.Flags().IntVar(&version, "version", 0, "Filter by flow version active when the run started (API mode only)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Limit results (0 = all)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in list results")
 	return cmd

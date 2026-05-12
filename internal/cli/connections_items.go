@@ -28,7 +28,7 @@ Inspect cached non-secret items for a workspace connection.
 Connection item caches back installable-flow dropdowns such as repository,
 channel, project, folder, or account selectors. The default output summarizes
 cached rows and omits raw provider payloads. Use --raw only when debugging item
-metadata.`),
+metadata, and --limit 0 only when the full dropdown cache is required.`),
 		Example: strings.TrimSpace(`
 breyta connections items conn-github
 breyta connections items conn-github --item-type github/repository --limit 25
@@ -74,7 +74,7 @@ breyta connections items conn-github --item-type github/repository --limit 0`),
 		},
 	}
 	cmd.Flags().StringVar(&itemType, "item-type", "", "Filter to one cached item type")
-	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum items to return; use 0 for all")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Maximum items to return; use 0 for all")
 	cmd.Flags().BoolVar(&includeRaw, "raw", false, "Include raw cached item payloads")
 	return cmd
 }

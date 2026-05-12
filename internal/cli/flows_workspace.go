@@ -95,7 +95,7 @@ Prefer the shorter alias for new sessions:
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit search to one known workspace flow slug")
 	cmd.Flags().StringVar(&target, "target", "latest", "Flow source target: latest|draft|live")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived workspace flows")
 	return cmd

@@ -443,7 +443,6 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 		"--token", "user-dev",
 		"resources", "table", "query", "res://v1/ws/ws-acme/result/table/tbl_1",
 		"--page-mode", "offset",
-		"--limit", "25",
 		"--offset", "50",
 		"--select", "order-id,status",
 		"--partition-keys", "month-2026-03,month-2026-04",
@@ -771,6 +770,9 @@ func TestResourcesTableAggregate_UsesExpandedPayload(t *testing.T) {
 		}
 		if got, _ := body["partition-key"].(string); got != "month-2026-03" {
 			t.Fatalf("expected partition-key=month-2026-03, got %#v", body["partition-key"])
+		}
+		if got, _ := body["limit"].(float64); got != 25 {
+			t.Fatalf("expected compact default aggregate limit=25, got %#v", body["limit"])
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"results": []any{map[string]any{"amount-bin": 10.0, "p95-amount": 14.75, "median-amount": 12.5}},

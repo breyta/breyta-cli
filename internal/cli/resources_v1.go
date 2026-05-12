@@ -632,7 +632,7 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&selectFields, "select", "", "Comma-separated projected fields")
 	cmd.Flags().StringVar(&whereJSON, "where-json", "", "Raw JSON predicate vector, e.g. [[\"status\",\"=\",\"open\"]]")
 	cmd.Flags().StringVar(&sortJSON, "sort-json", "", "Raw JSON sort vector, e.g. [[\"updated-at\",\"desc\"]]")
-	cmd.Flags().IntVar(&limit, "limit", 100, "Page size (1-1000)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Page size (1-1000)")
 	cmd.Flags().StringVar(&pageMode, "page-mode", "", "Pagination mode: offset or cursor")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Page offset (>=0)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque pagination cursor for forward scans")
@@ -1036,7 +1036,7 @@ func newResourcesTableAggregateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&metricsJSON, "metrics-json", "", "Raw JSON metric vector")
 	cmd.Flags().StringVar(&havingJSON, "having-json", "", "Raw JSON aggregate having predicate vector")
 	cmd.Flags().StringVar(&orderByJSON, "order-by-json", "", "Raw JSON aggregate order-by vector")
-	cmd.Flags().IntVar(&limit, "limit", 200, "Max aggregate groups")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max aggregate groups")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Target a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Target a comma-separated subset of table partitions")
 	return cmd

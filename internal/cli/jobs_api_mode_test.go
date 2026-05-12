@@ -91,6 +91,87 @@ func TestJobsCreate_UsesAPICommand(t *testing.T) {
 	}
 }
 
+func TestJobsList_DefaultLimitIsCompact(t *testing.T) {
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var gotArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "jobs.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "unexpected command"},
+			})
+			return
+		}
+		gotArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"items": []any{
+					map[string]any{
+						"jobId":         "job-1",
+						"jobType":       "codex-review",
+						"status":        "succeeded",
+						"resultSummary": "short summary",
+						"payload":       map[string]any{"prompt": "large prompt", "repo": "breyta"},
+						"result": map[string]any{
+							"outputs": map[string]any{"pr-url": "https://github.com/breyta/breyta/pull/1"},
+						},
+						"attempts": []any{map[string]any{"attempt": 1}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(
+		t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"jobs", "list",
+	)
+	if err != nil {
+		t.Fatalf("jobs list failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if got, _ := gotArgs["limit"].(float64); got != 10 {
+		t.Fatalf("expected compact default limit=10, got %#v", gotArgs["limit"])
+	}
+
+	env := decodeEnvelope(t, stdout)
+	if !env.OK {
+		t.Fatalf("expected ok=true, got %+v", env)
+	}
+	if env.Meta["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", env.Meta)
+	}
+	items, _ := env.Data["items"].([]any)
+	first, _ := items[0].(map[string]any)
+	if _, ok := first["payload"]; ok {
+		t.Fatalf("default jobs list should omit raw payload, got %#v", first)
+	}
+	if _, ok := first["result"]; ok {
+		t.Fatalf("default jobs list should omit raw result, got %#v", first)
+	}
+	if got, _ := first["prUrl"].(string); got != "https://github.com/breyta/breyta/pull/1" {
+		t.Fatalf("expected compact prUrl, got %#v", first)
+	}
+	if keys, _ := first["payloadKeys"].([]any); len(keys) != 2 {
+		t.Fatalf("expected payload key summary, got %#v", first["payloadKeys"])
+	}
+}
+
 func TestJobsBatchCreate_UsesBatchCommand(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
@@ -176,6 +257,77 @@ func TestJobsBatchCreate_UsesBatchCommand(t *testing.T) {
 	env := decodeEnvelope(t, stdout)
 	if !env.OK {
 		t.Fatalf("expected ok=true, got %+v", env)
+	}
+}
+
+func TestJobsBatchesShow_DefaultLimitIsCompact(t *testing.T) {
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var gotArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "jobs.batches.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "unexpected command"},
+			})
+			return
+		}
+		gotArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"batch": map[string]any{"batchId": "batch-1"},
+				"jobs": []any{
+					map[string]any{
+						"jobId":   "job-1",
+						"jobType": "codex-review",
+						"status":  "queued",
+						"payload": map[string]any{"prompt": "large prompt"},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(
+		t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"jobs", "batches", "show", "batch-1",
+	)
+	if err != nil {
+		t.Fatalf("jobs batches show failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if got, _ := gotArgs["batchId"].(string); got != "batch-1" {
+		t.Fatalf("expected batchId=batch-1, got %#v", gotArgs["batchId"])
+	}
+	if got, _ := gotArgs["limit"].(float64); got != 10 {
+		t.Fatalf("expected compact default limit=10, got %#v", gotArgs["limit"])
+	}
+
+	env := decodeEnvelope(t, stdout)
+	if !env.OK {
+		t.Fatalf("expected ok=true, got %+v", env)
+	}
+	if env.Meta["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", env.Meta)
+	}
+	jobs, _ := env.Data["jobs"].([]any)
+	first, _ := jobs[0].(map[string]any)
+	if _, ok := first["payload"]; ok {
+		t.Fatalf("default jobs batches show should omit raw payload, got %#v", first)
 	}
 }
 

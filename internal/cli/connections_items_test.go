@@ -8,6 +8,59 @@ import (
 	"testing"
 )
 
+func TestConnectionsList_APIModeDefaultsToCompactRows(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/connections" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("limit"); got != "25" {
+			t.Fatalf("expected compact default limit=25, got %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"connection-id": "conn-1",
+					"name":          "GitHub",
+					"type":          "github",
+					"status":        "active",
+					"config": map[string]any{
+						"auth":  map[string]any{"secret-ref": "secret-1"},
+						"owner": "acme",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "list",
+	)
+	if err != nil {
+		t.Fatalf("connections list failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if !out.OK {
+		t.Fatalf("expected ok=true, got %+v", out)
+	}
+	if out.Data["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", out.Data)
+	}
+	items, _ := out.Data["items"].([]any)
+	first, _ := items[0].(map[string]any)
+	if _, ok := first["config"]; ok {
+		t.Fatalf("default connections list should omit raw config, got %#v", first)
+	}
+	if keys, _ := first["configKeys"].([]any); len(keys) != 2 {
+		t.Fatalf("expected config key summary, got %#v", first["configKeys"])
+	}
+}
+
 func TestConnectionsItems_APIModeListsCachedConnectionItems(t *testing.T) {
 	var sawPath string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +149,11 @@ func TestConnectionsItems_APIModeRawIncludesCachedPayload(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/connections/conn-gh/items" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("item-type") != "github/repository" || r.URL.Query().Get("limit") != "25" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing compact default query"}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{

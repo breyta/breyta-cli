@@ -214,7 +214,7 @@ func newFlowsMetricsCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "", "Restrict metrics to author source calls (draft|live)")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Restrict metrics to a specific installation id")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict metrics to invocation kind (manual|http|mcp|schedule|webhook|cli)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Maximum metric rows to return")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum metric rows to return")
 	return cmd
 }
 

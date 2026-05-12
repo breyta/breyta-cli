@@ -38,6 +38,11 @@ func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
 			return
 		}
+		if got, _ := args["limit"].(float64); got != 10 {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing compact default limit"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"items": []any{}}})
 	}))
 	defer srv.Close()

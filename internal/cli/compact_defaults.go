@@ -15,6 +15,7 @@ const (
 	compactTemplateStepListLimit    = 5
 	compactResourceSnippetRunes     = 360
 	compactResourceReadRunes        = 4096
+	compactJobSummaryRunes          = 360
 	compactDocsDefaultRunes         = 12000
 	compactDocsContentsLimit        = 30
 )
@@ -23,11 +24,23 @@ func compactTemplateSearchEnvelope(out map[string]any) {
 	data := mapStringAny(out["data"])
 	result := mapStringAny(data["result"])
 	hits := sliceAny(result["hits"])
-	if len(hits) == 0 {
+	itemHits := sliceAny(result["items"])
+	dataItems := sliceAny(data["items"])
+	if len(hits) == 0 && len(itemHits) == 0 && len(dataItems) == 0 {
 		return
 	}
 	changed := false
 	for _, hitAny := range hits {
+		if compactTemplateSearchHit(mapStringAny(hitAny)) {
+			changed = true
+		}
+	}
+	for _, hitAny := range itemHits {
+		if compactTemplateSearchHit(mapStringAny(hitAny)) {
+			changed = true
+		}
+	}
+	for _, hitAny := range dataItems {
 		if compactTemplateSearchHit(mapStringAny(hitAny)) {
 			changed = true
 		}
@@ -213,6 +226,353 @@ func compactResourceReadPayload(payload any, uri string) any {
 		"fullBytes":    len([]byte(rendered)),
 		"hint":         "Resource content is compact by default. Use `breyta resources read " + strings.TrimSpace(uri) + " --full` when the full payload is required.",
 	})
+}
+
+func compactJobsListEnvelope(out map[string]any) {
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return
+	}
+	changed := compactJobItemsField(data, "items")
+	changed = compactJobItemsField(data, "jobs") || changed
+	if batch := mapStringAny(data["batch"]); batch != nil {
+		changed = compactJobItemsField(batch, "jobs") || changed
+	}
+	if !changed {
+		return
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["outputView"] = "compact"
+	if _, exists := meta["hint"]; !exists {
+		meta["hint"] = "Job list output omits payload/result/attempt details by default. Use `breyta jobs show <job-id>` for one job or rerun the list command with --full for the raw response."
+	}
+}
+
+func compactJobItemsField(parent map[string]any, key string) bool {
+	if parent == nil {
+		return false
+	}
+	items := sliceAny(parent[key])
+	if len(items) == 0 {
+		return false
+	}
+	changed := false
+	for i, itemAny := range items {
+		if compacted := compactJobListItem(mapStringAny(itemAny)); compacted != nil {
+			items[i] = compacted
+			changed = true
+		}
+	}
+	if changed {
+		parent[key] = items
+	}
+	return changed
+}
+
+func compactJobListItem(job map[string]any) map[string]any {
+	if job == nil {
+		return nil
+	}
+	result := mapStringAny(job["result"])
+	outputs := firstMapStringAny(job["outputs"], result["outputs"])
+	metrics := firstMapStringAny(job["metrics"], result["metrics"])
+	artifacts := sliceAny(firstPresentAny(job["artifacts"], result["artifacts"]))
+	attempts := sliceAny(job["attempts"])
+	progress := compactJobProgress(mapStringAny(job["progress"]))
+	summary, _ := truncateRunesWithFlag(firstNonBlankString(job["resultSummary"], job["result-summary"], result["summary"]), compactJobSummaryRunes)
+
+	return compactNonEmptyFields(map[string]any{
+		"jobId":             firstNonBlankString(job["jobId"], job["job-id"], job["id"]),
+		"jobType":           firstNonBlankString(job["jobType"], job["job-type"], job["type"]),
+		"status":            firstNonBlankString(job["status"]),
+		"batchId":           firstNonBlankString(job["batchId"], job["batch-id"]),
+		"rootWorkflowId":    firstNonBlankString(job["rootWorkflowId"], job["root-workflow-id"]),
+		"parentStepId":      firstNonBlankString(job["parentStepId"], job["parent-step-id"]),
+		"attempt":           firstPresentAny(job["attempt"]),
+		"attemptCount":      positiveCount(len(attempts)),
+		"maxAttempts":       firstPresentAny(job["maxAttempts"], job["max-attempts"]),
+		"createdAt":         firstNonBlankString(job["createdAt"], job["created-at"]),
+		"startedAt":         firstNonBlankString(job["startedAt"], job["started-at"]),
+		"updatedAt":         firstNonBlankString(job["updatedAt"], job["updated-at"]),
+		"completedAt":       firstNonBlankString(job["completedAt"], job["completed-at"]),
+		"lastHeartbeatAt":   firstNonBlankString(job["lastHeartbeatAt"], job["last-heartbeat-at"]),
+		"workerId":          firstNonBlankString(job["workerId"], job["worker-id"]),
+		"summary":           summary,
+		"progress":          progress,
+		"metadataKeys":      nonEmptyObjectPreviewKeys(job["metadata"], 12),
+		"payloadKeys":       nonEmptyObjectPreviewKeys(job["payload"], 12),
+		"outputKeys":        nonEmptyObjectPreviewKeys(outputs, 12),
+		"metricKeys":        nonEmptyObjectPreviewKeys(metrics, 12),
+		"artifactCount":     positiveCount(len(artifacts)),
+		"prUrl":             firstNonBlankString(outputs["pr-url"], outputs["prUrl"]),
+		"reportResourceUri": firstNonBlankString(outputs["report-resource-uri"], outputs["reportResourceUri"]),
+	})
+}
+
+func compactJobProgress(progress map[string]any) map[string]any {
+	if progress == nil {
+		return nil
+	}
+	message, _ := truncateRunesWithFlag(firstNonBlankString(progress["message"]), compactJobSummaryRunes)
+	return compactNonEmptyFields(map[string]any{
+		"status":    firstNonBlankString(progress["status"]),
+		"message":   message,
+		"updatedAt": firstNonBlankString(progress["updatedAt"], progress["updated-at"]),
+	})
+}
+
+func firstMapStringAny(values ...any) map[string]any {
+	for _, value := range values {
+		if m := mapStringAny(value); m != nil {
+			return m
+		}
+	}
+	return nil
+}
+
+func nonEmptyObjectPreviewKeys(value any, max int) []string {
+	keys := objectPreviewKeys(value, max)
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
+}
+
+func positiveCount(n int) any {
+	if n <= 0 {
+		return nil
+	}
+	return n
+}
+
+func compactConnectionsListPayload(payload any) any {
+	out := mapStringAny(payload)
+	if out == nil {
+		return payload
+	}
+	items := sliceAny(firstPresentAny(out["items"], out["connections"]))
+	if len(items) == 0 {
+		return payload
+	}
+	for i, itemAny := range items {
+		if compacted := compactConnectionListItem(mapStringAny(itemAny)); compacted != nil {
+			items[i] = compacted
+		}
+	}
+	if _, exists := out["items"]; exists {
+		out["items"] = items
+	} else {
+		out["connections"] = items
+	}
+	out["outputView"] = "compact"
+	if _, exists := out["hint"]; !exists {
+		out["hint"] = "Connection list output omits raw config/auth by default. Use `breyta connections show <connection-id>` or rerun with --full for full connection details."
+	}
+	return out
+}
+
+func compactConnectionListItem(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	health := mapStringAny(item["health"])
+	stats := mapStringAny(item["stats"])
+	return compactNonEmptyFields(map[string]any{
+		"connectionId":   firstNonBlankString(item["connection-id"], item["connectionId"], item["id"]),
+		"name":           firstNonBlankString(item["name"]),
+		"type":           firstNonBlankString(item["type"]),
+		"status":         firstNonBlankString(item["status"]),
+		"backend":        firstNonBlankString(item["backend"]),
+		"baseUrl":        firstNonBlankString(item["base-url"], item["baseUrl"]),
+		"description":    truncateNonBlank(firstNonBlankString(item["description"]), compactTemplateDescriptionRunes),
+		"health":         compactConnectionHealth(health),
+		"referenceCount": firstPresentAny(stats["reference-count"], stats["referenceCount"]),
+		"updatedAt":      firstNonBlankString(item["updated-at"], item["updatedAt"]),
+		"webUrl":         firstNonBlankString(item["webUrl"], item["web-url"]),
+		"configKeys":     nonEmptyObjectPreviewKeys(item["config"], 8),
+	})
+}
+
+func compactConnectionHealth(health map[string]any) map[string]any {
+	if health == nil {
+		return nil
+	}
+	return compactNonEmptyFields(map[string]any{
+		"success": firstPresentAny(health["success"]),
+		"status":  firstNonBlankString(health["status"]),
+		"message": truncateNonBlank(firstNonBlankString(health["message"]), compactTemplateDescriptionRunes),
+	})
+}
+
+func compactIncidentsListPayload(payload any) any {
+	out := mapStringAny(payload)
+	if out == nil {
+		return payload
+	}
+	items := sliceAny(out["items"])
+	if len(items) == 0 {
+		return payload
+	}
+	for i, itemAny := range items {
+		if compacted := compactIncidentListItem(mapStringAny(itemAny)); compacted != nil {
+			items[i] = compacted
+		}
+	}
+	out["items"] = items
+	out["outputView"] = "compact"
+	if _, exists := out["hint"]; !exists {
+		out["hint"] = "Incident list output is compact by default. Use `breyta incidents show <incident-id>` or rerun with --full for full incident details."
+	}
+	return out
+}
+
+func compactIncidentListItem(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	return compactNonEmptyFields(map[string]any{
+		"incidentId":           firstNonBlankString(item["incident-id"], item["incidentId"], item["id"]),
+		"flowSlug":             firstNonBlankString(item["flow-slug"], item["flowSlug"]),
+		"status":               firstNonBlankString(item["status"]),
+		"severity":             firstNonBlankString(item["severity"]),
+		"target":               firstNonBlankString(item["target"]),
+		"surfaceKind":          firstNonBlankString(item["surface-kind"], item["surfaceKind"]),
+		"surfaceReason":        firstNonBlankString(item["surface-reason"], item["surfaceReason"]),
+		"failedRunCount":       firstPresentAny(item["failed-run-count"], item["failedRunCount"]),
+		"affectedLaneCount":    firstPresentAny(item["affected-lane-count"], item["affectedLaneCount"]),
+		"unresolvedLaneCount":  firstPresentAny(item["unresolved-lane-count"], item["unresolvedLaneCount"]),
+		"reopenCount":          firstPresentAny(item["reopen-count"], item["reopenCount"]),
+		"latestWorkflowId":     firstNonBlankString(item["latest-workflow-id"], item["latestWorkflowId"]),
+		"latestRunId":          firstNonBlankString(item["latest-run-id"], item["latestRunId"]),
+		"latestRunWebUrl":      firstNonBlankString(item["latest-run-web-url"], item["latestRunWebUrl"]),
+		"firstSeenAt":          firstNonBlankString(item["first-seen-at"], item["firstSeenAt"]),
+		"lastSeenAt":           firstNonBlankString(item["last-seen-at"], item["lastSeenAt"]),
+		"updatedAt":            firstNonBlankString(item["updatedAt"], item["updated-at"]),
+		"webUrl":               firstNonBlankString(item["web-url"], item["webUrl"]),
+		"settingsWebUrl":       firstNonBlankString(item["settings-web-url"], item["settingsWebUrl"]),
+		"flowCreatedByDisplay": firstNonBlankString(item["flow-created-by-display"], item["flowCreatedByDisplay"]),
+	})
+}
+
+func compactDigestsListPayload(payload any) any {
+	out := mapStringAny(payload)
+	if out == nil {
+		return payload
+	}
+	items := sliceAny(out["items"])
+	if len(items) == 0 {
+		return payload
+	}
+	for i, itemAny := range items {
+		if compacted := compactDigestListItem(mapStringAny(itemAny)); compacted != nil {
+			items[i] = compacted
+		}
+	}
+	out["items"] = items
+	out["outputView"] = "compact"
+	if _, exists := out["hint"]; !exists {
+		out["hint"] = "Digest list output is compact by default. Use `breyta digests show <digest-id>` or rerun with --full for full digest details."
+	}
+	return out
+}
+
+func compactDigestListItem(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	incidentIDs := sliceAny(item["incident-ids"])
+	incidentSummaries := sliceAny(item["incident-summaries"])
+	return compactNonEmptyFields(map[string]any{
+		"digestId":                 firstNonBlankString(item["digest-id"], item["digestId"], item["id"]),
+		"kind":                     firstNonBlankString(item["kind"]),
+		"status":                   firstNonBlankString(item["status"]),
+		"triggerKind":              firstNonBlankString(item["trigger-kind"], item["triggerKind"]),
+		"incidentCount":            firstPresentAny(item["incident-count"], item["incidentCount"], positiveCount(len(incidentSummaries))),
+		"incidentIds":              firstNAny(incidentIDs, 5),
+		"incidentIdsOmitted":       omittedCount(len(incidentIDs), 5),
+		"incidentSummaries":        compactDigestIncidentSummaries(incidentSummaries, 3),
+		"incidentSummariesOmitted": omittedCount(len(incidentSummaries), 3),
+		"summary":                  compactDigestSummary(mapStringAny(item["summary"])),
+		"sourceIncidentId":         firstNonBlankString(item["source-incident-id"], item["sourceIncidentId"]),
+		"sourceWorkItemId":         firstNonBlankString(item["source-work-item-id"], item["sourceWorkItemId"]),
+		"windowStart":              firstNonBlankString(item["window-start"], item["windowStart"]),
+		"windowEnd":                firstNonBlankString(item["window-end"], item["windowEnd"]),
+		"updatedAt":                firstNonBlankString(item["updatedAt"], item["updated-at"]),
+		"webUrl":                   firstNonBlankString(item["web-url"], item["webUrl"]),
+		"settingsWebUrl":           firstNonBlankString(item["settings-web-url"], item["settingsWebUrl"]),
+	})
+}
+
+func compactDigestIncidentSummaries(items []any, limit int) []any {
+	if len(items) == 0 || limit <= 0 {
+		return nil
+	}
+	keep := items
+	if len(keep) > limit {
+		keep = keep[:limit]
+	}
+	out := make([]any, 0, len(keep))
+	for _, itemAny := range keep {
+		item := mapStringAny(itemAny)
+		if item == nil {
+			continue
+		}
+		out = append(out, compactNonEmptyFields(map[string]any{
+			"incidentId":      firstNonBlankString(item["incident-id"], item["incidentId"], item["id"]),
+			"flowSlug":        firstNonBlankString(item["flow-slug"], item["flowSlug"]),
+			"status":          firstNonBlankString(item["status"]),
+			"severity":        firstNonBlankString(item["severity"]),
+			"target":          firstNonBlankString(item["target"]),
+			"failedRunCount":  firstPresentAny(item["failed-run-count"], item["failedRunCount"]),
+			"latestRunId":     firstNonBlankString(item["latest-run-id"], item["latestRunId"]),
+			"latestRunWebUrl": firstNonBlankString(item["latest-run-web-url"], item["latestRunWebUrl"]),
+			"lastSeenAt":      firstNonBlankString(item["last-seen-at"], item["lastSeenAt"]),
+			"webUrl":          firstNonBlankString(item["incident-web-url"], item["incidentWebUrl"], item["web-url"], item["webUrl"]),
+		}))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func compactDigestSummary(summary map[string]any) map[string]any {
+	if summary == nil {
+		return nil
+	}
+	return compactNonEmptyFields(map[string]any{
+		"affectedFlowCount": firstPresentAny(summary["affected-flow-count"], summary["affectedFlowCount"]),
+		"immediateCount":    firstPresentAny(summary["immediate-count"], summary["immediateCount"]),
+		"ongoingCount":      firstPresentAny(summary["ongoing-count"], summary["ongoingCount"]),
+		"openedCount":       firstPresentAny(summary["opened-count"], summary["openedCount"]),
+		"recoveredCount":    firstPresentAny(summary["recovered-count"], summary["recoveredCount"]),
+		"reopenedCount":     firstPresentAny(summary["reopened-count"], summary["reopenedCount"]),
+	})
+}
+
+func truncateNonBlank(s string, max int) string {
+	preview, _ := truncateRunesWithFlag(strings.TrimSpace(s), max)
+	return preview
+}
+
+func firstNAny(items []any, limit int) []any {
+	if len(items) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(items) > limit {
+		return items[:limit]
+	}
+	return items
+}
+
+func omittedCount(total int, shown int) any {
+	if total <= shown {
+		return nil
+	}
+	return total - shown
 }
 
 func resourceReadDataPayload(payload any) any {

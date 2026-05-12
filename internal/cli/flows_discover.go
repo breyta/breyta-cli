@@ -68,11 +68,14 @@ It is different from ` + "`breyta flows search`" + `, which only returns approve
 			if includeOwn {
 				payload["includeOwn"] = true
 			}
-			return doAPICommand(cmd, app, "flows.discover.list", payload)
+			if full {
+				return doAPICommand(cmd, app, "flows.discover.list", payload)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.discover.list", payload, false, compactTemplateSearchEnvelope)
 		},
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "Filter by provider token (e.g. stripe, slack)")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed definition literal (definitionEdn)")
 	cmd.Flags().BoolVar(&includeOwn, "include-own", false, "Include current workspace-owned public flows for debugging indexing")
@@ -111,11 +114,14 @@ Use ` + "`--include-own`" + ` only to debug whether your own public flow is inde
 			if includeOwn {
 				payload["includeOwn"] = true
 			}
-			return doAPICommand(cmd, app, "flows.discover.search", payload)
+			if full {
+				return doAPICommand(cmd, app, "flows.discover.search", payload)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.discover.search", payload, false, compactTemplateSearchEnvelope)
 		},
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "Filter by provider token (e.g. stripe, slack)")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (1..100 recommended)")
+	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full indexed definition literal (definitionEdn)")
 	cmd.Flags().BoolVar(&includeOwn, "include-own", false, "Include current workspace-owned public flows for debugging indexing")
