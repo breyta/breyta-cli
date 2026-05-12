@@ -19,6 +19,18 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing workspace header",
+				},
+			})
+			return
+		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["command"] != "flows.marketplace.update" {
@@ -69,10 +81,9 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
-		"--token", "user-dev",
+		"--api-key", "sa-dev",
 		"flows", "marketplace", "update", "market-flow",
 		"--visible=true",
 		"--pretty",
@@ -112,10 +123,9 @@ func TestFlowsMarketplaceUpdate_ForwardsVisibleFalse(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
-		"--token", "user-dev",
+		"--api-key", "sa-dev",
 		"flows", "marketplace", "update", "market-flow",
 		"--visible=false",
 		"--pretty",

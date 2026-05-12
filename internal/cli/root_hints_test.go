@@ -77,11 +77,6 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 			t.Fatalf("flows help leaked legacy command %q:\n%s", strings.TrimSpace(hiddenCmd), help)
 		}
 	}
-	for _, hiddenCmd := range []string{"marketplace"} {
-		if strings.Contains(help, hiddenCmd) {
-			t.Fatalf("flows help leaked hidden surface %q:\n%s", strings.TrimSpace(hiddenCmd), help)
-		}
-	}
 	if !strings.Contains(help, "\n  archive") {
 		t.Fatalf("flows help missing archive command:\n%s", help)
 	}
@@ -94,12 +89,15 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	if !strings.Contains(help, "\n  update") {
 		t.Fatalf("flows help missing update command:\n%s", help)
 	}
+	if !strings.Contains(help, "\n  marketplace") {
+		t.Fatalf("flows help missing marketplace command:\n%s", help)
+	}
 	if !strings.Contains(help, "breyta flows update <slug> --group-order 10") {
 		t.Fatalf("flows help missing grouped-flow quick command:\n%s", help)
 	}
 }
 
-func TestHelpFlowsHidesMarketplaceSurface(t *testing.T) {
+func TestHelpFlowsIncludesMarketplaceSurface(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
@@ -112,8 +110,8 @@ func TestHelpFlowsHidesMarketplaceSurface(t *testing.T) {
 	}
 
 	help := out.String()
-	if strings.Contains(help, "marketplace") {
-		t.Fatalf("flows help leaked hidden marketplace surface:\n%s", help)
+	if !strings.Contains(help, "\n  marketplace") {
+		t.Fatalf("flows help missing marketplace surface:\n%s", help)
 	}
 }
 

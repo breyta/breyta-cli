@@ -12,7 +12,7 @@ func newFlowsMarketplaceCmd(app *App) *cobra.Command {
 		Short: "Manage flow marketplace metadata",
 	}
 	cmd.AddCommand(newFlowsMarketplaceUpdateCmd(app))
-	return hideDevOnlyCommandTree(cmd, app)
+	return cmd
 }
 
 func newFlowsMarketplaceUpdateCmd(app *App) *cobra.Command {
