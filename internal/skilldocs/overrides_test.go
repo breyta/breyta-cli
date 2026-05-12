@@ -66,6 +66,15 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "`web UI not verified` in the risk ledger") {
 		t.Fatalf("expected web UI risk-ledger guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "do not stop at activation") {
+		t.Fatalf("expected activation-vs-install guardrail in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Discover install plus an installed run") {
+		t.Fatalf("expected Discover installed-run proof in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "https://api.openai.com/v1") {
+		t.Fatalf("expected OpenAI base URL guidance in override, got:\n%s", body)
+	}
 	if string(got["references/x.md"]) != "ref" {
 		t.Fatalf("expected non-skill files preserved")
 	}

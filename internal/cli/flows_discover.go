@@ -24,6 +24,8 @@ Checklist to make your flow show up in Discover:
 3. Push the flow
 4. Release/promote it so there is an installable live version
 5. Verify from another workspace with ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
+6. Open the Discover install dialog and run an installed target when install behavior matters;
+   ` + "`/activate`" + ` only proves owner setup, not end-user installability
 
 This is different from ` + "`breyta flows search`" + `, which only searches approved Breyta-curated examples to
 copy from. Approved examples are not the same thing as public installables.`,

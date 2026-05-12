@@ -323,6 +323,15 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
 		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "For installable/public flows, do not stop at activation") {
+		t.Fatalf("unexpected readme content (missing activation-vs-install guardrail): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "verify Discover install plus an installed run") {
+		t.Fatalf("unexpected readme content (missing Discover installed-run proof): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "OpenAI connection default: `:http-api` requirement, backend `openai`, base URL `https://api.openai.com/v1`") {
+		t.Fatalf("unexpected readme content (missing OpenAI connection default): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "`web UI not verified` in the risk ledger") {
 		t.Fatalf("unexpected readme content (missing web UI risk ledger guidance): %s", string(readme))
 	}

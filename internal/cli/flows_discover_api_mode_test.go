@@ -286,6 +286,8 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 		"Release/promote it",
 		"--include-own",
 		"from another workspace",
+		"Discover install dialog",
+		"only proves owner setup",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected flows discover help to include %q, got:\n%s", want, stdout)

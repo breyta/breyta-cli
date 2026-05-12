@@ -75,6 +75,9 @@ For public or end-user flows, do not call the flow "ready for UI" from draft CLI
 proof alone. Verify live/install-shaped behavior, or say `web UI not verified`
 in the risk ledger. When browser/UI access is available, test the actual setup
 page, run form fields, upload CSV/file path, resource picker, and output page.
+For installable/public flows, do not stop at activation: `/activate` and
+configure/check prove owner setup, not the Discover install surface. Verify the
+Discover install dialog plus an installed run when install behavior matters.
 
 To browse public installable end-user flows for your current workspace instead,
 use:
@@ -176,6 +179,24 @@ Public discover visibility is stored flow metadata. A released version and the
 This discover catalog is separate from `breyta flows search`, which searches
 actual workspace flow metadata, and from `breyta flows templates search`, which
 searches approved reusable templates to inspect and copy from.
+
+Installable-flow smoke path:
+
+```bash
+breyta flows show <slug> --target live
+breyta flows installations create <slug> --name "Smoke install"
+breyta flows installations configure <installation-id> --input '{"<field>":"<value>"}'
+breyta flows installations enable <installation-id>
+breyta flows run <slug> --installation-id <installation-id> --wait
+```
+
+When browser access is available, also open the Discover install dialog and
+confirm setup fields, upload/resource fields, and output render as expected.
+
+OpenAI-backed `:llm` and `:agent` flows should use an `:http-api` requirement
+with backend `openai`, base URL `https://api.openai.com/v1`, API-key auth, and a
+non-null config map. Use installer ownership when every installer brings their
+own OpenAI key.
 
 If the flow should look polished on public cards, add curated discover card media:
 
