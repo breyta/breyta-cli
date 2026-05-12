@@ -92,6 +92,8 @@ func resolveAPIToken(app *App) {
 	}
 }
 
+const authTokenRefreshLeadTime = 15 * time.Minute
+
 func isLoopbackAPIURL(raw string) bool {
 	if strings.TrimSpace(raw) == "" {
 		return false
@@ -141,7 +143,7 @@ func loadTokenFromAuthStore(app *App) {
 			updated = true
 		}
 	}
-	if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < 2*time.Minute {
+	if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime {
 		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
 			rec = next
 			updated = true
