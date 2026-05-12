@@ -111,7 +111,10 @@ func goBinDirs() []string {
 			dirs = append(dirs, dir)
 		}
 	}
-	add(os.Getenv("GOBIN"))
+	if gobin := strings.TrimSpace(os.Getenv("GOBIN")); gobin != "" {
+		add(gobin)
+		return dirs
+	}
 	for _, gp := range filepath.SplitList(os.Getenv("GOPATH")) {
 		if strings.TrimSpace(gp) != "" {
 			add(filepath.Join(gp, "bin"))
