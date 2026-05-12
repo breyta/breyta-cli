@@ -78,6 +78,55 @@ func TestFetchBundle(t *testing.T) {
 	}
 }
 
+func TestFetchBundleFetchesFilesWithManifestCacheKey(t *testing.T) {
+	currentSkill := []byte("name: breyta\n# Current\n")
+	staleSkill := []byte("name: breyta\n# Stale\n")
+	currentHash := sha256.Sum256(currentSkill)
+	currentHashHex := hex.EncodeToString(currentHash[:])
+	var fileQuery string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "runtime-current",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "sha256": currentHashHex, "bytes": len(currentSkill), "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			fileQuery = r.URL.Query().Get("v")
+			if r.Header.Get("Cache-Control") != "no-cache" {
+				t.Errorf("expected no-cache request header, got %q", r.Header.Get("Cache-Control"))
+			}
+			if fileQuery == "" {
+				_, _ = w.Write(staleSkill)
+				return
+			}
+			_, _ = w.Write(currentSkill)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	_, files, err := FetchBundle(context.Background(), srv.Client(), srv.URL, "", "breyta")
+	if err != nil {
+		t.Fatalf("fetch bundle: %v", err)
+	}
+	if got := string(files["SKILL.md"]); got != string(currentSkill) {
+		t.Fatalf("unexpected SKILL.md content: %q", got)
+	}
+	if !strings.Contains(fileQuery, "runtime-current") || !strings.Contains(fileQuery, currentHashHex) {
+		t.Fatalf("file request did not include manifest cache key, got %q", fileQuery)
+	}
+}
+
 func TestFetchBundleChecksumMismatch(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

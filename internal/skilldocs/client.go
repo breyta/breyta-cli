@@ -44,7 +44,12 @@ func endpoint(baseURL string, relPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid api base url: %w", err)
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimPrefix(relPath, "/")
+	rel, err := url.Parse(relPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid relative api path: %w", err)
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimPrefix(rel.Path, "/")
+	u.RawQuery = rel.RawQuery
 	return u.String(), nil
 }
 
@@ -67,6 +72,8 @@ func doGet(ctx context.Context, httpClient *http.Client, baseURL, token, relPath
 	if strings.TrimSpace(accept) != "" {
 		req.Header.Set("Accept", accept)
 	}
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	return hc.Do(req)
 }
 
@@ -94,7 +101,7 @@ func FetchManifest(ctx context.Context, httpClient *http.Client, baseURL, token,
 	return manifest, nil
 }
 
-func fetchFile(ctx context.Context, httpClient *http.Client, baseURL, token, skillSlug, relPath string) ([]byte, error) {
+func fetchFile(ctx context.Context, httpClient *http.Client, baseURL, token, skillSlug, relPath, cacheKey string) ([]byte, error) {
 	parts := strings.Split(strings.TrimSpace(relPath), "/")
 	encodedParts := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -108,6 +115,11 @@ func fetchFile(ctx context.Context, httpClient *http.Client, baseURL, token, ski
 		return nil, fmt.Errorf("invalid manifest path %q", relPath)
 	}
 	rel := path.Join("/api/docs/skills", skillSlug, "files", strings.Join(encodedParts, "/"))
+	if key := strings.TrimSpace(cacheKey); key != "" {
+		q := url.Values{}
+		q.Set("v", key)
+		rel += "?" + q.Encode()
+	}
 	resp, err := doGet(ctx, httpClient, baseURL, token, rel, "text/markdown, text/plain, */*")
 	if err != nil {
 		return nil, err
@@ -120,6 +132,23 @@ func fetchFile(ctx context.Context, httpClient *http.Client, baseURL, token, ski
 	return io.ReadAll(resp.Body)
 }
 
+func fileCacheKey(manifest Manifest, f ManifestFile) string {
+	parts := []string{
+		strings.TrimSpace(manifest.Version),
+		strings.TrimSpace(f.SHA256),
+	}
+	if f.Bytes > 0 {
+		parts = append(parts, fmt.Sprintf("%d", f.Bytes))
+	}
+	nonBlank := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			nonBlank = append(nonBlank, part)
+		}
+	}
+	return strings.Join(nonBlank, "-")
+}
+
 func FetchBundle(ctx context.Context, httpClient *http.Client, baseURL, token, skillSlug string) (Manifest, map[string][]byte, error) {
 	manifest, err := FetchManifest(ctx, httpClient, baseURL, token, skillSlug)
 	if err != nil {
@@ -127,17 +156,17 @@ func FetchBundle(ctx context.Context, httpClient *http.Client, baseURL, token, s
 	}
 	files := make(map[string][]byte, len(manifest.Files))
 	for _, f := range manifest.Files {
-		content, err := fetchFile(ctx, httpClient, baseURL, token, skillSlug, f.Path)
+		content, err := fetchFile(ctx, httpClient, baseURL, token, skillSlug, f.Path, fileCacheKey(manifest, f))
 		if err != nil {
 			return Manifest{}, nil, err
 		}
 		if f.Bytes > 0 && int64(len(content)) != f.Bytes {
-			return Manifest{}, nil, fmt.Errorf("file size mismatch for %s (expected=%d got=%d)", f.Path, f.Bytes, len(content))
+			return Manifest{}, nil, fmt.Errorf("file size mismatch for %s (expected=%d got=%d; the skill bundle cache may be stale, retry the command)", f.Path, f.Bytes, len(content))
 		}
 		if strings.TrimSpace(f.SHA256) != "" {
 			h := sha256.Sum256(content)
 			if !strings.EqualFold(hex.EncodeToString(h[:]), strings.TrimSpace(f.SHA256)) {
-				return Manifest{}, nil, fmt.Errorf("file checksum mismatch for %s", f.Path)
+				return Manifest{}, nil, fmt.Errorf("file checksum mismatch for %s (the skill bundle cache may be stale, retry the command)", f.Path)
 			}
 		}
 		files[f.Path] = content
