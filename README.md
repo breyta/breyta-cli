@@ -185,7 +185,7 @@ Installable-flow smoke path:
 ```bash
 breyta flows show <slug> --target live
 breyta flows installations create <slug> --name "Smoke install"
-breyta flows installations configure <installation-id> --set activation.<field>=<value>
+breyta flows installations configure <installation-id> --input '{"<field>":"<value>"}'
 breyta flows installations enable <installation-id>
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
