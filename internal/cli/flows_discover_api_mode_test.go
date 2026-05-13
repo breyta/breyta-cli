@@ -219,10 +219,37 @@ func TestFlowsDiscoverUpdate_UsesAPICommand(t *testing.T) {
 		"--token", "user-dev",
 		"flows", "discover", "update", "discover-flow",
 		"--public=true",
+		"--allow-public-access",
 		"--pretty",
 	)
 	if err != nil {
 		t.Fatalf("flows discover update failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDiscoverUpdate_PublicTrueRequiresExplicitAccessApproval(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "discover", "update", "discover-flow",
+		"--public=true",
+	)
+	if err == nil {
+		t.Fatalf("expected discover update --public=true without approval to fail, got success:\n%s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "--allow-public-access") {
+		t.Fatalf("expected missing approval error to mention --allow-public-access, got:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout+stderr, "accessible to all Breyta users") {
+		t.Fatalf("expected missing approval error to explain public access risk, got:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
 
@@ -307,6 +334,8 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 		"end-user",
 		"Release/promote it",
 		"--include-own",
+		"--allow-public-access",
+		"accessible to all Breyta users",
 		"from another workspace",
 		"Discover install dialog",
 		"only proves owner setup",

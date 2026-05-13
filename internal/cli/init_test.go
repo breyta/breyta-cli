@@ -329,6 +329,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "verify Discover install plus an installed run") {
 		t.Fatalf("unexpected readme content (missing Discover installed-run proof): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "Do not turn on Discover/marketplace visibility from a vague public-app request") {
+		t.Fatalf("unexpected readme content (missing public access approval guardrail): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`--allow-public-access` only after that approval and installable-ready proof") {
+		t.Fatalf("unexpected readme content (missing public access CLI acknowledgement): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "OpenAI connection default: `:http-api` requirement, backend `openai`, base URL `https://api.openai.com/v1`") {
 		t.Fatalf("unexpected readme content (missing OpenAI connection default): %s", string(readme))
 	}

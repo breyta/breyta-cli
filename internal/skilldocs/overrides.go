@@ -326,6 +326,7 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
 - do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
 - for installable/public flows, verify Discover install plus an installed run when install behavior matters
+- do not interpret "make this a public app" as approval to expose it to all Breyta users; ask explicitly before enabling Discover/marketplace visibility, and use ` + "`--allow-public-access`" + ` only after author approval plus installable-ready proof
 - installable checklist: explicit author approval, ` + "`end-user`" + ` tag, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `

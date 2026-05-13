@@ -299,13 +299,13 @@ Advanced install lifecycle:
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Browse public installables for this workspace: breyta flows discover list
 - Search public installables for this workspace: breyta flows discover search <query>
-- Update public discover visibility explicitly: breyta flows discover update <slug> --public=true
+- Update public discover visibility explicitly after approval: breyta flows discover update <slug> --public=true --allow-public-access
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List legacy installation triggers: breyta flows installations triggers <installation-id>
 
 Public discover notes:
-- :discover {:public true} authored in a flow file persists as stored metadata on push.
-- Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
+- :discover {:public true} authored in a flow file persists as stored metadata on push; pushing that source requires --allow-public-access.
+- Use breyta flows discover update <slug> --public=true --allow-public-access to enable it explicitly later, or --public=false to disable it.
 - Public discover requires the end-user tag and a released/installable flow.
 - breyta flows search <query> is different: it is for approved example flows to inspect and copy from, not public installables.
 		`),
@@ -1077,6 +1077,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var noRepairWriteback bool
 	var validate bool
 	var deployKey string
+	var allowPublicAccess bool
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push a local .clj flow file as an updated working copy",
@@ -1131,6 +1132,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			flowLiteral, err = expandFlowSourceIncludes(file, flowLiteral)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if flowSourceRequestsPublicAccess(flowLiteral) && !allowPublicAccess {
+				return writeErr(cmd, publicAccessConfirmationError("pushing flow source with public visibility enabled"))
 			}
 
 			if useDoAPICommandFn {
@@ -1240,6 +1244,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
+	cmd.Flags().BoolVar(&allowPublicAccess, "allow-public-access", false, "Confirm explicit author approval to push source that can make this flow accessible to all Breyta users")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
 }
@@ -1300,7 +1305,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Update mutable flow metadata such as name, description, publish description, discover card media, tags, grouping, and display icon selection.
 
-Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true|false`" + `.
+Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true --allow-public-access`" + ` to enable or ` + "`--public=false`" + ` to disable.
 Use ` + "`tags`" + ` here to mark a flow as ` + "`end-user`" + ` before turning on public discover.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through

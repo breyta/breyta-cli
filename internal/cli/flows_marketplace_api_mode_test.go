@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -86,10 +87,36 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 		"--api-key", "sa-dev",
 		"flows", "marketplace", "update", "market-flow",
 		"--visible=true",
+		"--allow-public-access",
 		"--pretty",
 	)
 	if err != nil {
 		t.Fatalf("flows marketplace update failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsMarketplaceUpdate_VisibleTrueRequiresExplicitAccessApproval(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "market-flow",
+		"--visible=true",
+	)
+	if err == nil {
+		t.Fatalf("expected marketplace update --visible=true without approval to fail, got success:\n%s", stdout)
+	}
+	if !strings.Contains(stdout+stderr, "--allow-public-access") {
+		t.Fatalf("expected missing approval error to mention --allow-public-access, got:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout+stderr, "accessible to all Breyta users") {
+		t.Fatalf("expected missing approval error to explain public access risk, got:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
 

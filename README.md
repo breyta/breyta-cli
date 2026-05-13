@@ -78,6 +78,10 @@ page, run form fields, upload CSV/file path, resource picker, and output page.
 For installable/public flows, do not stop at activation: `/activate` and
 configure/check prove owner setup, not the Discover install surface. Verify the
 Discover install dialog plus an installed run when install behavior matters.
+Do not interpret "make this a public app" as permission to expose it to all
+Breyta users. Ask for explicit author approval before enabling Discover or
+marketplace visibility, and only pass `--allow-public-access` after the flow is
+ready for end-user installation and use.
 
 To browse public installable end-user flows for your current workspace instead,
 use:
@@ -169,13 +173,18 @@ breyta flows update <slug> --tags 'end-user,...'
 
 # Either author this in the flow file:
 # :discover {:public true}
+# Then push with explicit public-access approval:
+breyta flows push --file ./flows/<slug>.clj --allow-public-access
 #
 # Or set it explicitly after push/release:
-breyta flows discover update <slug> --public=true
+breyta flows discover update <slug> --public=true --allow-public-access
 ```
 
 Public discover visibility is stored flow metadata. A released version and the
 `end-user` tag are both required before the flow can be exposed in discover.
+The `--allow-public-access` flag is the CLI acknowledgement that the author
+approved making the flow accessible to all Breyta users and that the flow is
+installable-ready.
 This discover catalog is separate from `breyta flows search`, which searches
 actual workspace flow metadata, and from `breyta flows templates search`, which
 searches approved reusable templates to inspect and copy from.

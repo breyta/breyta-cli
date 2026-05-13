@@ -683,6 +683,35 @@ func TestFlowsPush_RendersAPIDeprecationWarnings(t *testing.T) {
 	}
 }
 
+func TestFlowsPush_PublicVisibilityRequiresExplicitAccessApproval(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	flowFile := filepath.Join(tmp, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :public-push :name \"Public Push\" :tags [\"end-user\"] :discover {:public true} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
+		t.Fatalf("failed to write test flow file: %v", err)
+	}
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://127.0.0.1:9",
+		"--token", "user-dev",
+		"flows", "push",
+		"--file", flowFile,
+		"--validate=false",
+	)
+	if err == nil {
+		t.Fatalf("expected public flow source push without approval to fail, got success:\n%s", stdout)
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "--allow-public-access") {
+		t.Fatalf("expected missing approval error to mention --allow-public-access, got:\n%s", combined)
+	}
+	if !strings.Contains(combined, "accessible to all Breyta users") {
+		t.Fatalf("expected missing approval error to explain public access risk, got:\n%s", combined)
+	}
+}
+
 func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	t.Helper()
 	tmp := t.TempDir()

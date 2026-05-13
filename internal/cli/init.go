@@ -257,6 +257,7 @@ Suggested line to paste into your agent's persistent project instructions:
 - Release to ` + "`live`" + ` once after draft behavior is verified, you have explicit sign-off, and you can attach a markdown release note.
 - Do not tell the user a public/end-user flow is "ready for UI" from draft proof alone; verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger.
 - For installable/public flows, do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not the Discover install surface. Verify Discover install plus an installed run when install behavior matters.
+- Do not interpret "make this a public app" as approval to expose it to all Breyta users. Ask explicitly before enabling Discover/marketplace visibility, and pass ` + "`--allow-public-access`" + ` only after author approval plus installable-ready proof.
 - Use ` + "`breyta flows archive <slug>`" + ` when the flow should stop appearing in the normal active surface but its versions and metadata should remain available.
 - Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
 
@@ -488,6 +489,7 @@ Advanced ideas:
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
 - For installable/public flows, do not stop at activation; verify Discover install plus an installed run. The CLI path is installation create/configure/enable plus ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `.
+- Do not turn on Discover/marketplace visibility from a vague public-app request. Ask whether to make the flow accessible to all Breyta users now; use ` + "`--allow-public-access`" + ` only after that approval and installable-ready proof.
 - When browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
 - Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations; add ` + "`--timeout 5m`" + ` for large cleanup jobs)

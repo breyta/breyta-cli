@@ -72,6 +72,12 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Discover install plus an installed run") {
 		t.Fatalf("expected Discover installed-run proof in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "make this a public app") {
+		t.Fatalf("expected public-app wording guardrail in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "--allow-public-access") {
+		t.Fatalf("expected public access acknowledgement flag in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "https://api.openai.com/v1") {
 		t.Fatalf("expected OpenAI base URL guidance in override, got:\n%s", body)
 	}
