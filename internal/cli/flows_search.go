@@ -136,6 +136,22 @@ func dispatchFlowAPICommandWithTransform(cmd *cobra.Command, app *App, command s
 	return nil
 }
 
+func runFlowAPICommandForOutput(app *App, command string, payload map[string]any, allowGlobal bool) (map[string]any, int, error) {
+	if allowGlobal && strings.TrimSpace(app.WorkspaceID) == "" {
+		if err := requireAPI(app); err != nil {
+			return nil, 0, err
+		}
+		client := apiClient(app)
+		out, status, err := client.DoGlobalCommand(context.Background(), command, payload)
+		if err != nil {
+			return nil, 0, err
+		}
+		trackCommandTelemetry(app, command, payload, status, status < 400 && isOK(out))
+		return out, status, nil
+	}
+	return runAPICommand(app, command, payload)
+}
+
 func newFlowsSearchCmd(app *App) *cobra.Command {
 	var catalogScope string
 	var provider string
@@ -422,6 +438,7 @@ func newFlowsTemplatesSearchCmd(app *App) *cobra.Command {
 	var from int
 	var full bool
 	var rawDefinition bool
+	var outFormat string
 
 	cmd := &cobra.Command{
 		Use:   "search [query]",
@@ -451,6 +468,16 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 			if rawDefinition && !full {
 				return writeErr(cmd, errors.New("--raw-definition requires --full"))
 			}
+			format := strings.ToLower(strings.TrimSpace(outFormat))
+			if format == "" {
+				format = "json"
+			}
+			if format != "json" && format != "table" {
+				return writeErr(cmd, errors.New("--format must be json or table"))
+			}
+			if format == "table" && full {
+				return writeErr(cmd, errors.New("--format table cannot be combined with --full"))
+			}
 			payload := map[string]any{
 				"scope":             effectiveScope,
 				"surface":           "templates",
@@ -463,10 +490,22 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 				payload["query"] = query
 			}
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			if full {
-				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			allowGlobal := strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all"
+			if format == "table" {
+				out, status, err := runFlowAPICommandForOutput(app, "flows.search", payload, allowGlobal)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				compactTemplateSearchEnvelope(out)
+				if status >= 400 || !isOK(out) {
+					return writeAPIResult(cmd, app, out, status)
+				}
+				return writeFlowSearchHitsTable(cmd.OutOrStdout(), out)
 			}
-			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
+			if full {
+				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, allowGlobal)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, allowGlobal, compactTemplateSearchEnvelope)
 		},
 	}
 
@@ -479,6 +518,7 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded indexed template source preview")
 	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include the raw full source definition inline; verbose")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json|table)")
 	return cmd
 }
 

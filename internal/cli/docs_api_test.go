@@ -87,7 +87,13 @@ func TestDocsFind_WithoutSummary(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-here\tStart Here\t\n") {
+	if strings.Contains(got, "\t") {
+		t.Fatalf("expected terminal table to expand tabs, got: %q", got)
+	}
+	if !strings.Contains(got, "slug") || !strings.Contains(got, "title") || !strings.Contains(got, "description") {
+		t.Fatalf("expected table header, got: %q", got)
+	}
+	if !strings.Contains(got, "start-here") || !strings.Contains(got, "Start Here") {
 		t.Fatalf("expected page row without summary, got: %q", got)
 	}
 }
@@ -195,10 +201,13 @@ func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-here\tStart Here\tSummary line.\n") {
+	if strings.Contains(got, "\t") {
+		t.Fatalf("expected terminal table to expand tabs, got: %q", got)
+	}
+	if !strings.Contains(got, "start-here") || !strings.Contains(got, "Start Here") || !strings.Contains(got, "Summary line.") {
 		t.Fatalf("expected start summary row, got: %q", got)
 	}
-	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tSummary line.\n") {
+	if !strings.Contains(got, "reference-flow-definition") || !strings.Contains(got, "Reference: Flow Definition") {
 		t.Fatalf("expected reference summary row, got: %q", got)
 	}
 }

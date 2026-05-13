@@ -87,7 +87,11 @@ func TestDocsFind_UsesDocsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docs find failed: %v\n%s", err, stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte("build-flow-authoring\tBuild: Flow Authoring")) {
+	if bytes.Contains([]byte(stdout), []byte("\t")) {
+		t.Fatalf("expected docs find table to expand tabs, got:\n%s", stdout)
+	}
+	if !bytes.Contains([]byte(stdout), []byte("build-flow-authoring")) ||
+		!bytes.Contains([]byte(stdout), []byte("Build: Flow Authoring")) {
 		t.Fatalf("expected docs find row, got:\n%s", stdout)
 	}
 }

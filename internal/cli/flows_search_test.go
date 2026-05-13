@@ -397,6 +397,60 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 	}
 }
 
+func TestFlowsTemplatesSearch_TableFormat(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["command"] != "flows.search" {
+			t.Fatalf("expected flows.search, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"result": map[string]any{
+					"hits": []any{
+						map[string]any{
+							"flow_slug":  "gmail-support-agent",
+							"name":       "AI Gmail Support Agent",
+							"step_types": []any{"function", "http", "llm"},
+							"step_count": 12,
+							"providers":  []any{"google", "openai"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesSearchCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"gmail", "--format", "table"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	got := out.String()
+	if strings.Contains(got, "\t") {
+		t.Fatalf("expected table output to expand tabs, got:\n%s", got)
+	}
+	for _, want := range []string{"slug", "name", "steps", "gmail-support-agent", "AI Gmail Support Agent", "function,http,llm", "google,openai"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected table output to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
 func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

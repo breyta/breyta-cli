@@ -124,15 +124,25 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 			}
 
 			switch strings.ToLower(strings.TrimSpace(outFormat)) {
-			case "", "tsv", "text":
+			case "", "table", "text":
+				var headers []string
+				if !noHeader {
+					headers = []string{"slug", "title", "description"}
+				}
+				tableRows := make([][]string, 0, len(rows))
+				for _, r := range rows {
+					tableRows = append(tableRows, []string{r.Slug, r.Title, r.Description})
+				}
+				return writeTerminalTable(cmd.OutOrStdout(), headers, tableRows)
+			case "tsv":
 				if !noHeader {
 					_, _ = io.WriteString(cmd.OutOrStdout(), "slug\ttitle\tdescription\n")
 				}
 				for _, r := range rows {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n",
 						r.Slug,
-						strings.ReplaceAll(r.Title, "\t", " "),
-						strings.ReplaceAll(r.Description, "\t", " "))
+						terminalTableCell(r.Title),
+						terminalTableCell(r.Description))
 				}
 				return nil
 			case "json":
@@ -143,12 +153,12 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 					},
 				}, "json", true)
 			default:
-				return writeErr(cmd, fmt.Errorf("unknown format %q (expected tsv|json)", outFormat))
+				return writeErr(cmd, fmt.Errorf("unknown format %q (expected table|tsv|json)", outFormat))
 			}
 		},
 	}
 
-	cmd.Flags().StringVar(&outFormat, "format", "tsv", "Output format (tsv|json)")
+	cmd.Flags().StringVar(&outFormat, "format", "table", "Output format (table|tsv|json)")
 	cmd.Flags().StringVar(&source, "source", "", "Filter by source (flows-api|cli|all)")
 	cmd.Flags().StringVar(&query, "q", "", "Query expression (plain terms or Lucene syntax)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results to return (-1 = API default)")
