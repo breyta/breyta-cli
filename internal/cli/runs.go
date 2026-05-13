@@ -634,12 +634,53 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if status < 400 && isOK(out) {
+				compactRunInspectOutput(out, args[0])
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
 	return cmd
+}
+
+func compactRunInspectOutput(out map[string]any, workflowID string) {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return
+	}
+	steps := sliceAny(run["steps"])
+	if steps != nil {
+		compactSteps := make([]any, 0, len(steps))
+		for _, item := range steps {
+			if step := mapStringAny(item); step != nil {
+				compactSteps = append(compactSteps, compactAPIRunStepExecution(step))
+			}
+		}
+		run["steps"] = compactSteps
+	}
+	if firstPresent(run, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview") != nil {
+		run["hasInput"] = true
+	}
+	if firstPresent(run, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result") != nil {
+		run["hasResult"] = true
+	}
+	for _, key := range []string{"input", "params", "result", "output"} {
+		delete(run, key)
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["workflowId"] = strings.TrimSpace(workflowID)
+	meta["outputView"] = "compact"
+	meta["compactInspect"] = true
+	meta["stepsTotal"] = len(steps)
+	if _, ok := meta["hint"]; !ok {
+		meta["hint"] = "Run inspection is compact by default. Use `breyta runs show " + strings.TrimSpace(workflowID) + " --full` when full payloads are required."
+	}
 }
 
 func writeLocalRunInspect(cmd *cobra.Command, app *App, runID string) error {
@@ -826,7 +867,7 @@ func compactAPIRunStepExecution(step map[string]any) map[string]any {
 	if step == nil {
 		return nil
 	}
-	return map[string]any{
+	return compactNonEmptyFields(map[string]any{
 		"stepId":     firstNonBlankString(step["stepId"], step["step-id"], step["id"]),
 		"type":       firstNonBlankString(step["stepType"], step["step-type"], step["type"]),
 		"title":      firstNonBlankString(step["title"], step["label"]),
@@ -836,7 +877,8 @@ func compactAPIRunStepExecution(step map[string]any) map[string]any {
 		"hasInput":   firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview") != nil,
 		"hasOutput":  firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result") != nil,
 		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
-	}
+		"cost":       firstPresent(step, "cost", "usage", "counters", "metering"),
+	})
 }
 
 func findRunStep(run map[string]any, stepID string) map[string]any {

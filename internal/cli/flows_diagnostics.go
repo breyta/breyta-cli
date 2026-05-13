@@ -213,9 +213,10 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	summary := mapStringAny(doctor["summary"])
 	activeVersion := firstPresent(summary, "activeVersion", "active-version")
 	latestVersion := firstPresent(summary, "latestVersion", "latest-version")
+	workspaceID := firstNonBlankString(doctorOut["workspaceId"], publicOut["workspaceId"], app.WorkspaceID)
 	return map[string]any{
 		"ok":          true,
-		"workspaceId": app.WorkspaceID,
+		"workspaceId": workspaceID,
 		"meta": map[string]any{
 			"webUrl":       webURL,
 			"nextCommands": nextCommands,

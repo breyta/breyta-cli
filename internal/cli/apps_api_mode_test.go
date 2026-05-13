@@ -3940,6 +3940,97 @@ func TestRunsShow_FullRequestsStepsAndResultInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsInspect_CompactsServerRunPayloadInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-inspect",
+					"flowSlug":   "flow-inspect",
+					"status":     "completed",
+					"input":      map[string]any{"prompt": strings.Repeat("x", 2048)},
+					"result":     map[string]any{"body": strings.Repeat("y", 2048)},
+					"steps": []map[string]any{
+						{
+							"stepId":        "fetch",
+							"stepType":      "http",
+							"status":        "completed",
+							"input":         map[string]any{"url": "https://example.com", "headers": map[string]any{"authorization": "secret"}},
+							"result":        map[string]any{"body": strings.Repeat("z", 2048)},
+							"resultPreview": map[string]any{"status": 200},
+							"usage":         map[string]any{"httpRequests": 1},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "inspect", "wf-inspect",
+	)
+	if err != nil {
+		t.Fatalf("runs inspect failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != false || capturedArgs["compactInspect"] != true {
+		t.Fatalf("expected compact runs.get inspect flags, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	run, _ := data["run"].(map[string]any)
+	if _, ok := run["input"]; ok {
+		t.Fatalf("expected run input to be removed from compact inspect: %#v", run["input"])
+	}
+	if _, ok := run["result"]; ok {
+		t.Fatalf("expected run result to be removed from compact inspect: %#v", run["result"])
+	}
+	steps, _ := run["steps"].([]any)
+	if len(steps) != 1 {
+		t.Fatalf("expected one compact step, got %#v", steps)
+	}
+	step, _ := steps[0].(map[string]any)
+	if _, ok := step["input"]; ok {
+		t.Fatalf("expected step input to be removed from compact inspect: %#v", step["input"])
+	}
+	if _, ok := step["result"]; ok {
+		t.Fatalf("expected step result to be removed from compact inspect: %#v", step["result"])
+	}
+	if step["hasInput"] != true || step["hasOutput"] != true {
+		t.Fatalf("expected compact hasInput/hasOutput flags, got %#v", step)
+	}
+	cost, _ := step["cost"].(map[string]any)
+	if cost["httpRequests"] != float64(1) {
+		t.Fatalf("expected compact cost summary, got %#v", step["cost"])
+	}
+	meta, _ := envelope["meta"].(map[string]any)
+	if meta["outputView"] != "compact" || meta["compactInspect"] != true {
+		t.Fatalf("expected compact inspect metadata, got %#v", meta)
+	}
+}
+
 func TestRunsStep_InspectsOneStepInAPIMode(t *testing.T) {
 	var capturedArgs map[string]any
 

@@ -255,15 +255,15 @@ func NewRootCmd() *cobra.Command {
 		}
 		app.APIKeyExplicit = machineCredentialExplicit
 		app.TokenExplicit = tokenExplicit || machineCredentialExplicit
+		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
 
 		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
 		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
-		if !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
+		if !skipBackgroundNetwork && !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
 			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
 
-		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
 		if isSubcommand && commandShouldWarnSkillDrift(cmd) && !skipBackgroundNetwork {
 			warnCtx, warnCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			for _, warning := range skillsync.MaybeWarnMissingOrOutdatedInstalled(warnCtx, app.APIURL, app.Token) {
