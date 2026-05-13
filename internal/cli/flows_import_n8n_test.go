@@ -193,6 +193,43 @@ func TestConvertN8NWorkflow_IFBranchGuardsOutputs(t *testing.T) {
 	}
 }
 
+func TestConvertN8NWorkflow_SetTranslatesDirectUpstreamNodeRefs(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Node Ref Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Lookup",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"number": []any{map[string]any{"name": "page", "value": float64(1)}},
+				}},
+			},
+			{
+				Name: "Next Page",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"number": []any{map[string]any{"name": "page", "value": `={{$node["Lookup"].json["page"]++}}`}},
+				}},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Lookup", Type: "main", Index: 0}}}},
+			"Lookup":         {"main": {{{Node: "Next Page", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "node-ref-import", "tmp/flows/node-ref-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":page (inc (or (get input :page) 0))")
+	if strings.Contains(strings.Join(result.Todos, "\n"), "translate n8n expression") {
+		t.Fatalf("did not expect expression translation TODO, got %#v", result.Todos)
+	}
+}
+
 func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "workflow.json")
@@ -368,6 +405,8 @@ func TestTranslateSimpleN8NExpression(t *testing.T) {
 		{in: "{{$json}}", want: "input", ok: true},
 		{in: "{{$json.foo}}", want: "(get input :foo)", ok: true},
 		{in: "{{$json.foo.bar}}", want: "(get-in input [:foo :bar])", ok: true},
+		{in: `={{$json["query"]["first_name"]}}`, want: "(get-in input [:query :first-name])", ok: true},
+		{in: `={{$json["page"]++}}`, want: "(inc (or (get input :page) 0))", ok: true},
 		{in: "{{$now}}", want: "(flow/now-ms)", ok: true},
 		{in: "{{$json.a + $json.b}}", want: "(+ (get input :a) (get input :b))", ok: true},
 		{in: "{{$json.active ? \"yes\" : \"no\"}}", want: "(if (get input :active) \"yes\" \"no\")", ok: true},
@@ -390,8 +429,38 @@ func TestTranslateN8NTemplateString(t *testing.T) {
 	if got != want {
 		t.Fatalf("unexpected template translation:\n got: %s\nwant: %s", got, want)
 	}
+	got, ok = translateN8NTemplateString(`Search {{$json["query"]["first_name"]}} {{$json["query"]["last_name"]}}`)
+	if !ok {
+		t.Fatalf("expected bracket path template string to translate")
+	}
+	want = `(str "Search " (get-in input [:query :first-name]) " " (get-in input [:query :last-name]))`
+	if got != want {
+		t.Fatalf("unexpected bracket template translation:\n got: %s\nwant: %s", got, want)
+	}
 	if got, ok := translateN8NTemplateString("Hello {{$node[\"Other\"].json.id}}"); ok {
 		t.Fatalf("expected node reference template to remain unsupported, got %s", got)
+	}
+	got, ok = translateN8NTemplateStringWithRefs(
+		`Next {{$node["Lookup"].json["page"]}}`,
+		map[string]string{"Lookup": "(get input :lookup)"},
+	)
+	if !ok {
+		t.Fatalf("expected node reference template to translate with explicit input refs")
+	}
+	want = `(str "Next " (get (get input :lookup) :page))`
+	if got != want {
+		t.Fatalf("unexpected node ref template translation:\n got: %s\nwant: %s", got, want)
+	}
+	got, ok = translateSimpleN8NExpressionWithRefs(
+		`={{$node["Lookup"].json["page"]++}}`,
+		map[string]string{"Lookup": "input"},
+	)
+	if !ok {
+		t.Fatalf("expected node ref increment to translate with explicit input refs")
+	}
+	want = `(inc (or (get input :page) 0))`
+	if got != want {
+		t.Fatalf("unexpected node ref increment translation:\n got: %s\nwant: %s", got, want)
 	}
 }
 

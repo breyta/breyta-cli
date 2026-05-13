@@ -511,7 +511,7 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 					continue
 				}
 				value := item["value"]
-				if rendered, todo, ok := renderN8NSetValue(name, value); ok {
+				if rendered, todo, ok := renderN8NSetValue(name, value, n8nFunctionInputRefs(upstreams)); ok {
 					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+rendered)
 					if todo != "" {
 						todos = append(todos, todo)
@@ -532,30 +532,48 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 	return binding, nil, nil, []string{fn}, todos
 }
 
-func renderN8NSetValue(fieldName string, value any) (string, string, bool) {
+func renderN8NSetValue(fieldName string, value any, nodeRefs map[string]string) (string, string, bool) {
 	s, ok := value.(string)
 	if !ok || !strings.Contains(s, "{{") {
 		return "", "", false
 	}
-	if expr, ok := translateSimpleN8NExpression(s); ok {
+	s = normalizeN8NExpressionString(s)
+	if expr, ok := translateSimpleN8NExpressionWithRefs(s, nodeRefs); ok {
 		return expr, "", true
 	}
-	if expr, ok := translateN8NTemplateString(s); ok {
+	if expr, ok := translateN8NTemplateStringWithRefs(s, nodeRefs); ok {
 		return expr, "", true
 	}
 	return ednQuote(s), fmt.Sprintf("translate n8n expression for Set field %q", fieldName), true
 }
 
+func normalizeN8NExpressionString(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "={{") {
+		return strings.TrimPrefix(trimmed, "=")
+	}
+	return value
+}
+
 func translateSimpleN8NExpression(value string) (string, bool) {
+	return translateSimpleN8NExpressionWithRefs(value, nil)
+}
+
+func translateSimpleN8NExpressionWithRefs(value string, nodeRefs map[string]string) (string, bool) {
+	value = normalizeN8NExpressionString(value)
 	trimmed := strings.TrimSpace(value)
 	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
 		return "", false
 	}
 	expr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
-	return translateN8NInnerExpression(expr)
+	return translateN8NInnerExpressionWithRefs(expr, nodeRefs)
 }
 
 func translateN8NInnerExpression(expr string) (string, bool) {
+	return translateN8NInnerExpressionWithRefs(expr, nil)
+}
+
+func translateN8NInnerExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	expr = strings.TrimSpace(expr)
 	switch expr {
 	case "$json":
@@ -567,6 +585,12 @@ func translateN8NInnerExpression(expr string) (string, bool) {
 		return rendered, true
 	}
 	if rendered, ok := translateN8NBinaryExpression(expr); ok {
+		return rendered, true
+	}
+	if rendered, ok := translateN8NIncrementExpressionWithRefs(expr, nodeRefs); ok {
+		return rendered, true
+	}
+	if rendered, ok := translateN8NPathExpressionWithRefs(expr, nodeRefs); ok {
 		return rendered, true
 	}
 	const jsonPrefix = "$json."
@@ -592,7 +616,148 @@ func translateN8NInnerExpression(expr string) (string, bool) {
 	return "", false
 }
 
+func translateN8NPathExpression(expr string) (string, bool) {
+	return translateN8NPathExpressionWithRefs(expr, nil)
+}
+
+func translateN8NPathExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
+	root, path, ok := parseN8NPathExpression(expr)
+	if !ok {
+		return "", false
+	}
+	switch root {
+	case "$json":
+		return renderN8NGetPath("input", path), true
+	default:
+		const nodePrefix = "$node:"
+		if strings.HasPrefix(root, nodePrefix) {
+			nodeName := strings.TrimPrefix(root, nodePrefix)
+			if ref, ok := nodeRefs[nodeName]; ok {
+				return renderN8NGetPath(ref, path), true
+			}
+		}
+		return "", false
+	}
+}
+
+func translateN8NIncrementExpression(expr string) (string, bool) {
+	return translateN8NIncrementExpressionWithRefs(expr, nil)
+}
+
+func translateN8NIncrementExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
+	expr = strings.TrimSpace(expr)
+	if !strings.HasSuffix(expr, "++") {
+		return "", false
+	}
+	target := strings.TrimSpace(strings.TrimSuffix(expr, "++"))
+	value, ok := translateN8NInnerExpressionWithRefs(target, nodeRefs)
+	if !ok {
+		return "", false
+	}
+	return "(inc (or " + value + " 0))", true
+}
+
+func parseN8NPathExpression(expr string) (string, []string, bool) {
+	expr = strings.TrimSpace(expr)
+	root := ""
+	switch {
+	case strings.HasPrefix(expr, "$json"):
+		root = "$json"
+		expr = strings.TrimPrefix(expr, "$json")
+	case strings.HasPrefix(expr, "$node["):
+		nodeName, rest, ok := parseN8NNodeRoot(expr)
+		if !ok {
+			return "", nil, false
+		}
+		root = "$node:" + nodeName
+		expr = rest
+	default:
+		return "", nil, false
+	}
+	if strings.HasPrefix(expr, ".json") {
+		expr = strings.TrimPrefix(expr, ".json")
+	}
+	parts := make([]string, 0)
+	for expr != "" {
+		switch {
+		case strings.HasPrefix(expr, "."):
+			expr = strings.TrimPrefix(expr, ".")
+			next := strings.IndexAny(expr, ".[")
+			if next < 0 {
+				next = len(expr)
+			}
+			part := strings.TrimSpace(expr[:next])
+			if part == "" {
+				return "", nil, false
+			}
+			parts = append(parts, part)
+			expr = expr[next:]
+		case strings.HasPrefix(expr, "[\""), strings.HasPrefix(expr, "['"):
+			quote := expr[1]
+			end := strings.IndexByte(expr[2:], quote)
+			if end < 0 {
+				return "", nil, false
+			}
+			part := expr[2 : 2+end]
+			if part == "" {
+				return "", nil, false
+			}
+			expr = expr[2+end+1:]
+			if !strings.HasPrefix(expr, "]") {
+				return "", nil, false
+			}
+			expr = strings.TrimPrefix(expr, "]")
+			parts = append(parts, part)
+		default:
+			return "", nil, false
+		}
+	}
+	if len(parts) == 0 {
+		return root, nil, true
+	}
+	return root, parts, true
+}
+
+func parseN8NNodeRoot(expr string) (string, string, bool) {
+	if !strings.HasPrefix(expr, "$node[") {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(expr, "$node[")
+	if len(rest) < 3 || (rest[0] != '"' && rest[0] != '\'') {
+		return "", "", false
+	}
+	quote := rest[0]
+	end := strings.IndexByte(rest[1:], quote)
+	if end < 0 {
+		return "", "", false
+	}
+	nodeName := rest[1 : 1+end]
+	rest = rest[1+end+1:]
+	if !strings.HasPrefix(rest, "]") {
+		return "", "", false
+	}
+	return nodeName, strings.TrimPrefix(rest, "]"), true
+}
+
+func renderN8NGetPath(root string, parts []string) string {
+	if len(parts) == 0 {
+		return root
+	}
+	keywords := make([]string, 0, len(parts))
+	for _, part := range parts {
+		keywords = append(keywords, ":"+n8nKebab(part, "field"))
+	}
+	if len(keywords) == 1 {
+		return "(get " + root + " " + keywords[0] + ")"
+	}
+	return "(get-in " + root + " [" + strings.Join(keywords, " ") + "])"
+}
+
 func translateN8NTemplateString(value string) (string, bool) {
+	return translateN8NTemplateStringWithRefs(value, nil)
+}
+
+func translateN8NTemplateStringWithRefs(value string, nodeRefs map[string]string) (string, bool) {
 	matches := n8nTemplateExprRe.FindAllStringSubmatchIndex(value, -1)
 	if len(matches) == 0 {
 		return "", false
@@ -604,7 +769,7 @@ func translateN8NTemplateString(value string) (string, bool) {
 			parts = append(parts, ednQuote(value[cursor:match[0]]))
 		}
 		inner := value[match[2]:match[3]]
-		rendered, ok := translateN8NInnerExpression(inner)
+		rendered, ok := translateN8NInnerExpressionWithRefs(inner, nodeRefs)
 		if !ok {
 			return "", false
 		}
@@ -1029,6 +1194,21 @@ func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNod
 		parts = append(parts, ":"+item.StepID+" "+item.VarName)
 	}
 	return "{" + strings.Join(parts, " ") + "}"
+}
+
+func n8nFunctionInputRefs(upstreams []string) map[string]string {
+	switch len(upstreams) {
+	case 0:
+		return nil
+	case 1:
+		return map[string]string{upstreams[0]: "input"}
+	default:
+		refs := map[string]string{}
+		for _, name := range upstreams {
+			refs[name] = "(get input :" + n8nKebab(name, "step") + ")"
+		}
+		return refs
+	}
 }
 
 func n8nIsTrigger(node n8nNode) bool {
