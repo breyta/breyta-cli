@@ -538,6 +538,23 @@ func TestFlowsGrep_RejectsFlowFilterOutsideWorkspaceScope(t *testing.T) {
 	}
 }
 
+func TestFlowsGrep_RejectsInvalidMatchSurface(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--surface", "providers"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "--surface must be one of definition, steps, tools, connections, description") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFlowsGrep_TemplateScopeMarksTemplateSurface(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

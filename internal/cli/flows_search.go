@@ -3,10 +3,21 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+var flowGrepMatchSurfaceOrder = []string{"definition", "steps", "tools", "connections", "description"}
+
+var flowGrepMatchSurfaceSet = func() map[string]bool {
+	set := make(map[string]bool, len(flowGrepMatchSurfaceOrder))
+	for _, surface := range flowGrepMatchSurfaceOrder {
+		set[surface] = true
+	}
+	return set
+}()
 
 func searchScopeValue(raw string) (string, error) {
 	scope := strings.TrimSpace(strings.ToLower(raw))
@@ -92,7 +103,7 @@ func addPatternPayload(payload map[string]any, pattern string, ors []string) {
 	}
 }
 
-func appendMatchSurfacesPayload(payload map[string]any, surfaces []string) {
+func normalizedMatchSurfaces(surfaces []string) ([]string, error) {
 	clean := make([]string, 0, len(surfaces))
 	seen := map[string]bool{}
 	for _, raw := range surfaces {
@@ -101,10 +112,26 @@ func appendMatchSurfacesPayload(payload map[string]any, surfaces []string) {
 			if surface == "" || seen[surface] {
 				continue
 			}
+			if !flowGrepMatchSurfaceSet[surface] {
+				return nil, fmt.Errorf("--surface must be one of %s (got %q)", strings.Join(flowGrepMatchSurfaceOrder, ", "), surface)
+			}
 			seen[surface] = true
 			clean = append(clean, surface)
 		}
 	}
+	return clean, nil
+}
+
+func appendMatchSurfacesPayload(payload map[string]any, surfaces []string) error {
+	clean, err := normalizedMatchSurfaces(surfaces)
+	if err != nil {
+		return err
+	}
+	setMatchSurfacesPayload(payload, clean)
+	return nil
+}
+
+func setMatchSurfacesPayload(payload map[string]any, clean []string) {
 	if len(clean) > 0 {
 		payload["matchSurfaces"] = clean
 	}
@@ -319,6 +346,10 @@ synonym expansion.
 			if (effectiveScope == "workspace" || effectiveScope == "all") && strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("workspace grep requires --workspace or BREYTA_WORKSPACE; use --scope templates without workspace context"))
 			}
+			normalizedSurfaces, err := normalizedMatchSurfaces(matchSurfaces)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 
 			workspacePayload := map[string]any{
 				"definitionSearch": true,
@@ -329,7 +360,7 @@ synonym expansion.
 			}
 			addPatternPayload(workspacePayload, pattern, ors)
 			appendFlowSearchFilters(workspacePayload, provider, stepType, toolName, connection)
-			appendMatchSurfacesPayload(workspacePayload, matchSurfaces)
+			setMatchSurfacesPayload(workspacePayload, normalizedSurfaces)
 			if strings.TrimSpace(flowSlug) != "" {
 				workspacePayload["flowSlug"] = strings.TrimSpace(flowSlug)
 			}
@@ -343,7 +374,7 @@ synonym expansion.
 			}
 			addPatternPayload(templatePayload, pattern, ors)
 			appendFlowSearchFilters(templatePayload, provider, stepType, toolName, connection)
-			appendMatchSurfacesPayload(templatePayload, matchSurfaces)
+			setMatchSurfacesPayload(templatePayload, normalizedSurfaces)
 
 			switch effectiveScope {
 			case "workspace":
@@ -561,7 +592,9 @@ hidden semantic or synonym expansion.
 			}
 			addPatternPayload(payload, pattern, ors)
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			appendMatchSurfacesPayload(payload, matchSurfaces)
+			if err := appendMatchSurfacesPayload(payload, matchSurfaces); err != nil {
+				return writeErr(cmd, err)
+			}
 			if full {
 				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
 			}
