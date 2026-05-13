@@ -172,20 +172,7 @@ func CachedNotice(currentVersion string) *Notice {
 	}
 
 	if latest, ok := testLatestTagOverride(); ok {
-		newer, err := isUpdateAvailable(currentVersion, latest)
-		if err != nil || !newer {
-			return nil
-		}
-		n := &Notice{
-			Available:      true,
-			CurrentVersion: currentVersion,
-			LatestVersion:  latest,
-			CheckedAt:      time.Now(),
-			InstallMethod:  DetectInstallMethod(),
-			InstallPath:    DetectInstallPath(),
-			ReleaseURL:     ReleasePageURL,
-		}
-		fillNoticeUpgrade(n)
+		n, _ := noticeForLatest(currentVersion, latest, time.Now())
 		return n
 	}
 
@@ -196,20 +183,7 @@ func CachedNotice(currentVersion string) *Notice {
 	if strings.TrimSpace(c.LatestTag) == "" {
 		return nil
 	}
-	newer, err := isUpdateAvailable(currentVersion, c.LatestTag)
-	if err != nil || !newer {
-		return nil
-	}
-	n := &Notice{
-		Available:      true,
-		CurrentVersion: currentVersion,
-		LatestVersion:  c.LatestTag,
-		CheckedAt:      c.CheckedAt,
-		InstallMethod:  DetectInstallMethod(),
-		InstallPath:    DetectInstallPath(),
-		ReleaseURL:     ReleasePageURL,
-	}
-	fillNoticeUpgrade(n)
+	n, _ := noticeForLatest(currentVersion, c.LatestTag, c.CheckedAt)
 	return n
 }
 
@@ -219,19 +193,17 @@ func CheckNow(ctx context.Context, currentVersion string, maxAge time.Duration) 
 		return nil, nil
 	}
 
-	if _, ok := testLatestTagOverride(); ok {
-		return CachedNotice(currentVersion), nil
+	if latest, ok := testLatestTagOverride(); ok {
+		return noticeForLatest(currentVersion, latest, time.Now())
 	}
 
 	c, _ := loadCache()
 	if !c.CheckedAt.IsZero() && time.Since(c.CheckedAt) <= maxAge && strings.TrimSpace(c.LatestTag) != "" {
-		if newer, err := isUpdateAvailable(currentVersion, c.LatestTag); err == nil && newer {
-			n := CachedNotice(currentVersion)
-			if n != nil {
-				return n, nil
-			}
+		n, err := noticeForLatest(currentVersion, c.LatestTag, c.CheckedAt)
+		if err != nil {
+			return nil, err
 		}
-		return nil, nil
+		return n, nil
 	}
 
 	client := defaultHTTPClient()
@@ -245,7 +217,7 @@ func CheckNow(ctx context.Context, currentVersion string, maxAge time.Duration) 
 			c.ETag = strings.TrimSpace(etag)
 		}
 		_ = saveCache(c)
-		return CachedNotice(currentVersion), nil
+		return noticeForLatest(currentVersion, c.LatestTag, c.CheckedAt)
 	}
 
 	c.LatestTag = tag
@@ -254,7 +226,25 @@ func CheckNow(ctx context.Context, currentVersion string, maxAge time.Duration) 
 	}
 	c.CheckedAt = time.Now()
 	_ = saveCache(c)
-	return CachedNotice(currentVersion), nil
+	return noticeForLatest(currentVersion, c.LatestTag, c.CheckedAt)
+}
+
+func noticeForLatest(currentVersion, latestTag string, checkedAt time.Time) (*Notice, error) {
+	newer, err := isUpdateAvailable(currentVersion, latestTag)
+	if err != nil || !newer {
+		return nil, err
+	}
+	n := &Notice{
+		Available:      true,
+		CurrentVersion: currentVersion,
+		LatestVersion:  latestTag,
+		CheckedAt:      checkedAt,
+		InstallMethod:  DetectInstallMethod(),
+		InstallPath:    DetectInstallPath(),
+		ReleaseURL:     ReleasePageURL,
+	}
+	fillNoticeUpgrade(n)
+	return n, nil
 }
 
 func isUpdateAvailable(currentVersion, latestTag string) (bool, error) {

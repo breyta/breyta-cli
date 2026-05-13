@@ -24,11 +24,42 @@ func ParseCalVer(v string) (CalVer, error) {
 	if len(parts) != 3 {
 		return CalVer{}, fmt.Errorf("invalid calver %q (expected vYYYY.M.PATCH)", v)
 	}
+	if parts[0] == "0" {
+		return parseGoModuleCompatibilityCalVer(v, parts)
+	}
 	year, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return CalVer{}, fmt.Errorf("invalid year in %q", v)
 	}
 	month, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return CalVer{}, fmt.Errorf("invalid month in %q", v)
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return CalVer{}, fmt.Errorf("invalid patch in %q", v)
+	}
+	if year < 2000 || year > 3000 {
+		return CalVer{}, fmt.Errorf("invalid year %d in %q", year, v)
+	}
+	if month < 1 || month > 12 {
+		return CalVer{}, fmt.Errorf("invalid month %d in %q", month, v)
+	}
+	if patch < 0 || patch > 10000 {
+		return CalVer{}, fmt.Errorf("invalid patch %d in %q", patch, v)
+	}
+	return CalVer{Year: year, Month: month, Patch: patch}, nil
+}
+
+func parseGoModuleCompatibilityCalVer(v string, parts []string) (CalVer, error) {
+	if len(parts[1]) != 6 {
+		return CalVer{}, fmt.Errorf("invalid go module compatibility calver %q (expected v0.YYYYMM.PATCH)", v)
+	}
+	year, err := strconv.Atoi(parts[1][:4])
+	if err != nil {
+		return CalVer{}, fmt.Errorf("invalid year in %q", v)
+	}
+	month, err := strconv.Atoi(parts[1][4:])
 	if err != nil {
 		return CalVer{}, fmt.Errorf("invalid month in %q", v)
 	}
