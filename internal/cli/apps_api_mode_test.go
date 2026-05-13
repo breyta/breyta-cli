@@ -4017,6 +4017,7 @@ func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
 					"items": []map[string]any{
 						{"waitId": "wait-old", "workflowId": "wf-wait", "registeredAt": "2026-05-13T08:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
 						{"waitId": "wait-new", "workflowId": "wf-wait", "registeredAt": "2026-05-13T09:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+						{"waitId": "wait-other", "workflowId": "wf-other", "registeredAt": "2026-05-13T10:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
 					},
 				},
 			})

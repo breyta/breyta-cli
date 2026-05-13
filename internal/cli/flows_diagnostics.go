@@ -155,10 +155,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	publicFields := mapStringAny(preflight["public"])
 	marketplace := mapStringAny(preflight["marketplace"])
 	publicRequired := includePublic && (requirePublic || requireMarketplace || boolValue(publicFields["discoverPublic"]) || boolValue(publicFields["marketplaceVisible"]))
-	marketplaceReady := true
-	if requireMarketplace {
-		marketplaceReady = boolValue(marketplace["visible"])
-	}
+	marketplaceReady := boolValue(marketplace["visible"])
 	checks := []any{}
 	for _, item := range sliceAny(doctor["checks"]) {
 		if m := mapStringAny(item); m != nil {
@@ -228,7 +225,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			"readiness": map[string]any{
 				"flowSlug":            flowSlug,
 				"target":              target,
-				"ready":               doctorReady && (!publicRequired || publicReady) && marketplaceReady,
+				"ready":               doctorReady && (!publicRequired || publicReady) && (!requireMarketplace || marketplaceReady),
 				"definitionReady":     boolValue(doctor["definitionReady"]),
 				"configurationReady":  boolValue(doctor["configurationReady"]),
 				"publicReady":         publicReady,

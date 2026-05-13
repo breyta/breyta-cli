@@ -416,6 +416,52 @@ func TestContract_RunsStartAdvanceStepAndEvents(t *testing.T) {
 		t.Fatalf("runs step expected data.output")
 	}
 
+	// Run inspection should stay compact outside API mode too.
+	stdout, _, err = runCLI(t, statePath, "runs", "inspect", runID, "--pretty")
+	if err != nil {
+		t.Fatalf("runs inspect failed: %v\n%s", err, stdout)
+	}
+	e = decodeEnvelope(t, stdout)
+	if !e.OK {
+		t.Fatalf("runs inspect expected ok=true")
+	}
+	steps, ok := e.Data["steps"].([]any)
+	if !ok || len(steps) == 0 {
+		t.Fatalf("runs inspect expected compact data.steps")
+	}
+	firstStep, _ := steps[0].(map[string]any)
+	if _, ok := firstStep["inputPreview"]; ok {
+		t.Fatalf("runs inspect should not include full step input previews by default: %#v", firstStep)
+	}
+	if _, ok := firstStep["outputPreview"]; ok {
+		t.Fatalf("runs inspect should not include full step output previews by default: %#v", firstStep)
+	}
+
+	stdout, _, err = runCLI(t, statePath, "runs", "inspect", runID, "--step", "fetch-sales", "--pretty")
+	if err != nil {
+		t.Fatalf("runs inspect --step failed: %v\n%s", err, stdout)
+	}
+	e = decodeEnvelope(t, stdout)
+	if !e.OK {
+		t.Fatalf("runs inspect --step expected ok=true")
+	}
+	if _, ok := e.Data["input"]; !ok {
+		t.Fatalf("runs inspect --step expected data.input")
+	}
+	execution, _ := e.Data["execution"].(map[string]any)
+	if _, ok := execution["inputPreview"]; ok {
+		t.Fatalf("runs inspect --step execution should be compact: %#v", execution)
+	}
+
+	stdout, _, err = runCLI(t, statePath, "runs", "inspect", runID, "--step", "Fetch Yesterday's Sales", "--pretty")
+	if err != nil {
+		t.Fatalf("runs inspect --step title failed: %v\n%s", err, stdout)
+	}
+	e = decodeEnvelope(t, stdout)
+	if e.Data["stepId"] != "fetch-sales" {
+		t.Fatalf("runs inspect --step title expected canonical step id, got %#v", e.Data["stepId"])
+	}
+
 	// Events timeline
 	stdout, _, err = runCLI(t, statePath, "runs", "events", runID, "--pretty")
 	if err != nil {

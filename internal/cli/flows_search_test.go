@@ -859,6 +859,91 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	}
 }
 
+func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
+	seenCommands := []string{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		command, _ := body["command"].(string)
+		seenCommands = append(seenCommands, command)
+		switch command {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "private-flow",
+						"target":   "live",
+						"ready":    true,
+						"summary":  map[string]any{"activeVersion": 1, "latestVersion": 1},
+						"checks":   []map[string]any{{"id": "definition", "label": "Flow definition", "pass": true}},
+					},
+				},
+				"meta": map[string]any{"nextCommands": []string{"breyta flows run private-flow --target live --wait"}},
+			})
+		case "flows.configure.check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data":        map[string]any{"ready": true, "flowSlug": "private-flow", "target": "live"},
+			})
+		case "flows.public.preflight":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"preflight": map[string]any{
+						"flowSlug": "private-flow",
+						"ready":    false,
+						"public":   map[string]any{"discoverPublic": false, "marketplaceVisible": false},
+						"checks":   []map[string]any{{"id": "discover-public", "label": "Discover visibility", "pass": false}},
+					},
+				},
+				"meta": map[string]any{"nextCommands": []string{"breyta flows public preflight private-flow"}},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", command)
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsReadinessCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"private-flow"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("readiness execute: %v\n%s", err, out.String())
+	}
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight" {
+		t.Fatalf("unexpected commands: %s", got)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	readiness := mapStringAny(mapStringAny(envelope["data"])["readiness"])
+	if readiness["ready"] != true {
+		t.Fatalf("expected readiness ready=true, got %#v", readiness["ready"])
+	}
+	if readiness["publicIncluded"] != true || readiness["publicRequired"] != false {
+		t.Fatalf("expected included-but-not-required public snapshot, got %#v", readiness)
+	}
+	if readiness["marketplaceRequired"] != false {
+		t.Fatalf("expected marketplaceRequired=false, got %#v", readiness["marketplaceRequired"])
+	}
+	if len(sliceAny(readiness["blockers"])) != 0 {
+		t.Fatalf("expected no blockers, got %#v", readiness["blockers"])
+	}
+}
+
 func TestFlowsDoctorIncludesConfigureCheckReadiness(t *testing.T) {
 	seenCommands := []string{}
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

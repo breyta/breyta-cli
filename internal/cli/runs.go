@@ -597,57 +597,7 @@ func newRunsStepCmd(app *App) *cobra.Command {
 			if isAPIMode(app) {
 				return doRunsStepInspect(cmd, app, args[0], args[1], installationID)
 			}
-			runID := args[0]
-			stepID := args[1]
-			st, store, err := appStore(app)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			r, err := store.GetRun(st, runID)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			ws, err := getWorkspace(st, app.WorkspaceID)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			f := ws.Flows[r.FlowSlug]
-			if f == nil {
-				return writeErr(cmd, errors.New("flow not found for run"))
-			}
-			var flowStep *state.FlowStep
-			for i := range f.Steps {
-				if f.Steps[i].ID == stepID {
-					flowStep = &f.Steps[i]
-					break
-				}
-			}
-			var execStep *state.StepExecution
-			for i := range r.Steps {
-				if r.Steps[i].StepID == stepID {
-					execStep = &r.Steps[i]
-					break
-				}
-			}
-			if execStep == nil {
-				return writeErr(cmd, errors.New("step execution not found"))
-			}
-
-			// For "execution truth" we surface concrete input/output from the run.
-			// (Schemas live on the flow step and can be returned separately if needed.)
-			return writeData(cmd, app, nil, map[string]any{
-				"runId":     runID,
-				"flowSlug":  r.FlowSlug,
-				"stepId":    stepID,
-				"input":     execStep.InputPreview,
-				"output":    execStep.ResultPreview,
-				"execution": execStep,
-				"flowStep": map[string]any{
-					"id":    stepID,
-					"type":  flowStepType(flowStep),
-					"title": flowStepTitle(flowStep),
-				},
-			})
+			return writeLocalRunStepInspect(cmd, app, args[0], args[1])
 		},
 	}
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
@@ -663,7 +613,13 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(stepID) != "" {
+				if !isAPIMode(app) {
+					return writeLocalRunStepInspect(cmd, app, args[0], stepID)
+				}
 				return doRunsStepInspect(cmd, app, args[0], stepID, installationID)
+			}
+			if !isAPIMode(app) {
+				return writeLocalRunInspect(cmd, app, args[0])
 			}
 			payload := map[string]any{
 				"workflowId":     strings.TrimSpace(args[0]),
@@ -682,8 +638,138 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
 	return cmd
+}
+
+func writeLocalRunInspect(cmd *cobra.Command, app *App, runID string) error {
+	st, store, err := appStore(app)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	r, err := store.GetRun(st, runID)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	steps := make([]map[string]any, 0, len(r.Steps))
+	for i := range r.Steps {
+		steps = append(steps, compactLocalStepExecution(&r.Steps[i]))
+	}
+	meta := map[string]any{
+		"workflowId": strings.TrimSpace(runID),
+		"stepsTotal": len(r.Steps),
+		"compact":    true,
+		"nextCommands": []string{
+			"breyta runs show " + strings.TrimSpace(runID) + " --steps 0",
+		},
+	}
+	if len(r.Steps) > 0 {
+		meta["nextCommands"] = append(meta["nextCommands"].([]string),
+			"breyta runs inspect "+strings.TrimSpace(runID)+" --step "+r.Steps[0].StepID)
+	}
+	return writeData(cmd, app, meta, map[string]any{
+		"workflowId":  r.WorkflowID,
+		"flowSlug":    r.FlowSlug,
+		"version":     r.Version,
+		"status":      r.Status,
+		"currentStep": r.CurrentStep,
+		"hasInput":    r.InputPreview != nil,
+		"hasResult":   r.ResultPreview != nil,
+		"error":       r.Error,
+		"steps":       steps,
+	})
+}
+
+func writeLocalRunStepInspect(cmd *cobra.Command, app *App, runID string, stepID string) error {
+	st, store, err := appStore(app)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	r, err := store.GetRun(st, runID)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	ws, err := getWorkspace(st, app.WorkspaceID)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	f := ws.Flows[r.FlowSlug]
+	if f == nil {
+		return writeErr(cmd, errors.New("flow not found for run"))
+	}
+	var flowStep *state.FlowStep
+	for i := range f.Steps {
+		if localRunStepMatches(f.Steps[i].ID, f.Steps[i].Title, stepID) {
+			flowStep = &f.Steps[i]
+			break
+		}
+	}
+	var execStep *state.StepExecution
+	for i := range r.Steps {
+		if localRunStepMatches(r.Steps[i].StepID, r.Steps[i].Title, stepID) {
+			execStep = &r.Steps[i]
+			break
+		}
+	}
+	if execStep == nil {
+		return writeErr(cmd, errors.New("step execution not found"))
+	}
+
+	return writeData(cmd, app, nil, map[string]any{
+		"runId":      runID,
+		"flowSlug":   r.FlowSlug,
+		"stepId":     execStep.StepID,
+		"status":     execStep.Status,
+		"type":       execStep.StepType,
+		"title":      execStep.Title,
+		"durationMs": execStep.DurationMs,
+		"input":      execStep.InputPreview,
+		"output":     execStep.ResultPreview,
+		"error":      execStep.Error,
+		"execution":  compactLocalStepExecution(execStep),
+		"flowStep": map[string]any{
+			"id":    flowStepID(flowStep, execStep.StepID),
+			"type":  flowStepType(flowStep),
+			"title": flowStepTitle(flowStep),
+		},
+	})
+}
+
+func localRunStepMatches(stepID string, title string, needle string) bool {
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	if needle == "" {
+		return false
+	}
+	for _, candidate := range []string{stepID, title} {
+		if strings.ToLower(strings.TrimSpace(candidate)) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func flowStepID(s *state.FlowStep, fallback string) string {
+	if s == nil || strings.TrimSpace(s.ID) == "" {
+		return fallback
+	}
+	return s.ID
+}
+
+func compactLocalStepExecution(execStep *state.StepExecution) map[string]any {
+	if execStep == nil {
+		return nil
+	}
+	return map[string]any{
+		"stepId":     execStep.StepID,
+		"type":       execStep.StepType,
+		"title":      execStep.Title,
+		"status":     execStep.Status,
+		"attempt":    execStep.Attempt,
+		"durationMs": execStep.DurationMs,
+		"hasInput":   execStep.InputPreview != nil,
+		"hasOutput":  execStep.ResultPreview != nil,
+		"error":      execStep.Error,
+	}
 }
 
 func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID string, installationID string) error {
@@ -732,8 +818,25 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 		"output":     firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result"),
 		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
 		"cost":       firstPresent(step, "cost", "usage", "counters", "metering"),
-		"execution":  step,
+		"execution":  compactAPIRunStepExecution(step),
 	})
+}
+
+func compactAPIRunStepExecution(step map[string]any) map[string]any {
+	if step == nil {
+		return nil
+	}
+	return map[string]any{
+		"stepId":     firstNonBlankString(step["stepId"], step["step-id"], step["id"]),
+		"type":       firstNonBlankString(step["stepType"], step["step-type"], step["type"]),
+		"title":      firstNonBlankString(step["title"], step["label"]),
+		"status":     firstNonBlankString(step["status"]),
+		"attempt":    firstPresent(step, "attempt", "attemptNumber", "attempt-number"),
+		"durationMs": firstPresent(step, "durationMs", "duration-ms"),
+		"hasInput":   firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview") != nil,
+		"hasOutput":  firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result") != nil,
+		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
+	}
 }
 
 func findRunStep(run map[string]any, stepID string) map[string]any {
@@ -809,6 +912,7 @@ func doRunsContinueApproveLatestWait(cmd *cobra.Command, app *App, workflowID st
 		return writeREST(cmd, app, listStatus, listOut)
 	}
 	items := waitItems(listOut)
+	items = filterWaitItemsForWorkflow(items, workflowID)
 	if len(items) == 0 {
 		return writeErr(cmd, fmt.Errorf("no active waits found for workflow %s", workflowID))
 	}
@@ -842,6 +946,21 @@ func doRunsContinueApproveLatestWait(cmd *cobra.Command, app *App, workflowID st
 		"wait":       selected,
 		"approval":   approveOut,
 	})
+}
+
+func filterWaitItemsForWorkflow(items []map[string]any, workflowID string) []map[string]any {
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID == "" {
+		return items
+	}
+	filtered := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		itemWorkflowID := firstNonBlankString(item["workflowId"], item["workflow-id"], item["runId"], item["run-id"])
+		if itemWorkflowID == "" || itemWorkflowID == workflowID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func waitItems(out any) []map[string]any {
