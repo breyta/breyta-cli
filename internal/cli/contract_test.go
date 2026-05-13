@@ -498,7 +498,7 @@ func TestContract_DocsHelpSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docs failed: %v\n%s", err, stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte("find")) || !bytes.Contains([]byte(stdout), []byte("show")) || !bytes.Contains([]byte(stdout), []byte("sync")) {
+	if !bytes.Contains([]byte(stdout), []byte("find")) || !bytes.Contains([]byte(stdout), []byte("show")) || !bytes.Contains([]byte(stdout), []byte("fields")) || !bytes.Contains([]byte(stdout), []byte("sync")) {
 		t.Fatalf("expected docs help subcommands\n---\n%s", stdout)
 	}
 }

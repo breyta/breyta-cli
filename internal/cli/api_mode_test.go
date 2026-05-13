@@ -51,6 +51,9 @@ func TestDocs_Help_DefaultSurface(t *testing.T) {
 	if !bytes.Contains([]byte(stdout), []byte("show")) {
 		t.Fatalf("expected docs help to include show command\n---\n%s", stdout)
 	}
+	if !bytes.Contains([]byte(stdout), []byte("fields")) {
+		t.Fatalf("expected docs help to include fields command\n---\n%s", stdout)
+	}
 	if !bytes.Contains([]byte(stdout), []byte("sync")) {
 		t.Fatalf("expected docs help to include sync command\n---\n%s", stdout)
 	}

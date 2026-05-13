@@ -232,6 +232,115 @@ func TestDocsShow_PrintsMarkdown(t *testing.T) {
 	}
 }
 
+func TestDocsFields_PrintsStepConfigOverview(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-http" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step HTTP\n\n## Canonical Shape\n\nCore fields:\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:connection` | keyword/string | Yes* | Slot or connection id |\n| `:response-as` | keyword | No | `:auto`, `:json`, or `:text` |\n| `:persist` | map | No | Persist large responses |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"http"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "field\ttype\trequired\tnotes\n") {
+		t.Fatalf("expected tsv header, got: %q", got)
+	}
+	if !strings.Contains(got, ":connection\tkeyword/string\tYes*\tSlot or connection id\n") ||
+		!strings.Contains(got, ":response-as\tkeyword\tNo\t:auto, :json, or :text\n") ||
+		!strings.Contains(got, ":persist\tmap\tNo\tPersist large responses\n") {
+		t.Fatalf("expected compact field rows, got: %q", got)
+	}
+}
+
+func TestDocsFields_SelectsMultipleFieldsAsJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-http" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step HTTP\n\n## Canonical Shape\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:connection` | keyword/string | Yes* | Slot or connection id |\n| `:response-as` | keyword | No | Response parser |\n| `:persist` | map | No | Persist response refs |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"http", "response-as", "persist", "--format", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	var payload struct {
+		Data struct {
+			Slug            string   `json:"slug"`
+			AvailableFields []string `json:"availableFields"`
+			Fields          []struct {
+				Field   string   `json:"field"`
+				Aliases []string `json:"aliases"`
+			} `json:"fields"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decode json: %v\n%s", err, out.String())
+	}
+	if payload.Data.Slug != "reference-step-http" {
+		t.Fatalf("unexpected slug: %q", payload.Data.Slug)
+	}
+	if len(payload.Data.Fields) != 2 {
+		t.Fatalf("expected selected fields only, got %+v", payload.Data.Fields)
+	}
+	if payload.Data.Fields[0].Field != ":response-as" || payload.Data.Fields[1].Field != ":persist" {
+		t.Fatalf("unexpected selected fields: %+v", payload.Data.Fields)
+	}
+	if strings.Join(payload.Data.AvailableFields, ",") != "connection,response-as,persist" {
+		t.Fatalf("unexpected available fields: %+v", payload.Data.AvailableFields)
+	}
+}
+
+func TestDocsFields_MissingFieldListsAvailableFields(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-llm" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step LLM\n\n## Canonical Shape\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:model` | string | No | Model override |\n| `:output` / `:response-format` | map/keyword | No | Structured output config |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{":llm", "missing-field"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected missing field error")
+	}
+	got := out.String()
+	if !strings.Contains(got, "field(s) not found in reference-step-llm: missing-field") ||
+		!strings.Contains(got, "available fields: model, output, response-format") {
+		t.Fatalf("expected available field hint, got: %q", got)
+	}
+}
+
 func TestDocsShow_CompactsLongMarkdownByDefault(t *testing.T) {
 	t.Parallel()
 

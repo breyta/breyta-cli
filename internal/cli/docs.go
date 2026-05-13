@@ -8,13 +8,15 @@ func newDocsCmd(app *App) *cobra.Command {
 		Short: "Browse product docs",
 		Long: "Browse product docs from the API.\n\n" +
 			"Use `breyta docs find` to search pages, `breyta docs show` to print a page,\n" +
-			"and `breyta docs sync` to download all docs for local grep/search.",
+			"`breyta docs fields` to inspect step config fields, and `breyta docs sync` to\n" +
+			"download all docs for local grep/search.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 	cmd.AddCommand(newDocsFindCmd(app))
 	cmd.AddCommand(newDocsShowCmd(app))
+	cmd.AddCommand(newDocsFieldsCmd(app))
 	cmd.AddCommand(newDocsSyncCmd(app))
 	return cmd
 }
