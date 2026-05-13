@@ -230,6 +230,12 @@ func convertN8NNode(node n8nNode, stepID string, upstreams []string, convertedBy
 	switch {
 	case strings.Contains(typ, "httprequest"):
 		return convertN8NHTTPNode(node, stepID, upstreams, convertedByName)
+	case strings.HasSuffix(typ, ".if") || strings.Contains(typ, ".switch"):
+		return convertN8NBranchNode(node, stepID, upstreams, convertedByName)
+	case strings.Contains(typ, "webhookresponse") || strings.Contains(typ, "respondtowebhook"):
+		return convertN8NWebhookResponseNode(node, stepID, upstreams, convertedByName)
+	case strings.HasSuffix(typ, ".wait") || strings.Contains(typ, ".wait"):
+		return convertN8NWaitNode(node, stepID, upstreams, convertedByName)
 	case strings.HasSuffix(typ, ".set") || strings.Contains(typ, "set"):
 		return convertN8NSetNode(node, stepID, upstreams, convertedByName)
 	case strings.Contains(typ, "code") || strings.Contains(typ, "function"):
@@ -263,14 +269,19 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
   :auth {:type %s}}`, slot, ednQuote(firstNonEmpty(n8nCredentialLabel(node), node.Name, "Imported API")), ednQuote(baseURL), auth)
 
 	requestParts := []string{":path " + ednQuote(firstNonEmpty(path, "/")), ":method :" + method}
+	if queryParams := n8nParameterPairs(node.Parameters, "queryParameters", "queryParameter"); len(queryParams) > 0 {
+		query = mergeStringMaps(query, queryParams)
+	}
 	if len(query) > 0 {
 		requestParts = append(requestParts, ":query "+renderStringMap(query))
 	}
-	if headers := mapParam(node.Parameters, "headers", "headerParameters"); len(headers) > 0 {
-		requestParts = append(requestParts, ":headers "+renderAnyStringMap(headers))
+	if headers := n8nParameterPairs(node.Parameters, "headers", "headerParameters", "headerParameter"); len(headers) > 0 {
+		requestParts = append(requestParts, ":headers "+renderStringMap(headers))
 	}
 	if body, ok := firstParam(node.Parameters, "body", "jsonBody"); ok && body != nil && body != "" {
 		requestParts = append(requestParts, ":body "+ednQuote(fmt.Sprint(body)))
+	} else if bodyParams := n8nParameterPairs(node.Parameters, "bodyParameters", "bodyParameter"); len(bodyParams) > 0 {
+		requestParts = append(requestParts, ":body "+renderStringMap(bodyParams))
 	}
 	template := fmt.Sprintf(`{:id :%s-request
   :type :http-request
@@ -284,6 +295,42 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
             :persist {:type :blob}
             :data {:input %s}})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), slot, stepID, input)
 	return binding, []string{require}, []string{template}, nil, todos
+}
+
+func convertN8NBranchNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+	code := fmt.Sprintf("(fn [input]\n  ;; TODO(n8n-import): translate branch node %s conditions and graph outputs.\n  ;; Safe default keeps data on the false/pass-through path to avoid unintended side effects.\n  (assoc input :branch false))", ednQuote(firstNonEmpty(node.Name, stepID)))
+	fn := renderFunction(stepID, code)
+	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	return binding, nil, nil, []string{fn}, []string{fmt.Sprintf("translate branch node %q conditions and true/false outputs", node.Name)}
+}
+
+func convertN8NWebhookResponseNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+	statusCode := intParam(node.Parameters, 200, "responseCode", "statusCode")
+	code := fmt.Sprintf("(fn [input]\n  {:status %d\n   :headers {}\n   :body input})", statusCode)
+	fn := renderFunction(stepID, code)
+	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	return binding, nil, nil, []string{fn}, nil
+}
+
+func convertN8NWaitNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+	amount := intParam(node.Parameters, 1, "amount", "value")
+	unit := strings.ToLower(firstNonEmpty(stringParam(node.Parameters, "unit"), "seconds"))
+	timeout := amount
+	switch unit {
+	case "minutes", "minute":
+		timeout *= 60
+	case "hours", "hour":
+		timeout *= 3600
+	case "days", "day":
+		timeout *= 86400
+	}
+	input := n8nInputExpr(upstreams, convertedByName)
+	binding := fmt.Sprintf(`(flow/step :wait :%s
+           {:title %s
+            :timeout %d
+            :on-timeout :continue
+            :default-value %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), timeout, input)
+	return binding, nil, nil, nil, []string{fmt.Sprintf("verify Wait node %q timing semantics", node.Name)}
 }
 
 func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
@@ -507,6 +554,9 @@ func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNod
 
 func n8nIsTrigger(node n8nNode) bool {
 	typ := strings.ToLower(node.Type)
+	if strings.Contains(typ, "respondtowebhook") || strings.Contains(typ, "webhookresponse") {
+		return false
+	}
 	for _, marker := range []string{"manualtrigger", "webhook", "cron", "scheduletrigger", "interval"} {
 		if strings.Contains(typ, marker) {
 			return true
@@ -645,12 +695,87 @@ func renderAnyStringMap(values map[string]any) string {
 	return "{" + strings.Join(parts, " ") + "}"
 }
 
+func n8nParameterPairs(values map[string]any, keys ...string) map[string]string {
+	out := map[string]string{}
+	for _, key := range keys {
+		raw, ok := values[key]
+		if !ok {
+			continue
+		}
+		collectN8NParameterPairs(out, raw)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func collectN8NParameterPairs(out map[string]string, raw any) {
+	switch value := raw.(type) {
+	case map[string]any:
+		if params, ok := value["parameters"]; ok {
+			collectN8NParameterPairs(out, params)
+			return
+		}
+		name := strings.TrimSpace(fmt.Sprint(value["name"]))
+		if name != "" && name != "<nil>" {
+			out[name] = fmt.Sprint(value["value"])
+			return
+		}
+		for key, item := range value {
+			if strings.TrimSpace(key) != "" {
+				out[key] = fmt.Sprint(item)
+			}
+		}
+	case []any:
+		for _, item := range value {
+			collectN8NParameterPairs(out, item)
+		}
+	}
+}
+
+func mergeStringMaps(left, right map[string]string) map[string]string {
+	if len(left) == 0 {
+		return right
+	}
+	if len(right) == 0 {
+		return left
+	}
+	out := map[string]string{}
+	for key, value := range left {
+		out[key] = value
+	}
+	for key, value := range right {
+		out[key] = value
+	}
+	return out
+}
+
 func stringParam(values map[string]any, keys ...string) string {
 	value, ok := firstParam(values, keys...)
 	if !ok || value == nil {
 		return ""
 	}
 	return fmt.Sprint(value)
+}
+
+func intParam(values map[string]any, fallback int, keys ...string) int {
+	value, ok := firstParam(values, keys...)
+	if !ok || value == nil {
+		return fallback
+	}
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return n
+		}
+	}
+	return fallback
 }
 
 func mapParam(values map[string]any, keys ...string) map[string]any {
