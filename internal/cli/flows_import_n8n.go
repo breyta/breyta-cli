@@ -158,7 +158,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 	for _, node := range ordered {
 		if n8nIsTrigger(node) {
 			triggerRequires, triggerWebhooks, triggerSchedules := convertN8NTrigger(node, usedIDs)
-			requires = append(requires, triggerRequires...)
+			requires = appendUniqueStrings(requires, triggerRequires)
 			webhooks = append(webhooks, triggerWebhooks...)
 			schedules = append(schedules, triggerSchedules...)
 			continue
@@ -166,7 +166,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 		stepID := uniqueN8NID(n8nKebab(node.Name, "step"), usedIDs)
 		varName := uniqueN8NID(strings.ReplaceAll(stepID, "-", "_"), usedVars)
 		binding, nodeRequires, nodeTemplates, nodeFunctions, nodeTodos := convertN8NNode(node, stepID, upstreams[node.Name], convertedByName)
-		requires = append(requires, nodeRequires...)
+		requires = appendUniqueStrings(requires, nodeRequires)
 		templates = append(templates, nodeTemplates...)
 		functions = append(functions, nodeFunctions...)
 		for _, todo := range nodeTodos {
@@ -279,7 +279,7 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
 		requestParts = append(requestParts, ":headers "+renderStringMap(headers))
 	}
 	if body, ok := firstParam(node.Parameters, "body", "jsonBody"); ok && body != nil && body != "" {
-		requestParts = append(requestParts, ":body "+ednQuote(fmt.Sprint(body)))
+		requestParts = append(requestParts, ":body "+ednValue(body))
 	} else if bodyParams := n8nParameterPairs(node.Parameters, "bodyParameters", "bodyParameter"); len(bodyParams) > 0 {
 		requestParts = append(requestParts, ":body "+renderStringMap(bodyParams))
 	}
@@ -338,6 +338,7 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 	todos := []string{fmt.Sprintf("port Set node %q parameters", node.Name)}
 	if values, ok := node.Parameters["values"].(map[string]any); ok {
 		assoc := make([]string, 0)
+		todos = nil
 		for _, rawGroup := range values {
 			group, ok := rawGroup.([]any)
 			if !ok {
@@ -357,13 +358,14 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+ednQuote(s))
 					todos = append(todos, fmt.Sprintf("translate n8n expression for Set field %q", name))
 				} else {
-					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+ednScalar(value))
+					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+ednValue(value))
 				}
 			}
 		}
 		if len(assoc) > 0 {
 			code = "(fn [input]\n  (assoc input\n    " + strings.Join(assoc, "\n    ") + "))"
-			todos = nil
+		} else if len(todos) == 0 {
+			todos = []string{fmt.Sprintf("port Set node %q parameters", node.Name)}
 		}
 	}
 	fn := renderFunction(stepID, code)
@@ -645,7 +647,7 @@ func ednQuote(value string) string {
 	return string(b)
 }
 
-func ednScalar(value any) string {
+func ednValue(value any) string {
 	switch v := value.(type) {
 	case nil:
 		return "nil"
@@ -656,8 +658,27 @@ func ednScalar(value any) string {
 		return "false"
 	case float64:
 		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
 	case string:
 		return ednQuote(v)
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			parts = append(parts, ednValue(item))
+		}
+		return "[" + strings.Join(parts, " ") + "]"
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, ednQuote(key)+" "+ednValue(v[key]))
+		}
+		return "{" + strings.Join(parts, " ") + "}"
 	default:
 		return ednQuote(fmt.Sprint(v))
 	}
@@ -776,17 +797,6 @@ func intParam(values map[string]any, fallback int, keys ...string) int {
 		}
 	}
 	return fallback
-}
-
-func mapParam(values map[string]any, keys ...string) map[string]any {
-	value, ok := firstParam(values, keys...)
-	if !ok {
-		return nil
-	}
-	if m, ok := value.(map[string]any); ok {
-		return m
-	}
-	return nil
 }
 
 func firstParam(values map[string]any, keys ...string) (any, bool) {

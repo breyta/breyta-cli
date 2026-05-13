@@ -170,6 +170,73 @@ func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	assertContains(t, string(b), ":slug :imported")
 }
 
+func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Nested Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Shared API One",
+				Type: "n8n-nodes-base.httpRequest",
+				Credentials: map[string]any{
+					"httpHeaderAuth": map[string]any{"name": "Shared API"},
+				},
+				Parameters: map[string]any{
+					"method": "POST",
+					"url":    "https://api.example.com/one",
+					"body": map[string]any{
+						"user": map[string]any{"id": float64(7), "name": "Ada"},
+						"tags": []any{"alpha", "beta"},
+					},
+				},
+			},
+			{
+				Name: "Shared API Two",
+				Type: "n8n-nodes-base.httpRequest",
+				Credentials: map[string]any{
+					"httpHeaderAuth": map[string]any{"name": "Shared API"},
+				},
+				Parameters: map[string]any{
+					"method": "POST",
+					"url":    "https://api.example.com/two",
+				},
+			},
+			{
+				Name: "Set Fields",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{
+					"values": map[string]any{
+						"string": []any{
+							map[string]any{"name": "customerId", "value": "{{$json.customer.id}}"},
+						},
+						"number": []any{
+							map[string]any{"name": "score", "value": float64(9)},
+						},
+					},
+				},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Shared API One", Type: "main", Index: 0}}}},
+			"Shared API One": {"main": {{{Node: "Shared API Two", Type: "main", Index: 0}}}},
+			"Shared API Two": {"main": {{{Node: "Set Fields", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "nested-import", "tmp/flows/nested-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	if got := strings.Count(result.EDN, ":slot :shared-api"); got != 1 {
+		t.Fatalf("expected one shared-api requirement, got %d\n%s", got, result.EDN)
+	}
+	assertContains(t, result.EDN, `:body {"tags" ["alpha" "beta"] "user" {"id" 7 "name" "Ada"}}`)
+	assertContains(t, result.EDN, `:customerid \"{{$json.customer.id}}\"`)
+	assertContains(t, result.EDN, `:score 9`)
+	assertContains(t, strings.Join(result.Todos, "\n"), `translate n8n expression for Set field "customerId"`)
+}
+
 func assertContains(t *testing.T, text, want string) {
 	t.Helper()
 	if !strings.Contains(text, want) {
