@@ -232,6 +232,46 @@ func TestConvertN8NWorkflow_SetTranslatesDirectUpstreamNodeRefs(t *testing.T) {
 	}
 }
 
+func TestConvertN8NWorkflow_DataTransformNodes(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Transform Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name:       "Split Body",
+				Type:       "n8n-nodes-base.itemLists",
+				Parameters: map[string]any{"fieldToSplitOut": "body"},
+			},
+			{
+				Name: "Extract Title",
+				Type: "n8n-nodes-base.htmlExtract",
+				Parameters: map[string]any{
+					"extractionValues": map[string]any{
+						"values": []any{
+							map[string]any{"key": "ArticleTitle", "cssSelector": "#firstHeading"},
+						},
+					},
+				},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Split Body", Type: "main", Index: 0}}}},
+			"Split Body":     {"main": {{{Node: "Extract Title", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "transform-import", "tmp/flows/transform-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":body-items items")
+	assertContains(t, result.EDN, `:article-title (extract-id html \"firstHeading\")`)
+	if strings.Contains(strings.Join(result.Todos, "\n"), "unsupported n8n node") {
+		t.Fatalf("did not expect unsupported-node TODOs, got %#v", result.Todos)
+	}
+}
+
 func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "workflow.json")

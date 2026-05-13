@@ -370,6 +370,10 @@ func convertN8NNode(node n8nNode, stepID string, upstreams []string, convertedBy
 		return convertN8NWaitNode(node, stepID, upstreams, convertedByName)
 	case strings.HasSuffix(typ, ".set") || strings.Contains(typ, "set"):
 		return convertN8NSetNode(node, stepID, upstreams, convertedByName)
+	case strings.Contains(typ, "itemlists"):
+		return convertN8NItemListsNode(node, stepID, upstreams, convertedByName)
+	case strings.Contains(typ, "htmlextract"):
+		return convertN8NHTMLExtractNode(node, stepID, upstreams, convertedByName)
 	case strings.Contains(typ, "code") || strings.Contains(typ, "function"):
 		return convertN8NCodeNode(node, stepID, upstreams, convertedByName)
 	case strings.Contains(typ, "merge"):
@@ -618,6 +622,91 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
 	return binding, nil, nil, []string{fn}, todos
+}
+
+func convertN8NItemListsNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+	field := n8nKebab(firstNonEmpty(stringParam(node.Parameters, "fieldToSplitOut", "field"), "items"), "items")
+	code := fmt.Sprintf(`(fn [input]
+  (let [value (or (get input :%s) (get input %s))
+        items (cond
+                (nil? value) []
+                (sequential? value) (vec value)
+                :else [value])]
+    (assoc input :items items :%s-items items)))`, field, ednQuote(field), field)
+	fn := renderFunction(stepID, code)
+	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	return binding, nil, nil, []string{fn}, nil
+}
+
+func convertN8NHTMLExtractNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+	extracts, todos := n8nHTMLExtractFields(node)
+	if len(extracts) == 0 {
+		return convertN8NFallbackNode(node, stepID, upstreams, convertedByName)
+	}
+	assoc := make([]string, 0, len(extracts))
+	for _, extract := range extracts {
+		assoc = append(assoc, fmt.Sprintf(":%s (extract-id html %s)", extract.Key, ednQuote(extract.ID)))
+	}
+	code := `(fn [input]
+  (let [html (str (or (:body input) (get input "body") (:html input) (get input "html") ""))
+        clean-text (fn [s]
+                     (when s
+                       (-> s
+                           (clojure.string/replace #"<[^>]+>" "")
+                           (clojure.string/replace #"&nbsp;" " ")
+                           (clojure.string/replace #"\s+" " ")
+                           (clojure.string/trim))))
+        extract-id (fn [html id]
+                     (let [pattern (re-pattern (str "(?is)<[^>]*id=[\"']" (java.util.regex.Pattern/quote id) "[\"'][^>]*>(.*?)</[^>]+>"))]
+                       (clean-text (second (re-find pattern html)))))]
+    (assoc input
+      ` + strings.Join(assoc, "\n      ") + `)))`
+	fn := renderFunction(stepID, code)
+	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	return binding, nil, nil, []string{fn}, todos
+}
+
+type n8nHTMLExtractField struct {
+	Key string
+	ID  string
+}
+
+func n8nHTMLExtractFields(node n8nNode) ([]n8nHTMLExtractField, []string) {
+	rawValues, ok := node.Parameters["extractionValues"].(map[string]any)
+	if !ok {
+		return nil, []string{fmt.Sprintf("port HTML Extract node %q parameters", node.Name)}
+	}
+	values, ok := rawValues["values"].([]any)
+	if !ok {
+		return nil, []string{fmt.Sprintf("port HTML Extract node %q parameters", node.Name)}
+	}
+	fields := make([]n8nHTMLExtractField, 0)
+	todos := make([]string, 0)
+	for _, raw := range values {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		key := n8nKebab(n8nSplitCamel(firstNonEmpty(fmt.Sprint(item["key"]), "value")), "value")
+		selector := strings.TrimSpace(fmt.Sprint(item["cssSelector"]))
+		if strings.HasPrefix(selector, "#") && len(selector) > 1 && !strings.ContainsAny(selector[1:], " .#[:>+~") {
+			fields = append(fields, n8nHTMLExtractField{Key: key, ID: selector[1:]})
+			continue
+		}
+		todos = append(todos, fmt.Sprintf("translate HTML Extract selector %q for field %q", selector, key))
+	}
+	return fields, todos
+}
+
+func n8nSplitCamel(value string) string {
+	var b strings.Builder
+	for i, r := range value {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			b.WriteByte('-')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func renderN8NSetValue(fieldName string, value any, nodeRefs map[string]string) (string, string, bool) {
