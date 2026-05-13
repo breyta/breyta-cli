@@ -342,9 +342,15 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 					"hits": []any{
 						map[string]any{
 							"flow_slug":           "template-agent",
+							"scope":               "template",
 							"publish_description": longDescription,
 							"steps_text":          longStepsText,
 							"step_list":           steps,
+							"matchedSurfaces":     []any{"definition", "tools"},
+							"matchedPatterns":     []any{"web_search"},
+							"matchPreviews": []any{
+								map[string]any{"surface": "definition", "pattern": "web_search", "text": "...web_search..."},
+							},
 						},
 					},
 				},
@@ -394,6 +400,15 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 	stepList, _ := hit["step_list"].([]any)
 	if len(stepList) != 5 || hit["stepListOmitted"] != float64(2) {
 		t.Fatalf("expected truncated step list, got step_list=%#v omitted=%#v", stepList, hit["stepListOmitted"])
+	}
+	if hit["hitRef"] != "template:template-agent" || hit["nextCommand"] != "breyta flows templates search 'template-agent' --full" {
+		t.Fatalf("expected compact hit ref and next command, got %#v", hit)
+	}
+	if surfaces, _ := hit["matchedSurfaces"].([]any); len(surfaces) != 2 {
+		t.Fatalf("expected matched surfaces to survive compaction, got %#v", hit["matchedSurfaces"])
+	}
+	if previews, _ := hit["matchPreviews"].([]any); len(previews) != 1 {
+		t.Fatalf("expected match previews to survive compaction, got %#v", hit["matchPreviews"])
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 
 type docsIndexRow struct {
 	Slug          string   `json:"slug"`
+	Ref           string   `json:"ref,omitempty"`
 	Title         string   `json:"title,omitempty"`
 	Source        string   `json:"source,omitempty"`
 	Category      string   `json:"category,omitempty"`
@@ -24,6 +25,7 @@ type docsIndexRow struct {
 	MatchedFields []string `json:"matchedFields,omitempty"`
 	Explain       string   `json:"explain,omitempty"`
 	Description   string   `json:"description,omitempty"`
+	NextCommand   string   `json:"nextCommand,omitempty"`
 }
 
 type docsConfigFieldRow struct {
@@ -53,7 +55,9 @@ func newDocsFindCmd(app *App) *cobra.Command {
 		Short: "Find docs pages",
 		Long: "Find docs pages from the API.\n\n" +
 			"Query supports plain terms and Lucene-style expressions when available on the server,\n" +
-			"for example: `source:cli release`, `\"flow release\"`, `bindings -oauth`.",
+			"for example: `source:cli release`, `\"flow release\"`, `bindings -oauth`.\n\n" +
+			"Default output is rg-like: compact hit rows include the source, matched fields,\n" +
+			"a bounded snippet, and the next `docs show` command for focused inspection.",
 		Example: strings.TrimSpace(`
 breyta docs find "flows push"
 breyta docs find "source:cli release"
@@ -106,18 +110,21 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 
 			rows := make([]docsIndexRow, 0, len(pages))
 			for _, p := range pages {
+				snippet := strings.TrimSpace(p.Snippet)
 				rows = append(rows, docsIndexRow{
 					Slug:          p.Slug,
+					Ref:           "docs:" + p.Slug,
 					Title:         p.Title,
 					Source:        p.Source,
 					Category:      p.Category,
 					Order:         p.Order,
 					Tags:          p.Tags,
 					Score:         p.Score,
-					Snippet:       p.Snippet,
+					Snippet:       snippet,
 					MatchedFields: append([]string{}, p.MatchedFields...),
 					Explain:       p.Explain,
-					Description:   p.Snippet,
+					Description:   snippet,
+					NextCommand:   "breyta docs show " + p.Slug,
 				})
 			}
 
@@ -136,13 +143,16 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 			switch strings.ToLower(strings.TrimSpace(outFormat)) {
 			case "", "tsv", "text":
 				if !noHeader {
-					_, _ = io.WriteString(cmd.OutOrStdout(), "slug\ttitle\tdescription\n")
+					_, _ = io.WriteString(cmd.OutOrStdout(), "ref\tsource\tmatched\ttitle\tsnippet\tnext\n")
 				}
 				for _, r := range rows {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n",
-						r.Slug,
-						strings.ReplaceAll(r.Title, "\t", " "),
-						strings.ReplaceAll(r.Description, "\t", " "))
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\t%s\n",
+						escapeTSV(r.Ref),
+						escapeTSV(r.Source),
+						escapeTSV(strings.Join(r.MatchedFields, ",")),
+						escapeTSV(r.Title),
+						escapeTSV(r.Description),
+						escapeTSV(r.NextCommand))
 				}
 				return nil
 			case "json":
@@ -150,6 +160,18 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 					"ok": true,
 					"data": map[string]any{
 						"pages": rows,
+					},
+					"meta": map[string]any{
+						"outputView": "compact-rg",
+						"total":      result.Total,
+						"limit":      result.Limit,
+						"offset":     offset,
+						"query":      strings.TrimSpace(query),
+						"nextCommands": []string{
+							"breyta docs show <slug> --section <heading>",
+							"breyta docs fields <step> [field...]",
+							"breyta docs find <query> --with-summary",
+						},
 					},
 				}, "json", true)
 			default:
@@ -163,8 +185,8 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 	cmd.Flags().StringVar(&query, "q", "", "Query expression (plain terms or Lucene syntax)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results to return (-1 = API default)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset for pagination")
-	cmd.Flags().BoolVar(&withSummary, "with-summary", true, "Fetch each page and include first summary line")
-	cmd.Flags().BoolVar(&withSnippets, "with-snippets", false, "Ask API to include search snippets in results")
+	cmd.Flags().BoolVar(&withSummary, "with-summary", false, "Fetch each page and include first summary line instead of only search snippets")
+	cmd.Flags().BoolVar(&withSnippets, "with-snippets", true, "Ask API to include search snippets in results")
 	cmd.Flags().BoolVar(&explain, "explain", false, "Ask API to include query explanation per result")
 	cmd.Flags().BoolVar(&noHeader, "no-header", false, "Do not print tsv header row")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout-seconds", 30, "Request timeout in seconds")

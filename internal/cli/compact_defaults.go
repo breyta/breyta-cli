@@ -93,6 +93,7 @@ func compactTemplateSearchHit(hit map[string]any) bool {
 	}
 	compacted := map[string]any{}
 	setCompactField(compacted, "flow_slug", firstNonBlankString(hit["flow_slug"], hit["flowSlug"], hit["slug"]))
+	setCompactField(compacted, "scope", firstNonBlankString(hit["scope"]))
 	setCompactField(compacted, "name", firstNonBlankString(hit["name"], hit["title"]))
 	setCompactField(compacted, "description", firstNonBlankString(hit["description"]))
 	setCompactField(compacted, "tags", firstPresentAny(hit["tags"]))
@@ -106,9 +107,13 @@ func compactTemplateSearchHit(hit map[string]any) bool {
 	setCompactField(compacted, "publishDescriptionPreview", firstNonBlankString(hit["publishDescriptionPreview"]))
 	setCompactField(compacted, "stepsTextPreview", firstNonBlankString(hit["stepsTextPreview"]))
 	setCompactField(compacted, "sourcePreview", firstNonBlankString(hit["sourcePreview"]))
+	setCompactField(compacted, "matchedSurfaces", firstPresentAny(hit["matchedSurfaces"], hit["matched_surfaces"]))
+	setCompactField(compacted, "matchedPatterns", firstPresentAny(hit["matchedPatterns"], hit["matched_patterns"]))
+	setCompactField(compacted, "matchPreviews", firstPresentAny(hit["matchPreviews"], hit["match_previews"]))
 	setCompactField(compacted, "flow_web_url", firstNonBlankString(hit["flow_web_url"], hit["flowWebUrl"], hit["webUrl"]))
 	setCompactField(compacted, "workspace_name", firstNonBlankString(hit["workspace_name"], hit["workspaceName"]))
 	setCompactField(compacted, "score", firstPresentAny(hit["score"]))
+	addFlowSearchHitRefs(compacted)
 	if len(compacted) == 0 {
 		return changed
 	}
@@ -196,6 +201,10 @@ func compactResourceListItem(item map[string]any) map[string]any {
 		"updatedAt":      firstNonBlankString(item["updatedAt"], item["updated-at"], item["createdAt"], item["created-at"]),
 		"webUrl":         firstNonBlankString(item["webUrl"], item["web-url"], item["url"]),
 	})
+	if uri := firstNonBlankString(out["uri"]); uri != "" {
+		out["hitRef"] = "resource:" + uri
+		out["nextCommand"] = "breyta resources read " + shellSingleQuote(uri) + " --limit 5"
+	}
 	if tags := sliceAny(item["tags"]); len(tags) > 0 {
 		out["tags"] = tags
 	}
@@ -203,6 +212,27 @@ func compactResourceListItem(item map[string]any) map[string]any {
 		out["snippet"] = truncateRunes(snippet, compactResourceSnippetRunes)
 	}
 	return out
+}
+
+func addFlowSearchHitRefs(hit map[string]any) {
+	if hit == nil {
+		return
+	}
+	slug := firstNonBlankString(hit["flow_slug"], hit["slug"])
+	if slug == "" {
+		return
+	}
+	scope := strings.ToLower(firstNonBlankString(hit["scope"]))
+	if scope == "" {
+		return
+	}
+	hit["hitRef"] = scope + ":" + slug
+	switch scope {
+	case "workspace":
+		hit["nextCommand"] = "breyta flows show " + shellSingleQuote(slug)
+	default:
+		hit["nextCommand"] = "breyta flows templates search " + shellSingleQuote(slug) + " --full"
+	}
 }
 
 func compactResourceReadPayload(payload any, uri string) any {

@@ -244,7 +244,7 @@ func TestRootWarnsAutomaticallyWhenNoBreytaSkillIsInstalled(t *testing.T) {
 	errOut := new(bytes.Buffer)
 	root.SetOut(out)
 	root.SetErr(errOut)
-	root.SetArgs([]string{"--dev", "--api", srv.URL, "docs", "find", "flows", "--limit", "1"})
+	root.SetArgs([]string{"--dev", "--api", srv.URL, "docs", "find", "flows", "--limit", "1", "--with-summary"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("docs find failed: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
@@ -255,7 +255,7 @@ func TestRootWarnsAutomaticallyWhenNoBreytaSkillIsInstalled(t *testing.T) {
 		!strings.Contains(stderr, "breyta init --agents-md") {
 		t.Fatalf("expected automatic missing skill warning, got stderr: %s", stderr)
 	}
-	if !strings.Contains(out.String(), "start-here\tStart Here\tRun your first flow end-to-end.") {
+	if !strings.Contains(out.String(), "docs:start-here\tflows-api\t\tStart Here\tRun your first flow end-to-end.\tbreyta docs show start-here") {
 		t.Fatalf("expected docs output to still be written, got stdout: %s", out.String())
 	}
 }
@@ -312,7 +312,7 @@ func TestRootWarnsAutomaticallyWhenInstalledSkillIsOutdated(t *testing.T) {
 	errOut := new(bytes.Buffer)
 	root.SetOut(out)
 	root.SetErr(errOut)
-	root.SetArgs([]string{"--dev", "--api", srv.URL, "--token", "dev-user", "docs", "find", "flows", "--limit", "1"})
+	root.SetArgs([]string{"--dev", "--api", srv.URL, "--token", "dev-user", "docs", "find", "flows", "--limit", "1", "--with-summary"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("docs find failed: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
@@ -322,7 +322,7 @@ func TestRootWarnsAutomaticallyWhenInstalledSkillIsOutdated(t *testing.T) {
 		!strings.Contains(stderr, "breyta skills install --provider codex") {
 		t.Fatalf("expected automatic stale skill warning, got stderr: %s", stderr)
 	}
-	if !strings.Contains(out.String(), "start-here\tStart Here\tRun your first flow end-to-end.") {
+	if !strings.Contains(out.String(), "docs:start-here\tflows-api\t\tStart Here\tRun your first flow end-to-end.\tbreyta docs show start-here") {
 		t.Fatalf("expected docs output to still be written, got stdout: %s", out.String())
 	}
 }

@@ -90,7 +90,7 @@ func TestDocsFind_UsesDocsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docs find failed: %v\n%s", err, stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte("build-flow-authoring\tBuild: Flow Authoring")) {
+	if !bytes.Contains([]byte(stdout), []byte("docs:build-flow-authoring\tflows-api\t\tBuild: Flow Authoring")) {
 		t.Fatalf("expected docs find row, got:\n%s", stdout)
 	}
 }
@@ -1003,6 +1003,10 @@ func TestResourcesSearch_DefaultOutputIsCompact(t *testing.T) {
 	}
 	if item["displayName"] == "" || item["sourceLabel"] == "" || item["workflowId"] != "wf-123" || item["flowSlug"] != "invoice-reader" {
 		t.Fatalf("unexpected compact item fields: %#v", item)
+	}
+	if item["hitRef"] != "resource:res://v1/ws/ws-acme/result/run/wf-123/flow-output" ||
+		item["nextCommand"] != "breyta resources read 'res://v1/ws/ws-acme/result/run/wf-123/flow-output' --limit 5" {
+		t.Fatalf("expected resource hit ref and next command, got %#v", item)
 	}
 	if got, _ := item["snippet"].(string); got == "" || len(got) >= len(strings.Repeat("invoice summary ", 50)) {
 		t.Fatalf("expected truncated snippet, got %#v", item["snippet"])

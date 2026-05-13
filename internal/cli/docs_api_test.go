@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
+func TestDocsFind_PrintsTSVWithSummaryWhenRequested(t *testing.T) {
 	t.Parallel()
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -38,38 +38,51 @@ func TestDocsFind_PrintsTSVWithSummary(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--format", "tsv"})
+	cmd.SetArgs([]string{"--format", "tsv", "--with-summary"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "slug\ttitle\tdescription\n") {
+	if !strings.Contains(got, "ref\tsource\tmatched\ttitle\tsnippet\tnext\n") {
 		t.Fatalf("expected tsv header, got: %q", got)
 	}
-	if !strings.Contains(got, "start-here\tStart Here\tRun your first flow end-to-end.\n") {
+	if !strings.Contains(got, "docs:start-here\tflows-api\t\tStart Here\tRun your first flow end-to-end.\tbreyta docs show start-here\n") {
 		t.Fatalf("expected start page row, got: %q", got)
 	}
-	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tCanonical shape for flow definitions.\n") {
+	if !strings.Contains(got, "docs:reference-flow-definition\tflows-api\t\tReference: Flow Definition\tCanonical shape for flow definitions.\tbreyta docs show reference-flow-definition\n") {
 		t.Fatalf("expected reference page row, got: %q", got)
 	}
 }
 
-func TestDocsFind_WithoutSummary(t *testing.T) {
+func TestDocsFind_DefaultsToRgLikeSnippetRows(t *testing.T) {
 	t.Parallel()
 
+	sawPageFetch := false
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/docs/pages":
+			if got := r.URL.Query().Get("with-snippets"); got != "true" {
+				t.Fatalf("expected default with-snippets=true, got %q", got)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"data": map[string]any{
 					"pages": []map[string]any{
-						{"slug": "start-here", "title": "Start Here", "source": "flows-api"},
+						{
+							"slug":          "start-here",
+							"title":         "Start Here",
+							"source":        "flows-api",
+							"snippet":       "Run your first flow end-to-end.",
+							"matchedFields": []string{"title", "markdown"},
+						},
 					},
 				},
 			})
+		case "/api/docs/pages/start-here":
+			sawPageFetch = true
+			_, _ = w.Write([]byte("# Start Here\n\nRun your first flow end-to-end.\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -80,15 +93,18 @@ func TestDocsFind_WithoutSummary(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--with-summary=false"})
+	cmd.SetArgs([]string{"flows run"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-here\tStart Here\t\n") {
-		t.Fatalf("expected page row without summary, got: %q", got)
+	if !strings.Contains(got, "docs:start-here\tflows-api\ttitle,markdown\tStart Here\tRun your first flow end-to-end.\tbreyta docs show start-here\n") {
+		t.Fatalf("expected rg-like snippet row, got: %q", got)
+	}
+	if sawPageFetch {
+		t.Fatalf("default docs find should not fetch full pages for summaries")
 	}
 }
 
@@ -152,8 +168,8 @@ func TestDocsFind_ForwardsSearchOptions(t *testing.T) {
 	if !sawQuery {
 		t.Fatalf("expected /api/docs/pages to be requested")
 	}
-	if !sawPageFetch {
-		t.Fatalf("expected page markdown fetch for summary")
+	if sawPageFetch {
+		t.Fatalf("did not expect page markdown fetch without --with-summary")
 	}
 }
 
@@ -188,17 +204,17 @@ func TestDocsFind_UsesPerRequestTimeoutForSummaries(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--timeout-seconds", "1"})
+	cmd.SetArgs([]string{"--timeout-seconds", "1", "--with-summary"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "start-here\tStart Here\tSummary line.\n") {
+	if !strings.Contains(got, "docs:start-here\t\t\tStart Here\tSummary line.\tbreyta docs show start-here\n") {
 		t.Fatalf("expected start summary row, got: %q", got)
 	}
-	if !strings.Contains(got, "reference-flow-definition\tReference: Flow Definition\tSummary line.\n") {
+	if !strings.Contains(got, "docs:reference-flow-definition\t\t\tReference: Flow Definition\tSummary line.\tbreyta docs show reference-flow-definition\n") {
 		t.Fatalf("expected reference summary row, got: %q", got)
 	}
 }
