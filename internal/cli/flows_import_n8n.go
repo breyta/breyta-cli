@@ -479,6 +479,9 @@ func n8nIFCondition(params map[string]any) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	if rawItems, ok := conditions["conditions"].([]any); ok {
+		return n8nIFConditionItems(rawItems, stringParam(conditions, "combinator"))
+	}
 	parts := make([]string, 0)
 	for groupName, rawGroup := range conditions {
 		group, ok := rawGroup.([]any)
@@ -506,14 +509,46 @@ func n8nIFCondition(params map[string]any) (string, bool) {
 	return "(and " + strings.Join(parts, " ") + ")", true
 }
 
+func n8nIFConditionItems(rawItems []any, combinator string) (string, bool) {
+	parts := make([]string, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		part, ok := n8nConditionItem("", item)
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	if len(parts) == 1 {
+		return parts[0], true
+	}
+	if strings.EqualFold(strings.TrimSpace(combinator), "or") {
+		return "(or " + strings.Join(parts, " ") + ")", true
+	}
+	return "(and " + strings.Join(parts, " ") + ")", true
+}
+
 func n8nConditionItem(groupName string, item map[string]any) (string, bool) {
-	left, ok := n8nConditionValue(item["value1"])
+	leftRaw, ok := firstParam(item, "value1", "leftValue")
 	if !ok {
 		return "", false
 	}
-	op, _ := item["operation"].(string)
-	op = strings.ToLower(firstNonEmpty(op, "equal"))
-	right, hasRight := n8nConditionValue(item["value2"])
+	left, ok := n8nConditionValue(leftRaw)
+	if !ok {
+		return "", false
+	}
+	op := n8nConditionOperation(item)
+	rightRaw, hasRightRaw := firstParam(item, "value2", "rightValue")
+	right, hasRight := "", false
+	if hasRightRaw {
+		right, hasRight = n8nConditionValue(rightRaw)
+	}
 	switch op {
 	case "isempty", "empty":
 		return "(empty? (or " + left + " \"\"))", true
@@ -544,6 +579,26 @@ func n8nConditionItem(groupName string, item map[string]any) (string, bool) {
 		}
 		return "", false
 	}
+}
+
+func n8nConditionOperation(item map[string]any) string {
+	if operator, ok := item["operator"].(map[string]any); ok {
+		if op, _ := operator["operation"].(string); op != "" {
+			return n8nNormalizeConditionOperation(op)
+		}
+	}
+	if op, _ := item["operation"].(string); op != "" {
+		return n8nNormalizeConditionOperation(op)
+	}
+	return "equal"
+}
+
+func n8nNormalizeConditionOperation(op string) string {
+	op = strings.ToLower(strings.TrimSpace(op))
+	op = strings.ReplaceAll(op, "_", "")
+	op = strings.ReplaceAll(op, "-", "")
+	op = strings.ReplaceAll(op, " ", "")
+	return op
 }
 
 func n8nConditionValue(raw any) (string, bool) {
@@ -1190,7 +1245,7 @@ func convertN8NMergeNode(node n8nNode, stepID string, inputPlan n8nInputPlan, co
 	}
 	code := "(fn [input]\n  input)"
 	if len(parts) > 0 {
-		code = "(fn [input]\n  (merge " + strings.Join(parts, " ") + "))"
+		code = "(fn [input]\n  (let [inputs (remove :n8n-import/skipped [" + strings.Join(parts, " ") + "])]\n    (if (seq inputs)\n      (apply merge inputs)\n      (assoc input :n8n-import/skipped true))))"
 	}
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, inputPlan.Expr)

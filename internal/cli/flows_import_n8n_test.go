@@ -197,6 +197,53 @@ func TestConvertN8NWorkflow_IFBranchGuardsOutputs(t *testing.T) {
 	}
 }
 
+func TestConvertN8NWorkflow_IFParsesCurrentConditionShape(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Current IF Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Choose Path",
+				Type: "n8n-nodes-base.if",
+				Parameters: map[string]any{
+					"conditions": map[string]any{
+						"combinator": "and",
+						"conditions": []any{map[string]any{
+							"leftValue":  "={{$json.count}}",
+							"rightValue": float64(3),
+							"operator": map[string]any{
+								"type":      "number",
+								"operation": "equals",
+							},
+						}},
+					},
+				},
+			},
+			{
+				Name: "True Path",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "path", "value": "true"}},
+				}},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Choose Path", Type: "main", Index: 0}}}},
+			"Choose Path":    {"main": {{{Node: "True Path", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "current-if-import", "tmp/flows/current-if-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, "(assoc input :branch (= (get input :count) 3))")
+	if strings.Contains(strings.Join(result.Todos, "\n"), "translate IF node") {
+		t.Fatalf("did not expect IF translation TODO, got %#v", result.Todos)
+	}
+}
+
 func TestConvertN8NWorkflow_SetTranslatesDirectUpstreamNodeRefs(t *testing.T) {
 	wf := n8nWorkflow{
 		Name: "Node Ref Import",
@@ -426,10 +473,63 @@ func TestConvertN8NWorkflow_MergeCombinesUpstreamStepInputs(t *testing.T) {
 	}
 
 	assertContains(t, result.EDN, ":input {:input left_source :left-source left_source :right-source right_source}")
-	assertContains(t, result.EDN, "(fn [input]\\n  (merge (get input :left-source) (get input :right-source)))")
+	assertContains(t, result.EDN, "(fn [input]\\n  (let [inputs (remove :n8n-import/skipped [(get input :left-source) (get input :right-source)])]\\n    (if (seq inputs)\\n      (apply merge inputs)\\n      (assoc input :n8n-import/skipped true))))")
 	if strings.Contains(result.EDN, ":left input") || strings.Contains(result.EDN, ":right input") {
 		t.Fatalf("expected merge to use upstream step ids, got:\n%s", result.EDN)
 	}
+}
+
+func TestConvertN8NWorkflow_MergeDropsSkippedBranchInputs(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Branch Merge Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Choose Path",
+				Type: "n8n-nodes-base.if",
+				Parameters: map[string]any{
+					"conditions": map[string]any{
+						"boolean": []any{map[string]any{"value1": "={{$json.active}}", "operation": "true"}},
+					},
+				},
+			},
+			{
+				Name: "True Path",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"keepOnlySet": true, "values": map[string]any{
+					"string": []any{map[string]any{"name": "path", "value": "true"}},
+				}},
+			},
+			{
+				Name: "False Path",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"keepOnlySet": true, "values": map[string]any{
+					"string": []any{map[string]any{"name": "path", "value": "false"}},
+				}},
+			},
+			{Name: "Join Paths", Type: "n8n-nodes-base.merge", Parameters: map[string]any{}},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Choose Path", Type: "main", Index: 0}}}},
+			"Choose Path": {
+				"main": {
+					{{Node: "True Path", Type: "main", Index: 0}},
+					{{Node: "False Path", Type: "main", Index: 0}},
+				},
+			},
+			"True Path":  {"main": {{{Node: "Join Paths", Type: "main", Index: 0}}}},
+			"False Path": {"main": {{{Node: "Join Paths", Type: "main", Index: 1}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "branch-merge-import", "tmp/flows/branch-merge-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, "(remove :n8n-import/skipped [(get input :true-path) (get input :false-path)])")
+	assertContains(t, result.EDN, "(apply merge inputs)")
+	assertContains(t, result.EDN, "(assoc input :n8n-import/skipped true)")
 }
 
 func TestConvertN8NWorkflow_HTTPTranslatesNodeRefTemplates(t *testing.T) {
