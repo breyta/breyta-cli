@@ -38,16 +38,24 @@ type n8nConnection struct {
 }
 
 type n8nEdge struct {
-	Source string
-	Target string
+	Source       string
+	Target       string
+	SourceOutput int
+	TargetInput  int
 }
 
 type n8nConvertedNode struct {
-	Node    n8nNode
-	StepID  string
-	VarName string
-	Binding string
-	Todos   []string
+	Node      n8nNode
+	StepID    string
+	VarName   string
+	InputExpr string
+	Binding   string
+	Todos     []string
+}
+
+type n8nBranchGuard struct {
+	SourceName   string
+	SourceOutput int
 }
 
 type n8nImportResult struct {
@@ -195,6 +203,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 		}
 		stepID := uniqueN8NID(n8nKebab(node.Name, "step"), usedIDs)
 		varName := uniqueN8NID(strings.ReplaceAll(stepID, "-", "_"), usedVars)
+		inputExpr := n8nInputExpr(upstreams[node.Name], convertedByName)
 		binding, nodeRequires, nodeTemplates, nodeFunctions, nodeTodos := convertN8NNode(node, stepID, upstreams[node.Name], convertedByName)
 		requires = appendUniqueStrings(requires, nodeRequires)
 		templates = append(templates, nodeTemplates...)
@@ -202,7 +211,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 		for _, todo := range nodeTodos {
 			todos = append(todos, stepID+": "+todo)
 		}
-		item := n8nConvertedNode{Node: node, StepID: stepID, VarName: varName, Binding: binding, Todos: nodeTodos}
+		item := n8nConvertedNode{Node: node, StepID: stepID, VarName: varName, InputExpr: inputExpr, Binding: binding, Todos: nodeTodos}
 		converted = append(converted, item)
 		if strings.TrimSpace(node.Name) != "" {
 			convertedByName[node.Name] = item
@@ -210,7 +219,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 	}
 
 	name := firstNonEmpty(wf.Name, "Imported n8n Flow")
-	body := renderN8NFlowBody(converted, upstreams, convertedByName)
+	body := renderN8NFlowBody(converted, upstreams, convertedByName, n8nBranchGuards(edges, convertedByName))
 	edn := renderN8NFlowEDN(slug, name, requires, templates, functions, webhooks, schedules, body)
 	validation, err := validateGeneratedN8NFlowEDN(edn)
 	if err != nil {
@@ -333,10 +342,123 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
 }
 
 func convertN8NBranchNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
-	code := fmt.Sprintf("(fn [input]\n  ;; TODO(n8n-import): translate branch node %s conditions and graph outputs.\n  ;; Safe default keeps data on the false/pass-through path to avoid unintended side effects.\n  (assoc input :branch false))", ednQuote(firstNonEmpty(node.Name, stepID)))
+	condition, todos := n8nBranchCondition(node)
+	code := fmt.Sprintf("(fn [input]\n  (assoc input :branch %s))", condition)
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
-	return binding, nil, nil, []string{fn}, []string{fmt.Sprintf("translate branch node %q conditions and true/false outputs", node.Name)}
+	return binding, nil, nil, []string{fn}, todos
+}
+
+func n8nBranchCondition(node n8nNode) (string, []string) {
+	typ := strings.ToLower(node.Type)
+	if strings.Contains(typ, ".switch") || strings.Contains(typ, "switch") {
+		return "0", []string{fmt.Sprintf("translate Switch node %q rules to a branch output index", node.Name)}
+	}
+	if expr, ok := n8nIFCondition(node.Parameters); ok {
+		return expr, nil
+	}
+	return "false", []string{fmt.Sprintf("translate IF node %q conditions", node.Name)}
+}
+
+func n8nIFCondition(params map[string]any) (string, bool) {
+	conditions, ok := params["conditions"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	parts := make([]string, 0)
+	for groupName, rawGroup := range conditions {
+		group, ok := rawGroup.([]any)
+		if !ok {
+			continue
+		}
+		for _, rawItem := range group {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			part, ok := n8nConditionItem(groupName, item)
+			if !ok {
+				return "", false
+			}
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	if len(parts) == 1 {
+		return parts[0], true
+	}
+	return "(and " + strings.Join(parts, " ") + ")", true
+}
+
+func n8nConditionItem(groupName string, item map[string]any) (string, bool) {
+	left, ok := n8nConditionValue(item["value1"])
+	if !ok {
+		return "", false
+	}
+	op, _ := item["operation"].(string)
+	op = strings.ToLower(firstNonEmpty(op, "equal"))
+	right, hasRight := n8nConditionValue(item["value2"])
+	switch op {
+	case "isempty", "empty":
+		return "(empty? (or " + left + " \"\"))", true
+	case "isnotempty", "notempty":
+		return "(not (empty? (or " + left + " \"\")))", true
+	case "equal", "equals":
+		if !hasRight {
+			return "", false
+		}
+		return "(= " + left + " " + right + ")", true
+	case "notequal", "notequals", "not_equal":
+		if !hasRight {
+			return "", false
+		}
+		return "(not= " + left + " " + right + ")", true
+	case "contains":
+		if !hasRight {
+			return "", false
+		}
+		return "(.contains (str " + left + ") (str " + right + "))", true
+	case "true":
+		return left, true
+	case "false":
+		return "(not " + left + ")", true
+	default:
+		if strings.EqualFold(groupName, "boolean") && !hasRight {
+			return left, true
+		}
+		return "", false
+	}
+}
+
+func n8nConditionValue(raw any) (string, bool) {
+	switch v := raw.(type) {
+	case nil:
+		return "nil", true
+	case bool:
+		if v {
+			return "true", true
+		}
+		return "false", true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case string:
+		value := strings.TrimSpace(v)
+		value = strings.TrimPrefix(value, "=")
+		if expr, ok := translateSimpleN8NExpression(value); ok {
+			return expr, true
+		}
+		if expr, ok := translateN8NTemplateString(value); ok {
+			return expr, true
+		}
+		if strings.Contains(value, "{{") {
+			return "", false
+		}
+		return ednQuote(v), true
+	default:
+		return ednValue(v), true
+	}
 }
 
 func convertN8NWebhookResponseNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
@@ -624,7 +746,7 @@ func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhook
 	return b.String()
 }
 
-func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode) string {
+func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode, branchGuards map[string][]n8nBranchGuard) string {
 	if len(converted) == 0 {
 		return "(quote (let [input (flow/input)]\n    input))"
 	}
@@ -632,7 +754,8 @@ func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]stri
 	b.WriteString("(quote (let [input (flow/input)\n")
 	for _, item := range converted {
 		b.WriteString(fmt.Sprintf("        ;; n8n node: %s (%s)\n", ednQuote(item.Node.Name), item.Node.Type))
-		lines := strings.Split(item.Binding, "\n")
+		binding := renderN8NGuardedBinding(item, branchGuards[item.Node.Name], upstreams, convertedByName)
+		lines := strings.Split(binding, "\n")
 		b.WriteString("        " + item.VarName + " " + lines[0] + "\n")
 		for _, line := range lines[1:] {
 			b.WriteString("                   " + line + "\n")
@@ -641,6 +764,52 @@ func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]stri
 	b.WriteString("        ]\n")
 	b.WriteString("    " + converted[len(converted)-1].VarName + "))")
 	return b.String()
+}
+
+func renderN8NGuardedBinding(item n8nConvertedNode, guards []n8nBranchGuard, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode) string {
+	input := item.InputExpr
+	if input == "" {
+		input = n8nInputExpr(upstreams[item.Node.Name], convertedByName)
+	}
+	if len(guards) > 0 {
+		conditions := make([]string, 0, len(guards))
+		for _, guard := range guards {
+			source, ok := convertedByName[guard.SourceName]
+			if !ok {
+				continue
+			}
+			conditions = append(conditions, n8nBranchGuardCondition(source, guard.SourceOutput))
+		}
+		if len(conditions) > 0 {
+			condition := conditions[0]
+			if len(conditions) > 1 {
+				condition = "(or " + strings.Join(conditions, " ") + ")"
+			}
+			return fmt.Sprintf(`(if %s
+  %s
+  (assoc %s :n8n-import/skipped true))`, condition, item.Binding, input)
+		}
+	}
+	if n8nIsBranchNode(item.Node) {
+		return item.Binding
+	}
+	return fmt.Sprintf(`(if (:n8n-import/skipped %s)
+  %s
+  %s)`, input, input, item.Binding)
+}
+
+func n8nBranchGuardCondition(source n8nConvertedNode, outputIndex int) string {
+	sourceVar := source.VarName
+	if strings.Contains(strings.ToLower(source.Node.Type), "switch") {
+		return "(= (:branch " + sourceVar + ") " + strconv.Itoa(outputIndex) + ")"
+	}
+	if outputIndex == 0 {
+		return "(true? (:branch " + sourceVar + "))"
+	}
+	if outputIndex == 1 {
+		return "(false? (:branch " + sourceVar + "))"
+	}
+	return "(= (:branch " + sourceVar + ") " + strconv.Itoa(outputIndex) + ")"
 }
 
 func validateGeneratedN8NFlowEDN(flowEDN string) (n8nFlowValidation, error) {
@@ -750,16 +919,33 @@ func n8nEdges(wf n8nWorkflow) []n8nEdge {
 	edges := make([]n8nEdge, 0)
 	for source, groups := range wf.Connections {
 		for _, outputs := range groups {
-			for _, outputGroup := range outputs {
+			for outputIndex, outputGroup := range outputs {
 				for _, conn := range outputGroup {
 					if strings.TrimSpace(conn.Node) != "" {
-						edges = append(edges, n8nEdge{Source: source, Target: conn.Node})
+						edges = append(edges, n8nEdge{Source: source, Target: conn.Node, SourceOutput: outputIndex, TargetInput: conn.Index})
 					}
 				}
 			}
 		}
 	}
 	return edges
+}
+
+func n8nBranchGuards(edges []n8nEdge, convertedByName map[string]n8nConvertedNode) map[string][]n8nBranchGuard {
+	out := map[string][]n8nBranchGuard{}
+	for _, edge := range edges {
+		source, ok := convertedByName[edge.Source]
+		if !ok || !n8nIsBranchNode(source.Node) {
+			continue
+		}
+		out[edge.Target] = append(out[edge.Target], n8nBranchGuard{SourceName: edge.Source, SourceOutput: edge.SourceOutput})
+	}
+	return out
+}
+
+func n8nIsBranchNode(node n8nNode) bool {
+	typ := strings.ToLower(node.Type)
+	return strings.HasSuffix(typ, ".if") || strings.Contains(typ, ".switch")
 }
 
 func n8nTopologicalOrder(nodes []n8nNode, edges []n8nEdge) []n8nNode {

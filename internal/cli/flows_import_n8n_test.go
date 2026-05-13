@@ -132,8 +132,65 @@ func TestConvertN8NWorkflow_RealHTTPParameterArraysAndControlNodes(t *testing.T)
 	assertContains(t, result.EDN, ":branch false")
 	assertContains(t, result.EDN, ":timeout 120")
 	assertContains(t, result.EDN, "{:status 202")
-	assertContains(t, strings.Join(result.Todos, "\n"), "translate branch node")
+	assertContains(t, strings.Join(result.Todos, "\n"), "translate IF node")
 	assertContains(t, strings.Join(result.Todos, "\n"), "verify Wait node")
+}
+
+func TestConvertN8NWorkflow_IFBranchGuardsOutputs(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Branch Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Choose Path",
+				Type: "n8n-nodes-base.if",
+				Parameters: map[string]any{
+					"conditions": map[string]any{
+						"boolean": []any{map[string]any{
+							"value1":    "={{$json.active}}",
+							"operation": "true",
+						}},
+					},
+				},
+			},
+			{
+				Name: "True Path",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "path", "value": "true"}},
+				}},
+			},
+			{
+				Name: "False Path",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "path", "value": "false"}},
+				}},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Choose Path", Type: "main", Index: 0}}}},
+			"Choose Path": {
+				"main": {
+					{{Node: "True Path", Type: "main", Index: 0}},
+					{{Node: "False Path", Type: "main", Index: 0}},
+				},
+			},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "branch-import", "tmp/flows/branch-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, "(assoc input :branch (get input :active))")
+	assertContains(t, result.EDN, "(if (true? (:branch choose_path))")
+	assertContains(t, result.EDN, "(if (false? (:branch choose_path))")
+	assertContains(t, result.EDN, ":n8n-import/skipped true")
+	if strings.Contains(strings.Join(result.Todos, "\n"), "translate IF node") {
+		t.Fatalf("did not expect IF translation TODO, got %#v", result.Todos)
+	}
 }
 
 func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
