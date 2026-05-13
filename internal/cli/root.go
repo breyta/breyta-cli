@@ -263,7 +263,8 @@ func NewRootCmd() *cobra.Command {
 		}
 		configureVisibility(cmd.Root(), app)
 
-		if isSubcommand && commandShouldWarnSkillDrift(cmd) {
+		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
+		if isSubcommand && commandShouldWarnSkillDrift(cmd) && !skipBackgroundNetwork {
 			warnCtx, warnCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			for _, warning := range skillsync.MaybeWarnMissingOrOutdatedInstalled(warnCtx, app.APIURL, app.Token) {
 				fmt.Fprintln(cmd.ErrOrStderr(), warning)
@@ -273,10 +274,12 @@ func NewRootCmd() *cobra.Command {
 
 		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
 		// Run this asynchronously so command startup is never blocked by network issues.
-		skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
+		if !skipBackgroundNetwork {
+			skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
+		}
 
 		// Best-effort update check for JSON commands. Never blocks command execution.
-		if isSubcommand {
+		if isSubcommand && !skipBackgroundNetwork {
 			app.startUpdateCheckNonBlocking(context.Background(), 24*time.Hour)
 			app.emitUpdateReminder(cmd)
 		}
@@ -347,6 +350,22 @@ func commandShouldWarnSkillDrift(cmd *cobra.Command) bool {
 	default:
 		return true
 	}
+}
+
+func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
+	return commandIsFlowsLintLocalOnly(cmd)
+}
+
+func commandIsFlowsLintLocalOnly(cmd *cobra.Command) bool {
+	if cmd == nil || strings.TrimSpace(cmd.Name()) != "lint" {
+		return false
+	}
+	parent := cmd.Parent()
+	if parent == nil || strings.TrimSpace(parent.Name()) != "flows" {
+		return false
+	}
+	flag := cmd.Flags().Lookup("local-only")
+	return flag != nil && flag.Changed && strings.EqualFold(strings.TrimSpace(flag.Value.String()), "true")
 }
 
 func appStore(app *App) (*state.State, mock.Store, error) {

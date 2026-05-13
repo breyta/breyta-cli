@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
@@ -42,6 +45,66 @@ func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	first, _ := items[0].(map[string]any)
 	if got, _ := first["code"].(string); got != "clojure_delimiters_invalid" {
 		t.Fatalf("expected delimiter diagnostic, got %#v", first)
+	}
+}
+
+func TestFlowsLintLocalOnlySkipsAutomaticSkillNetwork(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("APPDATA", tmpDir)
+	t.Setenv("LOCALAPPDATA", tmpDir)
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+
+	skillPath := filepath.Join(tmpDir, ".codex", "skills", "breyta", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(skillPath, []byte("---\nname: breyta\n---\n# Old Breyta Skill\n"), 0o644); err != nil {
+		t.Fatalf("seed installed skill: %v", err)
+	}
+
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :local-lint
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	var requestCount atomic.Int32
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{
+		"--dev",
+		"--api", srv.URL,
+		"--token", "dev-user",
+		"flows", "lint",
+		"--file", flowFile,
+		"--local-only",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("flows lint --local-only failed: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := requestCount.Load(); got != 0 {
+		t.Fatalf("expected no API requests for --local-only lint, got %d; stderr=%s stdout=%s", got, errOut.String(), out.String())
+	}
+	if strings.Contains(errOut.String(), "Breyta skill") {
+		t.Fatalf("expected no skill drift warning for --local-only lint, got stderr=%s", errOut.String())
 	}
 }
 
