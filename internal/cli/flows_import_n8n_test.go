@@ -232,6 +232,91 @@ func TestConvertN8NWorkflow_SetTranslatesDirectUpstreamNodeRefs(t *testing.T) {
 	}
 }
 
+func TestConvertN8NWorkflow_SetTranslatesEarlierNonUpstreamNodeRefs(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Loop Ref Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Seed",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"number": []any{map[string]any{"name": "page", "value": float64(1)}},
+				}},
+			},
+			{Name: "Gate", Type: "n8n-nodes-base.if", Parameters: map[string]any{}},
+			{
+				Name: "Increment",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"number": []any{map[string]any{"name": "page", "value": `={{$node["Seed"].json["page"]++}}`}},
+				}},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Seed", Type: "main", Index: 0}}}},
+			"Seed":           {"main": {{{Node: "Gate", Type: "main", Index: 0}}}},
+			"Gate":           {"main": {{{Node: "Increment", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "loop-ref-import", "tmp/flows/loop-ref-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":input {:gate gate :seed seed}")
+	assertContains(t, result.EDN, ":page (inc (or (get (get input :seed) :page) 0))")
+	if strings.Contains(strings.Join(result.Todos, "\n"), "translate n8n expression") {
+		t.Fatalf("did not expect expression translation TODO, got %#v", result.Todos)
+	}
+}
+
+func TestConvertN8NWorkflow_HTTPTranslatesNodeRefTemplates(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "HTTP Ref Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Seed",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"number": []any{map[string]any{"name": "page", "value": float64(1)}},
+					"string": []any{map[string]any{"name": "githubUser", "value": "octocat"}},
+				}},
+			},
+			{
+				Name: "Fetch Stars",
+				Type: "n8n-nodes-base.httpRequest",
+				Parameters: map[string]any{
+					"method": "GET",
+					"url":    `=https://api.github.com/users/{{$node["Seed"].json["githubUser"]}}/starred`,
+					"queryParameters": map[string]any{"parameters": []any{
+						map[string]any{"name": "page", "value": `={{$node["Seed"].json["page"]}}`},
+					}},
+				},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Seed", Type: "main", Index: 0}}}},
+			"Seed":           {"main": {{{Node: "Fetch Stars", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "http-ref-import", "tmp/flows/http-ref-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, `:base-url "https://api.github.com"`)
+	assertContains(t, result.EDN, `:path "/users/{{seed.githubuser}}/starred"`)
+	assertContains(t, result.EDN, `:query {"page" "{{seed.page}}"}`)
+	assertContains(t, result.EDN, `:data seed`)
+	if strings.Contains(strings.Join(result.Todos, "\n"), "fill base URL/path") {
+		t.Fatalf("did not expect URL TODO, got %#v", result.Todos)
+	}
+}
+
 func TestConvertN8NWorkflow_DataTransformNodes(t *testing.T) {
 	wf := n8nWorkflow{
 		Name: "Transform Import",

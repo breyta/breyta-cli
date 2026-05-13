@@ -59,6 +59,12 @@ type n8nBranchGuard struct {
 	SourceOutput int
 }
 
+type n8nInputPlan struct {
+	Names        []string
+	Expr         string
+	FunctionRefs map[string]string
+}
+
 type n8nImportResult struct {
 	Slug       string
 	Name       string
@@ -85,6 +91,7 @@ type n8nFlowValidation struct {
 
 var n8nSlugInvalidRe = regexp.MustCompile(`[^a-z0-9-]+`)
 var n8nTemplateExprRe = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
+var n8nNodeRefExprRe = regexp.MustCompile(`\$node\[['"]([^'"]+)['"]\]`)
 var n8nAllowedInvocationInputTypes = map[string]bool{
 	"string":   true,
 	"text":     true,
@@ -291,15 +298,15 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 		}
 		stepID := uniqueN8NID(n8nKebab(node.Name, "step"), usedIDs)
 		varName := uniqueN8NID(strings.ReplaceAll(stepID, "-", "_"), usedVars)
-		inputExpr := n8nInputExpr(upstreams[node.Name], convertedByName)
-		binding, nodeRequires, nodeTemplates, nodeFunctions, nodeTodos := convertN8NNode(node, stepID, upstreams[node.Name], convertedByName)
+		inputPlan := n8nBuildInputPlan(upstreams[node.Name], n8nReferencedNodeNames(node.Parameters), convertedByName)
+		binding, nodeRequires, nodeTemplates, nodeFunctions, nodeTodos := convertN8NNode(node, stepID, inputPlan, convertedByName)
 		requires = appendUniqueStrings(requires, nodeRequires)
 		templates = append(templates, nodeTemplates...)
 		functions = append(functions, nodeFunctions...)
 		for _, todo := range nodeTodos {
 			todos = append(todos, stepID+": "+todo)
 		}
-		item := n8nConvertedNode{Node: node, StepID: stepID, VarName: varName, InputExpr: inputExpr, Binding: binding, Todos: nodeTodos}
+		item := n8nConvertedNode{Node: node, StepID: stepID, VarName: varName, InputExpr: inputPlan.Expr, Binding: binding, Todos: nodeTodos}
 		converted = append(converted, item)
 		if strings.TrimSpace(node.Name) != "" {
 			convertedByName[node.Name] = item
@@ -357,41 +364,48 @@ func convertN8NTrigger(node n8nNode, usedIDs map[string]bool) ([]string, []strin
 	}
 }
 
-func convertN8NNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	typ := strings.ToLower(node.Type)
 	switch {
 	case strings.Contains(typ, "httprequest"):
-		return convertN8NHTTPNode(node, stepID, upstreams, convertedByName)
+		return convertN8NHTTPNode(node, stepID, inputPlan, convertedByName)
 	case strings.HasSuffix(typ, ".if") || strings.Contains(typ, ".switch"):
-		return convertN8NBranchNode(node, stepID, upstreams, convertedByName)
+		return convertN8NBranchNode(node, stepID, inputPlan, convertedByName)
 	case strings.Contains(typ, "webhookresponse") || strings.Contains(typ, "respondtowebhook"):
-		return convertN8NWebhookResponseNode(node, stepID, upstreams, convertedByName)
+		return convertN8NWebhookResponseNode(node, stepID, inputPlan, convertedByName)
 	case strings.HasSuffix(typ, ".wait") || strings.Contains(typ, ".wait"):
-		return convertN8NWaitNode(node, stepID, upstreams, convertedByName)
+		return convertN8NWaitNode(node, stepID, inputPlan, convertedByName)
 	case strings.HasSuffix(typ, ".set") || strings.Contains(typ, "set"):
-		return convertN8NSetNode(node, stepID, upstreams, convertedByName)
+		return convertN8NSetNode(node, stepID, inputPlan, convertedByName)
 	case strings.Contains(typ, "itemlists"):
-		return convertN8NItemListsNode(node, stepID, upstreams, convertedByName)
+		return convertN8NItemListsNode(node, stepID, inputPlan, convertedByName)
 	case strings.Contains(typ, "htmlextract"):
-		return convertN8NHTMLExtractNode(node, stepID, upstreams, convertedByName)
+		return convertN8NHTMLExtractNode(node, stepID, inputPlan, convertedByName)
 	case strings.Contains(typ, "code") || strings.Contains(typ, "function"):
-		return convertN8NCodeNode(node, stepID, upstreams, convertedByName)
+		return convertN8NCodeNode(node, stepID, inputPlan, convertedByName)
 	case strings.Contains(typ, "merge"):
-		return convertN8NMergeNode(node, stepID, upstreams, convertedByName)
+		return convertN8NMergeNode(node, stepID, inputPlan, convertedByName)
 	default:
-		return convertN8NFallbackNode(node, stepID, upstreams, convertedByName)
+		return convertN8NFallbackNode(node, stepID, inputPlan, convertedByName)
 	}
 }
 
-func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NHTTPNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	method := strings.ToLower(firstNonEmpty(stringParam(node.Parameters, "method", "requestMethod"), "GET"))
 	rawURL := stringParam(node.Parameters, "url", "endpoint")
 	baseURL, path, query, ok := splitN8NURL(rawURL)
+	if !ok {
+		baseURL, path, query, ok = splitN8NURLTemplate(rawURL)
+	}
 	todos := make([]string, 0)
 	if !ok {
 		baseURL = "https://example.com"
 		path = firstNonEmpty(rawURL, "/")
 		todos = append(todos, fmt.Sprintf("fill base URL/path for HTTP node %q", node.Name))
+	}
+	templateRefs := n8nHandlebarsRefs(convertedByName)
+	if rendered, ok := translateN8NHandlebarsTemplate(path, templateRefs); ok {
+		path = rendered
 	}
 	slot := n8nKebab(firstNonEmpty(n8nCredentialLabel(node), node.Name, "api"), "api")
 	auth := ":none"
@@ -408,6 +422,11 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
 	if queryParams := n8nParameterPairs(node.Parameters, "queryParameters", "queryParameter"); len(queryParams) > 0 {
 		query = mergeStringMaps(query, queryParams)
 	}
+	for key, value := range query {
+		if rendered, ok := translateN8NHandlebarsTemplate(value, templateRefs); ok {
+			query[key] = rendered
+		}
+	}
 	if len(query) > 0 {
 		requestParts = append(requestParts, ":query "+renderStringMap(query))
 	}
@@ -423,21 +442,20 @@ func convertN8NHTTPNode(node n8nNode, stepID string, upstreams []string, convert
   :type :http-request
   :request {%s}}`, stepID, strings.Join(requestParts, "\n            "))
 
-	input := n8nInputExpr(upstreams, convertedByName)
 	binding := fmt.Sprintf(`(flow/step :http :%s
            {:title %s
             :connection :%s
             :template :%s-request
             :persist {:type :blob}
-            :data {:input %s}})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), slot, stepID, input)
+            :data %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), slot, stepID, inputPlan.Expr)
 	return binding, []string{require}, []string{template}, nil, todos
 }
 
-func convertN8NBranchNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NBranchNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	condition, todos := n8nBranchCondition(node)
 	code := fmt.Sprintf("(fn [input]\n  (assoc input :branch %s))", condition)
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, todos
 }
 
@@ -553,15 +571,15 @@ func n8nConditionValue(raw any) (string, bool) {
 	}
 }
 
-func convertN8NWebhookResponseNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NWebhookResponseNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	statusCode := intParam(node.Parameters, 200, "responseCode", "statusCode")
 	code := fmt.Sprintf("(fn [input]\n  {:status %d\n   :headers {}\n   :body input})", statusCode)
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, nil
 }
 
-func convertN8NWaitNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NWaitNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	amount := intParam(node.Parameters, 1, "amount", "value")
 	unit := strings.ToLower(firstNonEmpty(stringParam(node.Parameters, "unit"), "seconds"))
 	timeout := amount
@@ -573,16 +591,15 @@ func convertN8NWaitNode(node n8nNode, stepID string, upstreams []string, convert
 	case "days", "day":
 		timeout *= 86400
 	}
-	input := n8nInputExpr(upstreams, convertedByName)
 	binding := fmt.Sprintf(`(flow/step :wait :%s
            {:title %s
             :timeout %d
             :on-timeout :continue
-            :default-value %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), timeout, input)
+            :default-value %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), timeout, inputPlan.Expr)
 	return binding, nil, nil, nil, []string{fmt.Sprintf("verify Wait node %q timing semantics", node.Name)}
 }
 
-func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NSetNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	code := "(fn [input] input)"
 	todos := []string{fmt.Sprintf("port Set node %q parameters", node.Name)}
 	if values, ok := node.Parameters["values"].(map[string]any); ok {
@@ -603,7 +620,7 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 					continue
 				}
 				value := item["value"]
-				if rendered, todo, ok := renderN8NSetValue(name, value, n8nFunctionInputRefs(upstreams)); ok {
+				if rendered, todo, ok := renderN8NSetValue(name, value, inputPlan.FunctionRefs); ok {
 					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+rendered)
 					if todo != "" {
 						todos = append(todos, todo)
@@ -620,11 +637,11 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 		}
 	}
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, todos
 }
 
-func convertN8NItemListsNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NItemListsNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	field := n8nKebab(firstNonEmpty(stringParam(node.Parameters, "fieldToSplitOut", "field"), "items"), "items")
 	code := fmt.Sprintf(`(fn [input]
   (let [value (or (get input :%s) (get input %s))
@@ -634,14 +651,14 @@ func convertN8NItemListsNode(node n8nNode, stepID string, upstreams []string, co
                 :else [value])]
     (assoc input :items items :%s-items items)))`, field, ednQuote(field), field)
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, nil
 }
 
-func convertN8NHTMLExtractNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NHTMLExtractNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	extracts, todos := n8nHTMLExtractFields(node)
 	if len(extracts) == 0 {
-		return convertN8NFallbackNode(node, stepID, upstreams, convertedByName)
+		return convertN8NFallbackNode(node, stepID, inputPlan, convertedByName)
 	}
 	assoc := make([]string, 0, len(extracts))
 	for _, extract := range extracts {
@@ -662,7 +679,7 @@ func convertN8NHTMLExtractNode(node n8nNode, stepID string, upstreams []string, 
     (assoc input
       ` + strings.Join(assoc, "\n      ") + `)))`
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, todos
 }
 
@@ -962,6 +979,61 @@ func translateN8NTemplateStringWithRefs(value string, nodeRefs map[string]string
 	return "(str " + strings.Join(parts, " ") + ")", true
 }
 
+func translateN8NHandlebarsTemplate(value string, nodeRefs map[string]string) (string, bool) {
+	matches := n8nTemplateExprRe.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return value, false
+	}
+	var b strings.Builder
+	cursor := 0
+	changed := false
+	for _, match := range matches {
+		b.WriteString(value[cursor:match[0]])
+		inner := value[match[2]:match[3]]
+		path, ok := translateN8NHandlebarsPath(inner, nodeRefs)
+		if !ok {
+			b.WriteString(value[match[0]:match[1]])
+		} else {
+			b.WriteString("{{")
+			b.WriteString(path)
+			b.WriteString("}}")
+			changed = true
+		}
+		cursor = match[1]
+	}
+	b.WriteString(value[cursor:])
+	out := b.String()
+	if strings.HasPrefix(out, "={{") && strings.HasSuffix(out, "}}") {
+		out = strings.TrimPrefix(out, "=")
+	}
+	return out, changed
+}
+
+func translateN8NHandlebarsPath(expr string, nodeRefs map[string]string) (string, bool) {
+	expr = strings.TrimSpace(strings.TrimSuffix(expr, "++"))
+	root, parts, ok := parseN8NPathExpression(expr)
+	if !ok || len(parts) == 0 {
+		return "", false
+	}
+	out := make([]string, 0, len(parts)+1)
+	switch {
+	case root == "$json":
+	case strings.HasPrefix(root, "$node:"):
+		nodeName := strings.TrimPrefix(root, "$node:")
+		ref, ok := nodeRefs[nodeName]
+		if !ok {
+			return "", false
+		}
+		out = append(out, ref)
+	default:
+		return "", false
+	}
+	for _, part := range parts {
+		out = append(out, n8nKebab(part, "field"))
+	}
+	return strings.Join(out, "."), true
+}
+
 func translateN8NTernaryExpression(expr string) (string, bool) {
 	q := strings.Index(expr, "?")
 	colon := strings.LastIndex(expr, ":")
@@ -1025,29 +1097,29 @@ func translateN8NStringLiteral(raw string) (string, bool) {
 	return "", false
 }
 
-func convertN8NCodeNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NCodeNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	source := stringParam(node.Parameters, "jsCode", "pythonCode", "code")
 	commented := commentBlock(source, "  ;; ")
 	code := fmt.Sprintf("(fn [input]\n  ;; TODO(n8n-import): port code node %s to Clojure.\n  ;; --- begin n8n code ---\n%s\n  ;; --- end n8n code ---\n  input)", ednQuote(firstNonEmpty(node.Name, stepID)), commented)
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, []string{fmt.Sprintf("port Code node %q to Clojure", node.Name)}
 }
 
-func convertN8NMergeNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NMergeNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	fn := renderFunction(stepID, "(fn [input]\n  (merge (:left input) (:right input) input))")
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, nil
 }
 
-func convertN8NFallbackNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
+func convertN8NFallbackNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	service := node.Type
 	if idx := strings.LastIndex(service, "."); idx >= 0 {
 		service = service[idx+1:]
 	}
 	code := fmt.Sprintf("(fn [input]\n  ;; TODO(n8n-import): Custom or unsupported n8n node %s (%s).\n  ;; TODO(n8n-import): Search the web for %s API docs and rebuild this node as HTTP if it has side effects.\n  input)", ednQuote(firstNonEmpty(node.Name, stepID)), node.Type, service)
 	fn := renderFunction(stepID, code)
-	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
+	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, []string{fmt.Sprintf("implement unsupported node %q (%s)", node.Name, node.Type)}
 }
 
@@ -1353,6 +1425,62 @@ func n8nUpstreamsByTarget(edges []n8nEdge) map[string][]string {
 	return out
 }
 
+func n8nReferencedNodeNames(value any) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0)
+	var walk func(any)
+	walk = func(v any) {
+		switch typed := v.(type) {
+		case map[string]any:
+			for _, child := range typed {
+				walk(child)
+			}
+		case []any:
+			for _, child := range typed {
+				walk(child)
+			}
+		case string:
+			for _, match := range n8nNodeRefExprRe.FindAllStringSubmatch(typed, -1) {
+				if len(match) < 2 || seen[match[1]] {
+					continue
+				}
+				seen[match[1]] = true
+				out = append(out, match[1])
+			}
+		}
+	}
+	walk(value)
+	return out
+}
+
+func n8nHandlebarsRefs(convertedByName map[string]n8nConvertedNode) map[string]string {
+	refs := make(map[string]string, len(convertedByName))
+	for name, item := range convertedByName {
+		refs[name] = item.StepID
+	}
+	return refs
+}
+
+func n8nBuildInputPlan(upstreams, nodeRefs []string, convertedByName map[string]n8nConvertedNode) n8nInputPlan {
+	names := make([]string, 0, len(upstreams)+len(nodeRefs))
+	seen := map[string]bool{}
+	for _, name := range append(append([]string{}, upstreams...), nodeRefs...) {
+		if seen[name] {
+			continue
+		}
+		if _, ok := convertedByName[name]; !ok {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return n8nInputPlan{
+		Names:        names,
+		Expr:         n8nInputExpr(names, convertedByName),
+		FunctionRefs: n8nFunctionInputRefs(names, convertedByName),
+	}
+}
+
 func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNode) string {
 	available := make([]n8nConvertedNode, 0)
 	for _, name := range upstreams {
@@ -1373,16 +1501,20 @@ func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNod
 	return "{" + strings.Join(parts, " ") + "}"
 }
 
-func n8nFunctionInputRefs(upstreams []string) map[string]string {
-	switch len(upstreams) {
+func n8nFunctionInputRefs(inputNames []string, convertedByName map[string]n8nConvertedNode) map[string]string {
+	switch len(inputNames) {
 	case 0:
 		return nil
 	case 1:
-		return map[string]string{upstreams[0]: "input"}
+		return map[string]string{inputNames[0]: "input"}
 	default:
 		refs := map[string]string{}
-		for _, name := range upstreams {
-			refs[name] = "(get input :" + n8nKebab(name, "step") + ")"
+		for _, name := range inputNames {
+			item, ok := convertedByName[name]
+			if !ok {
+				continue
+			}
+			refs[name] = "(get input :" + item.StepID + ")"
 		}
 		return refs
 	}
@@ -1436,6 +1568,42 @@ func splitN8NURL(raw string) (string, string, map[string]string, bool) {
 		path = "/"
 	}
 	return u.Scheme + "://" + u.Host, path, query, true
+}
+
+func splitN8NURLTemplate(raw string) (string, string, map[string]string, bool) {
+	value := strings.TrimPrefix(strings.TrimSpace(raw), "=")
+	if !strings.Contains(value, "{{") {
+		return "", "", nil, false
+	}
+	probe := n8nTemplateExprRe.ReplaceAllString(value, "x")
+	if !strings.HasPrefix(probe, "http://") && !strings.HasPrefix(probe, "https://") {
+		return "", "", nil, false
+	}
+	u, err := url.Parse(probe)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", "", nil, false
+	}
+	baseURL := u.Scheme + "://" + u.Host
+	if !strings.HasPrefix(value, baseURL) {
+		return "", "", nil, false
+	}
+	rest := strings.TrimPrefix(value, baseURL)
+	pathPart, queryPart, _ := strings.Cut(rest, "?")
+	query := map[string]string{}
+	parsedQuery, err := url.ParseQuery(queryPart)
+	if err != nil {
+		return "", "", nil, false
+	}
+	for key, values := range parsedQuery {
+		if len(values) > 0 {
+			query[key] = values[0]
+		}
+	}
+	path := pathPart
+	if path == "" {
+		path = "/"
+	}
+	return baseURL, path, query, true
 }
 
 func n8nKebab(value, fallback string) string {
