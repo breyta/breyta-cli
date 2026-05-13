@@ -60,10 +60,11 @@ type n8nBranchGuard struct {
 }
 
 type n8nInputPlan struct {
-	Names        []string
-	Expr         string
-	FunctionRefs map[string]string
-	TemplateRefs map[string]string
+	Names         []string
+	UpstreamNames []string
+	Expr          string
+	FunctionRefs  map[string]string
+	TemplateRefs  map[string]string
 }
 
 type n8nImportResult struct {
@@ -1179,7 +1180,19 @@ func convertN8NCodeNode(node n8nNode, stepID string, inputPlan n8nInputPlan, con
 }
 
 func convertN8NMergeNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
-	fn := renderFunction(stepID, "(fn [input]\n  (merge (:left input) (:right input) input))")
+	parts := make([]string, 0, len(inputPlan.UpstreamNames))
+	for _, name := range inputPlan.UpstreamNames {
+		item, ok := convertedByName[name]
+		if !ok {
+			continue
+		}
+		parts = append(parts, "(get input :"+item.StepID+")")
+	}
+	code := "(fn [input]\n  input)"
+	if len(parts) > 0 {
+		code = "(fn [input]\n  (merge " + strings.Join(parts, " ") + "))"
+	}
+	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, nil
 }
@@ -1530,9 +1543,21 @@ func n8nTopologicalOrder(nodes []n8nNode, edges []n8nEdge) []n8nNode {
 }
 
 func n8nUpstreamsByTarget(edges []n8nEdge) map[string][]string {
-	out := map[string][]string{}
+	byTarget := map[string][]n8nEdge{}
 	for _, edge := range edges {
-		out[edge.Target] = append(out[edge.Target], edge.Source)
+		byTarget[edge.Target] = append(byTarget[edge.Target], edge)
+	}
+	out := map[string][]string{}
+	for target, targetEdges := range byTarget {
+		sort.SliceStable(targetEdges, func(i, j int) bool {
+			if targetEdges[i].TargetInput != targetEdges[j].TargetInput {
+				return targetEdges[i].TargetInput < targetEdges[j].TargetInput
+			}
+			return targetEdges[i].Source < targetEdges[j].Source
+		})
+		for _, edge := range targetEdges {
+			out[target] = append(out[target], edge.Source)
+		}
 	}
 	return out
 }
@@ -1590,11 +1615,22 @@ func n8nBuildInputPlan(upstreams, nodeRefs []string, convertedByName map[string]
 		names = append(names, name)
 	}
 	return n8nInputPlan{
-		Names:        names,
-		Expr:         n8nInputExpr(upstreams, names, convertedByName),
-		FunctionRefs: n8nFunctionInputRefs(upstreams, names, convertedByName),
-		TemplateRefs: n8nTemplateInputRefs(upstreams, names),
+		Names:         names,
+		UpstreamNames: n8nConvertedInputNames(upstreams, convertedByName),
+		Expr:          n8nInputExpr(upstreams, names, convertedByName),
+		FunctionRefs:  n8nFunctionInputRefs(upstreams, names, convertedByName),
+		TemplateRefs:  n8nTemplateInputRefs(upstreams, names),
 	}
+}
+
+func n8nConvertedInputNames(names []string, convertedByName map[string]n8nConvertedNode) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := convertedByName[name]; ok {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func n8nInputExpr(upstreams, inputNames []string, convertedByName map[string]n8nConvertedNode) string {

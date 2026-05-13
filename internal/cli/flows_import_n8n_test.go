@@ -392,6 +392,46 @@ func TestConvertN8NWorkflow_MixedJSONAndNodeRefsPreservesCurrentInput(t *testing
 	assertContains(t, result.EDN, `:label (str (get (get input :seed) :prefix) \" \" (get (get input :input) :name))`)
 }
 
+func TestConvertN8NWorkflow_MergeCombinesUpstreamStepInputs(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Merge Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Left Source",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"keepOnlySet": true, "values": map[string]any{
+					"string": []any{map[string]any{"name": "left", "value": "L"}},
+				}},
+			},
+			{
+				Name: "Right Source",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"keepOnlySet": true, "values": map[string]any{
+					"string": []any{map[string]any{"name": "right", "value": "R"}},
+				}},
+			},
+			{Name: "Merge Data", Type: "n8n-nodes-base.merge", Parameters: map[string]any{}},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Left Source", Type: "main", Index: 0}}, {{Node: "Right Source", Type: "main", Index: 0}}}},
+			"Left Source":    {"main": {{{Node: "Merge Data", Type: "main", Index: 0}}}},
+			"Right Source":   {"main": {{{Node: "Merge Data", Type: "main", Index: 1}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "merge-import", "tmp/flows/merge-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":input {:input left_source :left-source left_source :right-source right_source}")
+	assertContains(t, result.EDN, "(fn [input]\\n  (merge (get input :left-source) (get input :right-source)))")
+	if strings.Contains(result.EDN, ":left input") || strings.Contains(result.EDN, ":right input") {
+		t.Fatalf("expected merge to use upstream step ids, got:\n%s", result.EDN)
+	}
+}
+
 func TestConvertN8NWorkflow_HTTPTranslatesNodeRefTemplates(t *testing.T) {
 	wf := n8nWorkflow{
 		Name: "HTTP Ref Import",
