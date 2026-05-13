@@ -230,6 +230,7 @@ If this is your first session in this workspace, start with ` + "`README.md`" + 
   - error text
 - Cache inspected workspace search/grep hits, flow snippets, docs hits, approved template/example snippets, resource reads, and run ids within the session.
 - For external APIs and LLM models, do a quick source-of-truth check against current official provider docs/API references or model-list endpoints before choosing endpoints, request shapes, auth assumptions, limits, or model ids.
+- For n8n workflow JSON imports, use ` + "`breyta flows import n8n <workflow.json>`" + ` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed.
 
 ## Where to keep flow files
 - ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)

@@ -136,6 +136,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "check against current official provider docs/API references or model-list endpoints") {
 		t.Fatalf("unexpected agents content (missing provider/API freshness guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
+		t.Fatalf("unexpected agents content (missing n8n import CLI guidance): %s", string(agents))
+	}
 	if strings.Contains(string(agents), "## Stop gate") {
 		t.Fatalf("unexpected agents content (AGENTS.md should stay evergreen): %s", string(agents))
 	}
