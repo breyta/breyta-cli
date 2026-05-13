@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -29,6 +30,8 @@ func newRunsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newRunsStartCmd(app))
 	cmd.AddCommand(newRunsReplayCmd(app))
 	cmd.AddCommand(newRunsStepCmd(app))
+	cmd.AddCommand(newRunsInspectCmd(app))
+	cmd.AddCommand(newRunsContinueCmd(app))
 	cmd.AddCommand(newRunsCancelCmd(app))
 	cmd.AddCommand(newRunsRetryCmd(app))
 	cmd.AddCommand(newRunsEventsCmd(app))
@@ -492,7 +495,7 @@ Use runs start only when integrating with older scripts.
 							},
 							"meta": map[string]any{
 								"timedOut": true,
-								"hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status, or `breyta waits list --workflow <workflow-id>` if the run is waiting for human input.",
+								"hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status, or `breyta waits list --workflow-id <workflow-id>` if the run is waiting for human input.",
 							},
 							"data": map[string]any{
 								"workflowId": workflowID,
@@ -585,13 +588,14 @@ func newRunsReplayCmd(app *App) *cobra.Command {
 }
 
 func newRunsStepCmd(app *App) *cobra.Command {
+	var installationID string
 	cmd := &cobra.Command{
 		Use:   "step <run-id> <step-id>",
-		Short: "Show step detail for a run (mock)",
+		Short: "Show compact step input/output detail for a run",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta runs show <workflow-id>` in API mode).")
+				return doRunsStepInspect(cmd, app, args[0], args[1], installationID)
 			}
 			runID := args[0]
 			stepID := args[1]
@@ -646,7 +650,298 @@ func newRunsStepCmd(app *App) *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
 	return cmd
+}
+
+func newRunsInspectCmd(app *App) *cobra.Command {
+	var stepID string
+	var installationID string
+	cmd := &cobra.Command{
+		Use:   "inspect <workflow-id>",
+		Short: "Inspect a run or one step's compact I/O",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(stepID) != "" {
+				return doRunsStepInspect(cmd, app, args[0], stepID, installationID)
+			}
+			payload := map[string]any{
+				"workflowId":     strings.TrimSpace(args[0]),
+				"includeSteps":   true,
+				"includeResult":  false,
+				"compactInspect": true,
+			}
+			if strings.TrimSpace(installationID) != "" {
+				payload["installationId"] = strings.TrimSpace(installationID)
+			}
+			out, status, err := runAPICommand(app, "runs.get", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id")
+	return cmd
+}
+
+func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID string, installationID string) error {
+	if strings.TrimSpace(stepID) == "" {
+		return writeErr(cmd, errors.New("missing step id"))
+	}
+	payload := map[string]any{
+		"workflowId":    strings.TrimSpace(workflowID),
+		"includeSteps":  true,
+		"includeResult": false,
+	}
+	if strings.TrimSpace(installationID) != "" {
+		payload["installationId"] = strings.TrimSpace(installationID)
+	}
+	out, status, err := runAPICommand(app, "runs.get", payload)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if status >= 400 || !isOK(out) {
+		return writeAPIResult(cmd, app, out, status)
+	}
+	run := mapStringAny(mapStringAny(out["data"])["run"])
+	step := findRunStep(run, stepID)
+	if step == nil {
+		return writeErr(cmd, fmt.Errorf("step %q not found in run %s", stepID, workflowID))
+	}
+	flowSlug := firstNonBlankString(run["flowSlug"], run["flow-slug"])
+	stepIDOut := firstNonBlankString(step["stepId"], step["step-id"], step["id"], stepID)
+	return writeData(cmd, app, map[string]any{
+		"workflowId":    strings.TrimSpace(workflowID),
+		"stepId":        stepIDOut,
+		"sourceCommand": "runs.get",
+		"nextCommands": []string{
+			"breyta runs show " + strings.TrimSpace(workflowID) + " --include-steps",
+			"breyta runs show " + strings.TrimSpace(workflowID) + " --full",
+		},
+	}, map[string]any{
+		"workflowId": strings.TrimSpace(workflowID),
+		"flowSlug":   flowSlug,
+		"stepId":     stepIDOut,
+		"status":     firstNonBlankString(step["status"]),
+		"type":       firstNonBlankString(step["stepType"], step["step-type"], step["type"]),
+		"title":      firstNonBlankString(step["title"], step["label"]),
+		"durationMs": firstPresent(step, "durationMs", "duration-ms"),
+		"input":      firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview"),
+		"output":     firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result"),
+		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
+		"cost":       firstPresent(step, "cost", "usage", "counters", "metering"),
+		"execution":  step,
+	})
+}
+
+func findRunStep(run map[string]any, stepID string) map[string]any {
+	needle := strings.ToLower(strings.TrimSpace(stepID))
+	for _, item := range sliceAny(run["steps"]) {
+		step := mapStringAny(item)
+		if step == nil {
+			continue
+		}
+		for _, value := range []any{step["stepId"], step["step-id"], step["id"], step["name"], step["title"]} {
+			if strings.ToLower(strings.TrimSpace(scalarString(value))) == needle {
+				return step
+			}
+		}
+	}
+	return nil
+}
+
+func firstPresent(m map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := m[key]; ok && value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func newRunsContinueCmd(app *App) *cobra.Command {
+	var approveLatestWait bool
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "continue <workflow-id>",
+		Short: "Continue a waiting run",
+		Long: strings.TrimSpace(`
+Continue a waiting run by applying an explicit wait action. The first supported
+action is --approve-latest-wait, which finds the most recent active approval
+wait for the workflow and approves it through the wait API.
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !approveLatestWait {
+				return writeErr(cmd, errors.New("choose a continue action, e.g. --approve-latest-wait"))
+			}
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "runs continue is supported in API mode only")
+			}
+			return doRunsContinueApproveLatestWait(cmd, app, strings.TrimSpace(args[0]), limit)
+		},
+	}
+	cmd.Flags().BoolVar(&approveLatestWait, "approve-latest-wait", false, "Approve the most recent active approval wait for this workflow")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max active waits to inspect while selecting the latest approval wait")
+	return cmd
+}
+
+func doRunsContinueApproveLatestWait(cmd *cobra.Command, app *App, workflowID string, limit int) error {
+	if err := requireAPI(app); err != nil {
+		return writeErr(cmd, err)
+	}
+	if workflowID == "" {
+		return writeErr(cmd, errors.New("missing workflow id"))
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	q := url.Values{}
+	q.Set("workflowId", workflowID)
+	q.Set("limit", fmt.Sprintf("%d", limit))
+	listOut, listStatus, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/waits", q, nil)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if listStatus >= 400 {
+		return writeREST(cmd, app, listStatus, listOut)
+	}
+	items := waitItems(listOut)
+	if len(items) == 0 {
+		return writeErr(cmd, fmt.Errorf("no active waits found for workflow %s", workflowID))
+	}
+	selected := latestApprovableWait(items)
+	if selected == nil {
+		return writeErr(cmd, fmt.Errorf("no active approval wait found for workflow %s", workflowID))
+	}
+	waitID := waitIDValue(selected)
+	if waitID == "" {
+		return writeErr(cmd, errors.New("selected wait is missing waitId"))
+	}
+	approveOut, approveStatus, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/waits/"+url.PathEscape(waitID)+"/approve", nil, nil)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if approveStatus >= 400 {
+		return writeREST(cmd, app, approveStatus, approveOut)
+	}
+	return writeData(cmd, app, map[string]any{
+		"workflowId": workflowID,
+		"waitId":     waitID,
+		"action":     "approve",
+		"nextCommands": []string{
+			"breyta runs show " + workflowID,
+			"breyta waits list --workflow-id " + workflowID,
+		},
+	}, map[string]any{
+		"workflowId": workflowID,
+		"continued":  true,
+		"action":     "approve",
+		"wait":       selected,
+		"approval":   approveOut,
+	})
+}
+
+func waitItems(out any) []map[string]any {
+	root := mapStringAny(out)
+	if root == nil {
+		return nil
+	}
+	data := mapStringAny(root["data"])
+	var raw []any
+	switch {
+	case data != nil && len(sliceAny(data["items"])) > 0:
+		raw = sliceAny(data["items"])
+	case data != nil && len(sliceAny(data["waits"])) > 0:
+		raw = sliceAny(data["waits"])
+	case len(sliceAny(root["items"])) > 0:
+		raw = sliceAny(root["items"])
+	case len(sliceAny(root["waits"])) > 0:
+		raw = sliceAny(root["waits"])
+	}
+	items := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m := mapStringAny(item); m != nil {
+			items = append(items, m)
+		}
+	}
+	return items
+}
+
+func latestApprovableWait(items []map[string]any) map[string]any {
+	var selected map[string]any
+	var selectedTime time.Time
+	for i, item := range items {
+		if !waitLooksApprovable(item) {
+			continue
+		}
+		t := waitSortTime(item)
+		if selected == nil || t.After(selectedTime) || (t.IsZero() && selectedTime.IsZero() && i == 0) {
+			selected = item
+			selectedTime = t
+		}
+	}
+	return selected
+}
+
+func waitLooksApprovable(wait map[string]any) bool {
+	if wait == nil {
+		return false
+	}
+	switch strings.ToLower(firstNonBlankString(wait["status"], wait["state"])) {
+	case "completed", "complete", "cancelled", "canceled", "rejected", "expired", "failed":
+		return false
+	}
+	if approval := mapStringAny(wait["approval"]); approval != nil {
+		if actions := stringSlice(approval["actions"]); len(actions) > 0 {
+			return containsFold(actions, "approve")
+		}
+		return true
+	}
+	if actions := stringSlice(wait["actions"]); len(actions) > 0 {
+		return containsFold(actions, "approve")
+	}
+	notify := firstPresent(wait, "notify", "notification")
+	if notify == nil {
+		return false
+	}
+	encoded, err := json.Marshal(notify)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(encoded)), "approve")
+}
+
+func containsFold(items []string, needle string) bool {
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	for _, item := range items {
+		if strings.ToLower(strings.TrimSpace(item)) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func waitSortTime(wait map[string]any) time.Time {
+	for _, key := range []string{"registeredAt", "registered-at", "createdAt", "created-at", "updatedAt", "updated-at", "expiresAt", "expires-at"} {
+		raw := firstNonBlankString(wait[key])
+		if raw == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return t
+		}
+		if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func waitIDValue(wait map[string]any) string {
+	return firstNonBlankString(wait["waitId"], wait["wait-id"], wait["id"])
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }

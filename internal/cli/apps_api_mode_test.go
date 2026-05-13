@@ -3940,6 +3940,122 @@ func TestRunsShow_FullRequestsStepsAndResultInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsStep_InspectsOneStepInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-step",
+					"flowSlug":   "flow-step",
+					"steps": []map[string]any{
+						{"stepId": "fetch", "stepType": "http", "status": "completed", "inputPreview": map[string]any{"url": "https://example.com"}, "resultPreview": map[string]any{"status": 200}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "step", "wf-step", "fetch",
+	)
+	if err != nil {
+		t.Fatalf("runs step failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != false {
+		t.Fatalf("expected compact runs.get step flags, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["stepId"] != "fetch" || data["type"] != "http" {
+		t.Fatalf("unexpected step data: %#v", data)
+	}
+	if _, ok := data["input"]; !ok {
+		t.Fatalf("expected compact input in step data: %#v", data)
+	}
+	if _, ok := data["output"]; !ok {
+		t.Fatalf("expected compact output in step data: %#v", data)
+	}
+}
+
+func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
+	var sawList bool
+	var approvedWait string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/waits":
+			sawList = true
+			if got := r.URL.Query().Get("workflowId"); got != "wf-wait" {
+				t.Fatalf("expected workflowId wf-wait, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"items": []map[string]any{
+						{"waitId": "wait-old", "workflowId": "wf-wait", "registeredAt": "2026-05-13T08:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+						{"waitId": "wait-new", "workflowId": "wf-wait", "registeredAt": "2026-05-13T09:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+					},
+				},
+			})
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/waits/") && strings.HasSuffix(r.URL.Path, "/approve"):
+			approvedWait = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/waits/"), "/approve")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"approved": true}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "continue", "wf-wait",
+		"--approve-latest-wait",
+	)
+	if err != nil {
+		t.Fatalf("runs continue failed: %v\n%s", err, stdout)
+	}
+	if !sawList {
+		t.Fatalf("expected waits list request")
+	}
+	if approvedWait != "wait-new" {
+		t.Fatalf("expected latest wait-new approval, got %q", approvedWait)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["continued"] != true || data["action"] != "approve" {
+		t.Fatalf("unexpected continue output: %#v", data)
+	}
+}
+
 func TestFlowsRun_RejectsPreviewTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
