@@ -354,9 +354,11 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 					continue
 				}
 				value := item["value"]
-				if s, ok := value.(string); ok && strings.Contains(s, "{{") {
-					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+ednQuote(s))
-					todos = append(todos, fmt.Sprintf("translate n8n expression for Set field %q", name))
+				if rendered, todo, ok := renderN8NSetValue(name, value); ok {
+					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+rendered)
+					if todo != "" {
+						todos = append(todos, todo)
+					}
 				} else {
 					assoc = append(assoc, ":"+n8nKebab(name, "field")+" "+ednValue(value))
 				}
@@ -371,6 +373,52 @@ func convertN8NSetNode(node n8nNode, stepID string, upstreams []string, converte
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, n8nInputExpr(upstreams, convertedByName))
 	return binding, nil, nil, []string{fn}, todos
+}
+
+func renderN8NSetValue(fieldName string, value any) (string, string, bool) {
+	s, ok := value.(string)
+	if !ok || !strings.Contains(s, "{{") {
+		return "", "", false
+	}
+	if expr, ok := translateSimpleN8NExpression(s); ok {
+		return expr, "", true
+	}
+	return ednQuote(s), fmt.Sprintf("translate n8n expression for Set field %q", fieldName), true
+}
+
+func translateSimpleN8NExpression(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return "", false
+	}
+	expr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
+	switch expr {
+	case "$json":
+		return "input", true
+	case "$now":
+		return "(flow/now-ms)", true
+	}
+	const jsonPrefix = "$json."
+	if strings.HasPrefix(expr, jsonPrefix) {
+		path := strings.TrimSpace(strings.TrimPrefix(expr, jsonPrefix))
+		if path == "" || strings.ContainsAny(path, " []()+-*/?:") {
+			return "", false
+		}
+		parts := strings.Split(path, ".")
+		keywords := make([]string, 0, len(parts))
+		for _, part := range parts {
+			key := n8nKebab(part, "field")
+			if key == "" {
+				return "", false
+			}
+			keywords = append(keywords, ":"+key)
+		}
+		if len(keywords) == 1 {
+			return "(get input " + keywords[0] + ")", true
+		}
+		return "(get-in input [" + strings.Join(keywords, " ") + "])", true
+	}
+	return "", false
 }
 
 func convertN8NCodeNode(node n8nNode, stepID string, upstreams []string, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {

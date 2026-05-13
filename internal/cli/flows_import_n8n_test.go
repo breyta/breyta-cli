@@ -208,6 +208,7 @@ func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing
 					"values": map[string]any{
 						"string": []any{
 							map[string]any{"name": "customerId", "value": "{{$json.customer.id}}"},
+							map[string]any{"name": "fallback", "value": "{{$json.a + $json.b}}"},
 						},
 						"number": []any{
 							map[string]any{"name": "score", "value": float64(9)},
@@ -232,9 +233,31 @@ func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing
 		t.Fatalf("expected one shared-api requirement, got %d\n%s", got, result.EDN)
 	}
 	assertContains(t, result.EDN, `:body {"tags" ["alpha" "beta"] "user" {"id" 7 "name" "Ada"}}`)
-	assertContains(t, result.EDN, `:customerid \"{{$json.customer.id}}\"`)
+	assertContains(t, result.EDN, `:customerid (get-in input [:customer :id])`)
+	assertContains(t, result.EDN, `:fallback \"{{$json.a + $json.b}}\"`)
 	assertContains(t, result.EDN, `:score 9`)
-	assertContains(t, strings.Join(result.Todos, "\n"), `translate n8n expression for Set field "customerId"`)
+	assertContains(t, strings.Join(result.Todos, "\n"), `translate n8n expression for Set field "fallback"`)
+}
+
+func TestTranslateSimpleN8NExpression(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{in: "{{$json}}", want: "input", ok: true},
+		{in: "{{$json.foo}}", want: "(get input :foo)", ok: true},
+		{in: "{{$json.foo.bar}}", want: "(get-in input [:foo :bar])", ok: true},
+		{in: "{{$now}}", want: "(flow/now-ms)", ok: true},
+		{in: "{{$json.a + $json.b}}", ok: false},
+		{in: "hello {{$json.foo}}", ok: false},
+	}
+	for _, tc := range cases {
+		got, ok := translateSimpleN8NExpression(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("translateSimpleN8NExpression(%q) = (%q, %v), want (%q, %v)", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
 }
 
 func assertContains(t *testing.T, text, want string) {
