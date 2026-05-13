@@ -605,11 +605,20 @@ func newStepsTestsListCmd(app *App) *cobra.Command {
 
 func newStepsTestsVerifyCmd(app *App) *cobra.Command {
 	var stepType string
+	var source string
+	var version int
+	var previewOpts stepResultPreviewOptions
 
 	cmd := &cobra.Command{
 		Use:   "verify <flow-slug> <step-id>",
 		Short: "Run stored test cases for a step (API mode)",
-		Args:  cobra.ExactArgs(2),
+		Long: strings.TrimSpace(`
+Run stored test cases for a step against a selected flow definition context.
+
+Use --source draft while iterating on draft-only templates/functions/requires.
+Use --source active or --version <n> when verifying released behavior.
+`),
+		Args: cobra.ExactArgs(2),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireStepsAPI(cmd, app)
 		},
@@ -621,6 +630,12 @@ func newStepsTestsVerifyCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(stepType) != "" {
 				payload["stepType"] = strings.TrimSpace(stepType)
 			}
+			if strings.TrimSpace(source) != "" {
+				payload["source"] = strings.TrimSpace(source)
+			}
+			if version > 0 {
+				payload["version"] = version
+			}
 
 			client := apiClient(app)
 			out, status, err := client.DoCommand(context.Background(), "steps.tests.verify", payload)
@@ -630,11 +645,18 @@ func newStepsTestsVerifyCmd(app *App) *cobra.Command {
 			if isOK(out) {
 				addStepSidecarHint(out, args[0], args[1])
 			}
+			compactStepsTestsVerifyResult(out, previewOpts)
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
 
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type (required if tests were saved without one)")
+	cmd.Flags().StringVar(&source, "source", "", "Flow definition source (draft|latest|active)")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full params/expected/actual values instead of compact previews")
+	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for compact value previews")
+	cmd.Flags().IntVar(&previewOpts.MaxItems, "preview-items", stepResultPreviewDefaultItems, "Max map entries or vector items per preview level")
+	cmd.Flags().IntVar(&previewOpts.MaxRunes, "preview-runes", stepResultPreviewDefaultRunes, "Max runes per compact value preview")
 	return cmd
 }
 
@@ -642,6 +664,8 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var stepType string
 	var stepID string
 	var flowSlug string
+	var source string
+	var version int
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
@@ -651,6 +675,7 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var recordTest bool
 	var recordNote string
 	var recordTestName string
+	var previewOpts stepResultPreviewOptions
 
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -666,6 +691,8 @@ Examples:
   breyta steps run --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}'
   breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.4"}'
   breyta steps run --type llm --id summarize --params-file ./params.json
+  breyta steps run --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
+  breyta steps run --flow my-flow --source draft --type code --id make-output --params-file ./params.json --result-path rows.0
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireStepsAPI(cmd, app)
@@ -714,6 +741,12 @@ Examples:
 			if strings.TrimSpace(flowSlug) != "" {
 				payload["flowSlug"] = strings.TrimSpace(flowSlug)
 			}
+			if strings.TrimSpace(source) != "" {
+				payload["source"] = strings.TrimSpace(source)
+			}
+			if version > 0 {
+				payload["version"] = version
+			}
 			if strings.TrimSpace(traceID) != "" {
 				payload["traceId"] = strings.TrimSpace(traceID)
 			}
@@ -734,6 +767,9 @@ Examples:
 			if isOK(out) {
 				addStepSidecarHint(out, flowSlug, id)
 			}
+			if err := compactStepsRunResult(out, id, previewOpts); err != nil {
+				return writeErr(cmd, err)
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -743,6 +779,8 @@ Examples:
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Optional flow slug (for logging/templates)")
+	cmd.Flags().StringVar(&source, "source", "", "Flow definition source when --flow is provided (draft|latest|active)")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version when --flow is provided")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
@@ -751,6 +789,12 @@ Examples:
 	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
 	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")
 	cmd.Flags().StringVar(&recordTestName, "record-test-name", "", "Optional test name for --record-test")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().StringVar(&previewOpts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
+	cmd.Flags().StringVar(&previewOpts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
+	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
+	cmd.Flags().IntVar(&previewOpts.MaxItems, "preview-items", stepResultPreviewDefaultItems, "Max map entries or vector items per resultPreview level")
+	cmd.Flags().IntVar(&previewOpts.MaxRunes, "preview-runes", stepResultPreviewDefaultRunes, "Max runes for resultPreview.value")
 	return cmd
 }
 
@@ -758,6 +802,8 @@ func newStepsRecordCmd(app *App) *cobra.Command {
 	var stepType string
 	var stepID string
 	var flowSlug string
+	var source string
+	var version int
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
@@ -767,6 +813,7 @@ func newStepsRecordCmd(app *App) *cobra.Command {
 	var testName string
 	var noExample bool
 	var noTest bool
+	var previewOpts stepResultPreviewOptions
 
 	cmd := &cobra.Command{
 		Use:   "record",
@@ -782,6 +829,8 @@ Examples:
   breyta steps record --flow my-flow --type code --id make-output --params '{"input":{"n":2},"code":"(fn [input] {:nPlusOne (inc (:n input))})"}'
   breyta steps record --flow my-flow --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}' --note 'happy path'
   breyta steps record --flow my-flow --type llm --id summarize --params-file ./params.json
+  breyta steps record --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
+  breyta steps record --flow my-flow --source draft --type code --id make-output --params-file ./params.json --result-file ./tmp/make-output-result.json
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireStepsAPI(cmd, app)
@@ -828,6 +877,12 @@ Examples:
 				"stepId":   id,
 				"params":   params,
 			}
+			if strings.TrimSpace(source) != "" {
+				payload["source"] = strings.TrimSpace(source)
+			}
+			if version > 0 {
+				payload["version"] = version
+			}
 			if strings.TrimSpace(traceID) != "" {
 				payload["traceId"] = strings.TrimSpace(traceID)
 			}
@@ -848,6 +903,9 @@ Examples:
 			if isOK(out) {
 				addStepSidecarHint(out, fs, id)
 			}
+			if err := compactStepsRunResult(out, id, previewOpts); err != nil {
+				return writeErr(cmd, err)
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -857,6 +915,8 @@ Examples:
 	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
+	cmd.Flags().StringVar(&source, "source", "", "Flow definition source (draft|latest|active)")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
@@ -865,5 +925,11 @@ Examples:
 	cmd.Flags().StringVar(&testName, "test-name", "", "Optional test name for the recorded snapshot test")
 	cmd.Flags().BoolVar(&noExample, "no-example", false, "Do not record an example")
 	cmd.Flags().BoolVar(&noTest, "no-test", false, "Do not record a snapshot test")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().StringVar(&previewOpts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
+	cmd.Flags().StringVar(&previewOpts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
+	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
+	cmd.Flags().IntVar(&previewOpts.MaxItems, "preview-items", stepResultPreviewDefaultItems, "Max map entries or vector items per resultPreview level")
+	cmd.Flags().IntVar(&previewOpts.MaxRunes, "preview-runes", stepResultPreviewDefaultRunes, "Max runes for resultPreview.value")
 	return cmd
 }
