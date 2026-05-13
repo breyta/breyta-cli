@@ -92,6 +92,24 @@ func addPatternPayload(payload map[string]any, pattern string, ors []string) {
 	}
 }
 
+func appendMatchSurfacesPayload(payload map[string]any, surfaces []string) {
+	clean := make([]string, 0, len(surfaces))
+	seen := map[string]bool{}
+	for _, raw := range surfaces {
+		for _, part := range strings.Split(raw, ",") {
+			surface := strings.TrimSpace(strings.ToLower(part))
+			if surface == "" || seen[surface] {
+				continue
+			}
+			seen[surface] = true
+			clean = append(clean, surface)
+		}
+	}
+	if len(clean) > 0 {
+		payload["matchSurfaces"] = clean
+	}
+}
+
 func dispatchFlowAPICommand(cmd *cobra.Command, app *App, command string, payload map[string]any, allowGlobal bool) error {
 	if allowGlobal && strings.TrimSpace(app.WorkspaceID) == "" {
 		return doGlobalAPICommand(cmd, app, command, payload)
@@ -256,6 +274,7 @@ func newFlowsGrepCmd(app *App) *cobra.Command {
 	var stepType string
 	var toolName string
 	var connection string
+	var matchSurfaces []string
 	var flowSlug string
 	var target string
 	var limit int
@@ -310,6 +329,7 @@ synonym expansion.
 			}
 			addPatternPayload(workspacePayload, pattern, ors)
 			appendFlowSearchFilters(workspacePayload, provider, stepType, toolName, connection)
+			appendMatchSurfacesPayload(workspacePayload, matchSurfaces)
 			if strings.TrimSpace(flowSlug) != "" {
 				workspacePayload["flowSlug"] = strings.TrimSpace(flowSlug)
 			}
@@ -323,6 +343,7 @@ synonym expansion.
 			}
 			addPatternPayload(templatePayload, pattern, ors)
 			appendFlowSearchFilters(templatePayload, provider, stepType, toolName, connection)
+			appendMatchSurfacesPayload(templatePayload, matchSurfaces)
 
 			switch effectiveScope {
 			case "workspace":
@@ -341,6 +362,7 @@ synonym expansion.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
+	cmd.Flags().StringArrayVar(&matchSurfaces, "surface", nil, "Limit literal matches to a surface: definition|steps|tools|connections|description (repeatable or comma-separated)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit workspace search to one known flow slug")
 	cmd.Flags().StringVar(&target, "target", "latest", "Workspace source target: latest|draft|live")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results per scope (1..100 recommended)")
@@ -376,6 +398,9 @@ func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templat
 			"breyta flows grep <pattern> --scope workspace",
 			"breyta flows grep <pattern> --scope templates",
 		},
+	}
+	if matchSurfaces, ok := workspacePayload["matchSurfaces"]; ok {
+		meta["matchSurfaces"] = matchSurfaces
 	}
 	return writeData(cmd, app, meta, map[string]any{
 		"result": map[string]any{
@@ -489,6 +514,7 @@ func newFlowsTemplatesGrepCmd(app *App) *cobra.Command {
 	var stepType string
 	var toolName string
 	var connection string
+	var matchSurfaces []string
 	var limit int
 	var from int
 	var full bool
@@ -535,6 +561,7 @@ hidden semantic or synonym expansion.
 			}
 			addPatternPayload(payload, pattern, ors)
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
+			appendMatchSurfacesPayload(payload, matchSurfaces)
 			if full {
 				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
 			}
@@ -548,6 +575,7 @@ hidden semantic or synonym expansion.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
+	cmd.Flags().StringArrayVar(&matchSurfaces, "surface", nil, "Limit literal matches to a surface: definition|steps|tools|connections|description (repeatable or comma-separated)")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched templates")

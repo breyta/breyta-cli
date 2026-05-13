@@ -436,7 +436,7 @@ func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"web_search", "--or", "web_search_preview", "--step-type", "agent", "--tool-name", "web_search", "--connection", "openai", "--target", "draft", "--limit", "3"})
+	cmd.SetArgs([]string{"web_search", "--or", "web_search_preview", "--step-type", "agent", "--tool-name", "web_search", "--connection", "openai", "--surface", "definition,tools", "--target", "draft", "--limit", "3"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
@@ -453,6 +453,10 @@ func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
 	}
 	if gotPayload["stepType"] != "agent" || gotPayload["toolName"] != "web_search" || gotPayload["connection"] != "openai" {
 		t.Fatalf("unexpected filters: %#v", gotPayload)
+	}
+	matchSurfaces, _ := gotPayload["matchSurfaces"].([]string)
+	if len(matchSurfaces) != 2 || matchSurfaces[0] != "definition" || matchSurfaces[1] != "tools" {
+		t.Fatalf("unexpected matchSurfaces: %#v", gotPayload["matchSurfaces"])
 	}
 }
 
@@ -480,7 +484,7 @@ func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"image/*", "--or", ":multiple true", "--step-type", "llm", "--full"})
+	cmd.SetArgs([]string{"image/*", "--or", ":multiple true", "--step-type", "llm", "--surface", "definition", "--full"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
@@ -493,6 +497,10 @@ func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) 
 	}
 	if gotPayload["rawDefinition"] != false {
 		t.Fatalf("expected rawDefinition=false, got %#v", gotPayload["rawDefinition"])
+	}
+	matchSurfaces, _ := gotPayload["matchSurfaces"].([]string)
+	if len(matchSurfaces) != 1 || matchSurfaces[0] != "definition" {
+		t.Fatalf("unexpected matchSurfaces: %#v", gotPayload["matchSurfaces"])
 	}
 }
 
