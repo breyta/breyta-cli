@@ -190,6 +190,8 @@ func TestConvertN8NWorkflow_IFBranchGuardsOutputs(t *testing.T) {
 	assertContains(t, result.EDN, "(if (true? (:branch choose_path))")
 	assertContains(t, result.EDN, "(if (false? (:branch choose_path))")
 	assertContains(t, result.EDN, ":n8n-import/skipped true")
+	assertContains(t, result.EDN, "(when-not (:n8n-import/skipped true_path) true_path)")
+	assertContains(t, result.EDN, "(when-not (:n8n-import/skipped false_path) false_path)")
 	if strings.Contains(strings.Join(result.Todos, "\n"), "translate IF node") {
 		t.Fatalf("did not expect IF translation TODO, got %#v", result.Todos)
 	}
@@ -507,6 +509,9 @@ func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	}
 	if got, _ := data["pushCommand"].(string); !strings.Contains(got, "breyta flows push --file") {
 		t.Fatalf("unexpected push command: %q", got)
+	}
+	if _, ok := data["conversionDoc"]; ok {
+		t.Fatalf("conversionDoc should not point at a missing local guide: %#v", data["conversionDoc"])
 	}
 	validation, ok := data["validation"].(map[string]any)
 	if !ok {

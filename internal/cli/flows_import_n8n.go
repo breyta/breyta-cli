@@ -149,16 +149,15 @@ values from credentials. The output is intended for the normal authoring loop:
 				return writeFailure(cmd, app, "n8n_import_failed", err, "Check that the input is an n8n workflow JSON export.", map[string]any{"path": args[0]})
 			}
 			data := map[string]any{
-				"slug":          result.Slug,
-				"name":          result.Name,
-				"path":          result.OutputPath,
-				"todoCount":     len(result.Todos),
-				"todos":         result.Todos,
-				"validation":    result.Validation,
-				"pushCommand":   fmt.Sprintf("breyta flows push --file %s", shellQuotePath(result.OutputPath)),
-				"checkCommand":  fmt.Sprintf("breyta flows configure check %s", result.Slug),
-				"runCommand":    fmt.Sprintf("breyta flows run %s --input '{}' --wait", result.Slug),
-				"conversionDoc": "bases/flows-api/resources/public/docs/reference/GUIDE_N8N_IMPORT.md",
+				"slug":         result.Slug,
+				"name":         result.Name,
+				"path":         result.OutputPath,
+				"todoCount":    len(result.Todos),
+				"todos":        result.Todos,
+				"validation":   result.Validation,
+				"pushCommand":  fmt.Sprintf("breyta flows push --file %s", shellQuotePath(result.OutputPath)),
+				"checkCommand": fmt.Sprintf("breyta flows configure check %s", result.Slug),
+				"runCommand":   fmt.Sprintf("breyta flows run %s --input '{}' --wait", result.Slug),
 			}
 			if serverValidate {
 				serverResult, err := validateImportedN8NFlowOnServer(app, result, deployKey)
@@ -318,7 +317,7 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 	}
 
 	name := firstNonEmpty(wf.Name, "Imported n8n Flow")
-	body := renderN8NFlowBody(converted, upstreams, convertedByName, n8nBranchGuards(edges, convertedByName))
+	body := renderN8NFlowBody(converted, edges, upstreams, convertedByName, n8nBranchGuards(edges, convertedByName))
 	edn := renderN8NFlowEDN(slug, name, requires, templates, functions, webhooks, schedules, body)
 	validation, err := validateGeneratedN8NFlowEDN(edn)
 	if err != nil {
@@ -1233,10 +1232,11 @@ func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhook
 	return b.String()
 }
 
-func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode, branchGuards map[string][]n8nBranchGuard) string {
+func renderN8NFlowBody(converted []n8nConvertedNode, edges []n8nEdge, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode, branchGuards map[string][]n8nBranchGuard) string {
 	if len(converted) == 0 {
 		return "(quote (let [input (flow/input)]\n    input))"
 	}
+	returnExpr := n8nFlowReturnExpr(n8nTerminalConvertedNodes(converted, edges, convertedByName))
 	var b strings.Builder
 	b.WriteString("(quote (let [input (flow/input)\n")
 	for _, item := range converted {
@@ -1249,8 +1249,47 @@ func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]stri
 		}
 	}
 	b.WriteString("        ]\n")
-	b.WriteString("    " + converted[len(converted)-1].VarName + "))")
+	b.WriteString("    " + returnExpr + "))")
 	return b.String()
+}
+
+func n8nTerminalConvertedNodes(converted []n8nConvertedNode, edges []n8nEdge, convertedByName map[string]n8nConvertedNode) []n8nConvertedNode {
+	hasConvertedOutgoing := map[string]bool{}
+	for _, edge := range edges {
+		if _, ok := convertedByName[edge.Source]; !ok {
+			continue
+		}
+		if _, ok := convertedByName[edge.Target]; !ok {
+			continue
+		}
+		hasConvertedOutgoing[edge.Source] = true
+	}
+	terminals := make([]n8nConvertedNode, 0)
+	for _, item := range converted {
+		if !hasConvertedOutgoing[item.Node.Name] {
+			terminals = append(terminals, item)
+		}
+	}
+	if len(terminals) == 0 {
+		return converted[len(converted)-1:]
+	}
+	return terminals
+}
+
+func n8nFlowReturnExpr(terminals []n8nConvertedNode) string {
+	if len(terminals) == 0 {
+		return "input"
+	}
+	if len(terminals) == 1 {
+		return terminals[0].VarName
+	}
+	parts := make([]string, 0, len(terminals)+1)
+	for i := len(terminals) - 1; i >= 0; i-- {
+		item := terminals[i]
+		parts = append(parts, "(when-not (:n8n-import/skipped "+item.VarName+") "+item.VarName+")")
+	}
+	parts = append(parts, terminals[len(terminals)-1].VarName)
+	return "(or " + strings.Join(parts, "\n        ") + ")"
 }
 
 func renderN8NGuardedBinding(item n8nConvertedNode, guards []n8nBranchGuard, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode) string {
