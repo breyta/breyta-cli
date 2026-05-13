@@ -57,6 +57,7 @@ type n8nImportResult struct {
 }
 
 var n8nSlugInvalidRe = regexp.MustCompile(`[^a-z0-9-]+`)
+var n8nTemplateExprRe = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
 
 func newFlowsImportCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -383,6 +384,9 @@ func renderN8NSetValue(fieldName string, value any) (string, string, bool) {
 	if expr, ok := translateSimpleN8NExpression(s); ok {
 		return expr, "", true
 	}
+	if expr, ok := translateN8NTemplateString(s); ok {
+		return expr, "", true
+	}
 	return ednQuote(s), fmt.Sprintf("translate n8n expression for Set field %q", fieldName), true
 }
 
@@ -392,11 +396,22 @@ func translateSimpleN8NExpression(value string) (string, bool) {
 		return "", false
 	}
 	expr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
+	return translateN8NInnerExpression(expr)
+}
+
+func translateN8NInnerExpression(expr string) (string, bool) {
+	expr = strings.TrimSpace(expr)
 	switch expr {
 	case "$json":
 		return "input", true
 	case "$now":
 		return "(flow/now-ms)", true
+	}
+	if rendered, ok := translateN8NTernaryExpression(expr); ok {
+		return rendered, true
+	}
+	if rendered, ok := translateN8NBinaryExpression(expr); ok {
+		return rendered, true
 	}
 	const jsonPrefix = "$json."
 	if strings.HasPrefix(expr, jsonPrefix) {
@@ -417,6 +432,97 @@ func translateSimpleN8NExpression(value string) (string, bool) {
 			return "(get input " + keywords[0] + ")", true
 		}
 		return "(get-in input [" + strings.Join(keywords, " ") + "])", true
+	}
+	return "", false
+}
+
+func translateN8NTemplateString(value string) (string, bool) {
+	matches := n8nTemplateExprRe.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(matches)*2+1)
+	cursor := 0
+	for _, match := range matches {
+		if match[0] > cursor {
+			parts = append(parts, ednQuote(value[cursor:match[0]]))
+		}
+		inner := value[match[2]:match[3]]
+		rendered, ok := translateN8NInnerExpression(inner)
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, rendered)
+		cursor = match[1]
+	}
+	if cursor < len(value) {
+		parts = append(parts, ednQuote(value[cursor:]))
+	}
+	if len(parts) == 1 {
+		return parts[0], true
+	}
+	return "(str " + strings.Join(parts, " ") + ")", true
+}
+
+func translateN8NTernaryExpression(expr string) (string, bool) {
+	q := strings.Index(expr, "?")
+	colon := strings.LastIndex(expr, ":")
+	if q <= 0 || colon <= q {
+		return "", false
+	}
+	condition, ok := translateN8NOperand(expr[:q])
+	if !ok {
+		return "", false
+	}
+	yes, ok := translateN8NStringLiteral(expr[q+1 : colon])
+	if !ok {
+		return "", false
+	}
+	no, ok := translateN8NStringLiteral(expr[colon+1:])
+	if !ok {
+		return "", false
+	}
+	return "(if " + condition + " " + yes + " " + no + ")", true
+}
+
+func translateN8NBinaryExpression(expr string) (string, bool) {
+	for _, op := range []string{" + ", " - ", " * ", " / "} {
+		if idx := strings.Index(expr, op); idx > 0 {
+			left, leftOK := translateN8NOperand(expr[:idx])
+			right, rightOK := translateN8NOperand(expr[idx+len(op):])
+			if !leftOK || !rightOK {
+				return "", false
+			}
+			return "(" + strings.TrimSpace(op) + " " + left + " " + right + ")", true
+		}
+	}
+	return "", false
+}
+
+func translateN8NOperand(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if strings.HasPrefix(raw, "$json") || raw == "$now" {
+		return translateN8NInnerExpression(raw)
+	}
+	if _, err := strconv.ParseFloat(raw, 64); err == nil {
+		return raw, true
+	}
+	if s, ok := translateN8NStringLiteral(raw); ok {
+		return s, true
+	}
+	return "", false
+}
+
+func translateN8NStringLiteral(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 {
+		return "", false
+	}
+	if (raw[0] == '"' && raw[len(raw)-1] == '"') || (raw[0] == '\'' && raw[len(raw)-1] == '\'') {
+		return ednQuote(raw[1 : len(raw)-1]), true
 	}
 	return "", false
 }

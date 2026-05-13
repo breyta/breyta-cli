@@ -208,7 +208,10 @@ func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing
 					"values": map[string]any{
 						"string": []any{
 							map[string]any{"name": "customerId", "value": "{{$json.customer.id}}"},
-							map[string]any{"name": "fallback", "value": "{{$json.a + $json.b}}"},
+							map[string]any{"name": "sum", "value": "{{$json.a + $json.b}}"},
+							map[string]any{"name": "label", "value": "Customer {{$json.customer.id}}"},
+							map[string]any{"name": "status", "value": "{{$json.active ? \"yes\" : \"no\"}}"},
+							map[string]any{"name": "fallback", "value": "{{$node[\"Other\"].json.id}}"},
 						},
 						"number": []any{
 							map[string]any{"name": "score", "value": float64(9)},
@@ -234,7 +237,10 @@ func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing
 	}
 	assertContains(t, result.EDN, `:body {"tags" ["alpha" "beta"] "user" {"id" 7 "name" "Ada"}}`)
 	assertContains(t, result.EDN, `:customerid (get-in input [:customer :id])`)
-	assertContains(t, result.EDN, `:fallback \"{{$json.a + $json.b}}\"`)
+	assertContains(t, result.EDN, `:sum (+ (get input :a) (get input :b))`)
+	assertContains(t, result.EDN, `:label (str \"Customer \" (get-in input [:customer :id]))`)
+	assertContains(t, result.EDN, `:status (if (get input :active) \"yes\" \"no\")`)
+	assertContains(t, result.EDN, `:fallback \"{{$node[`)
 	assertContains(t, result.EDN, `:score 9`)
 	assertContains(t, strings.Join(result.Todos, "\n"), `translate n8n expression for Set field "fallback"`)
 }
@@ -249,7 +255,8 @@ func TestTranslateSimpleN8NExpression(t *testing.T) {
 		{in: "{{$json.foo}}", want: "(get input :foo)", ok: true},
 		{in: "{{$json.foo.bar}}", want: "(get-in input [:foo :bar])", ok: true},
 		{in: "{{$now}}", want: "(flow/now-ms)", ok: true},
-		{in: "{{$json.a + $json.b}}", ok: false},
+		{in: "{{$json.a + $json.b}}", want: "(+ (get input :a) (get input :b))", ok: true},
+		{in: "{{$json.active ? \"yes\" : \"no\"}}", want: "(if (get input :active) \"yes\" \"no\")", ok: true},
 		{in: "hello {{$json.foo}}", ok: false},
 	}
 	for _, tc := range cases {
@@ -257,6 +264,20 @@ func TestTranslateSimpleN8NExpression(t *testing.T) {
 		if ok != tc.ok || got != tc.want {
 			t.Fatalf("translateSimpleN8NExpression(%q) = (%q, %v), want (%q, %v)", tc.in, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+func TestTranslateN8NTemplateString(t *testing.T) {
+	got, ok := translateN8NTemplateString("Hello {{$json.name}} from {{$json.company.name}}")
+	if !ok {
+		t.Fatalf("expected template string to translate")
+	}
+	want := `(str "Hello " (get input :name) " from " (get-in input [:company :name]))`
+	if got != want {
+		t.Fatalf("unexpected template translation:\n got: %s\nwant: %s", got, want)
+	}
+	if got, ok := translateN8NTemplateString("Hello {{$node[\"Other\"].json.id}}"); ok {
+		t.Fatalf("expected node reference template to remain unsupported, got %s", got)
 	}
 }
 
