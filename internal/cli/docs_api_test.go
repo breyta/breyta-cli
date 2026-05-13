@@ -306,6 +306,39 @@ func TestDocsShow_SectionNarrowsMarkdown(t *testing.T) {
 	}
 }
 
+func TestDocsShow_SectionMissReturnsHeadings(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/long-doc" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Long Doc\n\n## Setup\n\nSetup details.\n\n## Runtime\n\nRuntime details.\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"long-doc", "--section", "resources"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected missing section error")
+	}
+	got := out.String()
+	if !strings.Contains(got, `section "resources" not found in long-doc`) {
+		t.Fatalf("expected missing section message, got: %q", got)
+	}
+	if !strings.Contains(got, "Setup") || !strings.Contains(got, "Runtime") {
+		t.Fatalf("expected heading suggestions, got: %q", got)
+	}
+	if strings.Contains(got, "Setup details") || strings.Contains(got, "Runtime details") {
+		t.Fatalf("expected headings without page body, got: %q", got)
+	}
+}
+
 func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 

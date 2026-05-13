@@ -201,12 +201,19 @@ func newDocsShowCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if format == "markdown" {
-				if full && strings.TrimSpace(section) != "" {
-					if selected, ok := extractMarkdownSection(content, section); ok {
+				section = strings.TrimSpace(section)
+				if section != "" {
+					selected, ok := extractMarkdownSection(content, section)
+					if !ok {
+						return writeErr(cmd, docsSectionNotFoundError(args[0], section, content))
+					}
+					if full {
 						content = strings.TrimRight(selected, "\n")
+					} else {
+						content = compactDocsMarkdown(content, args[0], section, maxChars)
 					}
 				} else if !full {
-					content = compactDocsMarkdown(content, args[0], section, maxChars)
+					content = compactDocsMarkdown(content, args[0], "", maxChars)
 				}
 			}
 			_, _ = io.WriteString(cmd.OutOrStdout(), content)
@@ -223,6 +230,14 @@ func newDocsShowCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&section, "section", "", "Print a focused markdown section by heading text")
 	cmd.Flags().IntVar(&maxChars, "max-chars", compactDocsDefaultRunes, "Approximate markdown preview character budget before --full is required")
 	return cmd
+}
+
+func docsSectionNotFoundError(slug string, section string, markdown string) error {
+	headings := markdownContents(markdown, 8)
+	if len(headings) == 0 {
+		return fmt.Errorf("section %q not found in %s; page has no markdown headings", section, slug)
+	}
+	return fmt.Errorf("section %q not found in %s; available headings: %s", section, slug, strings.Join(headings, ", "))
 }
 
 func summarizeMarkdown(markdown string) string {
