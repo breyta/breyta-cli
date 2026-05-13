@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +68,15 @@ type n8nImportResult struct {
 	Validation n8nFlowValidation
 }
 
+type n8nServerValidationResult struct {
+	FlowSlug       string         `json:"flowSlug"`
+	PushedDraft    bool           `json:"pushedDraft"`
+	Valid          bool           `json:"valid"`
+	ValidateSource string         `json:"validateSource"`
+	Push           map[string]any `json:"push,omitempty"`
+	Validate       map[string]any `json:"validate,omitempty"`
+}
+
 type n8nFlowValidation struct {
 	BalancedDelimiters bool     `json:"balancedDelimiters"`
 	EDNReadable        bool     `json:"ednReadable"`
@@ -107,6 +117,8 @@ func newFlowsImportCmd(app *App) *cobra.Command {
 func newFlowsImportN8NCmd(app *App) *cobra.Command {
 	var slug string
 	var outPath string
+	var serverValidate bool
+	var deployKey string
 
 	cmd := &cobra.Command{
 		Use:   "n8n <workflow.json>",
@@ -128,7 +140,7 @@ values from credentials. The output is intended for the normal authoring loop:
 			if err != nil {
 				return writeFailure(cmd, app, "n8n_import_failed", err, "Check that the input is an n8n workflow JSON export.", map[string]any{"path": args[0]})
 			}
-			return writeData(cmd, app, nil, map[string]any{
+			data := map[string]any{
 				"slug":          result.Slug,
 				"name":          result.Name,
 				"path":          result.OutputPath,
@@ -139,13 +151,89 @@ values from credentials. The output is intended for the normal authoring loop:
 				"checkCommand":  fmt.Sprintf("breyta flows configure check %s", result.Slug),
 				"runCommand":    fmt.Sprintf("breyta flows run %s --input '{}' --wait", result.Slug),
 				"conversionDoc": "bases/flows-api/resources/public/docs/reference/GUIDE_N8N_IMPORT.md",
-			})
+			}
+			if serverValidate {
+				serverResult, err := validateImportedN8NFlowOnServer(app, result, deployKey)
+				if err != nil {
+					return writeFailure(cmd, app, "n8n_server_validation_failed", err, "Check --api/--workspace/--token and inspect the generated flow file.", map[string]any{
+						"path": result.OutputPath,
+						"slug": result.Slug,
+					})
+				}
+				data["serverValidation"] = serverResult
+			}
+			return writeData(cmd, app, nil, data)
 		},
 	}
 
 	cmd.Flags().StringVar(&slug, "slug", "", "Breyta flow slug (defaults to normalized workflow name)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output flow file (defaults to ./tmp/flows/<slug>.clj)")
+	cmd.Flags().BoolVar(&serverValidate, "server-validate", false, "Push generated flow to the configured Breyta API draft and run flows.validate")
+	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows when using --server-validate (default: BREYTA_FLOW_DEPLOY_KEY)")
 	return cmd
+}
+
+func validateImportedN8NFlowOnServer(app *App, result *n8nImportResult, deployKey string) (*n8nServerValidationResult, error) {
+	if !isAPIMode(app) {
+		return nil, errors.New("--server-validate requires --api/BREYTA_API_URL")
+	}
+	if err := requireAPI(app); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{"flowLiteral": result.EDN}
+	resolvedDeployKey := strings.TrimSpace(deployKey)
+	if resolvedDeployKey == "" {
+		resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
+	}
+	if resolvedDeployKey != "" {
+		payload["deploy-key"] = resolvedDeployKey
+	}
+	pushOut, pushStatus, err := runAPICommand(app, "flows.put_draft", payload)
+	if err != nil {
+		return nil, err
+	}
+	if pushStatus >= 400 || !isOK(pushOut) {
+		return nil, apiEnvelopeError("flows.put_draft", pushStatus, pushOut)
+	}
+	flowSlug := result.Slug
+	if data, ok := pushOut["data"].(map[string]any); ok {
+		if slug, _ := data["flowSlug"].(string); strings.TrimSpace(slug) != "" {
+			flowSlug = strings.TrimSpace(slug)
+		}
+	}
+	validateOut, validateStatus, err := apiClient(app).DoCommand(context.Background(), "flows.validate", map[string]any{
+		"flowSlug": flowSlug,
+		"source":   "draft",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if validateStatus >= 400 || !isOK(validateOut) {
+		return nil, apiEnvelopeError("flows.validate", validateStatus, validateOut)
+	}
+	valid := false
+	if data, ok := validateOut["data"].(map[string]any); ok {
+		if value, ok := data["valid"].(bool); ok {
+			valid = value
+		}
+	}
+	return &n8nServerValidationResult{
+		FlowSlug:       flowSlug,
+		PushedDraft:    true,
+		Valid:          valid,
+		ValidateSource: "draft",
+		Push:           pushOut,
+		Validate:       validateOut,
+	}, nil
+}
+
+func apiEnvelopeError(command string, status int, envelope map[string]any) error {
+	if errObj, ok := envelope["error"].(map[string]any); ok {
+		if message, _ := errObj["message"].(string); strings.TrimSpace(message) != "" {
+			return fmt.Errorf("%s failed (status=%d): %s", command, status, message)
+		}
+	}
+	return fmt.Errorf("%s failed (status=%d)", command, status)
 }
 
 func importN8NWorkflowFile(path, slug, outPath string) (*n8nImportResult, error) {

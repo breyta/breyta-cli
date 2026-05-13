@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -275,6 +277,79 @@ func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 		t.Fatalf("read output: %v", err)
 	}
 	assertContains(t, string(b), ":slug :imported")
+}
+
+func TestFlowsImportN8NCommand_ServerValidatePushesAndValidatesDraft(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "workflow.json")
+	outPath := filepath.Join(tmp, "imported.clj")
+	if err := os.WriteFile(input, []byte(`{"name":"Imported","nodes":[{"name":"NoOp","type":"n8n-nodes-base.noOp","parameters":{}}],"connections":{}}`), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	commands := make([]string, 0, 2)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		commands = append(commands, command)
+		switch command {
+		case "flows.put_draft":
+			args, _ := body["args"].(map[string]any)
+			if !strings.Contains(fmt.Sprint(args["flowLiteral"]), ":slug :imported") {
+				t.Fatalf("expected generated flow literal, got %#v", args["flowLiteral"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "imported", "savedDraft": true},
+			})
+		case "flows.validate":
+			args, _ := body["args"].(map[string]any)
+			if args["flowSlug"] != "imported" || args["source"] != "draft" {
+				t.Fatalf("unexpected validate args: %#v", args)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "imported", "valid": true, "source": "draft"},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	cmd := newFlowsImportN8NCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{input, "--slug", "imported", "--out", outPath, "--server-validate"})
+	err := cmd.Execute()
+	stdout := out.String()
+	if err != nil {
+		t.Fatalf("import server validate failed: %v\n%s", err, stdout)
+	}
+	if strings.Join(commands, ",") != "flows.put_draft,flows.validate" {
+		t.Fatalf("unexpected commands: %#v", commands)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode envelope: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	serverValidation, ok := data["serverValidation"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing serverValidation: %#v", data)
+	}
+	if serverValidation["pushedDraft"] != true || serverValidation["valid"] != true || serverValidation["validateSource"] != "draft" {
+		t.Fatalf("unexpected server validation: %#v", serverValidation)
+	}
 }
 
 func TestValidateGeneratedN8NFlowEDNRejectsInvalidFlow(t *testing.T) {
