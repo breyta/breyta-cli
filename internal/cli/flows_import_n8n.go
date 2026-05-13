@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/breyta/breyta-cli/internal/clojure/parenrepair"
 	"github.com/spf13/cobra"
+	edn "olympos.io/encoding/edn"
 )
 
 type n8nWorkflow struct {
@@ -54,6 +56,13 @@ type n8nImportResult struct {
 	OutputPath string
 	Todos      []string
 	EDN        string
+	Validation n8nFlowValidation
+}
+
+type n8nFlowValidation struct {
+	BalancedDelimiters bool     `json:"balancedDelimiters"`
+	EDNReadable        bool     `json:"ednReadable"`
+	RequiredKeys       []string `json:"requiredKeys"`
 }
 
 var n8nSlugInvalidRe = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -98,6 +107,7 @@ values from credentials. The output is intended for the normal authoring loop:
 				"path":          result.OutputPath,
 				"todoCount":     len(result.Todos),
 				"todos":         result.Todos,
+				"validation":    result.Validation,
 				"pushCommand":   fmt.Sprintf("breyta flows push --file %s", shellQuotePath(result.OutputPath)),
 				"checkCommand":  fmt.Sprintf("breyta flows configure check %s", result.Slug),
 				"runCommand":    fmt.Sprintf("breyta flows run %s --input '{\"payload\":{}}' --wait", result.Slug),
@@ -183,12 +193,17 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 	name := firstNonEmpty(wf.Name, "Imported n8n Flow")
 	body := renderN8NFlowBody(converted, upstreams, convertedByName)
 	edn := renderN8NFlowEDN(slug, name, requires, templates, functions, webhooks, schedules, body)
+	validation, err := validateGeneratedN8NFlowEDN(edn)
+	if err != nil {
+		return nil, err
+	}
 	return &n8nImportResult{
 		Slug:       slug,
 		Name:       name,
 		OutputPath: outPath,
 		Todos:      todos,
 		EDN:        edn,
+		Validation: validation,
 	}, nil
 }
 
@@ -592,10 +607,10 @@ func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhook
 
 func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode) string {
 	if len(converted) == 0 {
-		return "'(let [input (flow/input)]\n    input)"
+		return "(quote (let [input (flow/input)]\n    input))"
 	}
 	var b strings.Builder
-	b.WriteString("'(let [input (flow/input)\n")
+	b.WriteString("(quote (let [input (flow/input)\n")
 	for _, item := range converted {
 		b.WriteString(fmt.Sprintf("        ;; n8n node: %s (%s)\n", ednQuote(item.Node.Name), item.Node.Type))
 		lines := strings.Split(item.Binding, "\n")
@@ -605,8 +620,51 @@ func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]stri
 		}
 	}
 	b.WriteString("        ]\n")
-	b.WriteString("    " + converted[len(converted)-1].VarName + ")")
+	b.WriteString("    " + converted[len(converted)-1].VarName + "))")
 	return b.String()
+}
+
+func validateGeneratedN8NFlowEDN(flowEDN string) (n8nFlowValidation, error) {
+	if err := parenrepair.Check(flowEDN); err != nil {
+		return n8nFlowValidation{}, fmt.Errorf("generated flow has invalid delimiters: %w", err)
+	}
+
+	var parsed any
+	if err := edn.Unmarshal([]byte(flowEDN), &parsed); err != nil {
+		return n8nFlowValidation{}, fmt.Errorf("generated flow is not readable EDN: %w", err)
+	}
+	m, ok := parsed.(map[any]any)
+	if !ok {
+		return n8nFlowValidation{}, errors.New("generated flow EDN must be a top-level map")
+	}
+	byKey := map[string]any{}
+	for key, value := range m {
+		if s, ok := ednKeyToString(key); ok {
+			byKey[s] = value
+		}
+	}
+
+	required := []string{"slug", "name", "concurrency", "invocations", "interfaces", "flow"}
+	missing := make([]string, 0)
+	for _, key := range required {
+		if _, ok := byKey[key]; !ok {
+			missing = append(missing, ":"+key)
+		}
+	}
+	if len(missing) > 0 {
+		return n8nFlowValidation{}, fmt.Errorf("generated flow missing required keys: %s", strings.Join(missing, ", "))
+	}
+
+	flowForm, ok := byKey["flow"].([]any)
+	if !ok || len(flowForm) != 2 || fmt.Sprint(flowForm[0]) != "quote" {
+		return n8nFlowValidation{}, errors.New("generated flow :flow must be an explicit (quote ...) form")
+	}
+
+	return n8nFlowValidation{
+		BalancedDelimiters: true,
+		EDNReadable:        true,
+		RequiredKeys:       required,
+	}, nil
 }
 
 func n8nEdges(wf n8nWorkflow) []n8nEdge {

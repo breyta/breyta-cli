@@ -50,6 +50,10 @@ func TestConvertN8NWorkflow_HTTPAndCode(t *testing.T) {
 	assertContains(t, result.EDN, `:headers {"Accept" "application/json"}`)
 	assertContains(t, result.EDN, ":interfaces {:manual")
 	assertContains(t, result.EDN, ":ref :transform-users-fn")
+	assertContains(t, result.EDN, ":flow (quote")
+	if !result.Validation.BalancedDelimiters || !result.Validation.EDNReadable {
+		t.Fatalf("expected successful validation, got %#v", result.Validation)
+	}
 	if len(result.Todos) != 1 || result.Todos[0] != `transform-users: port Code node "Transform Users" to Clojure` {
 		t.Fatalf("unexpected todos: %#v", result.Todos)
 	}
@@ -163,11 +167,30 @@ func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	if got, _ := data["pushCommand"].(string); !strings.Contains(got, "breyta flows push --file") {
 		t.Fatalf("unexpected push command: %q", got)
 	}
+	validation, ok := data["validation"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing validation object: %#v", data)
+	}
+	if validation["balancedDelimiters"] != true || validation["ednReadable"] != true {
+		t.Fatalf("unexpected validation: %#v", validation)
+	}
 	b, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
 	assertContains(t, string(b), ":slug :imported")
+}
+
+func TestValidateGeneratedN8NFlowEDNRejectsInvalidFlow(t *testing.T) {
+	if _, err := validateGeneratedN8NFlowEDN("{:slug :bad :flow (quote (let [x 1] x))"); err == nil {
+		t.Fatalf("expected delimiter validation error")
+	}
+	if _, err := validateGeneratedN8NFlowEDN("{:slug :bad :name \"Bad\" :flow (quote (identity 1))}"); err == nil {
+		t.Fatalf("expected missing required keys error")
+	}
+	if _, err := validateGeneratedN8NFlowEDN("{:slug :bad :name \"Bad\" :concurrency {} :invocations {} :interfaces {} :flow (identity 1)}"); err == nil {
+		t.Fatalf("expected non-quoted flow error")
+	}
 }
 
 func TestConvertN8NWorkflow_DedupesRequirementsAndRendersNestedValues(t *testing.T) {
