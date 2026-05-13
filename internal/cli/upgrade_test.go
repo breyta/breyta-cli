@@ -59,6 +59,50 @@ func TestUpgradeCommand_ChecksAndReturnsNotice(t *testing.T) {
 	}
 }
 
+func TestUpgradeCommand_ChecksGoModuleCompatibilityVersion(t *testing.T) {
+	origVersion := buildinfo.Version
+	buildinfo.Version = "v0.202605.5"
+	defer func() { buildinfo.Version = origVersion }()
+
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_UPDATE_TEST_LATEST_TAG", "v2026.5.6")
+	t.Setenv("BREYTA_UPDATE_TEST_INSTALL_METHOD", "go")
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"upgrade", "--pretty"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("upgrade command failed: %v\nstderr:\n%s\nstdout:\n%s", err, errOut.String(), out.String())
+	}
+
+	var env map[string]any
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out.String())
+	}
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data: %#v", env["data"])
+	}
+	update, ok := data["update"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data.update: %#v", data["update"])
+	}
+	if got, _ := update["available"].(bool); !got {
+		t.Fatalf("expected available=true, got %#v", update["available"])
+	}
+	if got, _ := update["currentVersion"].(string); got != "v0.202605.5" {
+		t.Fatalf("unexpected currentVersion: %q", got)
+	}
+	if got, _ := update["latestVersion"].(string); got != "v2026.5.6" {
+		t.Fatalf("unexpected latestVersion: %q", got)
+	}
+}
+
 func TestUpgradeCommand_ApplyUsesUpgradeCommand(t *testing.T) {
 	origVersion := buildinfo.Version
 	buildinfo.Version = "v2026.1.1"
@@ -262,6 +306,54 @@ func TestUpgradeCommand_AllWithUnknownInstallFailsBeforeNoOp(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "breyta upgrade --open") {
 		t.Fatalf("expected release artifact hint, got stderr:\n%s", errOut.String())
+	}
+}
+
+func TestUpgradeCommand_AllFailsWhenUpdateCheckCannotCompareVersions(t *testing.T) {
+	origVersion := buildinfo.Version
+	buildinfo.Version = "not-a-version"
+	defer func() { buildinfo.Version = origVersion }()
+
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_UPDATE_TEST_LATEST_TAG", "v2026.5.6")
+	t.Setenv("BREYTA_UPDATE_TEST_INSTALL_METHOD", "go")
+
+	origUpgrade := runUpgradeCommand
+	defer func() { runUpgradeCommand = origUpgrade }()
+	origSync := syncInstalledSkills
+	defer func() { syncInstalledSkills = origSync }()
+
+	var upgradeCalled bool
+	runUpgradeCommand = func(_ctx context.Context, _argv []string, _out io.Writer, _errOut io.Writer) error {
+		upgradeCalled = true
+		return nil
+	}
+	var syncCalled bool
+	syncInstalledSkills = func(_ctx context.Context, _apiURL, _token string) (skillsync.SyncResult, error) {
+		syncCalled = true
+		return skillsync.SyncResult{}, nil
+	}
+
+	root := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"upgrade", "--all", "--yes", "--pretty"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatalf("expected upgrade --all --yes to fail when versions cannot be compared")
+	}
+	if upgradeCalled {
+		t.Fatalf("expected CLI upgrade command not to run")
+	}
+	if syncCalled {
+		t.Fatalf("expected skills sync not to run")
+	}
+	if !strings.Contains(errOut.String(), "cannot check for Breyta CLI update") {
+		t.Fatalf("expected update-check error, got stderr:\n%s", errOut.String())
 	}
 }
 

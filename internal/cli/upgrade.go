@@ -115,6 +115,9 @@ func newUpgradeCmd(app *App) *cobra.Command {
 			runCLI := apply || all || cliOnly
 			runSkills := all || skillsOnly
 
+			if runCLI && checkErr != nil {
+				return writeErr(cmd, fmt.Errorf("cannot check for Breyta CLI update: %w", checkErr))
+			}
 			if runCLI && notice.Available && len(notice.Upgrade) == 0 {
 				return writeErr(cmd, manualCLIUpgradeError(notice))
 			}
