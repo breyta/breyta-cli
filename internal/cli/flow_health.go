@@ -36,6 +36,10 @@ func normalizeDigestCadence(raw string) (string, bool) {
 }
 
 func runFlowHealthREST(cmd *cobra.Command, app *App, unavailableMessage, method, path string, query url.Values) error {
+	return runFlowHealthRESTWithTransform(cmd, app, unavailableMessage, method, path, query, nil)
+}
+
+func runFlowHealthRESTWithTransform(cmd *cobra.Command, app *App, unavailableMessage, method, path string, query url.Values, transform func(any) any) error {
 	if !isAPIMode(app) {
 		return writeNotImplemented(cmd, app, unavailableMessage)
 	}
@@ -45,6 +49,9 @@ func runFlowHealthREST(cmd *cobra.Command, app *App, unavailableMessage, method,
 	out, httpStatus, err := apiClient(app).DoREST(context.Background(), method, path, query, nil)
 	if err != nil {
 		return writeErr(cmd, err)
+	}
+	if transform != nil && httpStatus < 400 {
+		out = transform(out)
 	}
 	return writeREST(cmd, app, httpStatus, out)
 }
@@ -79,6 +86,7 @@ func newIncidentsListCmd(app *App) *cobra.Command {
 	var status string
 	var limit int
 	var mine bool
+	var full bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -90,12 +98,16 @@ func newIncidentsListCmd(app *App) *cobra.Command {
 				q.Set("scope", "mine")
 			}
 			setPositiveIntQuery(q, "limit", limit)
-			return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents", q)
+			if full {
+				return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents", q)
+			}
+			return runFlowHealthRESTWithTransform(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents", q, compactIncidentsListPayload)
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "Filter incidents by lifecycle or operator disposition")
 	cmd.Flags().BoolVar(&mine, "mine", false, "Limit incidents to flows you created in the current workspace")
-	cmd.Flags().IntVar(&limit, "limit", 20, "Max incidents to return")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max incidents to return")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full incident list rows")
 	return cmd
 }
 
@@ -112,7 +124,7 @@ func newIncidentsShowCmd(app *App) *cobra.Command {
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incidents.", http.MethodGet, "/api/incidents/"+url.PathEscape(incidentID), q)
 		},
 	}
-	cmd.Flags().IntVar(&failureLimit, "failure-limit", 20, "Max failure rows to return")
+	cmd.Flags().IntVar(&failureLimit, "failure-limit", 10, "Max failure rows to return")
 	return cmd
 }
 
@@ -129,7 +141,7 @@ func newIncidentsLanesCmd(app *App) *cobra.Command {
 			return runFlowHealthREST(cmd, app, "Use API mode to inspect incident lanes.", http.MethodGet, "/api/incidents/"+url.PathEscape(incidentID)+"/lanes", q)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max lanes to return")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max lanes to return")
 	return cmd
 }
 
@@ -229,6 +241,7 @@ func newDigestsListCmd(app *App) *cobra.Command {
 	var status string
 	var cadence string
 	var limit int
+	var full bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -245,13 +258,17 @@ func newDigestsListCmd(app *App) *cobra.Command {
 				q.Set("cadence", normalizedCadence)
 			}
 			setPositiveIntQuery(q, "limit", limit)
-			return runFlowHealthREST(cmd, app, "Use API mode to inspect digests.", http.MethodGet, "/api/digests", q)
+			if full {
+				return runFlowHealthREST(cmd, app, "Use API mode to inspect digests.", http.MethodGet, "/api/digests", q)
+			}
+			return runFlowHealthRESTWithTransform(cmd, app, "Use API mode to inspect digests.", http.MethodGet, "/api/digests", q, compactDigestsListPayload)
 		},
 	}
 	cmd.Flags().StringVar(&kind, "kind", "", "Filter digests by kind")
 	cmd.Flags().StringVar(&status, "status", "", "Filter digests by status")
 	cmd.Flags().StringVar(&cadence, "cadence", "", "Filter scheduled digests by cadence")
-	cmd.Flags().IntVar(&limit, "limit", 20, "Max digests to return")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max digests to return")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full digest list rows")
 	return cmd
 }
 
@@ -284,7 +301,7 @@ func newDigestsDeliveriesCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&channel, "channel", "", "Filter deliveries by channel")
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max deliveries to return")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max deliveries to return")
 	return cmd
 }
 

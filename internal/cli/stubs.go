@@ -138,6 +138,7 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 	var typ string
 	var limit int
 	var cursor string
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List connections",
@@ -159,6 +160,9 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 				out, status, err := apiClient(app).DoREST(context.Background(), http.MethodGet, "/api/connections", q, nil)
 				if err != nil {
 					return writeErr(cmd, err)
+				}
+				if status < 400 && !full {
+					out = compactConnectionsListPayload(out)
 				}
 				return writeREST(cmd, app, status, out)
 			}
@@ -182,8 +186,9 @@ func newConnectionsListCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&typ, "type", "", "Filter by connection type (API mode: server-side)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items per page (API mode only; use 0 for server default)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full connection config/auth details")
 	return cmd
 }
 
@@ -897,7 +902,7 @@ func newProfilesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&profileType, "profile-type", "", "Filter by profile type (prod|draft) (API mode only)")
 	cmd.Flags().StringVar(&userID, "user-id", "", "Filter by user id (API mode only)")
 	cmd.Flags().StringVar(&enabled, "enabled", "", "Filter by enabled (true|false) (API mode only)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items per page (API mode only; use 0 for server default)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	return cmd
 }
@@ -1252,7 +1257,7 @@ func newTriggersCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, meta, map[string]any{"items": items})
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items per page (API mode only; use 0 for server default)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (API mode only)")
 	cmd.AddCommand(newTriggersListCmd(app))
@@ -1415,7 +1420,7 @@ func newTriggersListCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
 	cmd.Flags().StringVar(&triggerType, "type", "", "Filter by trigger type (event|schedule|manual|webhook) (API mode only)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max items per page (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items per page (API mode only; use 0 for server default)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	return cmd
 }
@@ -1537,7 +1542,7 @@ This command lists webhook trigger URLs for a flow so you can copy/paste them in
 	}
 
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
-	cmd.Flags().IntVar(&limit, "limit", 100, "Max items per page (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items per page (API mode only)")
 	return cmd
 }
 
@@ -1700,7 +1705,7 @@ func newWaitsListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&workflowID, "workflow-id", "", "Filter by workflow id (API mode)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Filter by flow slug (API mode)")
 	cmd.Flags().BoolVar(&showsInUIOnly, "shows-in-ui-only", false, "Only waits with UI notify config (API mode)")
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max results (API mode)")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max results (API mode)")
 	return cmd
 }
 
@@ -1997,7 +2002,7 @@ func newRegistrySearchCmd(app *App) *cobra.Command {
 		}
 		return writeData(cmd, app, meta, map[string]any{"items": items})
 	}}
-	cmd.Flags().IntVar(&limit, "limit", 20, "Max results")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results")
 	return cmd
 }
 

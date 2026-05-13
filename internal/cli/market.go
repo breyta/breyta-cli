@@ -239,7 +239,7 @@ func newDemandQueriesCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, map[string]any{"total": len(out)}, map[string]any{"items": out})
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max items")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max items")
 	return cmd
 }
 

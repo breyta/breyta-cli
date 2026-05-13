@@ -16,7 +16,7 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"items": []map[string]any{
-				{"incident-id": "incident-1", "status": "open"},
+				{"incident-id": "incident-1", "status": "open", "fingerprint": "large-fingerprint", "flow-slug": "flow-1"},
 			},
 		})
 	}))
@@ -30,7 +30,6 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 		"incidents", "list",
 		"--status", "open",
 		"--mine",
-		"--limit", "15",
 	)
 	if err != nil {
 		t.Fatalf("command failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
@@ -44,12 +43,23 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 	if gotQuery.Get("scope") != "mine" {
 		t.Fatalf("expected scope=mine, got %q", gotQuery.Get("scope"))
 	}
-	if gotQuery.Get("limit") != "15" {
-		t.Fatalf("expected limit=15, got %q", gotQuery.Get("limit"))
+	if gotQuery.Get("limit") != "10" {
+		t.Fatalf("expected compact default limit=10, got %q", gotQuery.Get("limit"))
 	}
 	out := decodeEnvelope(t, stdout)
 	if !out.OK {
 		t.Fatalf("expected ok=true, got output: %s", stdout)
+	}
+	if out.Data["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", out.Data)
+	}
+	items, _ := out.Data["items"].([]any)
+	first, _ := items[0].(map[string]any)
+	if _, ok := first["fingerprint"]; ok {
+		t.Fatalf("default incident list should omit raw fingerprint fields, got %#v", first)
+	}
+	if got, _ := first["flowSlug"].(string); got != "flow-1" {
+		t.Fatalf("expected compact flowSlug, got %#v", first)
 	}
 }
 
@@ -239,7 +249,7 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 	for _, args := range [][]string{
 		{"digests", "cadence"},
 		{"digests", "cadence", "set", "monthly"},
-		{"digests", "list", "--kind", "scheduled", "--status", "materialized", "--cadence", "monthly", "--limit", "10"},
+		{"digests", "list", "--kind", "scheduled", "--status", "materialized", "--cadence", "monthly"},
 		{"digests", "show", "digest-1"},
 		{"digests", "deliveries", "digest-1", "--channel", "in-app", "--limit", "7"},
 		{"digests", "mark-read", "digest-1"},
@@ -284,6 +294,67 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 	}
 	if requests[5].Method != http.MethodPost || requests[5].Path != "/api/digests/digest-1/mark-read" {
 		t.Fatalf("expected sixth request to POST /api/digests/digest-1/mark-read, got %#v", requests[5])
+	}
+}
+
+func TestDigestsListDefaultsToCompactRows(t *testing.T) {
+	var gotQuery url.Values
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/digests" {
+			http.NotFound(w, r)
+			return
+		}
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{
+				{
+					"digest-id":      "digest-1",
+					"kind":           "immediate",
+					"status":         "materialized",
+					"incident-count": 1,
+					"incident-summaries": []map[string]any{
+						{
+							"incident-id":   "incident-1",
+							"flow-slug":     "flow-1",
+							"fingerprint":   "large-fingerprint",
+							"latest-run-id": "run-1",
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--api", srv.URL,
+		"--workspace", "ws-breyta",
+		"--token", "tok-1",
+		"digests", "list",
+	)
+	if err != nil {
+		t.Fatalf("command failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if gotQuery.Get("limit") != "10" {
+		t.Fatalf("expected compact default limit=10, got %q", gotQuery.Get("limit"))
+	}
+	out := decodeEnvelope(t, stdout)
+	if !out.OK {
+		t.Fatalf("expected ok=true, got output: %s", stdout)
+	}
+	if out.Data["outputView"] != "compact" {
+		t.Fatalf("expected compact output view, got %#v", out.Data)
+	}
+	items, _ := out.Data["items"].([]any)
+	first, _ := items[0].(map[string]any)
+	if _, ok := first["incident-summaries"]; ok {
+		t.Fatalf("default digest list should omit raw incident summaries, got %#v", first)
+	}
+	summaries, _ := first["incidentSummaries"].([]any)
+	summary, _ := summaries[0].(map[string]any)
+	if _, ok := summary["fingerprint"]; ok {
+		t.Fatalf("compact digest summaries should omit raw fingerprint fields, got %#v", summary)
 	}
 }
 

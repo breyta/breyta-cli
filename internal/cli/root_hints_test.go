@@ -235,6 +235,9 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	if !strings.Contains(help, "Advanced: run target override (draft|live)") {
 		t.Fatalf("flows run help missing advanced target flag guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "--interface-id") {
+		t.Fatalf("flows run help missing interface selector guidance:\n%s", help)
+	}
 }
 
 func TestFlowSubcommandHelpOmitsSourceFlag(t *testing.T) {

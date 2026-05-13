@@ -142,6 +142,7 @@ func newJobsListCmd(app *App) *cobra.Command {
 	var batchID string
 	var status string
 	var limit int
+	var full bool
 
 	cmd := &cobra.Command{
 		Use:     "list",
@@ -163,19 +164,23 @@ func newJobsListCmd(app *App) *cobra.Command {
 				}
 				payload["status"] = normalized
 			}
-			if cmd.Flags().Changed("limit") {
-				if limit <= 0 {
-					return writeErr(cmd, errors.New("--limit must be > 0"))
-				}
+			if cmd.Flags().Changed("limit") && limit <= 0 {
+				return writeErr(cmd, errors.New("--limit must be > 0"))
+			}
+			if limit > 0 {
 				payload["limit"] = limit
 			}
-			return doAPICommand(cmd, app, "jobs.list", payload)
+			if full {
+				return doAPICommand(cmd, app, "jobs.list", payload)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "jobs.list", payload, false, compactJobsListEnvelope)
 		},
 	}
 	cmd.Flags().StringVar(&jobType, "type", "", "Filter by job type")
 	cmd.Flags().StringVar(&batchID, "batch-id", "", "Filter by batch id")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max jobs to return")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max jobs to return")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full job payload/result/attempt details")
 	return cmd
 }
 
@@ -547,6 +552,7 @@ func newJobsBatchesCreateCmd(app *App) *cobra.Command {
 
 func newJobsBatchesShowCmd(app *App) *cobra.Command {
 	var limit int
+	var full bool
 
 	cmd := &cobra.Command{
 		Use:   "show <batch-id>",
@@ -558,16 +564,20 @@ func newJobsBatchesShowCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("missing batch id"))
 			}
 			payload := map[string]any{"batchId": batchID}
-			if cmd.Flags().Changed("limit") {
-				if limit <= 0 {
-					return writeErr(cmd, errors.New("--limit must be > 0"))
-				}
+			if cmd.Flags().Changed("limit") && limit <= 0 {
+				return writeErr(cmd, errors.New("--limit must be > 0"))
+			}
+			if limit > 0 {
 				payload["limit"] = limit
 			}
-			return doAPICommand(cmd, app, "jobs.batches.get", payload)
+			if full {
+				return doAPICommand(cmd, app, "jobs.batches.get", payload)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "jobs.batches.get", payload, false, compactJobsListEnvelope)
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 0, "Max jobs to include in the batch response")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max jobs to include in the batch response")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full job payload/result/attempt details")
 	return cmd
 }
 

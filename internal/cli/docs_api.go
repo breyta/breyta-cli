@@ -151,7 +151,7 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 	cmd.Flags().StringVar(&outFormat, "format", "tsv", "Output format (tsv|json)")
 	cmd.Flags().StringVar(&source, "source", "", "Filter by source (flows-api|cli|all)")
 	cmd.Flags().StringVar(&query, "q", "", "Query expression (plain terms or Lucene syntax)")
-	cmd.Flags().IntVar(&limit, "limit", -1, "Max results to return (-1 = API default)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results to return (-1 = API default)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset for pagination")
 	cmd.Flags().BoolVar(&withSummary, "with-summary", true, "Fetch each page and include first summary line")
 	cmd.Flags().BoolVar(&withSnippets, "with-snippets", false, "Ask API to include search snippets in results")
@@ -164,12 +164,22 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 func newDocsShowCmd(app *App) *cobra.Command {
 	var outFormat string
 	var timeoutSeconds int
+	var full bool
+	var section string
+	var maxChars int
 
 	cmd := &cobra.Command{
 		Use:   "show <slug>",
-		Short: "Print a docs page to stdout",
+		Short: "Print a compact docs page preview to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			format := strings.ToLower(strings.TrimSpace(outFormat))
+			if format == "" || format == "md" {
+				format = "markdown"
+			}
+			if strings.TrimSpace(section) != "" && format != "markdown" {
+				return writeErr(cmd, fmt.Errorf("--section only applies to markdown docs output"))
+			}
 			ensureAPIURL(app)
 			if strings.TrimSpace(app.APIURL) == "" {
 				return writeErr(cmd, fmt.Errorf("missing api base url"))
@@ -186,9 +196,25 @@ func newDocsShowCmd(app *App) *cobra.Command {
 				BaseURL: app.APIURL,
 				Token:   app.Token,
 			}
-			content, err := fetchDocsPageContent(ctx, client, args[0], outFormat)
+			content, err := fetchDocsPageContent(ctx, client, args[0], format)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if format == "markdown" {
+				section = strings.TrimSpace(section)
+				if section != "" {
+					selected, ok := extractMarkdownSection(content, section)
+					if !ok {
+						return writeErr(cmd, docsSectionNotFoundError(args[0], section, content))
+					}
+					if full {
+						content = strings.TrimRight(selected, "\n")
+					} else {
+						content = compactDocsMarkdown(content, args[0], section, maxChars)
+					}
+				} else if !full {
+					content = compactDocsMarkdown(content, args[0], "", maxChars)
+				}
 			}
 			_, _ = io.WriteString(cmd.OutOrStdout(), content)
 			if !strings.HasSuffix(content, "\n") {
@@ -200,7 +226,18 @@ func newDocsShowCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&outFormat, "format", "markdown", "Page format (markdown|html|json)")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout-seconds", 30, "Request timeout in seconds")
+	cmd.Flags().BoolVar(&full, "full", false, "Print the full markdown page instead of the compact default preview")
+	cmd.Flags().StringVar(&section, "section", "", "Print a focused markdown section by heading text")
+	cmd.Flags().IntVar(&maxChars, "max-chars", compactDocsDefaultRunes, "Approximate markdown preview character budget before --full is required")
 	return cmd
+}
+
+func docsSectionNotFoundError(slug string, section string, markdown string) error {
+	headings := markdownContents(markdown, 8)
+	if len(headings) == 0 {
+		return fmt.Errorf("section %q not found in %s; page has no markdown headings", section, slug)
+	}
+	return fmt.Errorf("section %q not found in %s; available headings: %s", section, slug, strings.Join(headings, ", "))
 }
 
 func summarizeMarkdown(markdown string) string {

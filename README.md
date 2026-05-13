@@ -153,8 +153,8 @@ breyta flows run <slug> --installation-id <installation-id> --wait
 
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
-step arrays, or result payloads. `resources read` defaults to a bounded table
-row and cell preview; pass `--full` only when the full resource payload is
+step arrays, or result payloads. `resources read` defaults to compact blob
+previews and bounded table row/cell previews; pass `--full` only when the full resource payload is
 required. `flows show` includes a non-editable `flowLiteralPreview` that keeps
 source structure while omitting heavy leaves; use `flows pull` for editable
 source. `--pretty` changes formatting only; it does not request full payloads.
@@ -558,7 +558,7 @@ The flow/runtime surface is mirrored here through the native `:table` step and t
   - https://flows.breyta.ai/docs
   - `breyta docs`
   - `breyta docs find "<query>"`
-  - `breyta docs show <slug>` only after search identifies the narrow page needed
+  - `breyta docs show <slug>` only after search identifies the narrow page needed; default output is compact, and `--full` is the full-page escape hatch
 - External provider/API truth: use current official provider docs/API
   references or model-list endpoints before choosing model ids, endpoints,
   request shapes, auth assumptions, or limits.

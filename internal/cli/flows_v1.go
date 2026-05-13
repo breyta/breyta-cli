@@ -748,7 +748,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, meta, map[string]any{"items": items})
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 25, "Limit results (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Limit results (0 = all)")
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Page size for API pagination (1-100)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (start after this flow slug)")

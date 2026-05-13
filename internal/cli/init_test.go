@@ -290,7 +290,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta flows workspace examples step <type> \"<query>\" --limit 3`") {
 		t.Fatalf("unexpected readme content (missing workspace snippets step): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta docs find \"<idea or primitive>\"`") {
+	if !strings.Contains(string(readme), "`breyta docs find \"<idea or primitive>\" --limit 5 --format json`") {
 		t.Fatalf("unexpected readme content (missing docs search step): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "`breyta flows templates search \"<problem or integration query>\" --limit 5`") {
@@ -308,7 +308,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Authoring reads are compact by default. Use `--full` on `flows show`, `flows diff`, or `runs show`") {
 		t.Fatalf("unexpected readme content (missing compact authoring default guidance): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta resources read <uri>` defaults to bounded table row and cell previews") {
+	if !strings.Contains(string(readme), "`breyta resources read <uri>` defaults to compact blob previews and bounded table row/cell previews") {
 		t.Fatalf("unexpected readme content (missing bounded resource-read guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Treat `--pretty` as formatting only") {
@@ -371,7 +371,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(stdout, "Search workspace source/config literals: breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5") {
 		t.Fatalf("unexpected init stdout (missing workspace grep next step): %s", stdout)
 	}
-	if !strings.Contains(stdout, "Search docs: breyta docs find \"<idea or primitive>\"") {
+	if !strings.Contains(stdout, "Search docs: breyta docs find \"<idea or primitive>\" --limit 5 --format json") {
 		t.Fatalf("unexpected init stdout (missing docs search next step): %s", stdout)
 	}
 	if !strings.Contains(stdout, "Search approved templates: breyta flows templates search \"<problem or integration query>\" --limit 5") {

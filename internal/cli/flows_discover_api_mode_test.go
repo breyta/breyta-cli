@@ -35,6 +35,17 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 			return
 		}
 		args, _ := body["args"].(map[string]any)
+		if got, _ := args["limit"].(float64); got != 5 {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "expected compact default limit",
+				},
+			})
+			return
+		}
 		if includeOwn, _ := args["includeOwn"].(bool); includeOwn {
 			sawIncludeOwn.Store(includeOwn)
 		}
@@ -93,6 +104,17 @@ func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 			return
 		}
 		args, _ := body["args"].(map[string]any)
+		if got, _ := args["limit"].(float64); got != 5 {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "expected compact default limit",
+				},
+			})
+			return
+		}
 		if q, _ := args["query"].(string); q != "" {
 			sawQuery.Store(q)
 		}
