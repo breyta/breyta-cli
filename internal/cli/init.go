@@ -368,7 +368,7 @@ Advanced ideas:
 ## Docs
 - Product docs: ` + "`breyta docs`" + `
 - Search patterns to avoid guessing:
-  - step config overview or selected fields: ` + "`breyta docs fields http response-as persist --format json`" + `
+  - step config overview or selected fields: ` + "`breyta docs fields http response-as persist --format json`" + `; add ` + "`--section <heading>`" + ` for operation-specific tables
   - primitive name: ` + "`breyta docs find \"files materialize\" --limit 5 --format json`" + `
   - exact phrase: ` + "`breyta docs find \"\\\"draft setup\\\"\" --limit 5 --format json`" + `
   - command path: ` + "`breyta docs find \"source:cli flows configure check\" --limit 5 --format json`" + `

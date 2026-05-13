@@ -173,6 +173,7 @@ breyta docs find "\"live\" AND source:flows-api" --format json
 
 func newDocsFieldsCmd(app *App) *cobra.Command {
 	var outFormat string
+	var section string
 	var timeoutSeconds int
 	var noHeader bool
 
@@ -185,6 +186,7 @@ func newDocsFieldsCmd(app *App) *cobra.Command {
 		Example: strings.TrimSpace(`
 breyta docs fields http
 breyta docs fields http response-as persist retry
+breyta docs fields files source paths --section read
 breyta docs fields :llm model output tools --format json
 breyta docs fields reference-step-files op source paths --format markdown
 `),
@@ -215,6 +217,18 @@ breyta docs fields reference-step-files op source paths --format markdown
 			if len(rows) == 0 {
 				return writeErr(cmd, fmt.Errorf("no config field table found in %s; try `breyta docs show %s --section \"Canonical Shape\"`", slug, slug))
 			}
+			availableSections := docsAvailableConfigSections(rows)
+			section = strings.TrimSpace(section)
+			if section != "" {
+				filtered := filterDocsConfigFieldRowsBySection(rows, section)
+				if len(filtered) == 0 {
+					return writeErr(cmd, fmt.Errorf("section %q not found in %s; available sections: %s",
+						section,
+						slug,
+						strings.Join(availableSections, ", ")))
+				}
+				rows = filtered
+			}
 			availableFields := docsAvailableConfigFields(rows)
 
 			requested := args[1:]
@@ -232,10 +246,11 @@ breyta docs fields reference-step-files op source paths --format markdown
 			switch strings.ToLower(strings.TrimSpace(outFormat)) {
 			case "", "tsv", "text":
 				if !noHeader {
-					_, _ = io.WriteString(cmd.OutOrStdout(), "field\ttype\trequired\tnotes\n")
+					_, _ = io.WriteString(cmd.OutOrStdout(), "section\tfield\ttype\trequired\tnotes\n")
 				}
 				for _, row := range rows {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n",
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n",
+						escapeTSV(row.Section),
 						escapeTSV(row.Field),
 						escapeTSV(row.Type),
 						escapeTSV(row.Required),
@@ -246,9 +261,10 @@ breyta docs fields reference-step-files op source paths --format markdown
 				return cliFormat.Write(cmd.OutOrStdout(), map[string]any{
 					"ok": true,
 					"data": map[string]any{
-						"slug":            slug,
-						"fields":          rows,
-						"availableFields": availableFields,
+						"slug":              slug,
+						"fields":            rows,
+						"availableFields":   availableFields,
+						"availableSections": availableSections,
 					},
 				}, "json", true)
 			case "markdown", "md":
@@ -260,6 +276,7 @@ breyta docs fields reference-step-files op source paths --format markdown
 	}
 
 	cmd.Flags().StringVar(&outFormat, "format", "tsv", "Output format (tsv|json|markdown)")
+	cmd.Flags().StringVar(&section, "section", "", "Filter rows by markdown section heading, for example read or Canonical Shape")
 	cmd.Flags().BoolVar(&noHeader, "no-header", false, "Do not print tsv header row")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout-seconds", 30, "Request timeout in seconds")
 	return cmd
@@ -411,35 +428,88 @@ func extractDocsConfigFieldRows(markdown string, slug string) []docsConfigFieldR
 		}
 		headers := splitMarkdownTableRow(line)
 		indexes, ok := docsConfigFieldHeaderIndexes(headers)
-		if !ok {
+		if ok {
+			for j := i + 2; j < len(lines); j++ {
+				rowLine := strings.TrimSpace(lines[j])
+				if rowLine == "" || !looksLikeMarkdownTableRow(rowLine) {
+					break
+				}
+				cells := splitMarkdownTableRow(rowLine)
+				if indexes.field >= len(cells) {
+					continue
+				}
+				field := cleanDocsTableCell(cells[indexes.field])
+				if field == "" {
+					continue
+				}
+				row := docsConfigFieldRow{
+					Slug:     slug,
+					Section:  currentSection,
+					Field:    field,
+					Type:     cellAt(cells, indexes.typ),
+					Required: cellAt(cells, indexes.required),
+					Notes:    cellAt(cells, indexes.notes),
+					Aliases:  docsConfigFieldAliases(cells[indexes.field]),
+				}
+				rows = append(rows, row)
+			}
 			continue
 		}
-		for j := i + 2; j < len(lines); j++ {
-			rowLine := strings.TrimSpace(lines[j])
-			if rowLine == "" || !looksLikeMarkdownTableRow(rowLine) {
-				break
+		opIndexes, ok := docsConfigOpHeaderIndexes(headers)
+		if ok {
+			for j := i + 2; j < len(lines); j++ {
+				rowLine := strings.TrimSpace(lines[j])
+				if rowLine == "" || !looksLikeMarkdownTableRow(rowLine) {
+					break
+				}
+				cells := splitMarkdownTableRow(rowLine)
+				if opIndexes.op >= len(cells) {
+					continue
+				}
+				op := cleanDocsTableCell(cells[opIndexes.op])
+				if op == "" {
+					continue
+				}
+				rows = append(rows, docsConfigRowsFromOpCell(slug, currentSection, op, cellRaw(cells, opIndexes.required), "Yes", cellAt(cells, opIndexes.notes))...)
+				rows = append(rows, docsConfigRowsFromOpCell(slug, currentSection, op, cellRaw(cells, opIndexes.optional), "No", cellAt(cells, opIndexes.notes))...)
 			}
-			cells := splitMarkdownTableRow(rowLine)
-			if indexes.field >= len(cells) {
-				continue
-			}
-			field := cleanDocsTableCell(cells[indexes.field])
-			if field == "" {
-				continue
-			}
-			row := docsConfigFieldRow{
-				Slug:     slug,
-				Section:  currentSection,
-				Field:    field,
-				Type:     cellAt(cells, indexes.typ),
-				Required: cellAt(cells, indexes.required),
-				Notes:    cellAt(cells, indexes.notes),
-				Aliases:  docsConfigFieldAliases(cells[indexes.field]),
-			}
-			rows = append(rows, row)
+			continue
 		}
 	}
 	return rows
+}
+
+func docsConfigRowsFromOpCell(slug string, section string, op string, cell string, required string, notes string) []docsConfigFieldRow {
+	clean := strings.ToLower(cleanDocsTableCell(cell))
+	if clean == "" || clean == "none" || clean == "n/a" || clean == "-" {
+		return nil
+	}
+	aliases := docsConfigFieldAliases(cell)
+	if len(aliases) == 0 {
+		return nil
+	}
+	opSection := strings.TrimSpace(section)
+	if opSection == "" {
+		opSection = op
+	} else {
+		opSection = opSection + " / " + op
+	}
+	out := make([]docsConfigFieldRow, 0, len(aliases))
+	for _, alias := range aliases {
+		field := displayDocsFieldName(alias)
+		if field == "" {
+			continue
+		}
+		out = append(out, docsConfigFieldRow{
+			Slug:     slug,
+			Section:  opSection,
+			Field:    field,
+			Required: required,
+			Notes:    notes,
+			Aliases:  []string{alias},
+		})
+	}
+	return out
 }
 
 type docsConfigFieldHeaderIndexSet struct {
@@ -469,6 +539,31 @@ func docsConfigFieldHeaderIndexes(headers []string) (docsConfigFieldHeaderIndexS
 	return indexes, indexes.field >= 0 && (indexes.typ >= 0 || indexes.required >= 0 || indexes.notes >= 0)
 }
 
+type docsConfigOpHeaderIndexSet struct {
+	op       int
+	required int
+	optional int
+	notes    int
+}
+
+func docsConfigOpHeaderIndexes(headers []string) (docsConfigOpHeaderIndexSet, bool) {
+	indexes := docsConfigOpHeaderIndexSet{op: -1, required: -1, optional: -1, notes: -1}
+	for i, header := range headers {
+		normalized := normalizeDocsTableHeader(header)
+		switch normalized {
+		case "op", "operation":
+			indexes.op = i
+		case "required fields", "required":
+			indexes.required = i
+		case "optional fields", "optional":
+			indexes.optional = i
+		case "notes", "note", "description":
+			indexes.notes = i
+		}
+	}
+	return indexes, indexes.op >= 0 && (indexes.required >= 0 || indexes.optional >= 0)
+}
+
 func selectDocsConfigFieldRows(rows []docsConfigFieldRow, requested []string) ([]docsConfigFieldRow, []string) {
 	selected := make([]docsConfigFieldRow, 0, len(requested))
 	missing := make([]string, 0)
@@ -496,6 +591,33 @@ func selectDocsConfigFieldRows(rows []docsConfigFieldRow, requested []string) ([
 	return selected, missing
 }
 
+func filterDocsConfigFieldRowsBySection(rows []docsConfigFieldRow, section string) []docsConfigFieldRow {
+	needle := normalizeHeadingText(section)
+	if needle == "" {
+		return rows
+	}
+	out := make([]docsConfigFieldRow, 0, len(rows))
+	for _, row := range rows {
+		if docsConfigSectionMatches(row.Section, needle) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func docsConfigSectionMatches(section string, normalizedNeedle string) bool {
+	full := normalizeHeadingText(section)
+	if full == normalizedNeedle {
+		return true
+	}
+	for _, part := range strings.Split(section, "/") {
+		if normalizeHeadingText(part) == normalizedNeedle {
+			return true
+		}
+	}
+	return false
+}
+
 func docsConfigFieldRowMatches(row docsConfigFieldRow, needle string) bool {
 	for _, alias := range row.Aliases {
 		if normalizeDocsFieldName(alias) == needle {
@@ -503,6 +625,27 @@ func docsConfigFieldRowMatches(row docsConfigFieldRow, needle string) bool {
 		}
 	}
 	return normalizeDocsFieldName(row.Field) == needle
+}
+
+func docsAvailableConfigSections(rows []docsConfigFieldRow) []string {
+	out := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, row := range rows {
+		section := strings.TrimSpace(row.Section)
+		if section == "" {
+			continue
+		}
+		key := normalizeHeadingText(section)
+		if key == "" {
+			key = section
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		out = append(out, section)
+		seen[key] = struct{}{}
+	}
+	return out
 }
 
 func docsAvailableConfigFields(rows []docsConfigFieldRow) []string {
@@ -534,10 +677,11 @@ func docsAvailableConfigFields(rows []docsConfigFieldRow) []string {
 
 func writeDocsConfigFieldsMarkdown(w io.Writer, slug string, rows []docsConfigFieldRow) error {
 	_, _ = fmt.Fprintf(w, "# %s fields\n\n", slug)
-	_, _ = io.WriteString(w, "| Field | Type | Required | Notes |\n")
-	_, _ = io.WriteString(w, "| --- | --- | --- | --- |\n")
+	_, _ = io.WriteString(w, "| Section | Field | Type | Required | Notes |\n")
+	_, _ = io.WriteString(w, "| --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
-		_, _ = fmt.Fprintf(w, "| %s | %s | %s | %s |\n",
+		_, _ = fmt.Fprintf(w, "| %s | %s | %s | %s | %s |\n",
+			escapeMarkdownTableCell(row.Section),
 			escapeMarkdownTableCell(row.Field),
 			escapeMarkdownTableCell(row.Type),
 			escapeMarkdownTableCell(row.Required),
@@ -574,11 +718,41 @@ func splitMarkdownTableRow(line string) []string {
 	line = strings.TrimSpace(line)
 	line = strings.TrimPrefix(line, "|")
 	line = strings.TrimSuffix(line, "|")
-	parts := strings.Split(line, "|")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		out = append(out, strings.TrimSpace(part))
+	out := make([]string, 0)
+	var b strings.Builder
+	inCode := false
+	escaped := false
+	for _, r := range line {
+		if escaped {
+			if r == '|' {
+				b.WriteRune(r)
+			} else {
+				b.WriteRune('\\')
+				b.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '`' {
+			inCode = !inCode
+			b.WriteRune(r)
+			continue
+		}
+		if r == '|' && !inCode {
+			out = append(out, strings.TrimSpace(b.String()))
+			b.Reset()
+			continue
+		}
+		b.WriteRune(r)
 	}
+	if escaped {
+		b.WriteRune('\\')
+	}
+	out = append(out, strings.TrimSpace(b.String()))
 	return out
 }
 
@@ -598,10 +772,14 @@ func markdownHeadingText(line string) string {
 }
 
 func cellAt(cells []string, index int) string {
+	return cleanDocsTableCell(cellRaw(cells, index))
+}
+
+func cellRaw(cells []string, index int) string {
 	if index < 0 || index >= len(cells) {
 		return ""
 	}
-	return cleanDocsTableCell(cells[index])
+	return cells[index]
 }
 
 func cleanDocsTableCell(s string) string {
@@ -612,6 +790,7 @@ func cleanDocsTableCell(s string) string {
 		"<br>", " ",
 		"<br/>", " ",
 		"<br />", " ",
+		"\\|", "|",
 		"\t", " ",
 	)
 	s = replacer.Replace(strings.TrimSpace(s))
@@ -665,6 +844,14 @@ func normalizeDocsFieldName(s string) string {
 	s = strings.Trim(s, "[](){}.,;:")
 	s = strings.TrimSpace(s)
 	return s
+}
+
+func displayDocsFieldName(s string) string {
+	s = normalizeDocsFieldName(s)
+	if s == "" {
+		return ""
+	}
+	return ":" + s
 }
 
 func normalizeDocsTableHeader(s string) string {

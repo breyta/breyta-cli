@@ -254,12 +254,12 @@ func TestDocsFields_PrintsStepConfigOverview(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
 	got := out.String()
-	if !strings.Contains(got, "field\ttype\trequired\tnotes\n") {
+	if !strings.Contains(got, "section\tfield\ttype\trequired\tnotes\n") {
 		t.Fatalf("expected tsv header, got: %q", got)
 	}
-	if !strings.Contains(got, ":connection\tkeyword/string\tYes*\tSlot or connection id\n") ||
-		!strings.Contains(got, ":response-as\tkeyword\tNo\t:auto, :json, or :text\n") ||
-		!strings.Contains(got, ":persist\tmap\tNo\tPersist large responses\n") {
+	if !strings.Contains(got, "Canonical Shape\t:connection\tkeyword/string\tYes*\tSlot or connection id\n") ||
+		!strings.Contains(got, "Canonical Shape\t:response-as\tkeyword\tNo\t:auto, :json, or :text\n") ||
+		!strings.Contains(got, "Canonical Shape\t:persist\tmap\tNo\tPersist large responses\n") {
 		t.Fatalf("expected compact field rows, got: %q", got)
 	}
 }
@@ -288,9 +288,10 @@ func TestDocsFields_SelectsMultipleFieldsAsJSON(t *testing.T) {
 
 	var payload struct {
 		Data struct {
-			Slug            string   `json:"slug"`
-			AvailableFields []string `json:"availableFields"`
-			Fields          []struct {
+			Slug              string   `json:"slug"`
+			AvailableFields   []string `json:"availableFields"`
+			AvailableSections []string `json:"availableSections"`
+			Fields            []struct {
 				Field   string   `json:"field"`
 				Aliases []string `json:"aliases"`
 			} `json:"fields"`
@@ -310,6 +311,9 @@ func TestDocsFields_SelectsMultipleFieldsAsJSON(t *testing.T) {
 	}
 	if strings.Join(payload.Data.AvailableFields, ",") != "connection,response-as,persist" {
 		t.Fatalf("unexpected available fields: %+v", payload.Data.AvailableFields)
+	}
+	if strings.Join(payload.Data.AvailableSections, ",") != "Canonical Shape" {
+		t.Fatalf("unexpected available sections: %+v", payload.Data.AvailableSections)
 	}
 }
 
@@ -338,6 +342,124 @@ func TestDocsFields_MissingFieldListsAvailableFields(t *testing.T) {
 	if !strings.Contains(got, "field(s) not found in reference-step-llm: missing-field") ||
 		!strings.Contains(got, "available fields: model, output, response-format") {
 		t.Fatalf("expected available field hint, got: %q", got)
+	}
+}
+
+func TestDocsFields_SectionFilterDisambiguatesRepeatedFields(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-files" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step Files\n\n## Canonical Shape\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:op` | keyword/string | Yes | One of `:read`, `:search` |\n\n## `:read`\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:source` | resource ref or URI | Yes | source-tree-ref or changeset-ref |\n| `:paths` | vector<string> | Conditionally | Read up to `50` paths |\n\n## `:search`\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:source` | resource ref or URI | Yes | source-tree-ref or changeset-ref |\n| `:query` | string | Yes | Search query |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"files", "source", "paths", "--section", "read", "--no-header"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "`:read`\t:source\tresource ref or URI\tYes\tsource-tree-ref or changeset-ref\n") ||
+		!strings.Contains(got, "`:read`\t:paths\tvector<string>\tConditionally\tRead up to 50 paths\n") {
+		t.Fatalf("expected read section rows, got: %q", got)
+	}
+	if strings.Contains(got, "`:search`") {
+		t.Fatalf("expected section filter to exclude search rows, got: %q", got)
+	}
+}
+
+func TestDocsFields_ExtractsPerOperationFieldTables(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-table" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step Table\n\n## Canonical Shape\n\nPer-op fields:\n\n| Op | Required fields | Optional fields | Notes |\n| --- | --- | --- | --- |\n| `:query` | `:table`, `:page` | `:select`, `:where`, `:sort` | Paged by default |\n| `:schema` | `:table` | none | Returns columns |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"table", "where", "page", "--section", "query", "--no-header"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "Canonical Shape / :query\t:page\t\tYes\tPaged by default\n") ||
+		!strings.Contains(got, "Canonical Shape / :query\t:where\t\tNo\tPaged by default\n") {
+		t.Fatalf("expected per-op field rows, got: %q", got)
+	}
+	if strings.Contains(got, ":schema") {
+		t.Fatalf("expected section filter to exclude schema rows, got: %q", got)
+	}
+}
+
+func TestDocsFields_SectionFilterDoesNotUseAmbiguousSubstring(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-job" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step Job\n\n## Canonical Shape\n\n| Op | Required fields | Optional fields | Notes |\n| --- | --- | --- | --- |\n| `:await` | `:job-id` | `:timeout`, `:backoff` | Wait for one job |\n| `:await-batch` | `:batch-id` | `:timeout`, `:backoff` | Wait for one batch |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"job", "timeout", "--section", "await", "--no-header"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "Canonical Shape / :await\t:timeout\t\tNo\tWait for one job\n") {
+		t.Fatalf("expected await row, got: %q", got)
+	}
+	if strings.Contains(got, ":await-batch") {
+		t.Fatalf("expected exact section match to exclude await-batch, got: %q", got)
+	}
+}
+
+func TestDocsFields_HandlesEscapedAndCodePipes(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-step-test" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Step Test\n\n## Canonical Shape\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `:mode` | keyword | No | Use `:a|:b` or escaped A\\|B |\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsFieldsCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"reference-step-test", "mode", "--no-header"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if got := out.String(); !strings.Contains(got, "Canonical Shape\t:mode\tkeyword\tNo\tUse :a|:b or escaped A|B\n") {
+		t.Fatalf("expected pipe-safe row parsing, got: %q", got)
 	}
 }
 
