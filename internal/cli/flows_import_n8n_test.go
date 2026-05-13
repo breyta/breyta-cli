@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +50,7 @@ func TestConvertN8NWorkflow_HTTPAndCode(t *testing.T) {
 	assertContains(t, result.EDN, `:query {"limit" "10"}`)
 	assertContains(t, result.EDN, `:headers {"Accept" "application/json"}`)
 	assertContains(t, result.EDN, ":interfaces {:manual")
+	assertContains(t, result.EDN, ":invocations {:default {:inputs []}}")
 	assertContains(t, result.EDN, ":ref :transform-users-fn")
 	assertContains(t, result.EDN, ":flow (quote")
 	if !result.Validation.BalancedDelimiters || !result.Validation.EDNReadable {
@@ -190,6 +192,38 @@ func TestValidateGeneratedN8NFlowEDNRejectsInvalidFlow(t *testing.T) {
 	}
 	if _, err := validateGeneratedN8NFlowEDN("{:slug :bad :name \"Bad\" :concurrency {} :invocations {} :interfaces {} :flow (identity 1)}"); err == nil {
 		t.Fatalf("expected non-quoted flow error")
+	}
+	if _, err := validateGeneratedN8NFlowEDN("{:slug :bad :name \"Bad\" :concurrency {} :invocations {:default {:inputs [{:name :payload :type :json}]}} :interfaces {} :flow (quote (identity 1))}"); err == nil {
+		t.Fatalf("expected unsupported invocation input type error")
+	}
+}
+
+func TestImportN8NWorkflow_RealPublicTemplateFixtures(t *testing.T) {
+	fixtures, err := filepath.Glob(filepath.Join("testdata", "n8n", "*.json"))
+	if err != nil {
+		t.Fatalf("glob fixtures: %v", err)
+	}
+	if len(fixtures) < 4 {
+		t.Fatalf("expected public n8n fixtures, got %d", len(fixtures))
+	}
+
+	for _, fixture := range fixtures {
+		fixture := fixture
+		t.Run(path.Base(fixture), func(t *testing.T) {
+			slug := "fixture-" + strings.TrimSuffix(path.Base(fixture), ".json")
+			result, err := importN8NWorkflowFile(fixture, slug, filepath.Join(t.TempDir(), slug+".clj"))
+			if err != nil {
+				t.Fatalf("import fixture: %v", err)
+			}
+			if result.Slug != slug {
+				t.Fatalf("unexpected slug: %q", result.Slug)
+			}
+			if !result.Validation.BalancedDelimiters || !result.Validation.EDNReadable {
+				t.Fatalf("expected valid generated EDN, got %#v", result.Validation)
+			}
+			assertContains(t, result.EDN, ":flow (quote")
+			assertContains(t, result.EDN, ":interfaces {:manual")
+		})
 	}
 }
 

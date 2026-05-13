@@ -67,6 +67,25 @@ type n8nFlowValidation struct {
 
 var n8nSlugInvalidRe = regexp.MustCompile(`[^a-z0-9-]+`)
 var n8nTemplateExprRe = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
+var n8nAllowedInvocationInputTypes = map[string]bool{
+	"string":   true,
+	"text":     true,
+	"number":   true,
+	"email":    true,
+	"password": true,
+	"textarea": true,
+	"boolean":  true,
+	"checkbox": true,
+	"select":   true,
+	"date":     true,
+	"time":     true,
+	"datetime": true,
+	"file":     true,
+	"blob":     true,
+	"blob-ref": true,
+	"resource": true,
+	"secret":   true,
+}
 
 func newFlowsImportCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -110,7 +129,7 @@ values from credentials. The output is intended for the normal authoring loop:
 				"validation":    result.Validation,
 				"pushCommand":   fmt.Sprintf("breyta flows push --file %s", shellQuotePath(result.OutputPath)),
 				"checkCommand":  fmt.Sprintf("breyta flows configure check %s", result.Slug),
-				"runCommand":    fmt.Sprintf("breyta flows run %s --input '{\"payload\":{}}' --wait", result.Slug),
+				"runCommand":    fmt.Sprintf("breyta flows run %s --input '{}' --wait", result.Slug),
 				"conversionDoc": "bases/flows-api/resources/public/docs/reference/GUIDE_N8N_IMPORT.md",
 			})
 		},
@@ -592,7 +611,7 @@ func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhook
 	b.WriteString(" :requires " + renderEDNVector(requires) + "\n")
 	b.WriteString(" :templates " + renderEDNVector(templates) + "\n")
 	b.WriteString(" :functions " + renderEDNVector(functions) + "\n")
-	b.WriteString(" :invocations {:default {:inputs [{:name :payload :type :json :label \"Payload\" :required false}]}}\n")
+	b.WriteString(" :invocations {:default {:inputs []}}\n")
 	b.WriteString(" :interfaces {:manual [{:id :run :label \"Run\" :invocation :default :enabled true}]")
 	if len(webhooks) > 0 {
 		b.WriteString("\n              :webhook " + renderEDNVector(webhooks))
@@ -659,12 +678,72 @@ func validateGeneratedN8NFlowEDN(flowEDN string) (n8nFlowValidation, error) {
 	if !ok || len(flowForm) != 2 || fmt.Sprint(flowForm[0]) != "quote" {
 		return n8nFlowValidation{}, errors.New("generated flow :flow must be an explicit (quote ...) form")
 	}
+	if err := validateN8NInvocationInputTypes(byKey["invocations"]); err != nil {
+		return n8nFlowValidation{}, err
+	}
 
 	return n8nFlowValidation{
 		BalancedDelimiters: true,
 		EDNReadable:        true,
 		RequiredKeys:       required,
 	}, nil
+}
+
+func validateN8NInvocationInputTypes(value any) error {
+	var invalid []string
+	walkEDN(value, func(m map[any]any) {
+		inputs, ok := ednMapGet(m, "inputs")
+		if !ok {
+			return
+		}
+		items, ok := inputs.([]any)
+		if !ok {
+			return
+		}
+		for _, item := range items {
+			input, ok := item.(map[any]any)
+			if !ok {
+				continue
+			}
+			typ, ok := ednMapGet(input, "type")
+			if !ok {
+				invalid = append(invalid, "<missing>")
+				continue
+			}
+			typeName, ok := ednKeyToString(typ)
+			if !ok || !n8nAllowedInvocationInputTypes[typeName] {
+				invalid = append(invalid, fmt.Sprint(typ))
+			}
+		}
+	})
+	if len(invalid) > 0 {
+		sort.Strings(invalid)
+		return fmt.Errorf("generated flow has unsupported invocation input type(s): %s", strings.Join(invalid, ", "))
+	}
+	return nil
+}
+
+func ednMapGet(m map[any]any, key string) (any, bool) {
+	for rawKey, value := range m {
+		if s, ok := ednKeyToString(rawKey); ok && s == key {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func walkEDN(value any, visitMap func(map[any]any)) {
+	switch typed := value.(type) {
+	case map[any]any:
+		visitMap(typed)
+		for _, child := range typed {
+			walkEDN(child, visitMap)
+		}
+	case []any:
+		for _, child := range typed {
+			walkEDN(child, visitMap)
+		}
+	}
 }
 
 func n8nEdges(wf n8nWorkflow) []n8nEdge {
