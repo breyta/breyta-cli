@@ -268,6 +268,7 @@ task touches flows.
 - Confirm side effects/output directly, not from ` + "`completed`" + ` status alone.
 - Include full Breyta URLs from CLI JSON (` + "`meta.webUrl`" + `, ` + "`data.*.webUrl`" + `, ` + "`outputWebUrl`" + `).
 - Prefer recovery URLs from failures: ` + "`error.actions[].url`" + `, then ` + "`meta.webUrl`" + `.
+- Submit ` + "`breyta feedback send --agent`" + ` when flow development hits significant authoring friction: excessive trial/error, misleading docs/help, unclear CLI/API behavior, blocked command paths, or missing examples. Include commands tried, URLs/workflow ids, expected path, and impact.
 - For public/installable flows, keep source flow, live version, activation/setup, Discover install, marketplace visibility, installed run, public app page, and output page separate.
 `)
 }

@@ -143,6 +143,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Prefer recovery URLs from failures: `error.actions[].url`, then `meta.webUrl`.") {
 		t.Fatalf("unexpected agents content (missing recovery URL priority guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "Submit `breyta feedback send --agent` when flow development hits significant authoring friction") {
+		t.Fatalf("unexpected agents content (missing authoring friction feedback guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "source flow, live version, activation/setup, Discover install, marketplace visibility") {
 		t.Fatalf("unexpected agents content (missing public surface separation): %s", string(agents))
 	}
