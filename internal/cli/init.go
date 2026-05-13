@@ -211,198 +211,64 @@ func renderInitAgentsMD(target skills.InstallTarget, skillNotInstalled bool) str
 
 	return strings.TrimSpace(`# Breyta agent workspace
 
-This folder is meant to be used with a coding agent (Codex, Cursor, Claude Code, Gemini CLI, etc.) to build and operate Breyta workflows ("flows") through the ` + "`breyta`" + ` CLI.
+This folder is for coding agents building Breyta flows with the ` + "`breyta`" + ` CLI.
+Start with ` + "`README.md`" + ` in this folder on the first session.
 
-If this is your first session in this workspace, start with ` + "`README.md`" + ` in this folder. Keep this file for durable workflow guidance.
+## Context hierarchy
 
-## Durable discovery defaults
-- Before meaningful Breyta flow work, state the loaded Breyta skill path and the bundled reference files read for the task.
-- Pick a task mode before running commands: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, or release.
-- Start new work by inspecting the smallest current state needed, then use workspace search/grep, docs, and approved templates at the primitive level; do not invent structure from a name alone.
-- When you already know you're working from an existing workspace flow, inspect it with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
-- Verify identity + workspace summary any time with ` + "`breyta auth whoami`" + `
-- Use ` + "`breyta docs find <query> --limit 5 --format json`" + ` first when an agent will parse hits; open ` + "`breyta docs show <slug> --section \"<heading>\"`" + ` only for the narrow doc section needed, and use ` + "`--full`" + ` only when the complete page is required
-- Before inferring implementation details, search docs for each changed primitive with the narrowest useful query shape:
-  - primitive name
-  - exact phrase
-  - command path
-  - source filter
-  - error text
-- Cache inspected workspace search/grep hits, flow snippets, docs hits, approved template/example snippets, resource reads, and run ids within the session.
-- For external APIs and LLM models, do a quick source-of-truth check against current official provider docs/API references or model-list endpoints before choosing endpoints, request shapes, auth assumptions, limits, or model ids.
-
-## Where to keep flow files
-- ` + "`./flows/`" + `: recommended place for flow source files you want to keep (optionally in git)
-- ` + "`./tmp/flows/`" + `: scratch pulls/edits
-
-## Always-available agent context (recommended)
-Many agent tools only read instructions from the active folder. This file (` + "`AGENTS.md`" + `) is the reliable source of truth.
-
-## Optional: installed skill bundle (nice-to-have)
-Some agent tools can ingest a global skill bundle automatically, but not all do.
+This ` + "`AGENTS.md`" + ` is the always-loaded baseline. Keep it short. The
+installed skill has the full Breyta playbook and should be loaded only when the
+task touches flows.
 
 ` + skillLine + `
-- (Re)install / update it with: ` + "`breyta skills install --provider " + string(target.Provider) + "`" + `
-- The bundle may include ` + "`SKILL.md`" + ` plus ` + "`references/`" + `. Read ` + "`SKILL.md`" + ` first, then load the reference it names for the task surface before creating or editing flows.
+- Install/update: ` + "`breyta skills install --provider all`" + `, or one provider such as ` + "`--provider " + string(target.Provider) + "`" + `
+- Drift check: ` + "`breyta skills status --provider all`" + `
+- If the CLI warns that the skill is missing or stale, install/refresh before material flow edits.
+  - Read ` + "`SKILL.md`" + ` first; load only the ` + "`playbooks/`" + ` or ` + "`references/`" + ` file named for the touched surface.
 
-If you want the agent to *always* use the skill when Breyta is involved, explicitly mention it in your project/root instructions (this file, or a root ` + "`AGENTS.md`" + ` equivalent).
+## Default flow loop
 
-Suggested line to paste into your agent's persistent project instructions:
-- "When working with Breyta, read and follow: ` + "`" + target.File + "`" + ` (Breyta skill bundle), load the relevant bundled ` + "`references/`" + ` file named by ` + "`SKILL.md`" + ` before creating or editing flows, use the ` + "`breyta`" + ` CLI, search docs with multiple patterns (primitive name, exact phrase, command path, source filter, error text), and check current official provider docs/API references or model-list endpoints before choosing external API shapes or model ids."
+1. Verify auth/workspace: ` + "`breyta auth whoami`" + `
+2. Pick task mode: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, or release.
+3. Use the right source mental model: flow files are a Breyta DSL with Clojure/EDN syntax, not normal Clojure programs. Declare contracts/reusable surfaces first, keep side effects at ` + "`flow/step`" + ` boundaries, and persist large data as resource refs.
+4. Inspect the smallest state:
+   - existing: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
+   - new/pattern search: ` + "`breyta flows search \"<query>\" --limit 5`" + `
+5. Search narrowly:
+   - docs: ` + "`breyta docs find \"<query>\" --limit 5 --format json`" + `
+   - source/config: ` + "`breyta flows grep \"<literal>\" --limit 5`" + `
+   - templates: ` + "`breyta flows templates search \"<query>\" --limit 5`" + `
+   - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `
+6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
+7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
+8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies.
+9. Keep functions map-oriented; prefer Clojure map access plus ` + "`json/*`" + ` and ` + "`breyta.sandbox/*`" + ` helpers over custom parser/guard layers.
 
-## Release hygiene (required)
-- Iterate in ` + "`draft`" + ` while editing and debugging.
-- Inspect draft changes before release: ` + "`breyta flows diff <slug>`" + `
-- Do not repeatedly release to ` + "`live`" + ` during normal iteration.
-- Release to ` + "`live`" + ` once after draft behavior is verified, you have explicit sign-off, and you can attach a markdown release note.
-- Do not tell the user a public/end-user flow is "ready for UI" from draft proof alone; verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger.
-- For installable/public flows, do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not the Discover install surface. Verify Discover install plus an installed run when install behavior matters.
-- Use ` + "`breyta flows archive <slug>`" + ` when the flow should stop appearing in the normal active surface but its versions and metadata should remain available.
-- Use ` + "`breyta flows delete <slug> --yes`" + ` only for permanent removal; add ` + "`--force`" + ` when runs/installations must also be cleaned up. For large cleanup jobs, add ` + "`--timeout 5m`" + `.
+## Draft/live and release
 
-## Primitive-first reuse (required for create/edit)
-- New flow sequence: ` + "`breyta flows search \"<integration or problem query>\" --limit 5`" + ` -> ` + "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`" + ` when metadata is insufficient -> ` + "`breyta resources search \"<existing data>\" --limit 5`" + ` when prior data/output may be reused -> docs snippets -> approved template metadata -> approved primitive snippet -> full template only for architecture-level reuse.
-- Existing flow sequence: ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + ` -> workspace search/grep only for nearby patterns -> docs search snippets -> approved template metadata -> primitive snippet -> compare the touched surface before changing structure.
-- Review approved template metadata before choosing a pattern: name, description, tags, providers, tool names, connection slots, step types, step count, compact publish/steps previews, and ` + "`flow_web_url`" + `.
-- Do not pull a full template for a primitive/step edit unless snippet context and referenced ` + "`:requires`" + ` / ` + "`:templates`" + ` / ` + "`:functions`" + ` are insufficient.
-- Do not use ` + "`breyta flows list`" + ` for pattern discovery; use ` + "`breyta flows search <query>`" + ` or ` + "`breyta flows grep <literal>`" + ` and reserve list for inventory, slug checks, or explicit user requests.
-- Full template inspection is reserved for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.
-- If no useful approved template exists, say so explicitly and continue from docs.
-- Final handoff must include workspace/template queries run, chosen/rejected snippets or templates, and what structure was reused or intentionally ignored.
+- ` + "`draft`" + ` is staging/current authoring; ` + "`live`" + ` is released/runtime.
+- A flow is unreleased until a version is released/activated and the live path is verified.
+- Say ` + "`draft verified`" + ` when only draft was exercised.
+- Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.
+- Release/promote only after draft proof, explicit sign-off, and a release note.
+- For public/end-user work, verify live/install-shaped behavior or report ` + "`web UI not verified`" + `.
 
 ## Command budget
-- Authenticate once per session unless auth/workspace state changes.
-- Do not repeat an identical command unless state changed.
+
+- Do not repeat identical commands unless state changed.
 - Use one docs search per changed primitive before opening docs pages.
 - Use one full template inspection at most for normal create/edit work.
 - Read each resource URI once unless the resource changed.
-- Run one final ` + "`breyta flows diff <slug>`" + ` before release.
-- After two failed edit/run cycles, stop and re-plan before pushing another change.
-- Do not run ` + "`breyta connections test --all`" + ` by default. Test only the connection you plan to bind or debug.
+- After two failed edit/run cycles, stop and re-plan.
+- Do not run ` + "`breyta connections test --all`" + `; test only the connection you will bind/debug.
 
-## Progressive flow development
-- Contract first: distribution, ` + "`:requires`" + `, ` + "`:invocations`" + `, ` + "`:interfaces`" + `, output shape, side effects, and ` + "`:concurrency`" + `.
-- Push a small skeleton with one manual interface and one safe input before adding integrations.
-- Add one boundary at a time: one connection, provider call, table, job, agent, or child flow; then push, configure-check, run, and inspect output.
-- Default to installable-minded source: no hardcoded workspace ids, user emails, secrets, private URLs, or author-only resource ids.
-- Persist unknown or unbounded payloads with ` + "`:persist`" + ` and pass resource refs instead of large inline bodies.
-- When a persisted blob must be transformed, pass the whole persisted step result to a downstream ` + "`:function`" + ` step and add ` + "`:load [:field]`" + ` for that input key.
-- Keep functions map-oriented and small. Prefer Clojure map access plus ` + "`json/parse`" + `, ` + "`json/write-str`" + `, and ` + "`breyta.sandbox/*`" + ` helpers over custom parser or guard layers.
-- For larger datasets, use bounded paging with max pages/items, durable writes before cursor advancement, and table/resource refs for handoff.
+## Proof and handoff
 
-## Authoring standard (required before editing)
-- Write the problem contract: interface, inputs, outputs, side effects, failure behavior.
-- Write the interface map and path map: success path, fallback path, stop path.
-- For public/end-user flows, classify every user value before adding fields:
-  - setup-once values like company profile, audience, voice, examples, default folder, region, or durable profile/bible inputs
-  - run-each-time values like prompt, file, CSV, resource picker selection, row limit, date range, or recipient
-  - connection values like OAuth/API keys, databases, and blob-storage roots
-  - hidden/internal values that should not appear in setup page or run form fields
-- Build reusable definitions before orchestration:
-  - start with targeted connection inventory:
-    - ` + "`breyta connections list`" + `
-    - ` + "`breyta connections show <id>`" + ` for the connection you plan to reuse
-    - ` + "`breyta connections test <id>`" + ` only when you plan to bind or debug that connection
-  - ` + "`:requires`" + ` for connections, secrets, installer/run inputs, and worker dependencies
-    - choose stable slot names around business capability (` + "`:github-api`" + `, ` + "`:crm`" + `, ` + "`:llm`" + `, ` + "`:slack`" + `) rather than transient provider names
-  - ` + "`:templates`" + ` for large prompts, request bodies, SQL, and static copy
-  - ` + "`:functions`" + ` for shaping, normalization, preparation, and projection
-  - packaged ` + "`:steps`" + ` for heavy built-in step configs
-  - reusable ` + "`:agents`" + ` for reviewer/fixer/coordinator behavior and delegation
-  - only then wire the final deterministic ` + "`:flow`" + ` orchestration
-- Define side effects and duplicate protection before building:
-  - what must happen exactly once
-  - idempotency key or dedupe strategy
-- Define retry/timeout policy for each external boundary before draft runs.
-- Choose concurrency mode intentionally before draft runs:
-  - ` + "`sequential`" + ` for ordered work, shared state, large artifacts, or fragile APIs
-  - ` + "`fanout`" + ` only for independent bounded items
-  - ` + "`keyed`" + ` when work must serialize per entity
-- For concurrent paths, write down what must never overlap and what timeout/partial-failure behavior is acceptable.
-- Decide how large resources move through the flow:
-  - inline small values
-  - persist large artifacts
-  - pass signed URLs/blob refs for large files
-- Decide what run output proves success:
-  - result fields
-  - counts
-  - child workflow ids
-  - resource refs
-- For agentic flows, default to:
-  - ` + "`:files`" + ` for code/resource state
-  - packaged ` + "`:steps`" + ` for heavy external or policy-shaped operations
-  - named ` + "`:agents`" + ` for reusable roles
-  - orchestration last
-
-## Reliability checklist (required)
-- Exactly-once side effects have explicit duplicate protection.
-- Retries are only used for transient failures and are bounded.
-- Cursors/checkpoints do not advance past failed work.
-- Concurrency is intentional and bounded.
-- The chosen concurrency mode is justified in plain language.
-- Shared state and side effects that must not overlap are named explicitly.
-- Large payloads are passed by reference, not copied through many steps.
-- Step ids/titles are operator-readable and make side effects obvious.
-- Final run result contains proof of success, not just a ` + "`completed`" + ` status.
-
-## Scale-aware defaults
-- Prefer sequential handling for large artifact transfer unless fanout safety is proven.
-- Prefer sequential mode when uncertain; concurrency is opt-in, not the default.
-- Prefer child flows for heavyweight artifact creation or handoff.
-- Use blob persistence + refs for large files instead of re-shaping raw bytes across many steps.
-
-## Authoring loop (agent-friendly, draft-first)
-1) Pull: ` + "`breyta flows pull <slug> --out ./flows/<slug>.clj`" + `
-2) Search workspace patterns and docs snippets, inspect private snippets with ` + "`breyta flows workspace examples step <type> \"<query>\"`" + `, then approved snippets with ` + "`breyta flows examples step <type> \"<query>\"`" + ` when needed
-3) Edit ` + "`./flows/<slug>.clj`" + `
-4) Push working copy to draft target: ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
-5) Check required draft config: ` + "`breyta flows configure check <slug>`" + `
-6) If configure check reports missing required config, stop before draft/live runs unless the task is static validation only
-7) If the flow belongs to a bundle that should appear in execution order, set explicit order: ` + "`breyta flows update <slug> --group-order <n>`" + ` and confirm ordered siblings with ` + "`breyta flows show <slug>`" + ` so ` + "`groupFlows`" + ` is visible
-8) If the flow should look polished on public discover/install cards, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
-9) Run draft target and wait for output: ` + "`breyta flows run <slug> --input '{\"n\":41}' --wait`" + `
-10) If the flow has multiple manual interfaces, select the authored surface with ` + "`breyta flows run <slug> --interface-id <id> --input '{\"n\":41}' --wait`" + `
-11) Optional read-only draft check: ` + "`breyta flows validate <slug>`" + ` (useful for CI/troubleshooting)
-12) Run at least one failure/no-op/replay check when feasible before release
-13) If using concurrency, verify no skipped, duplicated, or overlapped work in draft output
-14) Repeat steps 2-13 until behavior is correct and side effects are understood in draft
-15) Inspect draft vs live before release: ` + "`breyta flows diff <slug>`" + `
-16) Release once (after explicit sign-off) with a markdown note: ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
-17) Edit the note later if needed: ` + "`breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`" + `
-18) Verify live install target: ` + "`breyta flows show <slug> --target live`" + `
-19) Smoke-run live target and capture proof: ` + "`breyta flows run <slug> --target live --wait`" + `
-20) For public/end-user flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + ` when relevant
-21) If browser/UI access is available, test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page; if unavailable, report ` + "`web UI not verified`" + `
-
-## Provenance for derived flows
-- Keep ` + "`created-by`" + ` as the creator of the current flow record.
-- When a flow is derived from existing flows, store source lineage separately as provenance metadata.
-- Only flows actually opened with ` + "`breyta flows show`" + ` or ` + "`breyta flows pull`" + ` become consulted provenance candidates. Search hits alone do not.
-- After creating or updating a derived flow, persist curated provenance with:
-  - ` + "`breyta flows provenance set <slug> --from-consulted`" + `
-  - ` + "`breyta flows provenance set <slug> --source <workspace-id>/<flow-slug>`" + `
-  - ` + "`breyta flows provenance set <slug> --template <template-slug>`" + `
-- Clear provenance intentionally with ` + "`breyta flows provenance set <slug> --clear`" + `.
-
-## Docs for agents
-- Product docs: ` + "`breyta docs`" + `
-- Search docs with several patterns before inferring implementation details:
-  - primitive name: ` + "`breyta docs find \"files materialize\" --limit 5 --format json`" + `
-  - exact phrase: ` + "`breyta docs find \"\\\"draft setup\\\"\" --limit 5 --format json`" + `
-  - command path: ` + "`breyta docs find \"source:cli flows configure check\" --limit 5 --format json`" + `
-  - API/runtime source: ` + "`breyta docs find \"source:flows-api agent definitions\" --limit 5 --format json`" + `
-  - error text: ` + "`breyta docs find \"\\\"Bad credentials\\\"\" --limit 5 --format json`" + `
-  - then open only the best narrow hit with ` + "`breyta docs show <slug> --section \"<heading>\"`" + `; use ` + "`--full`" + ` only when the complete page is required
-- External provider/API truth: check current official provider docs/API references or model-list endpoints before choosing model ids, endpoints, request shapes, auth assumptions, or limits.
-- Command truth / flags: ` + "`breyta help <command...>`" + ` (for example: ` + "`breyta help flows push`" + `)
-- Installed skill bundle: ` + "`breyta skills install --provider <codex|cursor|claude|gemini>`" + `
-- Skill references: read ` + "`SKILL.md`" + ` first, then load the bundled ` + "`references/`" + ` file named for the task surface before creating or editing flows.
-
-## Recovery URLs (when commands fail)
-- Prefer exact recovery URLs from failures: ` + "`error.actions[].url`" + ` first, then ` + "`meta.webUrl`" + `.
-- For successful reads/runs, include web links from CLI JSON (` + "`meta.webUrl`" + ` / ` + "`data.*.webUrl`" + `) when handing proof back to users.
-- Only derive canonical recovery URLs when the needed ids are already known: billing, activate, draft-bindings, installation, or connection edit.
-- When blocked, include the exact recovery URL in runtime proof instead of generic "go to billing/setup" text.
+- Include workspace/template queries run, chosen/rejected snippets or templates, and reused structure.
+- Confirm side effects/output directly, not from ` + "`completed`" + ` status alone.
+- Include full Breyta URLs from CLI JSON (` + "`meta.webUrl`" + `, ` + "`data.*.webUrl`" + `, ` + "`outputWebUrl`" + `).
+- Prefer recovery URLs from failures: ` + "`error.actions[].url`" + `, then ` + "`meta.webUrl`" + `.
+- For public/installable flows, keep source flow, live version, activation/setup, Discover install, marketplace visibility, installed run, public app page, and output page separate.
 `)
 }
 
@@ -476,7 +342,8 @@ Advanced ideas:
   - ` + "`breyta connections test <id>`" + ` only when you plan to bind or debug that connection
 - Shape ` + "`:requires`" + ` around stable capability slots before writing ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, reusable ` + "`:agents`" + `, and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Iterate in draft: pull, edit, push, configure check, run or validate, then diff against live
+- Iterate in draft: pull, edit, lint, push, configure check, run or validate, then diff against live
+- Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks and ` + "`--server`" + ` when canonical pre-push checks matter
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. ` + "`flows show`" + ` includes a non-editable ` + "`flowLiteralPreview`" + ` when source is available; use ` + "`flows pull`" + ` for editable source.
 - ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.

@@ -307,7 +307,7 @@ Public discover notes:
 - :discover {:public true} authored in a flow file persists as stored metadata on push.
 - Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
 - Public discover requires the end-user tag and a released/installable flow.
-- breyta flows search <query> is different: it is for approved example flows to inspect and copy from, not public installables.
+- breyta flows search "<query>" --limit 5 searches actual workspace flow metadata. Approved reusable templates live under breyta flows templates search "<query>" --limit 5, and public installables use breyta flows discover search "<query>".
 		`),
 	}
 
@@ -336,6 +336,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsDraftCmd(app))
 	cmd.AddCommand(newFlowsDraftBindingsURLCmd(app))
 	cmd.AddCommand(newFlowsPullCmd(app))
+	cmd.AddCommand(newFlowsLintCmd(app))
 	cmd.AddCommand(newFlowsPushCmd(app))
 	cmd.AddCommand(newFlowsParenRepairCmd(app))
 	cmd.AddCommand(newFlowsParenCheckCmd(app))

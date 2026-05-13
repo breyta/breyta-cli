@@ -16,6 +16,15 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	original := string(raw)
 	updated := original
 
+	currentPlaybookRouterSkill := strings.Contains(updated, "## Playbook Matrix") &&
+		strings.Contains(updated, "playbooks/author-flows.md") &&
+		strings.Contains(updated, "playbooks/debug-and-verify.md") &&
+		strings.Contains(updated, "references/runtime-data-shapes.md") &&
+		strings.Contains(updated, "## Default Command Budget")
+	if currentPlaybookRouterSkill {
+		return files
+	}
+
 	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
 		(strings.Contains(updated, "## Public Flow Presentation") ||
 			strings.Contains(updated, "## Public Approval Gate")) &&
@@ -92,11 +101,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\"` for source/config search, search docs snippets for touched primitives, and search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
+			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5` for source/config search, search docs snippets for touched primitives, and search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\"`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\" --limit 5 --format json`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -215,9 +224,9 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
 - pre-push scan check
   - from :name, :description, :triggers, and first few step ids/titles, a new operator should infer flow behavior in ~10 seconds
 - CLI search clarity
-  - breyta flows search <query> searches actual workspace flow metadata
-  - breyta flows grep <literal> searches actual workspace flow source/config
-  - breyta flows templates search/grep searches approved reusable templates
+  - breyta flows search "<query>" --limit 5 searches actual workspace flow metadata
+  - breyta flows grep "<literal>" --limit 5 searches actual workspace flow source/config
+  - breyta flows templates search/grep with --limit 5 searches approved reusable templates
   - use broad flow lists for inventory, slug checks, or explicit user requests only
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example invoice, approval, webhook, billing)`
 

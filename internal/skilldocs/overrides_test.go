@@ -108,6 +108,32 @@ func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.T) {
+	body := strings.Join([]string{
+		"## Purpose",
+		"compact router",
+		"",
+		"## Playbook Matrix",
+		"- `playbooks/author-flows.md`",
+		"- `playbooks/debug-and-verify.md`",
+		"- `references/runtime-data-shapes.md`",
+		"",
+		"## Default Command Budget",
+		"- compact defaults",
+	}, "\n")
+	input := map[string][]byte{
+		"SKILL.md": []byte(body),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	if string(got["SKILL.md"]) != body {
+		t.Fatalf("expected current playbook router skill to remain unchanged, got:\n%s", string(got["SKILL.md"]))
+	}
+	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
+		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
+	}
+}
+
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
@@ -276,8 +302,8 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows search <query> searches actual workspace flow metadata") ||
-		!strings.Contains(body, "breyta flows grep <literal> searches actual workspace flow source/config") {
+	if !strings.Contains(body, "breyta flows search \"<query>\" --limit 5 searches actual workspace flow metadata") ||
+		!strings.Contains(body, "breyta flows grep \"<literal>\" --limit 5 searches actual workspace flow source/config") {
 		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {

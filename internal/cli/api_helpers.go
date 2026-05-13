@@ -985,6 +985,9 @@ func guidedCLIErrorForCommand(cmd *cobra.Command, message string, lines []string
 		}
 		parts = append(parts, line)
 	}
+	if more := moreHintForCommand(cmd); more != "" {
+		parts = append(parts, fmt.Sprintf("More: %s", more))
+	}
 	parts = append(parts, fmt.Sprintf("Hint: run `%s` for usage or `%s` for docs.", helpHintForCommand(cmd), docsHintForCommand(cmd)))
 	return &guidedCLIError{message: strings.Join(parts, "\n")}
 }

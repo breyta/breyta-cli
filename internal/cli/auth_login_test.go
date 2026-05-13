@@ -207,7 +207,7 @@ func TestAuthWhoami_IncludesWorkspaceSummary(t *testing.T) {
 		t.Fatalf("expected workspaceCount=2, got %#v\n%s", out.Meta["workspaceCount"], stdout)
 	}
 	hint, _ := out.Meta["hint"].(string)
-	if !strings.Contains(hint, "breyta flows search <query>") {
+	if !strings.Contains(hint, "breyta flows search \"<query>\" --limit 5") {
 		t.Fatalf("expected search hint, got %q\n%s", hint, stdout)
 	}
 	selection, _ := out.Data["workspaceSelection"].(map[string]any)
@@ -372,7 +372,7 @@ func TestAuthWhoami_SuggestsSingleWorkspaceWhenNoDefaultSet(t *testing.T) {
 		t.Fatalf("expected suggestedWorkspace ws-solo, got %#v\n%s", out.Data["suggestedWorkspace"], stdout)
 	}
 	hint, _ := out.Meta["hint"].(string)
-	if !strings.Contains(hint, "breyta flows search <query>") || !strings.Contains(hint, "breyta workspaces use <workspace-id>") {
+	if !strings.Contains(hint, "breyta flows search \"<query>\" --limit 5") || !strings.Contains(hint, "breyta workspaces use <workspace-id>") {
 		t.Fatalf("expected search + workspaces use hint, got %q\n%s", hint, stdout)
 	}
 }
