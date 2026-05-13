@@ -265,11 +265,129 @@ func TestConvertN8NWorkflow_SetTranslatesEarlierNonUpstreamNodeRefs(t *testing.T
 		t.Fatalf("convert failed: %v", err)
 	}
 
-	assertContains(t, result.EDN, ":input {:gate gate :seed seed}")
+	assertContains(t, result.EDN, ":input {:input gate :gate gate :seed seed}")
 	assertContains(t, result.EDN, ":page (inc (or (get (get input :seed) :page) 0))")
 	if strings.Contains(strings.Join(result.Todos, "\n"), "translate n8n expression") {
 		t.Fatalf("did not expect expression translation TODO, got %#v", result.Todos)
 	}
+}
+
+func TestConvertN8NWorkflow_SetKeepsOnlyConfiguredFields(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Set Keep Only Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Shape Payload",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{
+					"keepOnlySet": true,
+					"values": map[string]any{
+						"string": []any{map[string]any{"name": "fullName", "value": `{{$json.name}}`}},
+					},
+				},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Shape Payload", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "set-keep-only-import", "tmp/flows/set-keep-only-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, "(fn [input]\\n  {\\n    :fullname (get input :name)})")
+	if strings.Contains(result.EDN, "(assoc input\\n    :fullname") {
+		t.Fatalf("expected keepOnlySet node to emit a replacement map, got:\n%s", result.EDN)
+	}
+}
+
+func TestConvertN8NWorkflow_WebhookResponsePreservesConfiguredBody(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Webhook Response Import",
+		Nodes: []n8nNode{
+			{Name: "Webhook", Type: "n8n-nodes-base.webhook", Parameters: map[string]any{}},
+			{
+				Name: "Create URL string",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{
+					"keepOnlySet": true,
+					"values": map[string]any{
+						"string": []any{map[string]any{"name": "product", "value": `https://example.com/search?q={{$json["query"]["first_name"]}}`}},
+					},
+				},
+			},
+			{
+				Name: "Respond",
+				Type: "n8n-nodes-base.respondToWebhook",
+				Parameters: map[string]any{
+					"responseCode": float64(201),
+					"respondWith":  "text",
+					"responseBody": `=Created {{$node["Webhook"].json["query"]["first_name"]}} with {{$json["product"]}}`,
+				},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Webhook":           {"main": {{{Node: "Create URL string", Type: "main", Index: 0}}}},
+			"Create URL string": {"main": {{{Node: "Respond", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "webhook-response-import", "tmp/flows/webhook-response-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":status 201")
+	assertContains(t, result.EDN, `:body (str \"Created \" (get-in (get input :webhook) [:query :first-name]) \" with \" (get (get input :input) :product))`)
+	if strings.Contains(strings.Join(result.Todos, "\n"), "webhook response expression") {
+		t.Fatalf("did not expect response expression TODO, got %#v", result.Todos)
+	}
+}
+
+func TestConvertN8NWorkflow_MixedJSONAndNodeRefsPreservesCurrentInput(t *testing.T) {
+	wf := n8nWorkflow{
+		Name: "Mixed Ref Import",
+		Nodes: []n8nNode{
+			{Name: "Manual Trigger", Type: "n8n-nodes-base.manualTrigger", Parameters: map[string]any{}},
+			{
+				Name: "Seed",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "prefix", "value": "hello"}},
+				}},
+			},
+			{
+				Name: "Current",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "name", "value": "Ada"}},
+				}},
+			},
+			{
+				Name: "Combine",
+				Type: "n8n-nodes-base.set",
+				Parameters: map[string]any{"values": map[string]any{
+					"string": []any{map[string]any{"name": "label", "value": `{{$node["Seed"].json["prefix"]}} {{$json.name}}`}},
+				}},
+			},
+		},
+		Connections: map[string]map[string][][]n8nConnection{
+			"Manual Trigger": {"main": {{{Node: "Seed", Type: "main", Index: 0}}}},
+			"Seed":           {"main": {{{Node: "Current", Type: "main", Index: 0}}}},
+			"Current":        {"main": {{{Node: "Combine", Type: "main", Index: 0}}}},
+		},
+	}
+
+	result, err := convertN8NWorkflow(wf, "mixed-ref-import", "tmp/flows/mixed-ref-import.clj")
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+
+	assertContains(t, result.EDN, ":input {:input current :current current :seed seed}")
+	assertContains(t, result.EDN, `:label (str (get (get input :seed) :prefix) \" \" (get (get input :input) :name))`)
 }
 
 func TestConvertN8NWorkflow_HTTPTranslatesNodeRefTemplates(t *testing.T) {

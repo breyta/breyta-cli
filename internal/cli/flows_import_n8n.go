@@ -63,6 +63,7 @@ type n8nInputPlan struct {
 	Names        []string
 	Expr         string
 	FunctionRefs map[string]string
+	TemplateRefs map[string]string
 }
 
 type n8nImportResult struct {
@@ -294,6 +295,9 @@ func convertN8NWorkflow(wf n8nWorkflow, slug, outPath string) (*n8nImportResult,
 			requires = appendUniqueStrings(requires, triggerRequires)
 			webhooks = append(webhooks, triggerWebhooks...)
 			schedules = append(schedules, triggerSchedules...)
+			if strings.TrimSpace(node.Name) != "" {
+				convertedByName[node.Name] = n8nConvertedNode{Node: node, StepID: n8nKebab(node.Name, "input"), VarName: "input", InputExpr: "input"}
+			}
 			continue
 		}
 		stepID := uniqueN8NID(n8nKebab(node.Name, "step"), usedIDs)
@@ -403,7 +407,7 @@ func convertN8NHTTPNode(node n8nNode, stepID string, inputPlan n8nInputPlan, con
 		path = firstNonEmpty(rawURL, "/")
 		todos = append(todos, fmt.Sprintf("fill base URL/path for HTTP node %q", node.Name))
 	}
-	templateRefs := n8nHandlebarsRefs(convertedByName)
+	templateRefs := n8nHandlebarsRefs(convertedByName, inputPlan)
 	if rendered, ok := translateN8NHandlebarsTemplate(path, templateRefs); ok {
 		path = rendered
 	}
@@ -573,10 +577,14 @@ func n8nConditionValue(raw any) (string, bool) {
 
 func convertN8NWebhookResponseNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
 	statusCode := intParam(node.Parameters, 200, "responseCode", "statusCode")
-	code := fmt.Sprintf("(fn [input]\n  {:status %d\n   :headers {}\n   :body input})", statusCode)
+	body, todo := renderN8NWebhookResponseBody(node, inputPlan.FunctionRefs)
+	code := fmt.Sprintf("(fn [input]\n  {:status %d\n   :headers {}\n   :body %s})", statusCode, body)
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
-	return binding, nil, nil, []string{fn}, nil
+	if todo == "" {
+		return binding, nil, nil, []string{fn}, nil
+	}
+	return binding, nil, nil, []string{fn}, []string{todo}
 }
 
 func convertN8NWaitNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
@@ -597,6 +605,24 @@ func convertN8NWaitNode(node n8nNode, stepID string, inputPlan n8nInputPlan, con
             :on-timeout :continue
             :default-value %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), timeout, inputPlan.Expr)
 	return binding, nil, nil, nil, []string{fmt.Sprintf("verify Wait node %q timing semantics", node.Name)}
+}
+
+func renderN8NWebhookResponseBody(node n8nNode, nodeRefs map[string]string) (string, string) {
+	value := firstNonEmpty(stringParam(node.Parameters, "responseBody", "body"), stringParam(node.Parameters, "responseData"))
+	if strings.TrimSpace(value) == "" {
+		return "input", ""
+	}
+	value = normalizeN8NTemplateLiteral(value)
+	if expr, ok := translateSimpleN8NExpressionWithRefs(value, nodeRefs); ok {
+		return expr, ""
+	}
+	if expr, ok := translateN8NTemplateStringWithRefs(value, nodeRefs); ok {
+		return expr, ""
+	}
+	if strings.Contains(value, "{{") {
+		return ednQuote(value), fmt.Sprintf("translate n8n webhook response expression for node %q", node.Name)
+	}
+	return ednQuote(value), ""
 }
 
 func convertN8NSetNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
@@ -631,7 +657,11 @@ func convertN8NSetNode(node n8nNode, stepID string, inputPlan n8nInputPlan, conv
 			}
 		}
 		if len(assoc) > 0 {
-			code = "(fn [input]\n  (assoc input\n    " + strings.Join(assoc, "\n    ") + "))"
+			if n8nSetKeepOnlySet(node.Parameters) {
+				code = "(fn [input]\n  {\n    " + strings.Join(assoc, "\n    ") + "})"
+			} else {
+				code = "(fn [input]\n  (assoc input\n    " + strings.Join(assoc, "\n    ") + "))"
+			}
 		} else if len(todos) == 0 {
 			todos = []string{fmt.Sprintf("port Set node %q parameters", node.Name)}
 		}
@@ -639,6 +669,16 @@ func convertN8NSetNode(node n8nNode, stepID string, inputPlan n8nInputPlan, conv
 	fn := renderFunction(stepID, code)
 	binding := renderFunctionStep(node, stepID, inputPlan.Expr)
 	return binding, nil, nil, []string{fn}, todos
+}
+
+func n8nSetKeepOnlySet(params map[string]any) bool {
+	if boolParam(params, "keepOnlySet") {
+		return true
+	}
+	if options, ok := params["options"].(map[string]any); ok {
+		return boolParam(options, "keepOnlySet")
+	}
+	return false
 }
 
 func convertN8NItemListsNode(node n8nNode, stepID string, inputPlan n8nInputPlan, convertedByName map[string]n8nConvertedNode) (string, []string, []string, []string, []string) {
@@ -731,7 +771,7 @@ func renderN8NSetValue(fieldName string, value any, nodeRefs map[string]string) 
 	if !ok || !strings.Contains(s, "{{") {
 		return "", "", false
 	}
-	s = normalizeN8NExpressionString(s)
+	s = normalizeN8NExpressionString(normalizeN8NTemplateLiteral(s))
 	if expr, ok := translateSimpleN8NExpressionWithRefs(s, nodeRefs); ok {
 		return expr, "", true
 	}
@@ -744,6 +784,14 @@ func renderN8NSetValue(fieldName string, value any, nodeRefs map[string]string) 
 func normalizeN8NExpressionString(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if strings.HasPrefix(trimmed, "={{") {
+		return strings.TrimPrefix(trimmed, "=")
+	}
+	return value
+}
+
+func normalizeN8NTemplateLiteral(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "=") && strings.Contains(trimmed, "{{") {
 		return strings.TrimPrefix(trimmed, "=")
 	}
 	return value
@@ -769,16 +817,17 @@ func translateN8NInnerExpression(expr string) (string, bool) {
 
 func translateN8NInnerExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	expr = strings.TrimSpace(expr)
+	jsonRoot := n8nJSONRootRef(nodeRefs)
 	switch expr {
 	case "$json":
-		return "input", true
+		return jsonRoot, true
 	case "$now":
 		return "(flow/now-ms)", true
 	}
-	if rendered, ok := translateN8NTernaryExpression(expr); ok {
+	if rendered, ok := translateN8NTernaryExpressionWithRefs(expr, nodeRefs); ok {
 		return rendered, true
 	}
-	if rendered, ok := translateN8NBinaryExpression(expr); ok {
+	if rendered, ok := translateN8NBinaryExpressionWithRefs(expr, nodeRefs); ok {
 		return rendered, true
 	}
 	if rendered, ok := translateN8NIncrementExpressionWithRefs(expr, nodeRefs); ok {
@@ -803,9 +852,9 @@ func translateN8NInnerExpressionWithRefs(expr string, nodeRefs map[string]string
 			keywords = append(keywords, ":"+key)
 		}
 		if len(keywords) == 1 {
-			return "(get input " + keywords[0] + ")", true
+			return "(get " + jsonRoot + " " + keywords[0] + ")", true
 		}
-		return "(get-in input [" + strings.Join(keywords, " ") + "])", true
+		return "(get-in " + jsonRoot + " [" + strings.Join(keywords, " ") + "])", true
 	}
 	return "", false
 }
@@ -821,7 +870,7 @@ func translateN8NPathExpressionWithRefs(expr string, nodeRefs map[string]string)
 	}
 	switch root {
 	case "$json":
-		return renderN8NGetPath("input", path), true
+		return renderN8NGetPath(n8nJSONRootRef(nodeRefs), path), true
 	default:
 		const nodePrefix = "$node:"
 		if strings.HasPrefix(root, nodePrefix) {
@@ -832,6 +881,15 @@ func translateN8NPathExpressionWithRefs(expr string, nodeRefs map[string]string)
 		}
 		return "", false
 	}
+}
+
+func n8nJSONRootRef(nodeRefs map[string]string) string {
+	if nodeRefs != nil {
+		if ref := strings.TrimSpace(nodeRefs["$json"]); ref != "" {
+			return ref
+		}
+	}
+	return "input"
 }
 
 func translateN8NIncrementExpression(expr string) (string, bool) {
@@ -1018,6 +1076,9 @@ func translateN8NHandlebarsPath(expr string, nodeRefs map[string]string) (string
 	out := make([]string, 0, len(parts)+1)
 	switch {
 	case root == "$json":
+		if ref := strings.TrimSpace(nodeRefs["$json"]); ref != "" {
+			out = append(out, ref)
+		}
 	case strings.HasPrefix(root, "$node:"):
 		nodeName := strings.TrimPrefix(root, "$node:")
 		ref, ok := nodeRefs[nodeName]
@@ -1035,12 +1096,16 @@ func translateN8NHandlebarsPath(expr string, nodeRefs map[string]string) (string
 }
 
 func translateN8NTernaryExpression(expr string) (string, bool) {
+	return translateN8NTernaryExpressionWithRefs(expr, nil)
+}
+
+func translateN8NTernaryExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	q := strings.Index(expr, "?")
 	colon := strings.LastIndex(expr, ":")
 	if q <= 0 || colon <= q {
 		return "", false
 	}
-	condition, ok := translateN8NOperand(expr[:q])
+	condition, ok := translateN8NOperandWithRefs(expr[:q], nodeRefs)
 	if !ok {
 		return "", false
 	}
@@ -1056,10 +1121,14 @@ func translateN8NTernaryExpression(expr string) (string, bool) {
 }
 
 func translateN8NBinaryExpression(expr string) (string, bool) {
+	return translateN8NBinaryExpressionWithRefs(expr, nil)
+}
+
+func translateN8NBinaryExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	for _, op := range []string{" + ", " - ", " * ", " / "} {
 		if idx := strings.Index(expr, op); idx > 0 {
-			left, leftOK := translateN8NOperand(expr[:idx])
-			right, rightOK := translateN8NOperand(expr[idx+len(op):])
+			left, leftOK := translateN8NOperandWithRefs(expr[:idx], nodeRefs)
+			right, rightOK := translateN8NOperandWithRefs(expr[idx+len(op):], nodeRefs)
 			if !leftOK || !rightOK {
 				return "", false
 			}
@@ -1070,12 +1139,16 @@ func translateN8NBinaryExpression(expr string) (string, bool) {
 }
 
 func translateN8NOperand(raw string) (string, bool) {
+	return translateN8NOperandWithRefs(raw, nil)
+}
+
+func translateN8NOperandWithRefs(raw string, nodeRefs map[string]string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", false
 	}
 	if strings.HasPrefix(raw, "$json") || raw == "$now" {
-		return translateN8NInnerExpression(raw)
+		return translateN8NInnerExpressionWithRefs(raw, nodeRefs)
 	}
 	if _, err := strconv.ParseFloat(raw, 64); err == nil {
 		return raw, true
@@ -1183,7 +1256,7 @@ func renderN8NFlowBody(converted []n8nConvertedNode, upstreams map[string][]stri
 func renderN8NGuardedBinding(item n8nConvertedNode, guards []n8nBranchGuard, upstreams map[string][]string, convertedByName map[string]n8nConvertedNode) string {
 	input := item.InputExpr
 	if input == "" {
-		input = n8nInputExpr(upstreams[item.Node.Name], convertedByName)
+		input = n8nInputExpr(upstreams[item.Node.Name], upstreams[item.Node.Name], convertedByName)
 	}
 	if len(guards) > 0 {
 		conditions := make([]string, 0, len(guards))
@@ -1453,10 +1526,13 @@ func n8nReferencedNodeNames(value any) []string {
 	return out
 }
 
-func n8nHandlebarsRefs(convertedByName map[string]n8nConvertedNode) map[string]string {
+func n8nHandlebarsRefs(convertedByName map[string]n8nConvertedNode, inputPlan n8nInputPlan) map[string]string {
 	refs := make(map[string]string, len(convertedByName))
 	for name, item := range convertedByName {
 		refs[name] = item.StepID
+	}
+	for key, value := range inputPlan.TemplateRefs {
+		refs[key] = value
 	}
 	return refs
 }
@@ -1476,14 +1552,15 @@ func n8nBuildInputPlan(upstreams, nodeRefs []string, convertedByName map[string]
 	}
 	return n8nInputPlan{
 		Names:        names,
-		Expr:         n8nInputExpr(names, convertedByName),
-		FunctionRefs: n8nFunctionInputRefs(names, convertedByName),
+		Expr:         n8nInputExpr(upstreams, names, convertedByName),
+		FunctionRefs: n8nFunctionInputRefs(upstreams, names, convertedByName),
+		TemplateRefs: n8nTemplateInputRefs(upstreams, names),
 	}
 }
 
-func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNode) string {
+func n8nInputExpr(upstreams, inputNames []string, convertedByName map[string]n8nConvertedNode) string {
 	available := make([]n8nConvertedNode, 0)
-	for _, name := range upstreams {
+	for _, name := range inputNames {
 		if item, ok := convertedByName[name]; ok {
 			available = append(available, item)
 		}
@@ -1495,13 +1572,16 @@ func n8nInputExpr(upstreams []string, convertedByName map[string]n8nConvertedNod
 		return available[0].VarName
 	}
 	parts := make([]string, 0, len(available))
+	if current, ok := n8nCurrentInput(upstreams, convertedByName); ok {
+		parts = append(parts, ":input "+current.VarName)
+	}
 	for _, item := range available {
 		parts = append(parts, ":"+item.StepID+" "+item.VarName)
 	}
 	return "{" + strings.Join(parts, " ") + "}"
 }
 
-func n8nFunctionInputRefs(inputNames []string, convertedByName map[string]n8nConvertedNode) map[string]string {
+func n8nFunctionInputRefs(upstreams, inputNames []string, convertedByName map[string]n8nConvertedNode) map[string]string {
 	switch len(inputNames) {
 	case 0:
 		return nil
@@ -1509,6 +1589,9 @@ func n8nFunctionInputRefs(inputNames []string, convertedByName map[string]n8nCon
 		return map[string]string{inputNames[0]: "input"}
 	default:
 		refs := map[string]string{}
+		if _, ok := n8nCurrentInput(upstreams, convertedByName); ok {
+			refs["$json"] = "(get input :input)"
+		}
 		for _, name := range inputNames {
 			item, ok := convertedByName[name]
 			if !ok {
@@ -1518,6 +1601,25 @@ func n8nFunctionInputRefs(inputNames []string, convertedByName map[string]n8nCon
 		}
 		return refs
 	}
+}
+
+func n8nTemplateInputRefs(upstreams, inputNames []string) map[string]string {
+	if len(inputNames) <= 1 {
+		return nil
+	}
+	if len(upstreams) == 0 {
+		return nil
+	}
+	return map[string]string{"$json": "input"}
+}
+
+func n8nCurrentInput(upstreams []string, convertedByName map[string]n8nConvertedNode) (n8nConvertedNode, bool) {
+	for _, name := range upstreams {
+		if item, ok := convertedByName[name]; ok {
+			return item, true
+		}
+	}
+	return n8nConvertedNode{}, false
 }
 
 func n8nIsTrigger(node n8nNode) bool {
@@ -1799,6 +1901,23 @@ func intParam(values map[string]any, fallback int, keys ...string) int {
 		}
 	}
 	return fallback
+}
+
+func boolParam(values map[string]any, keys ...string) bool {
+	value, ok := firstParam(values, keys...)
+	if !ok || value == nil {
+		return false
+	}
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "yes", "1":
+			return true
+		}
+	}
+	return false
 }
 
 func firstParam(values map[string]any, keys ...string) (any, bool) {
