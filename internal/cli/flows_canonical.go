@@ -130,6 +130,12 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
 				return writeErr(cmd, err)
 			}
+			if runStatusFailedForExit(s) {
+				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
+					"Inspect failed steps: breyta runs inspect " + workflowID,
+					"List resources: breyta resources workflow list " + workflowID,
+				})
+			}
 			return nil
 		}
 
@@ -169,6 +175,15 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			return nil
 		}
 		time.Sleep(poll)
+	}
+}
+
+func runStatusFailedForExit(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "cancelled", "canceled", "terminated", "timed-out", "timed_out":
+		return true
+	default:
+		return false
 	}
 }
 

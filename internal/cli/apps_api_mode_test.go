@@ -4042,6 +4042,123 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_WaitReturnsNonZeroForFailedRun(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-failed",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["includeSteps"] == true {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-failed",
+							"status":     "failed",
+							"steps": []any{
+								map[string]any{"stepId": "fetch", "status": "failed", "error": map[string]any{"message": "HTTP 403"}},
+							},
+						},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-failed",
+						"status":     "failed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err == nil {
+		t.Fatalf("expected failed waited run to exit nonzero\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"status":"failed"`) {
+		t.Fatalf("expected failed run output, got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "flow run finished with status failed") {
+		t.Fatalf("expected failure guidance on stderr, got:\n%s", stderr)
+	}
+}
+
+func TestFlowsRun_MissingRunInputsShowsInputHintOnly(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		w.WriteHeader(400)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"message": "Missing required run inputs",
+				"details": map[string]any{"missingKeys": []string{"public_document_url"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "packet-builder",
+	)
+	if err == nil {
+		t.Fatalf("expected missing input command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"missingRunInputs":[`) || !strings.Contains(stdout, `public_document_url`) {
+		t.Fatalf("expected missing run input metadata, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "connections list") || strings.Contains(stdout, "flows promote") {
+		t.Fatalf("expected run-input guidance without setup/promote hints, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `--input '{\"public_document_url\":\"\\u003cvalue\\u003e\"}'`) {
+		t.Fatalf("expected exact --input next command, got:\n%s", stdout)
+	}
+}
+
 func TestRunsShow_ForwardsInstallationIDInAPIMode(t *testing.T) {
 	var capturedArgs map[string]any
 

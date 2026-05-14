@@ -561,6 +561,8 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		if status >= 400 || !isOK(out) {
 			if runFailureIsMissingFlow(out) {
 				addMissingFlowAuthoringHint(out, slug)
+			} else if runFailureIsMissingRunInputs(out) {
+				addMissingRunInputsHint(out, slug)
 			} else if runFailureShouldUseDraftBindings(command, args, out) {
 				addDraftBindingsHint(app, out, slug)
 			} else {
@@ -610,6 +612,47 @@ func runFailureIsMissingFlow(out map[string]any) bool {
 	code := strings.ToLower(firstNonBlankString(errMap["code"]))
 	message := strings.ToLower(firstNonBlankString(errMap["message"]))
 	return strings.Contains(code, "not_found") && strings.Contains(message, "flow not found")
+}
+
+func runFailureIsMissingRunInputs(out map[string]any) bool {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return false
+	}
+	message := strings.ToLower(firstNonBlankString(errMap["message"]))
+	return strings.Contains(message, "missing required run inputs")
+}
+
+func addMissingRunInputsHint(out map[string]any, flowSlug string) {
+	flowSlug = strings.TrimSpace(flowSlug)
+	if flowSlug == "" {
+		flowSlug = "<slug>"
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	errMap := mapStringAny(out["error"])
+	details := mapStringAny(errMap["details"])
+	missing := stringSlice(firstPresentAny(details["missingKeys"], details["missing-keys"]))
+	example := map[string]any{}
+	for _, key := range missing {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			example[key] = "<value>"
+		}
+	}
+	inputJSON := "'{\"<field>\":\"<value>\"}'"
+	if len(example) > 0 {
+		if b, err := json.Marshal(example); err == nil {
+			inputJSON = shellSingleQuote(string(b))
+		}
+	}
+	meta["hint"] = "Provide the missing per-run inputs with --input."
+	meta["missingRunInputs"] = missing
+	appendMetaNextCommands(meta,
+		"breyta flows run "+flowSlug+" --target draft --input "+inputJSON+" --wait",
+		"breyta flows show "+flowSlug)
 }
 
 func addMissingFlowAuthoringHint(out map[string]any, flowSlug string) {

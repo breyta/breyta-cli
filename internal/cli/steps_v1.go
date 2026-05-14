@@ -32,12 +32,9 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 		sid = "<step-id>"
 	}
 
-	meta["hint"] = "Optional: save docs, examples, and tests for this reusable step."
+	meta["hint"] = "Step probe completed. Use focused result flags before rerunning the full flow."
 	appendMetaNextCommands(meta,
-		"breyta steps docs set "+fs+" "+sid+" --markdown '...'",
-		"breyta steps record --flow "+fs+" --type <type> --id "+sid+" --params '{...}'",
-		"breyta steps examples add "+fs+" "+sid+" --input '{...}' --output '{...}'",
-		"breyta steps tests add "+fs+" "+sid+" --name '...' --input '{...}' --expected '{...}'")
+		"breyta steps run --flow "+fs+" --source draft --type <type> --id "+sid+" --result-path <path>")
 }
 
 func shouldWriteHumanNextActions(app *App, cmd *cobra.Command) bool {

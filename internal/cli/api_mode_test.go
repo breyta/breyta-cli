@@ -1159,3 +1159,50 @@ func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T)
 		t.Fatalf("expected --full to keep raw body, got %#v", fullData["body"])
 	}
 }
+
+func TestResourcesRead_CompactsBinaryBlobWithoutRawPreview(t *testing.T) {
+	uri := "res://v1/ws/ws-acme/result/blob/file-pdf"
+	pdfBody := "%PDF-1.7\x00\x01binary"
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/content" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"uri":         uri,
+			"contentType": "application/pdf",
+			"sizeBytes":   len([]byte(pdfBody)),
+			"body":        pdfBody,
+			"downloadUrl": "https://download.example/file.pdf",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+	)
+	if err != nil {
+		t.Fatalf("resources read failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, ok := data["preview"]; ok {
+		t.Fatalf("expected binary compact output to omit raw preview, got %#v", data["preview"])
+	}
+	if data["shape"] != "binary" || data["binaryPreview"] != true || data["bodyOmitted"] != true {
+		t.Fatalf("expected binary metadata, got %#v", data)
+	}
+	if got, _ := data["firstBytes"].(string); !strings.HasPrefix(got, "25 50 44 46") {
+		t.Fatalf("expected PDF byte signature, got %q", got)
+	}
+	if data["downloadUrl"] != "https://download.example/file.pdf" {
+		t.Fatalf("expected downloadUrl, got %#v", data["downloadUrl"])
+	}
+}

@@ -244,6 +244,22 @@ func compactResourceReadPayload(payload any, uri string) any {
 	source := resourceReadDataPayload(payload)
 	contentType := resourceReadContentType(source)
 	previewSource := resourceReadPreviewSource(source)
+	if resourceReadLooksBinary(contentType, previewSource) {
+		return compactNonEmptyFields(map[string]any{
+			"uri":             strings.TrimSpace(uri),
+			"contentType":     contentType,
+			"shape":           "binary",
+			"sizeBytes":       resourceReadSizeBytes(source, previewSource),
+			"firstBytes":      resourceReadFirstBytes(previewSource, 16),
+			"downloadUrl":     firstNonBlankString(mapStringAny(source)["downloadUrl"], mapStringAny(source)["downloadURL"], mapStringAny(source)["url"]),
+			"webUrl":          firstNonBlankString(mapStringAny(source)["webUrl"], mapStringAny(source)["web-url"]),
+			"binaryPreview":   true,
+			"bodyOmitted":     true,
+			"hint":            "Binary resource content is compact. Use resources url for download access or read --full for the raw payload.",
+			"nextCommand":     "breyta resources url " + shellSingleQuote(strings.TrimSpace(uri)),
+			"fullPayloadHint": "breyta resources read " + shellSingleQuote(strings.TrimSpace(uri)) + " --full",
+		})
+	}
 	rendered := renderCompactPreview(previewSource)
 	preview, truncated := truncateRunesWithFlag(rendered, compactResourceReadRunes)
 	return compactNonEmptyFields(map[string]any{
@@ -641,6 +657,68 @@ func resourceReadContentType(source any) string {
 		return ""
 	}
 	return firstNonBlankString(m["contentType"], m["content-type"], m["mimeType"], m["mime-type"])
+}
+
+func resourceReadLooksBinary(contentType string, previewSource any) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "image/") ||
+		strings.HasPrefix(ct, "audio/") ||
+		strings.HasPrefix(ct, "video/") ||
+		strings.Contains(ct, "application/pdf") ||
+		strings.Contains(ct, "octet-stream") ||
+		strings.Contains(ct, "zip") ||
+		strings.Contains(ct, "gzip") {
+		return true
+	}
+	s, ok := previewSource.(string)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(s, "%PDF-") {
+		return true
+	}
+	if s == "" {
+		return false
+	}
+	control := 0
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue
+		}
+		if r < 32 || r == 0xfffd {
+			control++
+		}
+	}
+	return control > 0 && control*8 >= len([]rune(s))
+}
+
+func resourceReadSizeBytes(source any, previewSource any) any {
+	m := mapStringAny(source)
+	if m != nil {
+		if v := firstPresentAny(m["sizeBytes"], m["size-bytes"], m["bytes"], m["length"], m["contentLength"], m["content-length"]); v != nil {
+			return v
+		}
+	}
+	if s, ok := previewSource.(string); ok {
+		return len([]byte(s))
+	}
+	return nil
+}
+
+func resourceReadFirstBytes(previewSource any, max int) string {
+	s, ok := previewSource.(string)
+	if !ok || max <= 0 {
+		return ""
+	}
+	b := []byte(s)
+	if len(b) > max {
+		b = b[:max]
+	}
+	parts := make([]string, 0, len(b))
+	for _, v := range b {
+		parts = append(parts, fmt.Sprintf("%02x", v))
+	}
+	return strings.Join(parts, " ")
 }
 
 func resourceReadPreviewSource(source any) any {

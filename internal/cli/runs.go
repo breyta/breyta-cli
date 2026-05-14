@@ -714,6 +714,9 @@ func compactRunInspectOutput(out map[string]any, workflowID string) {
 	if firstPresent(run, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result") != nil {
 		run["hasResult"] = true
 	}
+	if errValue := firstPresent(run, "error", "errorMessage", "error-message"); errValue != nil {
+		run["error"] = compactRunErrorValue(errValue)
+	}
 	for _, key := range []string{"input", "params", "result", "output"} {
 		delete(run, key)
 	}
@@ -923,9 +926,50 @@ func compactAPIRunStepExecution(step map[string]any) map[string]any {
 		"durationMs": firstPresent(step, "durationMs", "duration-ms"),
 		"hasInput":   firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview") != nil,
 		"hasOutput":  firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result") != nil,
-		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
+		"error":      compactRunErrorValue(firstPresent(step, "error", "errorMessage", "error-message")),
 		"cost":       firstPresent(step, "cost", "usage", "counters", "metering"),
 	})
+}
+
+func compactRunErrorValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	if m := mapStringAny(value); m != nil {
+		out := map[string]any{}
+		for _, key := range []string{"type", "errorType", "error-type", "code", "status", "url", "contentType", "content-type", "message"} {
+			if v := firstPresentAny(m[key]); v != nil {
+				out[key] = compactRunErrorScalar(v)
+			}
+		}
+		if ctx := mapStringAny(m["context"]); ctx != nil {
+			out["context"] = compactNonEmptyFields(map[string]any{
+				"status": firstPresentAny(ctx["status"]),
+				"url":    firstNonBlankString(ctx["url"]),
+			})
+		}
+		if len(out) == 0 {
+			out["message"] = compactRunErrorScalar(value)
+		}
+		return out
+	}
+	return compactRunErrorScalar(value)
+}
+
+func compactRunErrorScalar(value any) any {
+	s := scalarString(value)
+	if s == "" {
+		return value
+	}
+	if len([]rune(s)) <= 500 {
+		return s
+	}
+	preview, _ := truncateRunesWithFlag(s, 500)
+	return map[string]any{
+		"preview":   preview,
+		"truncated": true,
+		"runes":     len([]rune(s)),
+	}
 }
 
 func findRunStep(run map[string]any, stepID string) map[string]any {

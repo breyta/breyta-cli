@@ -117,6 +117,20 @@ func TestStepsRunCompactsResultByDefault(t *testing.T) {
 	if meta["outputView"] != "compact" {
 		t.Fatalf("expected compact outputView, got %#v", meta)
 	}
+	nextCommands, _ := meta["nextCommands"].([]any)
+	if len(nextCommands) > 1 {
+		t.Fatalf("expected at most one compact next command, got %#v", nextCommands)
+	}
+	var nextCommandStrings []string
+	for _, item := range nextCommands {
+		if s, ok := item.(string); ok {
+			nextCommandStrings = append(nextCommandStrings, s)
+		}
+	}
+	joined := strings.Join(nextCommandStrings, "\n")
+	if strings.Contains(joined, "steps docs set") || strings.Contains(joined, "steps examples add") || strings.Contains(joined, "steps tests add") {
+		t.Fatalf("expected compact steps run to omit sidecar authoring hints, got %q", joined)
+	}
 }
 
 func TestStepsRunResultPathAndResultFile(t *testing.T) {
