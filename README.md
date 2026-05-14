@@ -135,6 +135,10 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
+For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
+first; do not hand-write the initial EDN conversion unless the importer is
+unavailable or explicitly bypassed.
+
 When the draft behavior is correct, inspect draft-vs-live changes and release once with a markdown note:
 
 ```bash

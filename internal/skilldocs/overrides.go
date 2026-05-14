@@ -145,6 +145,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 			updated = strings.TrimRight(updated, "\n") + "\n\n## Large Artifact Hygiene\n\n" + largeArtifactHygieneBullets + "\n"
 		}
 	}
+	updated = ensureN8NImportGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -168,6 +169,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensurePublicFlowUIVerificationSection(updated)
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
+	updated = ensureN8NImportGuidance(updated)
 	if updated == original {
 		return files
 	}
@@ -499,6 +501,8 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - preserve explicit user requests, such as ` + "`gpt-5.4`" + ` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
 
+const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
+
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
 		return body
@@ -659,6 +663,29 @@ func ensureProviderAPIFreshnessSection(body string) string {
 		return body[:headingPos] + providerAPIFreshnessSection + "\n\n" + body[headingPos:]
 	}
 	return body + "\n\n" + providerAPIFreshnessSection + "\n"
+}
+
+func ensureN8NImportGuidance(body string) string {
+	if strings.Contains(body, n8nImportGuidanceLine) {
+		return body
+	}
+	for _, heading := range []string{
+		"## Create/Edit Preflight",
+		"## Authoring standard (required before editing)",
+		"## Preflight",
+	} {
+		headingPos := h2LineStartOutsideFences(body, heading)
+		if headingPos < 0 {
+			continue
+		}
+		insertAt := nextH2LineStartOutsideFences(body, headingPos+1)
+		if insertAt < 0 {
+			insertAt = len(body)
+		}
+		section := strings.TrimRight(body[headingPos:insertAt], "\n")
+		return body[:headingPos] + section + "\n" + n8nImportGuidanceLine + "\n" + body[insertAt:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + n8nImportGuidanceLine + "\n"
 }
 
 func h2LineStartOutsideFences(body, heading string) int {
