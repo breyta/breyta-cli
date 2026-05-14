@@ -607,6 +607,11 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing enabled"}})
 			return
 		}
+		if args["localPrivateTest"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing localPrivateTest"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-public"}}})
 	}))
 	defer srv.Close()
@@ -620,6 +625,7 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 		"--source-workspace-id", "ws-source",
 		"--source-flow-slug", "public-source-flow",
 		"--enable",
+		"--local-private-test",
 	)
 	if err != nil {
 		t.Fatalf("flows installations create with source refs failed: %v\n%s", err, stdout)

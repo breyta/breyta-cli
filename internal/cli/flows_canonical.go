@@ -442,7 +442,10 @@ func newFlowsDiffCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Show a unified diff for flow source.
 
-Defaults to draft versus live so you can inspect unpublished changes:
+Defaults to draft versus live so you can inspect unpublished changes. If a
+draft-only flow has pushed draft history but no live version, the server can
+compare the current draft to the previous pushed draft version.
+
 - breyta flows diff my-flow
 - breyta flows diff my-flow --file ./flows/my-flow.clj
 - breyta flows diff my-flow --from draft --to version --to-version 7

@@ -131,3 +131,21 @@ func TestEnrichResourceListPayload_AddsFriendlyFields(t *testing.T) {
 		t.Fatalf("expected source-label provenance, got %q", got)
 	}
 }
+
+func TestCompactResourceListItem_IncludesOwnerWorkspaceWhenDifferent(t *testing.T) {
+	item := compactResourceListItem(map[string]any{
+		"uri":                 "res://v1/ws/ws-source/result/table/tbl_123",
+		"type":                "result",
+		"resourceWorkspaceId": "ws-source",
+		"displayWorkspaceId":  "ws-buyer",
+	})
+	if item == nil {
+		t.Fatalf("expected compact item")
+	}
+	if got := item["ownerWorkspace"]; got != "ws-source" {
+		t.Fatalf("expected ownerWorkspace=ws-source, got %#v", got)
+	}
+	if got := item["displayWorkspace"]; got != "ws-buyer" {
+		t.Fatalf("expected displayWorkspace=ws-buyer, got %#v", got)
+	}
+}
