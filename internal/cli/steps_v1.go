@@ -32,7 +32,12 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 		sid = "<step-id>"
 	}
 
-	meta["hint"] = "Save step intent + examples: breyta steps docs set " + fs + " " + sid + " --markdown '...'; breyta steps record --flow " + fs + " --type <type> --id " + sid + " --params '{...}'; breyta steps examples add " + fs + " " + sid + " --input '{...}' --output '{...}'; breyta steps tests add " + fs + " " + sid + " --name '...' --input '{...}' --expected '{...}'"
+	meta["hint"] = "Optional: save docs, examples, and tests for this reusable step."
+	appendMetaNextCommands(meta,
+		"breyta steps docs set "+fs+" "+sid+" --markdown '...'",
+		"breyta steps record --flow "+fs+" --type <type> --id "+sid+" --params '{...}'",
+		"breyta steps examples add "+fs+" "+sid+" --input '{...}' --output '{...}'",
+		"breyta steps tests add "+fs+" "+sid+" --name '...' --input '{...}' --expected '{...}'")
 }
 
 func shouldWriteHumanNextActions(app *App, cmd *cobra.Command) bool {
@@ -687,8 +692,15 @@ This is designed for fast iteration while authoring: provide an explicit step ty
 step id, and step params; the server executes the step using the same runtime
 dispatcher as normal flows.
 
+` + "`--params`" + ` and ` + "`--params-file`" + ` accept JSON. Safe step-config keys are normalized to
+the authored Clojure shape on the server, so JSON like ` + "`responseAs`" + ` and
+` + "`persist.type`" + ` can be used for ` + "`:response-as`" + ` and ` + "`:persist {:type ...}`" + `.
+HTTP payload surfaces such as headers, query, body, json, and form keep exact
+external key casing.
+
 Examples:
   breyta steps run --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}'
+  breyta steps run --type http --id image --params '{"url":"https://picsum.photos/seed/smoke/800/450","responseAs":"bytes","persist":{"type":"blob","tier":"ephemeral"}}'
   breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.4"}'
   breyta steps run --type llm --id summarize --params-file ./params.json
   breyta steps run --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
@@ -776,7 +788,7 @@ Examples:
 
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type (e.g. http, llm, code)")
 	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
-	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
+	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object; safe config keys are normalized server-side")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Optional flow slug (for logging/templates)")
 	cmd.Flags().StringVar(&source, "source", "", "Flow definition source when --flow is provided (draft|latest|active)")
@@ -913,7 +925,7 @@ Examples:
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Flow slug (required)")
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type (e.g. http, llm, code)")
 	cmd.Flags().StringVar(&stepID, "id", "", "Step id (identifier within a flow)")
-	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object")
+	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object; safe config keys are normalized server-side")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&source, "source", "", "Flow definition source (draft|latest|active)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version")

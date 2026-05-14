@@ -50,6 +50,85 @@ func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	}
 }
 
+func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	original := "{:slug :bad\n :flow '(identity 1)\n"
+	if err := os.WriteFile(flowFile, []byte(original), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsParenRepairCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("paren-repair dry run failed: %v\n%s", err, out.String())
+	}
+	after, err := os.ReadFile(flowFile)
+	if err != nil {
+		t.Fatalf("read flow file: %v", err)
+	}
+	if string(after) != original {
+		t.Fatalf("dry run rewrote file: %q", string(after))
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	results, _ := data["results"].([]any)
+	if len(results) != 1 {
+		t.Fatalf("expected one repair result, got %#v", data)
+	}
+	first, _ := results[0].(map[string]any)
+	if first["changed"] != true || first["written"] != false {
+		t.Fatalf("expected changed=true and written=false, got %#v", first)
+	}
+}
+
+func TestFlowsLintLocalOnlyWarnsOnUnboundedRange(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :range-risk
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(take 5 (range))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint returned error for warning-only diagnostics: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "sandbox_unbounded_range" && item["severity"] == "warning" {
+			return
+		}
+	}
+	t.Fatalf("expected sandbox_unbounded_range warning, got %#v", items)
+}
+
 func TestFlowsLintLocalOnlySkipsAutomaticSkillNetwork(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)

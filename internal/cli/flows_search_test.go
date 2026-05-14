@@ -272,37 +272,42 @@ func TestFlowsSearch_RejectsRawDefinitionWithoutFull(t *testing.T) {
 }
 
 func TestFlowsTemplatesSearch_BuildsApprovedTemplatePayload(t *testing.T) {
-	origDo := doAPICommandFn
-	origUse := useDoAPICommandFn
-	t.Cleanup(func() {
-		doAPICommandFn = origDo
-		useDoAPICommandFn = origUse
-	})
+	var gotWorkspaceHeader string
+	var gotBody map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/global/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		gotWorkspaceHeader = r.Header.Get("X-Breyta-Workspace")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"result": map[string]any{"hits": []any{}},
+			},
+		})
+	}))
+	defer srv.Close()
 
-	var gotMethod string
-	var gotPayload map[string]any
-	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
-		_ = cmd
-		_ = app
-		gotMethod = method
-		gotPayload = payload
-		return nil
-	}
-	useDoAPICommandFn = true
-
-	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
 	cmd := newFlowsTemplatesSearchCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"vision", "--step-type", "llm", "--tool-name", "web_search", "--limit", "4"})
+	cmd.SetArgs([]string{"vision", "--step-type", "llm", "--tool-name", "web_search", "--limit", "4", "--format", "json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
-	if gotMethod != "flows.search" {
-		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	if gotWorkspaceHeader != "" {
+		t.Fatalf("expected no workspace header, got %q", gotWorkspaceHeader)
 	}
+	if gotBody["command"] != "flows.search" {
+		t.Fatalf("expected method flows.search, got %#v", gotBody["command"])
+	}
+	gotPayload, _ := gotBody["args"].(map[string]any)
 	if gotPayload["query"] != "vision" || gotPayload["scope"] != "all" || gotPayload["surface"] != "templates" || gotPayload["stepType"] != "llm" || gotPayload["toolName"] != "web_search" {
 		t.Fatalf("unexpected payload: %#v", gotPayload)
 	}
@@ -323,7 +328,7 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 	}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
+		if r.URL.Path != "/api/global/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
 		var body map[string]any
@@ -461,25 +466,26 @@ func TestFlowsGrep_BuildsWorkspaceDefinitionSearchPayload(t *testing.T) {
 }
 
 func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) {
-	origDo := doAPICommandFn
-	origUse := useDoAPICommandFn
-	t.Cleanup(func() {
-		doAPICommandFn = origDo
-		useDoAPICommandFn = origUse
-	})
+	var gotWorkspaceHeader string
+	var gotBody map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/global/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		gotWorkspaceHeader = r.Header.Get("X-Breyta-Workspace")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"result": map[string]any{"hits": []any{}},
+			},
+		})
+	}))
+	defer srv.Close()
 
-	var gotMethod string
-	var gotPayload map[string]any
-	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
-		_ = cmd
-		_ = app
-		gotMethod = method
-		gotPayload = payload
-		return nil
-	}
-	useDoAPICommandFn = true
-
-	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
 	cmd := newFlowsTemplatesGrepCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -489,16 +495,20 @@ func TestFlowsTemplatesGrep_BuildsTemplateDefinitionSearchPayload(t *testing.T) 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())
 	}
-	if gotMethod != "flows.search" {
-		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	if gotWorkspaceHeader != "" {
+		t.Fatalf("expected no workspace header, got %q", gotWorkspaceHeader)
 	}
+	if gotBody["command"] != "flows.search" {
+		t.Fatalf("expected method flows.search, got %#v", gotBody["command"])
+	}
+	gotPayload, _ := gotBody["args"].(map[string]any)
 	if gotPayload["definitionSearch"] != true || gotPayload["query"] != "image/*" || gotPayload["scope"] != "all" || gotPayload["surface"] != "templates" || gotPayload["includeDefinition"] != true {
 		t.Fatalf("unexpected template grep payload: %#v", gotPayload)
 	}
 	if gotPayload["rawDefinition"] != false {
 		t.Fatalf("expected rawDefinition=false, got %#v", gotPayload["rawDefinition"])
 	}
-	matchSurfaces, _ := gotPayload["matchSurfaces"].([]string)
+	matchSurfaces := sliceAny(gotPayload["matchSurfaces"])
 	if len(matchSurfaces) != 1 || matchSurfaces[0] != "definition" {
 		t.Fatalf("unexpected matchSurfaces: %#v", gotPayload["matchSurfaces"])
 	}
@@ -839,7 +849,10 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 						"checks":   []map[string]any{{"id": "definition", "label": "Flow definition", "pass": true}},
 					},
 				},
-				"meta": map[string]any{"nextCommands": []string{"breyta flows run public-flow --target live --wait"}},
+				"meta": map[string]any{
+					"webUrl":       "https://localhost:33156/ws-test/flows/public-flow",
+					"nextCommands": []string{"breyta flows run public-flow --target live --wait"},
+				},
 			})
 		case "flows.configure.check":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -873,7 +886,7 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"public-flow", "--public"})
+	cmd.SetArgs([]string{"public-flow", "--target", "live", "--public"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("readiness execute: %v\n%s", err, out.String())
 	}
@@ -894,8 +907,83 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if mapStringAny(readiness["pricing"])["amount"] != "19.99" {
 		t.Fatalf("expected pricing in readiness, got %#v", readiness["pricing"])
 	}
+	if _, ok := readiness["doctor"]; ok {
+		t.Fatalf("expected compact readiness to omit raw doctor by default, got %#v", readiness["doctor"])
+	}
+	if _, ok := readiness["publicPreflight"]; ok {
+		t.Fatalf("expected compact readiness to omit raw public preflight by default, got %#v", readiness["publicPreflight"])
+	}
+	if got := mapStringAny(envelope["meta"])["webUrl"]; got != "http://localhost:33156/ws-test/flows/public-flow" {
+		t.Fatalf("expected local webUrl to use http, got %#v", got)
+	}
 	if len(sliceAny(readiness["blockers"])) != 1 {
 		t.Fatalf("expected one blocker, got %#v", readiness["blockers"])
+	}
+}
+
+func TestFlowsReadinessFullIncludesRawPayloads(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "public-flow",
+						"target":   "draft",
+						"ready":    true,
+						"summary":  map[string]any{"activeVersion": 1, "latestVersion": 1},
+						"checks":   []map[string]any{{"id": "definition", "label": "Flow definition", "pass": true}},
+					},
+				},
+			})
+		case "flows.configure.check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data":        map[string]any{"ready": true, "flowSlug": "public-flow", "target": "draft"},
+			})
+		case "flows.public.preflight":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"preflight": map[string]any{
+						"flowSlug": "public-flow",
+						"ready":    true,
+						"public":   map[string]any{"discoverPublic": false, "marketplaceVisible": false},
+						"checks":   []map[string]any{{"id": "discover-public", "label": "Discover visibility", "pass": true}},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", body["command"])
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsReadinessCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"public-flow", "--full"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("readiness execute: %v\n%s", err, out.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	readiness := mapStringAny(mapStringAny(envelope["data"])["readiness"])
+	if mapStringAny(readiness["doctor"]) == nil {
+		t.Fatalf("expected --full readiness to include raw doctor, got %#v", readiness)
+	}
+	if mapStringAny(readiness["publicPreflight"]) == nil {
+		t.Fatalf("expected --full readiness to include raw public preflight, got %#v", readiness)
 	}
 }
 
@@ -910,28 +998,35 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		command, _ := body["command"].(string)
+		args := mapStringAny(body["args"])
 		seenCommands = append(seenCommands, command)
 		switch command {
 		case "flows.doctor":
+			if args["target"] != "draft" {
+				t.Fatalf("expected default readiness target draft, got %#v", args["target"])
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-test",
 				"data": map[string]any{
 					"doctor": map[string]any{
 						"flowSlug": "private-flow",
-						"target":   "live",
+						"target":   "draft",
 						"ready":    true,
 						"summary":  map[string]any{"activeVersion": 1, "latestVersion": 1},
 						"checks":   []map[string]any{{"id": "definition", "label": "Flow definition", "pass": true}},
 					},
 				},
-				"meta": map[string]any{"nextCommands": []string{"breyta flows run private-flow --target live --wait"}},
+				"meta": map[string]any{"nextCommands": []string{"breyta flows run private-flow --target draft --wait"}},
 			})
 		case "flows.configure.check":
+			if args["target"] != "draft" {
+				t.Fatalf("expected default readiness configure target draft, got %#v", args["target"])
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-test",
-				"data":        map[string]any{"ready": true, "flowSlug": "private-flow", "target": "live"},
+				"data":        map[string]any{"ready": true, "flowSlug": "private-flow", "target": "draft"},
 			})
 		case "flows.public.preflight":
 			_ = json.NewEncoder(w).Encode(map[string]any{

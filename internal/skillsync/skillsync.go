@@ -202,7 +202,7 @@ func outdatedSkillWarning(status ProviderStatus) string {
 	if detail == "" {
 		detail = "installed files differ from the current bundle"
 	}
-	return fmt.Sprintf("warning: installed %s Breyta skill is outdated (%s). Update with `%s`.", status.Provider, detail, status.UpdateCommand)
+	return fmt.Sprintf("warning: installed %s Breyta skill is outdated (%s). CLI docs/help are current; refresh agent guidance with `%s`.", status.Provider, detail, status.UpdateCommand)
 }
 
 func missingSkillWarning(status ProviderStatus) string {
@@ -223,7 +223,7 @@ func cachedStatusWarnings(c cacheFile, now time.Time) ([]string, bool) {
 	if now.Sub(c.LastStatusCheckedAt) > statusWarningCachePeriod {
 		return nil, false
 	}
-	return append([]string{}, c.LastStatusWarnings...), true
+	return nil, true
 }
 
 func syncProviders(home string, providers []skills.Provider, files map[string][]byte) ([]skills.Provider, error) {

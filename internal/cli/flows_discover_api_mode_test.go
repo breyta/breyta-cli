@@ -304,7 +304,7 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 	for _, want := range []string{
 		"show up in Discover",
 		":discover {:public true}",
-		"end-user",
+		"public flow",
 		"Release/promote it",
 		"--include-own",
 		"from another workspace",

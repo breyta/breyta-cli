@@ -241,7 +241,7 @@ task touches flows.
    - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `
 6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
 7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
-8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies.
+8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
 9. Keep functions map-oriented; prefer Clojure map access plus ` + "`json/*`" + ` and ` + "`breyta.sandbox/*`" + ` helpers over custom parser/guard layers.
 
 ## Draft/live and release
@@ -341,15 +341,17 @@ Advanced ideas:
   - ` + "`breyta connections list`" + `
   - ` + "`breyta connections show <id>`" + ` for the connection you expect to bind
   - ` + "`breyta connections test <id>`" + ` only when you plan to bind or debug that connection
-- Shape ` + "`:requires`" + ` around stable capability slots before writing ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, reusable ` + "`:agents`" + `, and the final ` + "`:flow`" + `
+- For first proof, inline small one-off transform bodies when that is fastest; before release, extract repeated or bulky content into ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, or reusable ` + "`:agents`" + `
+- Shape ` + "`:requires`" + ` around stable capability slots before binding reusable surfaces and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, lint, push, configure check, run or validate, then diff against live
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks and ` + "`--server`" + ` when canonical pre-push checks matter
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
-- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. ` + "`flows show`" + ` includes a non-editable ` + "`flowLiteralPreview`" + ` when source is available; use ` + "`flows pull`" + ` for editable source.
+- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for editable source.
 - ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only; it must not imply full payload access.
 - For large reports and research artifacts, persist the full body as a resource and move refs, URLs, short summaries, and previews through tables or run output.
+- For intermediate blobs, choose the storage tier deliberately: retained/default for durable or user-visible artifacts; ` + "`:persist {:type :blob :tier :ephemeral}`" + ` on streaming HTTP steps for temporary downloads, exports, generated media, and API responses that should use the more generous transient quota.
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug>`" + ` so ` + "`groupFlows`" + ` is visible
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `

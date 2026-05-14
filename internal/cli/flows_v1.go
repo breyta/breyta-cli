@@ -248,6 +248,8 @@ Advanced rollout workflow (optional):
 Quick commands:
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
+- breyta flows lint --file ./tmp/flows/<slug>.clj --local-only
+- breyta flows paren-check --file ./tmp/flows/<slug>.clj
 - breyta flows push --file ./tmp/flows/<slug>.clj
 - breyta flows update <slug> --group-order 10
 - breyta flows diff <slug>
@@ -306,7 +308,7 @@ Advanced install lifecycle:
 Public discover notes:
 - :discover {:public true} authored in a flow file persists as stored metadata on push.
 - Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
-- Public discover requires the end-user tag and a released/installable flow.
+- Public discover requires explicit discover visibility and a released/installable flow.
 - breyta flows search "<query>" --limit 5 searches actual workspace flow metadata. Approved reusable templates live under breyta flows templates search "<query>" --limit 5, and public installables use breyta flows discover search "<query>".
 		`),
 	}
@@ -371,24 +373,31 @@ Public discover notes:
 func newFlowsParenRepairCmd(app *App) *cobra.Command {
 	var write bool
 	var verbose bool
+	var files []string
 
 	cmd := &cobra.Command{
-		Use:   "paren-repair <files...>",
+		Use:   "paren-repair [files...]",
 		Short: "Repair unbalanced Clojure delimiters in flow files (local)",
 		Long: strings.TrimSpace(`
 Repair unbalanced delimiters in one or more local .clj flow files.
 
 This is intended as an escape hatch when LLM edits introduce delimiter errors.
+By default this command is a dry run; pass --write to update files in place.
 `),
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			results := make([]map[string]any, 0, len(args))
+			allFiles := append([]string{}, files...)
+			allFiles = append(allFiles, args...)
+			if len(allFiles) == 0 {
+				return writeErr(cmd, errors.New("missing file path (use --file <path> or pass a positional file)"))
+			}
+			results := make([]map[string]any, 0, len(allFiles))
 			changedAny := false
 
 			parinferPath := tools.FindParinferRust()
 			parinferRunner := parinfer.Runner{BinaryPath: parinferPath}
 
-			for _, path := range args {
+			for _, path := range allFiles {
 				b, err := os.ReadFile(path)
 				if err != nil {
 					return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
@@ -453,28 +462,40 @@ This is intended as an escape hatch when LLM edits introduce delimiter errors.
 		},
 	}
 
-	cmd.Flags().BoolVar(&write, "write", true, "Write changes to files (in-place)")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Path to local .clj flow source; repeat for multiple files")
+	cmd.Flags().BoolVar(&write, "write", false, "Write repaired changes to files in place")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Include per-fix details in output (fallback engine only)")
 	return cmd
 }
 
 func newFlowsParenCheckCmd(app *App) *cobra.Command {
+	var file string
 	cmd := &cobra.Command{
-		Use:   "paren-check <file>",
+		Use:   "paren-check [file]",
 		Short: "Check that a flow file has balanced delimiters (local)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := args[0]
+			path := strings.TrimSpace(file)
+			if len(args) > 0 {
+				if path != "" && path != args[0] {
+					return writeErr(cmd, errors.New("provide either --file or a positional file, not both"))
+				}
+				path = args[0]
+			}
+			if path == "" {
+				return writeErr(cmd, errors.New("missing file path (use --file <path> or pass a positional file)"))
+			}
 			b, err := os.ReadFile(path)
 			if err != nil {
 				return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
 			}
 			if err := parenrepair.Check(string(b)); err != nil {
-				return writeFailure(cmd, app, "clojure_delimiters_invalid", err, "Run: breyta flows paren-repair --write <file>", map[string]any{"path": path})
+				return writeFailure(cmd, app, "clojure_delimiters_invalid", err, "Run: breyta flows paren-repair --write --file "+path, map[string]any{"path": path})
 			}
 			return writeData(cmd, app, nil, map[string]any{"path": path, "ok": true})
 		},
 	}
+	cmd.Flags().StringVar(&file, "file", "", "Path to local .clj flow source")
 	return cmd
 }
 
@@ -588,10 +609,14 @@ func newFlowsListCmd(app *App) *cobra.Command {
 	var pageSize int
 	var includeArchived bool
 	var cursor string
+	var outFormat string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List flows",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateJSONOnlyFormat(outFormat, "flows list"); err != nil {
+				return writeErr(cmd, err)
+			}
 			if isAPIMode(app) {
 				if limit < 0 {
 					return writeErr(cmd, fmt.Errorf("invalid --limit: must be >= 0"))
@@ -612,6 +637,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 				var nextCursor string
 				hasMore := false
 				seenCursors := map[string]bool{}
+				var localWorkspaceBootstrap any
 
 				for {
 					reqLimit := pageSize
@@ -646,6 +672,9 @@ func newFlowsListCmd(app *App) *cobra.Command {
 					allItems = append(allItems, pageItems...)
 
 					meta, _ := out["meta"].(map[string]any)
+					if localWorkspaceBootstrap == nil && meta != nil {
+						localWorkspaceBootstrap = meta["localWorkspaceBootstrap"]
+					}
 					if hm, ok := meta["hasMore"].(bool); ok {
 						hasMore = hm
 					} else {
@@ -684,6 +713,9 @@ func newFlowsListCmd(app *App) *cobra.Command {
 					if wantAll {
 						metaOut["hint"] = "More available. Continue with: breyta flows list --cursor " + nextCursor + " --limit 0"
 					}
+				}
+				if localWorkspaceBootstrap != nil {
+					metaOut["localWorkspaceBootstrap"] = localWorkspaceBootstrap
 				}
 
 				out := map[string]any{
@@ -755,6 +787,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Page size for API pagination (1-100)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived flows")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (start after this flow slug)")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	return cmd
 }
 
@@ -1080,9 +1113,10 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var noRepairWriteback bool
 	var validate bool
 	var deployKey string
+	var includeProvenance bool
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Push a local .clj flow file as an updated working copy",
+		Short: "Push a local .clj flow file as a draft, creating the flow if needed",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Push requires --api/BREYTA_API_URL")
@@ -1175,7 +1209,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			}
 			if !validate {
 				if flowSlug != "" {
-					_ = appendProvenanceHints(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
+					_ = appendProvenanceHintsWithOptions(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug, includeProvenance)
 				}
 				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 					"product":   "flows",
@@ -1209,7 +1243,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
-				_ = appendProvenanceHints(validateOut, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
+				_ = appendProvenanceHintsWithOptions(validateOut, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug, includeProvenance)
 				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 					"product":         "flows",
 					"channel":         "cli",
@@ -1225,7 +1259,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				meta["validated"] = true
 				meta["validateSource"] = "draft"
 			}
-			_ = appendProvenanceHints(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug)
+			_ = appendProvenanceHintsWithOptions(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug, includeProvenance)
 			trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 				"product":         "flows",
 				"channel":         "cli",
@@ -1242,6 +1276,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
+	cmd.Flags().BoolVar(&includeProvenance, "provenance", false, "Include full consulted provenance candidate list in output")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
@@ -1304,7 +1339,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 Update mutable flow metadata such as name, description, publish description, discover card media, tags, grouping, and display icon selection.
 
 Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true|false`" + `.
-Use ` + "`tags`" + ` here to mark a flow as ` + "`end-user`" + ` before turning on public discover.
+Use ` + "`tags`" + ` here for ordinary metadata/category labels.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.

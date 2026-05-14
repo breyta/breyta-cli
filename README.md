@@ -160,13 +160,14 @@ source structure while omitting heavy leaves; use `flows pull` for editable
 source. `--pretty` changes formatting only; it does not request full payloads.
 For large reports and research artifacts, store full bodies as resources and
 move refs, URLs, short summaries, and previews through tables or run output.
+For intermediate blobs, choose the tier deliberately: retained/default for
+durable or user-visible artifacts, and `:persist {:type :blob :tier
+:ephemeral}` on streaming HTTP steps for temporary downloads, exports, generated
+media, and API responses that should use the more generous transient quota.
 
 If the flow should appear in public discover/install surfaces, make that explicit:
 
 ```bash
-# Tag it as end-user installable
-breyta flows update <slug> --tags 'end-user,...'
-
 # Either author this in the flow file:
 # :discover {:public true}
 #
@@ -174,8 +175,8 @@ breyta flows update <slug> --tags 'end-user,...'
 breyta flows discover update <slug> --public=true
 ```
 
-Public discover visibility is stored flow metadata. A released version and the
-`end-user` tag are both required before the flow can be exposed in discover.
+Public discover visibility is stored flow metadata. A released version with an
+installable interface is required before the flow can be exposed in discover.
 This discover catalog is separate from `breyta flows search`, which searches
 actual workspace flow metadata, and from `breyta flows templates search`, which
 searches approved reusable templates to inspect and copy from.

@@ -460,6 +460,48 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 	}
 }
 
+func TestResourcesTableQuery_DefaultsToOffsetPageMode(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/query" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		page, _ := body["page"].(map[string]any)
+		if got, _ := page["mode"].(string); got != "offset" {
+			t.Fatalf("expected default page.mode=offset, got %#v", page["mode"])
+		}
+		if got, _ := page["limit"].(float64); got != 5 {
+			t.Fatalf("expected page.limit=5, got %#v", page["limit"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tableName": "orders",
+			"rows":      []any{},
+			"count":     0,
+			"page": map[string]any{
+				"mode":  "offset",
+				"limit": 5,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "query", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--limit", "5",
+	)
+	if err != nil {
+		t.Fatalf("resources table query without page-mode failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestResourcesTableQuery_SendsCursorPayloadWhenRequested(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/table/query" {

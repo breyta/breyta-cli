@@ -62,7 +62,7 @@ func fetchInstallationInterfaceMetadata(ctx context.Context, app *App, installat
 		return resp, status, nil, "", nil
 	}
 	data := mapStringAny(resp["data"])
-	flowSlug := firstNonBlankString(data["flowSlug"], data["flow-slug"])
+	flowSlug := firstNonBlankString(data["sourceFlowSlug"], data["source-flow-slug"], data["flowSlug"], data["flow-slug"])
 	if flowSlug == "" {
 		return nil, 0, nil, "", errors.New("installation response is missing flowSlug")
 	}
@@ -74,6 +74,7 @@ func fetchInstallationInterfaceMetadata(ctx context.Context, app *App, installat
 	if resolvedVersion := firstPositiveInt(data["version"], data["installedVersion"], data["installed-version"]); resolvedVersion > 0 {
 		payload["version"] = resolvedVersion
 	}
+	addInstallationSourceLookupArgs(payload, data)
 	resp, status, err = runAPICommandWithContext(ctx, app, "flows.get", payload)
 	if err != nil {
 		return nil, 0, nil, "", err

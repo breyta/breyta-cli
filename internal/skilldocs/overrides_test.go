@@ -178,6 +178,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
 		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, ":persist {:type :blob :tier :ephemeral}") {
+		t.Fatalf("expected ephemeral blob tier guidance, got:\n%s", body)
+	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")
 	}

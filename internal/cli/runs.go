@@ -209,7 +209,7 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 				})
 			}
 			if !includeSteps {
-				meta["hint"] = "List returns summaries. Use `breyta runs show <workflow-id>` for full detail, or pass --include-steps."
+				meta["hint"] = "List returns summaries. Use runs show for details."
 			}
 
 			return writeData(cmd, app, meta, map[string]any{
@@ -275,6 +275,8 @@ To access run resources, use the resources command:
 				}
 				if errorsOnly {
 					filterRunErrorsOnly(out, args[0])
+				} else {
+					annotateRunsShowDefaultOutput(out, args[0], includeSteps || includeResult || full)
 				}
 				if err := writeAPIResult(cmd, app, out, status); err != nil {
 					return writeErr(cmd, err)
@@ -316,6 +318,43 @@ To access run resources, use the resources command:
 	cmd.Flags().BoolVar(&errorsOnly, "errors", false, "Show only run-level and failed step errors in API mode")
 	_ = cmd.Flags().MarkHidden("profile-id")
 	return cmd
+}
+
+func annotateRunsShowDefaultOutput(out map[string]any, workflowID string, expanded bool) {
+	if out == nil || expanded {
+		return
+	}
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return
+	}
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return
+	}
+	if steps, ok := run["steps"]; ok {
+		if len(sliceAny(steps)) == 0 {
+			delete(run, "steps")
+			run["stepsOmitted"] = true
+		}
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["stepsIncluded"] = false
+	meta["stepsOmitted"] = true
+	if _, exists := meta["hint"]; !exists {
+		meta["hint"] = "Run detail is compact; use nextCommands for steps/resources."
+	}
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID == "" {
+		workflowID = "<workflow-id>"
+	}
+	appendMetaNextCommands(meta,
+		"breyta runs show "+workflowID+" --include-steps",
+		"breyta runs inspect "+workflowID,
+		"breyta resources workflow list "+workflowID)
 }
 
 func filterRunErrorsOnly(out map[string]any, workflowID string) {
@@ -478,7 +517,15 @@ Use runs start only when integrating with older scripts.
 					statusStr, _ := run["status"].(string)
 
 					if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" || statusStr == "canceled" || statusStr == "terminated" || statusStr == "timed-out" || statusStr == "timed_out" {
-						return writeAPIResult(cmd, app, execResp, execStatus)
+						finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, "")
+						if err != nil {
+							return writeErr(cmd, err)
+						}
+						if finalStatus >= 400 {
+							finalResp = execResp
+							finalStatus = execStatus
+						}
+						return writeAPIResult(cmd, app, finalResp, finalStatus)
 					}
 					if time.Now().After(deadline) {
 						// Important UX: still return the workflowId so callers can continue
@@ -495,7 +542,7 @@ Use runs start only when integrating with older scripts.
 							},
 							"meta": map[string]any{
 								"timedOut": true,
-								"hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status, or `breyta waits list --workflow-id <workflow-id>` if the run is waiting for human input.",
+								"hint":     "Run may still be active. Check runs show or waits list.",
 							},
 							"data": map[string]any{
 								"workflowId": workflowID,
@@ -679,7 +726,7 @@ func compactRunInspectOutput(out map[string]any, workflowID string) {
 	meta["compactInspect"] = true
 	meta["stepsTotal"] = len(steps)
 	if _, ok := meta["hint"]; !ok {
-		meta["hint"] = "Run inspection is compact by default. Use `breyta runs show " + strings.TrimSpace(workflowID) + " --full` when full payloads are required."
+		meta["hint"] = "Run inspection is compact. Use --full only for full payloads."
 	}
 }
 
@@ -1378,7 +1425,7 @@ func newRunsLogsCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			// We don't have real logs yet; return a structured placeholder.
-			meta := map[string]any{"hint": "Logs are planned (per-step, per-attempt). Use `runs events` for a timeline today."}
+			meta := map[string]any{"hint": "Logs are planned. Use runs events for a timeline today."}
 			return writeData(cmd, app, meta, map[string]any{"runId": r.WorkflowID, "stepId": stepID, "items": []any{}})
 		},
 	}

@@ -311,7 +311,8 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
 const largeArtifactHygieneBullets = `- For large artifacts, keep chat and run summaries small: report resource refs, signed URLs, and short previews instead of pasting full table/resource content.
 - ` + "`breyta resources read <uri>`" + ` is the normal bounded inspection path for agents. It returns compact blob previews and table row/cell previews by default; use ` + "`--full`" + ` only when the whole payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only. It must not be used as a shortcut for full payload access.
-- When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.`
+- When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.
+- For blob persists, choose the tier before authoring the step: retained/default for durable or user-visible artifacts, and ` + "`:persist {:type :blob :tier :ephemeral}`" + ` on streaming HTTP steps for temporary downloads, exports, generated media, and API response blobs that should use the more generous transient quota.`
 
 const workflowQualityContractSection = `## Workflow quality contract (Required)
 
@@ -335,7 +336,7 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
 - do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
 - for installable/public flows, verify Discover install plus an installed run when install behavior matters
-- installable checklist: explicit author approval, ` + "`end-user`" + ` tag, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- installable checklist: explicit author approval, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe

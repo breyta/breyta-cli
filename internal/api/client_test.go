@@ -155,6 +155,80 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	}
 }
 
+func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
+	commandCalls := 0
+	bootstrapCalls := 0
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/commands":
+			commandCalls++
+			if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing workspace"})
+				return
+			}
+			if commandCalls == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "Access denied: not a workspace member"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"items": []any{}}})
+		case "/api/debug/workspace/bootstrap":
+			bootstrapCalls++
+			if got := r.Header.Get("Authorization"); got != "Bearer user-dev" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing auth"})
+				return
+			}
+			if got := r.Header.Get("x-debug-user-id"); got != "user-dev" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing debug user"})
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["workspaceId"] != "ws-acme" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "wrong workspace"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "created": false, "member": true, "role": "admin"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "flows.list", map[string]any{"limit": 1})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected retry status 200, got %d", status)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected command retry after bootstrap, got %d command calls", commandCalls)
+	}
+	if bootstrapCalls != 1 {
+		t.Fatalf("expected one bootstrap call, got %d", bootstrapCalls)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	bootstrap, _ := meta["localWorkspaceBootstrap"].(map[string]any)
+	if bootstrap["workspaceId"] != "ws-acme" || bootstrap["reason"] != "membership-403" {
+		t.Fatalf("missing bootstrap metadata: %#v", out)
+	}
+}
+
+func TestClient_DoCommand_LocalMembershipBootstrapRequiresLoopback(t *testing.T) {
+	c := Client{BaseURL: "https://flows.breyta.ai", WorkspaceID: "ws-acme"}
+	out := map[string]any{"error": "Access denied: not a workspace member"}
+	if c.shouldAutoBootstrapLocalWorkspace(out, http.StatusForbidden) {
+		t.Fatal("did not expect bootstrap for non-loopback API")
+	}
+}
+
 func TestClient_DoGlobalCommand_UsesGlobalEndpointWithoutWorkspaceHeader(t *testing.T) {
 	var got map[string]any
 	var gotWorkspaceHeader string

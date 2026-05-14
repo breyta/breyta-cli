@@ -115,7 +115,15 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				run, _ := runAny.(map[string]any)
 				statusStr, _ := run["status"].(string)
 				if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" || statusStr == "canceled" || statusStr == "terminated" || statusStr == "timed-out" || statusStr == "timed_out" {
-					return writeAPIResult(cmd, app, execResp, execStatus)
+					finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, "")
+					if err != nil {
+						return writeErr(cmd, err)
+					}
+					if finalStatus >= 400 {
+						finalResp = execResp
+						finalStatus = execStatus
+					}
+					return writeAPIResult(cmd, app, finalResp, finalStatus)
 				}
 				if time.Now().After(deadline) {
 					timeoutOut := map[string]any{

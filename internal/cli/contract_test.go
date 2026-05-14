@@ -487,8 +487,8 @@ func TestContract_FormatFlagRejected(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error for --format edn; got success\n---\n%s", stdout)
 	}
-	if !bytes.Contains([]byte(stderr), []byte("unknown flag: --format")) {
-		t.Fatalf("expected error to mention unknown flag\n---\nstderr:\n%s\n---\nstdout:\n%s", stderr, stdout)
+	if !bytes.Contains([]byte(stderr), []byte(`invalid --format "edn"`)) {
+		t.Fatalf("expected error to mention invalid format\n---\nstderr:\n%s\n---\nstdout:\n%s", stderr, stdout)
 	}
 }
 

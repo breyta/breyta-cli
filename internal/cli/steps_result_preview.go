@@ -17,7 +17,7 @@ const (
 	stepResultPreviewDefaultRunes  = 1200
 	stepResultPreviewStringRunes   = 160
 	stepResultPreviewKeyLimit      = 20
-	stepResultPreviewTestsItemHint = "Step test values are compact by default. Use --full only when params, expected, and actual values must be inspected in full."
+	stepResultPreviewTestsItemHint = "Step test values are compact. Use --full for params/expected/actual."
 )
 
 type stepResultPreviewOptions struct {
@@ -76,7 +76,7 @@ func compactStepsRunResult(out map[string]any, stepID string, opts stepResultPre
 	if meta != nil {
 		meta["outputView"] = "compact"
 		if _, exists := meta["hint"]; !exists {
-			meta["hint"] = "Step result output is compact by default. Use --result-path <path> to focus one branch, --result-file <path> to save the full result locally, or --full when the complete data.result is required."
+			meta["hint"] = "Step result is compact. Use --result-path, --result-file, or --full for more."
 		}
 	}
 	return nil

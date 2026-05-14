@@ -417,6 +417,38 @@ func compactRunsGetPayload(workflowID string) map[string]any {
 	}
 }
 
+func finalWaitRunsGetPayload(workflowID string) map[string]any {
+	return map[string]any{
+		"workflowId":    workflowID,
+		"includeSteps":  true,
+		"includeResult": false,
+	}
+}
+
+func hydrateTerminalWaitRun(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
+	payload := finalWaitRunsGetPayload(workflowID)
+	if strings.TrimSpace(installationID) != "" {
+		payload["installationId"] = strings.TrimSpace(installationID)
+	}
+	out, status, err := client.DoCommand(context.Background(), "runs.get", payload)
+	if err != nil {
+		return nil, status, err
+	}
+	compactWaitRunOutput(out)
+	return out, status, nil
+}
+
+func compactWaitRunOutput(out map[string]any) {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return
+	}
+	if _, ok := run["steps"]; ok {
+		run["steps"] = []any{}
+	}
+}
+
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
 	url := activationURL(app, flowSlug)
 	meta := ensureMeta(out)
@@ -430,8 +462,13 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 		}
 	}
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow uses :requires slots. Connect-first recommendation: reuse or create+test connections before wiring (breyta connections list; breyta connections create ...; breyta connections test <connection-id>). Then configure workspace target and promote live when needed: breyta flows configure " + flowSlug + " --set <slot>.conn=conn-...; breyta flows promote " + flowSlug + ". Run against live explicitly with --target live or target a specific install with --installation-id <id>."
+		meta["hint"] = "Flow needs required setup before live/install runs."
 	}
+	appendMetaNextCommands(meta,
+		"breyta connections list",
+		"breyta connections test <connection-id>",
+		"breyta flows configure "+flowSlug+" --set <slot>.conn=conn-...",
+		"breyta flows promote "+flowSlug)
 }
 
 func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
@@ -522,7 +559,9 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		}
 	case "runs.start", "flows.run":
 		if status >= 400 || !isOK(out) {
-			if runFailureShouldUseDraftBindings(command, args, out) {
+			if runFailureIsMissingFlow(out) {
+				addMissingFlowAuthoringHint(out, slug)
+			} else if runFailureShouldUseDraftBindings(command, args, out) {
 				addDraftBindingsHint(app, out, slug)
 			} else {
 				addActivationHint(app, out, slug)
@@ -559,6 +598,49 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 			if getErr == nil && getStatus < 400 && flowLiteralDeclaresRequires(getOut) {
 				addActivationHint(app, out, slug)
 			}
+		}
+	}
+}
+
+func runFailureIsMissingFlow(out map[string]any) bool {
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return false
+	}
+	code := strings.ToLower(firstNonBlankString(errMap["code"]))
+	message := strings.ToLower(firstNonBlankString(errMap["message"]))
+	return strings.Contains(code, "not_found") && strings.Contains(message, "flow not found")
+}
+
+func addMissingFlowAuthoringHint(out map[string]any, flowSlug string) {
+	flowSlug = strings.TrimSpace(flowSlug)
+	if flowSlug == "" {
+		flowSlug = "<slug>"
+	}
+	meta := ensureMeta(out)
+	if meta != nil {
+		if _, exists := meta["hint"]; !exists {
+			meta["hint"] = "No flow with that slug exists in this workspace."
+		}
+		appendMetaNextCommands(meta,
+			"breyta flows push --file <file>",
+			"breyta flows create --slug "+flowSlug,
+			"breyta flows list --limit 10")
+	}
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return
+	}
+	details := mapStringAny(errMap["details"])
+	if details == nil {
+		details = map[string]any{}
+		errMap["details"] = details
+	}
+	if _, exists := details["nextCommands"]; !exists {
+		details["nextCommands"] = []any{
+			"breyta flows push --file <file>",
+			"breyta flows create --slug " + flowSlug,
+			"breyta flows list --limit 10",
 		}
 	}
 }
@@ -710,6 +792,117 @@ func firstNonBlankString(values ...any) string {
 		}
 	}
 	return ""
+}
+
+func appendMetaNextCommands(meta map[string]any, commands ...string) {
+	if meta == nil {
+		return
+	}
+	seen := map[string]struct{}{}
+	var out []any
+	for _, existing := range sliceAny(meta["nextCommands"]) {
+		cmd := firstNonBlankString(existing)
+		if cmd == "" {
+			continue
+		}
+		if _, ok := seen[cmd]; ok {
+			continue
+		}
+		seen[cmd] = struct{}{}
+		out = append(out, cmd)
+	}
+	for _, cmd := range commands {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
+		}
+		if _, ok := seen[cmd]; ok {
+			continue
+		}
+		seen[cmd] = struct{}{}
+		out = append(out, cmd)
+	}
+	if len(out) > 0 {
+		meta["nextCommands"] = out
+	}
+}
+
+func validateJSONOnlyFormat(raw, command string) error {
+	format := strings.TrimSpace(strings.ToLower(raw))
+	if format == "" || format == "json" {
+		return nil
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		command = "this command"
+	}
+	return fmt.Errorf("invalid --format %q (%s supports json output only)", raw, command)
+}
+
+func workflowIDFromEnvelope(out map[string]any) string {
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return ""
+	}
+	if workflowID := firstNonBlankString(data["workflowId"], data["workflow-id"]); workflowID != "" {
+		return workflowID
+	}
+	if run := mapStringAny(data["run"]); run != nil {
+		if workflowID := firstNonBlankString(run["workflowId"], run["workflow-id"], run["id"]); workflowID != "" {
+			return workflowID
+		}
+	}
+	if errMap := mapStringAny(out["error"]); errMap != nil {
+		if details := mapStringAny(errMap["details"]); details != nil {
+			return firstNonBlankString(details["workflowId"], details["workflow-id"])
+		}
+	}
+	return ""
+}
+
+func envelopeTextContains(out map[string]any, needles ...string) bool {
+	if out == nil {
+		return false
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return false
+	}
+	text := strings.ToLower(string(b))
+	for _, needle := range needles {
+		if strings.Contains(text, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichExternalRequestFailureHints(out map[string]any) {
+	if out == nil || isOK(out) {
+		return
+	}
+	if !envelopeTextContains(out, "read timed out", "deadline exceeded", "request timed out", "timed out waiting for response") {
+		return
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	if _, exists := meta["diagnosticHint"]; !exists {
+		meta["diagnosticHint"] = "External request timed out. Inspect failed steps and HTTP timeout/retry/persist settings."
+	}
+	if _, exists := meta["hint"]; !exists {
+		meta["hint"] = "Inspect failed steps; check HTTP timeout/retry/persist fields."
+	}
+	workflowID := workflowIDFromEnvelope(out)
+	if workflowID == "" {
+		workflowID = "<workflow-id>"
+	}
+	appendMetaNextCommands(meta,
+		"breyta runs show "+workflowID+" --errors",
+		"breyta runs inspect "+workflowID,
+		"breyta resources workflow list "+workflowID,
+		"breyta docs fields http timeout retry persist --format json")
 }
 
 func defaultRecoveryActionLabel(kind string) string {
@@ -1217,8 +1410,12 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				meta["hint"] = "This error usually means the flow needs configuration + installation promotion. Use: breyta flows configure <slug> --set <slot>.conn=conn-...; breyta flows promote <slug>; then run with --target live or --installation-id <id>."
+				meta["hint"] = "Flow setup is incomplete for this target."
 			}
+			appendMetaNextCommands(meta,
+				"breyta flows configure <slug> --set <slot>.conn=conn-...",
+				"breyta flows promote <slug>",
+				"breyta flows run <slug> --target live --wait")
 		}
 	}
 
@@ -1232,7 +1429,8 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 				if ws == "" {
 					ws = "<workspace-id>"
 				}
-				meta["hint"] = "If you're running flows-api locally and see membership 403s after restarts, bootstrap the workspace/membership: breyta workspaces bootstrap " + ws
+				meta["hint"] = "Local workspace membership missing."
+				appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
 			}
 		}
 	}
@@ -1246,6 +1444,7 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 			}
 		}
 	}
+	enrichExternalRequestFailureHints(v)
 	enrichEnvelopeWebLinks(app, v)
 	ensureErrorRecoveryActions(app, v)
 

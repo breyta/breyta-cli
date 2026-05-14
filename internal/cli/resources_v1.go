@@ -633,7 +633,7 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&whereJSON, "where-json", "", "Raw JSON predicate vector, e.g. [[\"status\",\"=\",\"open\"]]")
 	cmd.Flags().StringVar(&sortJSON, "sort-json", "", "Raw JSON sort vector, e.g. [[\"updated-at\",\"desc\"]]")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Page size (1-1000)")
-	cmd.Flags().StringVar(&pageMode, "page-mode", "", "Pagination mode: offset or cursor")
+	cmd.Flags().StringVar(&pageMode, "page-mode", "", "Pagination mode: offset or cursor (defaults to offset for bounded reads; --cursor implies cursor)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Page offset (>=0)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque pagination cursor for forward scans")
 	cmd.Flags().BoolVar(&includeTotalCount, "include-total-count", false, "Include total-count in cursor-paged responses")
@@ -728,7 +728,7 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 				"meta": map[string]any{
 					"nextCommands": []string{
 						"breyta resources read " + uri,
-						"breyta resources table query " + uri + " --page-mode offset --limit " + strconv.Itoa(limit),
+						"breyta resources table query " + uri + " --limit " + strconv.Itoa(limit),
 						"breyta resources url " + uri,
 					},
 				},
@@ -870,7 +870,11 @@ func restDataPayload(out map[string]any) map[string]any {
 
 func buildTableQueryPage(cmd *cobra.Command, mode string, limit int, offset int, cursor string, includeTotalCount bool, sortValue any) (map[string]any, error) {
 	if !cmd.Flags().Changed("page-mode") {
-		return nil, errors.New("query requires --page-mode offset|cursor")
+		if cmd.Flags().Changed("cursor") || cmd.Flags().Changed("include-total-count") {
+			mode = "cursor"
+		} else {
+			mode = "offset"
+		}
 	}
 	page := map[string]any{
 		"mode":  strings.TrimSpace(mode),

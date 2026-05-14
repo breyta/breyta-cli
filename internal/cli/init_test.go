@@ -114,6 +114,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta resources search \"<query>\" --limit 5`",
 		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
 		"Persist large or unknown payloads with `:persist`",
+		"`:tier :ephemeral` on streaming `:http` steps",
 		"Keep functions map-oriented",
 		"Do not run `breyta connections test --all`",
 		"After two failed edit/run cycles, stop and re-plan.",

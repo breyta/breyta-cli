@@ -74,6 +74,7 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var name string
 	var sourceWorkspaceID string
 	var sourceFlowSlug string
+	var enable bool
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
 		Short: "Create a new installation",
@@ -92,12 +93,16 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(sourceFlowSlug) != "" {
 				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
 			}
+			if enable {
+				payload["enabled"] = true
+			}
 			return doAPICommand(cmd, app, "flows.installations.create", payload)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Installation name (optional)")
 	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id (advanced)")
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override (advanced)")
+	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the installation after create when setup is ready")
 	return cmd
 }
 

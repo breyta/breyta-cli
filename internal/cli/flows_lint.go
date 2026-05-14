@@ -14,7 +14,8 @@ import (
 type flowLintDiagnostic map[string]any
 
 var (
-	flowLintWorkspaceIDRe = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
+	flowLintWorkspaceIDRe    = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
+	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
 )
 
 func newFlowsLintCmd(app *App) *cobra.Command {
@@ -156,7 +157,7 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 		hint := "Fix malformed Clojure/EDN before pushing."
 		if errors.Is(err, parenrepair.ErrUnbalancedDelimiters) {
 			code = "clojure_delimiters_invalid"
-			hint = "Run: breyta flows paren-repair --write " + file
+			hint = "Run: breyta flows paren-repair --write --file " + file
 		}
 		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
 		return diagnostics
@@ -181,6 +182,9 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 	}
 	if containsLongQuotedString(flowLiteral, 4000) {
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "large_inline_string", []string{":flow"}, "Flow source contains a large inline string.", "Prefer :persist, templates, files, or resource refs for large payloads.", "local"))
+	}
+	if flowLintUnboundedRangeRe.MatchString(flowLiteral) {
+		diagnostics = append(diagnostics, lintDiagnostic("warning", "sandbox_unbounded_range", []string{":flow"}, "Flow source calls unbounded (range), which is rejected by the runtime sandbox.", "Use a bounded range such as (range n), take from a finite collection, or derive limits from invocation inputs.", "local"))
 	}
 	return diagnostics
 }

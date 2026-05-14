@@ -70,15 +70,13 @@ func newFlowsReadinessCmd(app *App) *cobra.Command {
 	var includePublicPreflight bool
 	var requirePublic bool
 	var requireMarketplace bool
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "readiness <slug>",
 		Short: "Return one compact flow readiness report",
 		Long: strings.TrimSpace(`
-Return a compact readiness report that merges definition, configuration, and
-public/marketplace preflight checks. Use this before release or public install
-proof to avoid stitching together several separate commands. Public preflight is
-included by default as a snapshot; pass --public or --marketplace when that
-surface should block readiness.
+Compact draft/live readiness report. Use --public or --marketplace when those
+surfaces should block readiness. Use --full for raw doctor/preflight payloads.
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -87,19 +85,21 @@ surface should block readiness.
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			return doFlowsReadinessCommand(cmd, app, flowSlug, resolvedTarget, includePublicPreflight || requirePublic || requireMarketplace, requirePublic, requireMarketplace)
+			return doFlowsReadinessCommand(cmd, app, flowSlug, resolvedTarget, includePublicPreflight || requirePublic || requireMarketplace, requirePublic, requireMarketplace, full)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "live", "Target to inspect: draft|live")
+	cmd.Flags().StringVar(&target, "target", "draft", "Target to inspect: draft|live")
 	cmd.Flags().BoolVar(&includePublicPreflight, "public-preflight", true, "Include public Discover/install preflight snapshot")
 	cmd.Flags().BoolVar(&requirePublic, "public", false, "Require public Discover/install readiness")
 	cmd.Flags().BoolVar(&requireMarketplace, "marketplace", false, "Require marketplace readiness")
+	cmd.Flags().BoolVar(&full, "full", false, "Include raw doctor and public preflight payloads")
 	return cmd
 }
 
 func newFlowsReleaseCheckCmd(app *App) *cobra.Command {
 	var public bool
 	var marketplace bool
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "release-check <slug>",
 		Short: "Check live/public release readiness",
@@ -109,15 +109,16 @@ public install and marketplace surfaces in the same compact report.
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return doFlowsReadinessCommand(cmd, app, strings.TrimSpace(args[0]), "live", public || marketplace, public, marketplace)
+			return doFlowsReadinessCommand(cmd, app, strings.TrimSpace(args[0]), "live", public || marketplace, public, marketplace, full)
 		},
 	}
 	cmd.Flags().BoolVar(&public, "public", false, "Include public Discover/install preflight")
 	cmd.Flags().BoolVar(&marketplace, "marketplace", false, "Include public marketplace preflight")
+	cmd.Flags().BoolVar(&full, "full", false, "Include raw doctor and public preflight payloads")
 	return cmd
 }
 
-func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target string, includePublic bool, requirePublic bool, requireMarketplace bool) error {
+func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target string, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) error {
 	doctorOut, status, err := buildFlowsDoctorReport(app, flowSlug, target, map[string]any{
 		"flowSlug": flowSlug,
 		"target":   target,
@@ -140,11 +141,11 @@ func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target stri
 		}
 	}
 
-	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, includePublic, requirePublic, requireMarketplace)
+	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, includePublic, requirePublic, requireMarketplace, full)
 	return writeAPIResult(cmd, app, readiness, 200)
 }
 
-func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool) map[string]any {
+func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
 	doctor := flowsDoctorBody(doctorOut)
 	preflight := mapStringAny(mapStringAny(publicOut["data"])["preflight"])
 	doctorReady := boolValue(doctor["ready"])
@@ -179,7 +180,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			"label":   "Marketplace visible",
 			"pass":    marketplaceReady,
 			"surface": "marketplace",
-			"hint":    "Run `breyta flows marketplace update " + flowSlug + " --visible=true` after explicit author approval.",
+			"hint":    "Enable marketplace visibility after approval.",
 		})
 	}
 	blockers := []any{}
@@ -210,45 +211,57 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		doctor["webUrl"],
 		preflight["webUrl"],
 	)
+	webURL = normalizeLocalhostWebURL(webURL)
 	summary := mapStringAny(doctor["summary"])
 	activeVersion := firstPresent(summary, "activeVersion", "active-version")
 	latestVersion := firstPresent(summary, "latestVersion", "latest-version")
 	workspaceID := firstNonBlankString(doctorOut["workspaceId"], publicOut["workspaceId"], app.WorkspaceID)
+	readiness := map[string]any{
+		"flowSlug":            flowSlug,
+		"target":              target,
+		"ready":               doctorReady && (!publicRequired || publicReady) && (!requireMarketplace || marketplaceReady),
+		"definitionReady":     boolValue(doctor["definitionReady"]),
+		"configurationReady":  boolValue(doctor["configurationReady"]),
+		"publicReady":         publicReady,
+		"publicIncluded":      includePublic,
+		"publicRequired":      publicRequired,
+		"marketplaceReady":    marketplaceReady,
+		"marketplaceRequired": requireMarketplace,
+		"summary":             doctor["summary"],
+		"draftLive":           map[string]any{"activeVersion": activeVersion, "latestVersion": latestVersion, "draftAhead": versionsSuggestDraftAhead(activeVersion, latestVersion)},
+		"configuration":       doctor["configuration"],
+		"public":              preflight["public"],
+		"discover":            preflight["discover"],
+		"marketplace":         preflight["marketplace"],
+		"installability":      preflight["installability"],
+		"pricing":             preflight["pricing"],
+		"checks":              checks,
+		"blockers":            blockers,
+	}
+	if full {
+		readiness["doctor"] = doctor
+		readiness["publicPreflight"] = preflight
+	}
 	return map[string]any{
 		"ok":          true,
 		"workspaceId": workspaceID,
 		"meta": map[string]any{
 			"webUrl":       webURL,
 			"nextCommands": nextCommands,
-			"hint":         "Readiness is compact by default. Drill into the failed check's next command instead of running broad inventory.",
+			"hint":         "Readiness is compact. Follow blocker nextCommands.",
 		},
 		"data": map[string]any{
-			"readiness": map[string]any{
-				"flowSlug":            flowSlug,
-				"target":              target,
-				"ready":               doctorReady && (!publicRequired || publicReady) && (!requireMarketplace || marketplaceReady),
-				"definitionReady":     boolValue(doctor["definitionReady"]),
-				"configurationReady":  boolValue(doctor["configurationReady"]),
-				"publicReady":         publicReady,
-				"publicIncluded":      includePublic,
-				"publicRequired":      publicRequired,
-				"marketplaceReady":    marketplaceReady,
-				"marketplaceRequired": requireMarketplace,
-				"summary":             doctor["summary"],
-				"draftLive":           map[string]any{"activeVersion": activeVersion, "latestVersion": latestVersion, "draftAhead": versionsSuggestDraftAhead(activeVersion, latestVersion)},
-				"configuration":       doctor["configuration"],
-				"public":              preflight["public"],
-				"discover":            preflight["discover"],
-				"marketplace":         preflight["marketplace"],
-				"installability":      preflight["installability"],
-				"pricing":             preflight["pricing"],
-				"checks":              checks,
-				"blockers":            blockers,
-				"doctor":              doctor,
-				"publicPreflight":     preflight,
-			},
+			"readiness": readiness,
 		},
 	}
+}
+
+func normalizeLocalhostWebURL(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "https://localhost") || strings.HasPrefix(value, "https://127.0.0.1") {
+		return "http://" + strings.TrimPrefix(value, "https://")
+	}
+	return value
 }
 
 func versionsSuggestDraftAhead(active any, latest any) bool {

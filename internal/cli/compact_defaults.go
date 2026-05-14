@@ -54,7 +54,7 @@ func compactTemplateSearchEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Template search output is compact by default. Use --full for indexed source previews, or --full --raw-definition only when the complete template definition is required."
+		meta["hint"] = "Template search is compact. Use --full, or --full --raw-definition for source."
 	}
 }
 
@@ -174,7 +174,7 @@ func compactResourceListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Resource list output omits storage paths and verbose metadata by default. Use `breyta resources get <uri>` for one resource's metadata or `breyta resources read <uri> --full` for full content."
+		out["hint"] = "Resource lists are compact. Use get for metadata or read --full for content."
 	}
 	return out
 }
@@ -254,7 +254,7 @@ func compactResourceReadPayload(payload any, uri string) any {
 		"truncated":    truncated,
 		"previewRunes": len([]rune(preview)),
 		"fullBytes":    len([]byte(rendered)),
-		"hint":         "Resource content is compact by default. Use `breyta resources read " + strings.TrimSpace(uri) + " --full` when the full payload is required.",
+		"hint":         "Resource content is compact. Use read --full for the full payload.",
 	})
 }
 
@@ -277,7 +277,7 @@ func compactJobsListEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Job list output omits payload/result/attempt details by default. Use `breyta jobs show <job-id>` for one job or rerun the list command with --full for the raw response."
+		meta["hint"] = "Job lists are compact. Use jobs show or rerun with --full."
 	}
 }
 
@@ -399,7 +399,7 @@ func compactConnectionsListPayload(payload any) any {
 	}
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Connection list output omits raw config/auth by default. Use `breyta connections show <connection-id>` or rerun with --full for full connection details."
+		out["hint"] = "Connection lists are compact. Use connections show or --full."
 	}
 	return out
 }
@@ -454,7 +454,7 @@ func compactIncidentsListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Incident list output is compact by default. Use `breyta incidents show <incident-id>` or rerun with --full for full incident details."
+		out["hint"] = "Incident lists are compact. Use incidents show or --full."
 	}
 	return out
 }
@@ -504,7 +504,7 @@ func compactDigestsListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Digest list output is compact by default. Use `breyta digests show <digest-id>` or rerun with --full for full digest details."
+		out["hint"] = "Digest lists are compact. Use digests show or --full."
 	}
 	return out
 }
@@ -772,7 +772,7 @@ func docsCompactHint(slug string) string {
 	if slug == "" {
 		slug = "<slug>"
 	}
-	return "Compact docs preview. Use `breyta docs show " + slug + " --full` for the full page or `breyta docs show " + slug + " --section <heading>` for a focused section."
+	return "Compact docs preview. Use --section <heading> or --full."
 }
 
 type markdownHeading struct {
