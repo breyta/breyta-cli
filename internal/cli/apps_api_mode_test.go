@@ -61,6 +61,90 @@ func TestRunsList_SendsProfileIDFilter(t *testing.T) {
 	}
 }
 
+func TestAPICommand_LocalMembership403AutoBootstrapsAndRetries(t *testing.T) {
+	commandCalls := 0
+	bootstrapCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/commands":
+			commandCalls++
+			if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing workspace header"})
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "flows.list" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "unexpected command"})
+				return
+			}
+			if commandCalls == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "Access denied: not a workspace member"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"items": []any{}},
+			})
+		case "/api/debug/workspace/bootstrap":
+			bootstrapCalls++
+			if got := r.Header.Get("Authorization"); got != "Bearer user-dev" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing authorization"})
+				return
+			}
+			if got := r.Header.Get("x-debug-user-id"); got != "user-dev" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing debug user"})
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["workspaceId"] != "ws-acme" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "wrong workspace"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success":     true,
+				"workspaceId": "ws-acme",
+				"created":     false,
+				"member":      true,
+				"role":        "admin",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "list",
+		"--format", "json",
+		"--limit", "1",
+	)
+	if err != nil {
+		t.Fatalf("flows list failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected command retry after bootstrap, got %d command calls", commandCalls)
+	}
+	if bootstrapCalls != 1 {
+		t.Fatalf("expected one local bootstrap call, got %d", bootstrapCalls)
+	}
+	if !strings.Contains(stdout, `"localWorkspaceBootstrap"`) {
+		t.Fatalf("expected output metadata to mention local bootstrap:\n%s", stdout)
+	}
+}
+
 func TestRunsList_SendsStructuredQueryFilters(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -518,6 +602,16 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
 			return
 		}
+		if args["enabled"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing enabled"}})
+			return
+		}
+		if args["localPrivateTest"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing localPrivateTest"}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"instance": map[string]any{"profileId": "prof-public"}}})
 	}))
 	defer srv.Close()
@@ -530,6 +624,8 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 		"flows", "installations", "create", "my-app",
 		"--source-workspace-id", "ws-source",
 		"--source-flow-slug", "public-source-flow",
+		"--enable",
+		"--local-private-test",
 	)
 	if err != nil {
 		t.Fatalf("flows installations create with source refs failed: %v\n%s", err, stdout)
@@ -2343,7 +2439,7 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 			return
 		}
 		args, _ := body["args"].(map[string]any)
-		if args["flowSlug"] != "flow-release" || args["from"] != "draft" || args["to"] != "live" {
+		if args["flowSlug"] != "flow-release" || args["from"] != "live" || args["to"] != "draft" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected diff args"}})
 			return
@@ -2370,6 +2466,52 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows diff failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsDiff_FileDefaultsToDraftToFile(t *testing.T) {
+	tmp := t.TempDir()
+	flowPath := filepath.Join(tmp, "flow-release.clj")
+	if err := os.WriteFile(flowPath, []byte("{:slug :flow-release :flow '(do :local)}\n"), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.diff" ||
+			args["flowSlug"] != "flow-release" ||
+			args["from"] != "draft" ||
+			args["to"] != "file" ||
+			args["fileLiteral"] != "{:slug :flow-release :flow '(do :local)}\n" ||
+			args["fileLabel"] != "flow-release.clj" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected file diff args", "details": args}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "flow-release", "changed": true},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "diff", "flow-release",
+		"--file", flowPath,
+	)
+	if err != nil {
+		t.Fatalf("flows diff --file failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -2485,9 +2627,9 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
 			return
 		}
-		if _, ok := args["target"]; ok {
+		if args["target"] != "live" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "target should be omitted for installation runs"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "installation runs should default to live target"}})
 			return
 		}
 		if args["installationId"] != "prof-123" {
@@ -2866,13 +3008,15 @@ func TestFlowsInterfacesList_InstallationTargetResolvesPinnedVersion(t *testing.
 				"ok":          true,
 				"workspaceId": "ws-acme",
 				"data": map[string]any{
-					"flowSlug":         "flow-release",
-					"version":          9,
-					"installedVersion": 9,
+					"flowSlug":          "flow-release",
+					"version":           9,
+					"installedVersion":  9,
+					"sourceWorkspaceId": "ws-provider",
+					"sourceFlowSlug":    "flow-release",
 				},
 			})
 		case "flows.get":
-			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) {
+			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) || args["sourceWorkspaceId"] != "ws-provider" || args["sourceFlowSlug"] != "flow-release" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
 				return
@@ -2941,13 +3085,15 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 				"ok":          true,
 				"workspaceId": "ws-acme",
 				"data": map[string]any{
-					"flowSlug":         "flow-release",
-					"version":          9,
-					"installedVersion": 9,
+					"flowSlug":          "flow-release",
+					"version":           9,
+					"installedVersion":  9,
+					"sourceWorkspaceId": "ws-provider",
+					"sourceFlowSlug":    "flow-release",
 				},
 			})
 		case "flows.get":
-			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) || args["includeFlowLiteral"] != false {
+			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) || args["includeFlowLiteral"] != false || args["sourceWorkspaceId"] != "ws-provider" || args["sourceFlowSlug"] != "flow-release" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
 				return
@@ -3681,6 +3827,7 @@ func TestFlowsRun_ForwardsInterfaceID(t *testing.T) {
 func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	var flowsRunCalls int
 	var runsGetCalls int
+	var finalHydrationCalls int
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -3709,6 +3856,27 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 			if args["workflowId"] != "wf-nested" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				finalHydrationCalls++
+				if args["includeResult"] != false {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "final wait hydration should skip result"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-nested",
+							"status":     "completed",
+							"counters":   map[string]any{"http-requests": 1},
+							"steps":      []map[string]any{{"stepId": "fetch", "stepType": "http", "status": "completed"}},
+						},
+					},
+				})
 				return
 			}
 			if args["includeSteps"] != false || args["includeResult"] != false {
@@ -3752,8 +3920,23 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	if runsGetCalls < 1 {
 		t.Fatalf("expected at least 1 runs.get poll, got %d", runsGetCalls)
 	}
+	if finalHydrationCalls != 1 {
+		t.Fatalf("expected one terminal wait hydration call, got %d", finalHydrationCalls)
+	}
 	if !strings.Contains(stdout, "wf-nested") {
 		t.Fatalf("expected output to include workflow id, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"http-requests":1`) {
+		t.Fatalf("expected hydrated wait output to include fresh http counter, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"stepId":"fetch"`) {
+		t.Fatalf("expected wait output to include compact step summary, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "resultPreview") {
+		t.Fatalf("expected wait output to strip verbose step details, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta runs inspect wf-nested") {
+		t.Fatalf("expected wait output to include run inspection next command, got:\n%s", stdout)
 	}
 }
 
@@ -3789,6 +3972,25 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 			if args["installationId"] != "prof-consumer" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				if args["includeResult"] != false {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "final wait hydration should skip result"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId":     "wf-linked",
+							"installationId": "prof-consumer",
+							"status":         "completed",
+							"steps":          []map[string]any{},
+						},
+					},
+				})
 				return
 			}
 			if args["includeSteps"] != false || args["includeResult"] != false {
@@ -3834,9 +4036,197 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 		if payload["installationId"] != "prof-consumer" {
 			t.Fatalf("expected runs.get payload to include installationId, got %#v", payload)
 		}
+		if payload["includeSteps"] == true {
+			if payload["includeResult"] != false {
+				t.Fatalf("expected final wait hydration to skip result, got %#v", payload)
+			}
+			continue
+		}
 		if payload["includeSteps"] != false || payload["includeResult"] != false {
 			t.Fatalf("expected compact runs.get payload, got %#v", payload)
 		}
+	}
+}
+
+func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-slow",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			run := map[string]any{
+				"workflowId": "wf-slow",
+				"status":     "running",
+			}
+			if args["includeSteps"] == true {
+				run["steps"] = []any{map[string]any{"stepId": "slow-step", "stepType": "llm", "status": "running", "resultPreview": "omit me"}}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"run": run},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-slow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"stepId":"slow-step"`) {
+		t.Fatalf("expected hydrated compact step snapshot, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "resultPreview") {
+		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run flow-slow --wait --timeout 2m") {
+		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRun_WaitReturnsNonZeroForFailedRun(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-failed",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["includeSteps"] == true {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-failed",
+							"status":     "failed",
+							"steps": []any{
+								map[string]any{"stepId": "fetch", "status": "failed", "error": map[string]any{"message": "HTTP 403"}},
+							},
+						},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-failed",
+						"status":     "failed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err == nil {
+		t.Fatalf("expected failed waited run to exit nonzero\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"status":"failed"`) {
+		t.Fatalf("expected failed run output, got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "flow run finished with status failed") {
+		t.Fatalf("expected failure guidance on stderr, got:\n%s", stderr)
+	}
+}
+
+func TestFlowsRun_MissingRunInputsShowsInputHintOnly(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		w.WriteHeader(400)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"message": "Missing required run inputs",
+				"details": map[string]any{"missingKeys": []string{"public_document_url"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "packet-builder",
+	)
+	if err == nil {
+		t.Fatalf("expected missing input command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"missingRunInputs":[`) || !strings.Contains(stdout, `public_document_url`) {
+		t.Fatalf("expected missing run input metadata, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "connections list") || strings.Contains(stdout, "flows promote") {
+		t.Fatalf("expected run-input guidance without setup/promote hints, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `--input '{\"public_document_url\":\"\\u003cvalue\\u003e\"}'`) {
+		t.Fatalf("expected exact --input next command, got:\n%s", stdout)
 	}
 }
 
@@ -3937,6 +4327,280 @@ func TestRunsShow_FullRequestsStepsAndResultInAPIMode(t *testing.T) {
 	}
 	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != true {
 		t.Fatalf("expected --full to request steps and result, got %#v", capturedArgs)
+	}
+}
+
+func TestRunsInspect_CompactsServerRunPayloadInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-inspect",
+					"flowSlug":   "flow-inspect",
+					"status":     "completed",
+					"input":      map[string]any{"prompt": strings.Repeat("x", 2048)},
+					"result":     map[string]any{"body": strings.Repeat("y", 2048)},
+					"steps": []map[string]any{
+						{
+							"stepId":        "fetch",
+							"stepType":      "http",
+							"status":        "completed",
+							"input":         map[string]any{"url": "https://example.com", "headers": map[string]any{"authorization": "secret"}},
+							"result":        map[string]any{"body": strings.Repeat("z", 2048)},
+							"resultPreview": map[string]any{"status": 200},
+							"usage":         map[string]any{"httpRequests": 1},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "inspect", "wf-inspect",
+	)
+	if err != nil {
+		t.Fatalf("runs inspect failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != false || capturedArgs["compactInspect"] != true {
+		t.Fatalf("expected compact runs.get inspect flags, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	run, _ := data["run"].(map[string]any)
+	if _, ok := run["input"]; ok {
+		t.Fatalf("expected run input to be removed from compact inspect: %#v", run["input"])
+	}
+	if _, ok := run["result"]; ok {
+		t.Fatalf("expected run result to be removed from compact inspect: %#v", run["result"])
+	}
+	steps, _ := run["steps"].([]any)
+	if len(steps) != 1 {
+		t.Fatalf("expected one compact step, got %#v", steps)
+	}
+	step, _ := steps[0].(map[string]any)
+	if _, ok := step["input"]; ok {
+		t.Fatalf("expected step input to be removed from compact inspect: %#v", step["input"])
+	}
+	if _, ok := step["result"]; ok {
+		t.Fatalf("expected step result to be removed from compact inspect: %#v", step["result"])
+	}
+	if step["hasInput"] != true || step["hasOutput"] != true {
+		t.Fatalf("expected compact hasInput/hasOutput flags, got %#v", step)
+	}
+	cost, _ := step["cost"].(map[string]any)
+	if cost["httpRequests"] != float64(1) {
+		t.Fatalf("expected compact cost summary, got %#v", step["cost"])
+	}
+	meta, _ := envelope["meta"].(map[string]any)
+	if meta["outputView"] != "compact" || meta["compactInspect"] != true {
+		t.Fatalf("expected compact inspect metadata, got %#v", meta)
+	}
+}
+
+func TestRunsStep_InspectsOneStepInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-step",
+					"flowSlug":   "flow-step",
+					"steps": []map[string]any{
+						{"stepId": "fetch", "stepType": "http", "status": "completed", "inputPreview": map[string]any{"url": "https://example.com"}, "resultPreview": map[string]any{"status": 200}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "step", "wf-step", "fetch",
+	)
+	if err != nil {
+		t.Fatalf("runs step failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeSteps"] != true || capturedArgs["includeResult"] != false {
+		t.Fatalf("expected compact runs.get step flags, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["stepId"] != "fetch" || data["type"] != "http" {
+		t.Fatalf("unexpected step data: %#v", data)
+	}
+	if _, ok := data["input"]; !ok {
+		t.Fatalf("expected compact input in step data: %#v", data)
+	}
+	if _, ok := data["output"]; !ok {
+		t.Fatalf("expected compact output in step data: %#v", data)
+	}
+}
+
+func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-step",
+					"flowSlug":   "flow-step",
+					"steps": []map[string]any{
+						{
+							"stepId":         "review",
+							"stepType":       "agent",
+							"status":         "completed",
+							"resultPreview":  map[string]any{"summary": "compact"},
+							"output":         map[string]any{"nested": map[string]any{"ok": true}},
+							"outputResource": "res://v1/ws/ws-acme/result/run/wf-step/step/review/output",
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "step", "wf-step", "review", "--full",
+	)
+	if err != nil {
+		t.Fatalf("runs step --full failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeStepResults"] != true || capturedArgs["stepId"] != "review" {
+		t.Fatalf("expected full step payload request, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	output, _ := data["output"].(map[string]any)
+	nested, _ := output["nested"].(map[string]any)
+	if nested["ok"] != true {
+		t.Fatalf("expected full nested output, got %#v", data["output"])
+	}
+	if data["outputResource"] == "" {
+		t.Fatalf("expected outputResource, got %#v", data)
+	}
+}
+
+func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
+	var sawList bool
+	var approvedWait string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/waits":
+			sawList = true
+			if got := r.URL.Query().Get("workflowId"); got != "wf-wait" {
+				t.Fatalf("expected workflowId wf-wait, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"items": []map[string]any{
+						{"waitId": "wait-old", "workflowId": "wf-wait", "registeredAt": "2026-05-13T08:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+						{"waitId": "wait-new", "workflowId": "wf-wait", "registeredAt": "2026-05-13T09:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+						{"waitId": "wait-other", "workflowId": "wf-other", "registeredAt": "2026-05-13T10:00:00Z", "approval": map[string]any{"actions": []string{"approve", "reject"}}},
+					},
+				},
+			})
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/waits/") && strings.HasSuffix(r.URL.Path, "/approve"):
+			approvedWait = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/waits/"), "/approve")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"approved": true}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "continue", "wf-wait",
+		"--approve-latest-wait",
+	)
+	if err != nil {
+		t.Fatalf("runs continue failed: %v\n%s", err, stdout)
+	}
+	if !sawList {
+		t.Fatalf("expected waits list request")
+	}
+	if approvedWait != "wait-new" {
+		t.Fatalf("expected latest wait-new approval, got %q", approvedWait)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["continued"] != true || data["action"] != "approve" {
+		t.Fatalf("unexpected continue output: %#v", data)
 	}
 }
 

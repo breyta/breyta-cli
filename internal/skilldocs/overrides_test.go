@@ -108,6 +108,32 @@ func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.T) {
+	body := strings.Join([]string{
+		"## Purpose",
+		"compact router",
+		"",
+		"## Playbook Matrix",
+		"- `playbooks/author-flows.md`",
+		"- `playbooks/debug-and-verify.md`",
+		"- `references/runtime-data-shapes.md`",
+		"",
+		"## Default Command Budget",
+		"- compact defaults",
+	}, "\n")
+	input := map[string][]byte{
+		"SKILL.md": []byte(body),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	if string(got["SKILL.md"]) != body {
+		t.Fatalf("expected current playbook router skill to remain unchanged, got:\n%s", string(got["SKILL.md"]))
+	}
+	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
+		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
+	}
+}
+
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
@@ -152,6 +178,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
 		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, ":persist {:type :blob :tier :ephemeral}") {
+		t.Fatalf("expected ephemeral blob tier guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
 		t.Fatalf("expected n8n importer-first guidance, got:\n%s", body)
 	}
@@ -186,14 +215,17 @@ func TestApplyCLIOverrides_BreytaCanonicalSkillRewritesStaleModelGuidance(t *tes
 	if strings.Contains(body, "As of the current OpenAI latest-model guide") {
 		t.Fatalf("expected fixed latest-model claim removed, got:\n%s", body)
 	}
+	if strings.Contains(body, "gpt-5.5") {
+		t.Fatalf("expected volatile latest-model id removed, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
 		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
 	}
 	if !strings.Contains(body, "use `gpt-5.4` as Breyta's current API default") {
 		t.Fatalf("expected gpt-5.4 current API default guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Do not claim or use unreleased provider models, such as `gpt-5.5`, without provider/API proof") {
-		t.Fatalf("expected unreleased model guardrail, got:\n%s", body)
+	if !strings.Contains(body, "Do not claim or use a provider model unless current provider docs/API availability prove it exists") {
+		t.Fatalf("expected model availability guardrail, got:\n%s", body)
 	}
 	if !strings.Contains(body, "check current official provider docs/API references") {
 		t.Fatalf("expected official provider docs/API guidance, got:\n%s", body)
@@ -279,8 +311,8 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "breyta flows search <query> searches actual workspace flow metadata") ||
-		!strings.Contains(body, "breyta flows grep <literal> searches actual workspace flow source/config") {
+	if !strings.Contains(body, "breyta flows search \"<query>\" --limit 5 searches actual workspace flow metadata") ||
+		!strings.Contains(body, "breyta flows grep \"<literal>\" --limit 5 searches actual workspace flow source/config") {
 		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {

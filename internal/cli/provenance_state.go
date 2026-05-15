@@ -350,6 +350,10 @@ func appendEnvelopeHints(out map[string]any, hints ...string) {
 }
 
 func appendProvenanceHints(out map[string]any, targetWorkspaceID, targetFlowSlug string) error {
+	return appendProvenanceHintsWithOptions(out, targetWorkspaceID, targetFlowSlug, false)
+}
+
+func appendProvenanceHintsWithOptions(out map[string]any, targetWorkspaceID, targetFlowSlug string, includeCandidates bool) error {
 	targetFlowSlug = strings.TrimSpace(targetFlowSlug)
 	if out == nil || targetFlowSlug == "" {
 		return nil
@@ -360,12 +364,16 @@ func appendProvenanceHints(out map[string]any, targetWorkspaceID, targetFlowSlug
 	}
 	meta := ensureMeta(out)
 	if meta != nil {
-		meta["provenanceCandidates"] = provenanceCandidatesMetaItems(candidates)
+		meta["provenanceCandidateCount"] = len(candidates)
+		meta["provenanceChanged"] = false
+		if includeCandidates {
+			meta["provenanceCandidates"] = provenanceCandidatesMetaItems(candidates)
+		}
 	}
 	appendEnvelopeHints(
 		out,
-		"Persist consulted flow provenance: breyta flows provenance set "+targetFlowSlug+" --from-consulted",
-		"Clear flow provenance intentionally: breyta flows provenance set "+targetFlowSlug+" --clear",
+		"Consulted flow provenance is optional and was not changed; persist it intentionally with: breyta flows provenance set "+targetFlowSlug+" --from-consulted",
+		"Clear flow provenance intentionally with: breyta flows provenance set "+targetFlowSlug+" --clear",
 	)
 	return nil
 }

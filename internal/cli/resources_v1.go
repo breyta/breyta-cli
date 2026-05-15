@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -398,6 +399,11 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if status == http.StatusForbidden {
+				if fallback, ok := readRunStepResourceViaRunsGet(app, uri, full); ok {
+					return writeREST(cmd, app, http.StatusOK, fallback)
+				}
+			}
 			if !full {
 				out = compactResourceReadPayload(out, uri)
 			}
@@ -410,6 +416,70 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd
+}
+
+var runStepResourceURIRe = regexp.MustCompile(`^res://v1/ws/([^/]+)/result/run/([^/]+)/step/([^/]+)/(input|output|error)$`)
+
+type runStepResourceRef struct {
+	WorkspaceID string
+	WorkflowID  string
+	StepID      string
+	Kind        string
+}
+
+func parseRunStepResourceURI(raw string) (runStepResourceRef, bool) {
+	m := runStepResourceURIRe.FindStringSubmatch(strings.TrimSpace(raw))
+	if len(m) != 5 {
+		return runStepResourceRef{}, false
+	}
+	stepID, err := url.QueryUnescape(m[3])
+	if err != nil {
+		stepID = m[3]
+	}
+	return runStepResourceRef{
+		WorkspaceID: m[1],
+		WorkflowID:  m[2],
+		StepID:      strings.TrimPrefix(stepID, ":"),
+		Kind:        m[4],
+	}, true
+}
+
+func readRunStepResourceViaRunsGet(app *App, rawURI string, full bool) (any, bool) {
+	ref, ok := parseRunStepResourceURI(rawURI)
+	if !ok || strings.TrimSpace(ref.WorkflowID) == "" || strings.TrimSpace(ref.StepID) == "" {
+		return nil, false
+	}
+	out, status, err := runAPICommand(app, "runs.get", map[string]any{
+		"workflowId":         ref.WorkflowID,
+		"includeSteps":       true,
+		"includeResult":      false,
+		"includeStepResults": true,
+		"stepId":             ref.StepID,
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil, false
+	}
+	run := mapStringAny(mapStringAny(out["data"])["run"])
+	step := findRunStep(run, ref.StepID)
+	if step == nil {
+		return nil, false
+	}
+	var payload any
+	switch ref.Kind {
+	case "output":
+		payload = firstPresent(step, "output", "result")
+	case "error":
+		payload = firstPresent(step, "errorOutput", "error-output", "error")
+	case "input":
+		payload = firstPresent(step, "input", "params")
+	}
+	if payload == nil {
+		return nil, false
+	}
+	if full {
+		return payload, true
+	}
+	return compactResourceReadPayload(map[string]any{"data": payload}, rawURI), true
 }
 
 func newResourcesURLCmd(app *App) *cobra.Command {
@@ -625,6 +695,9 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if status < 400 {
+				out = compactTableQueryPayload(out, uri)
+			}
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -633,7 +706,7 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&whereJSON, "where-json", "", "Raw JSON predicate vector, e.g. [[\"status\",\"=\",\"open\"]]")
 	cmd.Flags().StringVar(&sortJSON, "sort-json", "", "Raw JSON sort vector, e.g. [[\"updated-at\",\"desc\"]]")
 	cmd.Flags().IntVar(&limit, "limit", 25, "Page size (1-1000)")
-	cmd.Flags().StringVar(&pageMode, "page-mode", "", "Pagination mode: offset or cursor")
+	cmd.Flags().StringVar(&pageMode, "page-mode", "", "Pagination mode: offset or cursor (defaults to offset for bounded reads; --cursor implies cursor)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Page offset (>=0)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque pagination cursor for forward scans")
 	cmd.Flags().BoolVar(&includeTotalCount, "include-total-count", false, "Include total-count in cursor-paged responses")
@@ -728,7 +801,7 @@ func newResourcesTableVerifyCmd(app *App) *cobra.Command {
 				"meta": map[string]any{
 					"nextCommands": []string{
 						"breyta resources read " + uri,
-						"breyta resources table query " + uri + " --page-mode offset --limit " + strconv.Itoa(limit),
+						"breyta resources table query " + uri + " --limit " + strconv.Itoa(limit),
 						"breyta resources url " + uri,
 					},
 				},
@@ -870,7 +943,11 @@ func restDataPayload(out map[string]any) map[string]any {
 
 func buildTableQueryPage(cmd *cobra.Command, mode string, limit int, offset int, cursor string, includeTotalCount bool, sortValue any) (map[string]any, error) {
 	if !cmd.Flags().Changed("page-mode") {
-		return nil, errors.New("query requires --page-mode offset|cursor")
+		if cmd.Flags().Changed("cursor") || cmd.Flags().Changed("include-total-count") {
+			mode = "cursor"
+		} else {
+			mode = "offset"
+		}
 	}
 	page := map[string]any{
 		"mode":  strings.TrimSpace(mode),
@@ -918,7 +995,11 @@ func newResourcesTableGetRowCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-row <uri>",
 		Short: "Fetch a single row from a table resource",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table get-row <res://table-uri> --row-id <row-id>
+breyta resources table get-row <res://table-uri> --key order-id=ord-1
+breyta resources table get-row <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -950,7 +1031,7 @@ func newResourcesTableGetRowCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Target a single table partition")
 	return cmd
 }
@@ -1231,7 +1312,11 @@ func newResourcesTableUpdateCellCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-cell <uri>",
 		Short: "Update a single table cell value",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table update-cell <res://table-uri> --row-id <row-id> --column status --value closed
+breyta resources table update-cell <res://table-uri> --key order-id=ord-1 --column status --value closed
+breyta resources table update-cell <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1 --column reviewed --value-json true`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -1282,7 +1367,7 @@ func newResourcesTableUpdateCellCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&column, "column", "", "Target column")
 	cmd.Flags().StringVar(&value, "value", "", "String cell value")
 	cmd.Flags().StringVar(&valueJSON, "value-json", "", "Raw JSON cell value")
@@ -1301,7 +1386,11 @@ func newResourcesTableUpdateCellFormatCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-cell-format <uri>",
 		Short: "Update or clear a sparse table cell formatting override",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table update-cell-format <res://table-uri> --row-id <row-id> --column amount --format-json '{"display":"currency","currency":"USD"}'
+breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1 --column amount --format-json '{"display":"currency","currency":"USD"}'
+breyta resources table update-cell-format <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1 --column amount --clear`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -1351,7 +1440,7 @@ func newResourcesTableUpdateCellFormatCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&column, "column", "", "Target column")
 	cmd.Flags().StringVar(&formatJSON, "format-json", "", "Raw JSON formatting payload")
 	cmd.Flags().BoolVar(&clear, "clear", false, "Clear the sparse formatting override")

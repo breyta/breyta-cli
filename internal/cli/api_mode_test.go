@@ -51,6 +51,9 @@ func TestDocs_Help_DefaultSurface(t *testing.T) {
 	if !bytes.Contains([]byte(stdout), []byte("show")) {
 		t.Fatalf("expected docs help to include show command\n---\n%s", stdout)
 	}
+	if !bytes.Contains([]byte(stdout), []byte("fields")) {
+		t.Fatalf("expected docs help to include fields command\n---\n%s", stdout)
+	}
 	if !bytes.Contains([]byte(stdout), []byte("sync")) {
 		t.Fatalf("expected docs help to include sync command\n---\n%s", stdout)
 	}
@@ -87,7 +90,7 @@ func TestDocsFind_UsesDocsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docs find failed: %v\n%s", err, stdout)
 	}
-	if !bytes.Contains([]byte(stdout), []byte("build-flow-authoring\tBuild: Flow Authoring")) {
+	if !bytes.Contains([]byte(stdout), []byte("docs:build-flow-authoring\tflows-api\t\tBuild: Flow Authoring")) {
 		t.Fatalf("expected docs find row, got:\n%s", stdout)
 	}
 }
@@ -1001,6 +1004,10 @@ func TestResourcesSearch_DefaultOutputIsCompact(t *testing.T) {
 	if item["displayName"] == "" || item["sourceLabel"] == "" || item["workflowId"] != "wf-123" || item["flowSlug"] != "invoice-reader" {
 		t.Fatalf("unexpected compact item fields: %#v", item)
 	}
+	if item["hitRef"] != "resource:res://v1/ws/ws-acme/result/run/wf-123/flow-output" ||
+		item["nextCommand"] != "breyta resources read 'res://v1/ws/ws-acme/result/run/wf-123/flow-output' --limit 5" {
+		t.Fatalf("expected resource hit ref and next command, got %#v", item)
+	}
 	if got, _ := item["snippet"].(string); got == "" || len(got) >= len(strings.Repeat("invoice summary ", 50)) {
 		t.Fatalf("expected truncated snippet, got %#v", item["snippet"])
 	}
@@ -1150,5 +1157,121 @@ func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T)
 	fullData, _ := fullOut["data"].(map[string]any)
 	if got, _ := fullData["body"].(string); got != longBody {
 		t.Fatalf("expected --full to keep raw body, got %#v", fullData["body"])
+	}
+}
+
+func TestResourcesRead_FallsBackToRunsGetForStepOutputRefs(t *testing.T) {
+	uri := "res://v1/ws/ws-acme/result/run/wf-step/step/review/output"
+	var sawResourceRead bool
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/resources/content":
+			sawResourceRead = true
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "Access denied: not a workspace member",
+			})
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "runs.get" {
+				t.Fatalf("expected fallback runs.get, got %#v", body["command"])
+			}
+			capturedArgs, _ = body["args"].(map[string]any)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step",
+						"steps": []map[string]any{
+							{
+								"stepId": "review",
+								"status": "completed",
+								"output": map[string]any{"full": "nested-output"},
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("resources read --full fallback failed: %v\n%s", err, stdout)
+	}
+	if !sawResourceRead {
+		t.Fatalf("expected initial resources/content request")
+	}
+	if capturedArgs["includeStepResults"] != true || capturedArgs["stepId"] != "review" {
+		t.Fatalf("expected fallback step payload request, got %#v", capturedArgs)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["full"] != "nested-output" {
+		t.Fatalf("expected full fallback payload, got %#v", data)
+	}
+}
+
+func TestResourcesRead_CompactsBinaryBlobWithoutRawPreview(t *testing.T) {
+	uri := "res://v1/ws/ws-acme/result/blob/file-pdf"
+	pdfBody := "%PDF-1.7\x00\x01binary"
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/content" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"uri":         uri,
+			"contentType": "application/pdf",
+			"sizeBytes":   len([]byte(pdfBody)),
+			"body":        pdfBody,
+			"downloadUrl": "https://download.example/file.pdf",
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+	)
+	if err != nil {
+		t.Fatalf("resources read failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, ok := data["preview"]; ok {
+		t.Fatalf("expected binary compact output to omit raw preview, got %#v", data["preview"])
+	}
+	if data["shape"] != "binary" || data["binaryPreview"] != true || data["bodyOmitted"] != true {
+		t.Fatalf("expected binary metadata, got %#v", data)
+	}
+	if got, _ := data["firstBytes"].(string); !strings.HasPrefix(got, "25 50 44 46") {
+		t.Fatalf("expected PDF byte signature, got %q", got)
+	}
+	if data["downloadUrl"] != "https://download.example/file.pdf" {
+		t.Fatalf("expected downloadUrl, got %#v", data["downloadUrl"])
 	}
 }

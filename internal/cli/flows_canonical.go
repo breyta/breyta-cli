@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -118,8 +119,22 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"run_status":  s,
 				"wait":        true,
 			})
-			if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
+			finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, installationID)
+			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if finalStatus >= 400 {
+				finalResp = execResp
+				finalStatus = execStatus
+			}
+			if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+				return writeErr(cmd, err)
+			}
+			if runStatusFailedForExit(s) {
+				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
+					"Inspect failed steps: breyta runs inspect " + workflowID,
+					"List resources: breyta resources workflow list " + workflowID,
+				})
 			}
 			return nil
 		}
@@ -134,6 +149,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"workflow_id": workflowID,
 				"wait":        true,
 			})
+			lastPoll := execResp
+			if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+				lastPoll = snapshot
+			}
+			nextCommands := []string{
+				"breyta runs inspect " + workflowID,
+				"breyta runs show " + workflowID + " --include-steps",
+				"breyta resources workflow list " + workflowID,
+			}
+			if flowSlug != "" {
+				nextCommands = append(nextCommands, "breyta flows run "+flowSlug+" --wait --timeout 2m")
+			}
 			timeoutOut := map[string]any{
 				"ok": false,
 				"error": map[string]any{
@@ -145,13 +172,14 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 					},
 				},
 				"meta": map[string]any{
-					"timedOut": true,
-					"hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status.",
+					"timedOut":     true,
+					"hint":         "The run may still be in progress. Inspect the workflow id, or use a longer --timeout on the next waited run.",
+					"nextCommands": nextCommands,
 				},
 				"data": map[string]any{
 					"workflowId": workflowID,
 					"start":      startResp,
-					"lastPoll":   execResp,
+					"lastPoll":   lastPoll,
 				},
 			}
 			if err := writeAPIResult(cmd, app, timeoutOut, 200); err != nil {
@@ -160,6 +188,15 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			return nil
 		}
 		time.Sleep(poll)
+	}
+}
+
+func runStatusFailedForExit(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "cancelled", "canceled", "terminated", "timed-out", "timed_out":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -207,6 +244,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
+			installationID = strings.TrimSpace(installationID)
 			resolvedTarget := ""
 			if cmd.Flags().Changed("target") {
 				var err error
@@ -214,14 +252,15 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-			} else if strings.TrimSpace(installationID) == "" {
+			} else if installationID != "" {
+				resolvedTarget = "live"
+			} else {
 				resolvedTarget = "draft"
 			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if resolvedTarget != "" {
 				payload["target"] = resolvedTarget
 			}
-			installationID = strings.TrimSpace(installationID)
 			if installationID != "" {
 				payload["installationId"] = installationID
 			}
@@ -423,6 +462,7 @@ func newFlowsDiffCmd(app *App) *cobra.Command {
 	var fromVersion int
 	var toVersion int
 	var full bool
+	var file string
 
 	cmd := &cobra.Command{
 		Use:   "diff <flow-slug>",
@@ -430,8 +470,13 @@ func newFlowsDiffCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Show a unified diff for flow source.
 
-Defaults to draft versus live so you can inspect unpublished changes:
+Defaults to live versus draft so you can inspect unpublished changes as
+additions to the draft. If a
+draft-only flow has pushed draft history but no live version, the server can
+compare the current draft to the previous pushed draft version.
+
 - breyta flows diff my-flow
+- breyta flows diff my-flow --file ./flows/my-flow.clj
 - breyta flows diff my-flow --from draft --to version --to-version 7
 - breyta flows diff my-flow --from version --from-version 6 --to version --to-version 7
 		`),
@@ -441,12 +486,31 @@ Defaults to draft versus live so you can inspect unpublished changes:
 				return writeNotImplemented(cmd, app, "diff requires --api/BREYTA_API_URL")
 			}
 
+			fromChanged := cmd.Flags().Changed("from")
+			toChanged := cmd.Flags().Changed("to")
+			file = strings.TrimSpace(file)
+			if file != "" && !fromChanged && !toChanged {
+				from = "draft"
+				to = "file"
+			}
+			if file != "" && !diffSourceStringIsFile(from) && !diffSourceStringIsFile(to) {
+				return writeErr(cmd, errors.New("--file compares one side of the diff; use --from file or --to file when also passing explicit --from/--to"))
+			}
+
 			payload := map[string]any{"flowSlug": args[0]}
 			if strings.TrimSpace(from) != "" {
 				payload["from"] = strings.TrimSpace(from)
 			}
 			if strings.TrimSpace(to) != "" {
 				payload["to"] = strings.TrimSpace(to)
+			}
+			if file != "" {
+				b, err := os.ReadFile(file)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["fileLiteral"] = string(b)
+				payload["fileLabel"] = filepath.Base(file)
 			}
 			if fromVersion > 0 {
 				payload["fromVersion"] = fromVersion
@@ -463,10 +527,15 @@ Defaults to draft versus live so you can inspect unpublished changes:
 		},
 	}
 
-	cmd.Flags().StringVar(&from, "from", "draft", "Diff source (draft|live|version)")
-	cmd.Flags().StringVar(&to, "to", "live", "Diff target (draft|live|version)")
+	cmd.Flags().StringVar(&from, "from", "live", "Diff source (draft|live|version|file)")
+	cmd.Flags().StringVar(&to, "to", "draft", "Diff target (draft|live|version|file)")
 	cmd.Flags().IntVar(&fromVersion, "from-version", 0, "Version number when --from=version")
 	cmd.Flags().IntVar(&toVersion, "to-version", 0, "Version number when --to=version")
 	cmd.Flags().BoolVar(&full, "full", false, "Include the full unified diff")
+	cmd.Flags().StringVar(&file, "file", "", "Compare a local .clj file against one side of the diff (default: draft to file)")
 	return cmd
+}
+
+func diffSourceStringIsFile(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "file")
 }

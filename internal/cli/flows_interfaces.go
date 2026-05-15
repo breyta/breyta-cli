@@ -423,12 +423,17 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 		}
 		data := mapStringAny(resp["data"])
 		flowSlugFromInstallation := firstNonBlankString(data["flowSlug"], data["flow-slug"])
-		if flowSlugFromInstallation != "" && flowSlugFromInstallation != flowSlug {
+		sourceFlowSlugFromInstallation := firstNonBlankString(data["sourceFlowSlug"], data["source-flow-slug"])
+		if flowSlugFromInstallation != "" && flowSlugFromInstallation != flowSlug && sourceFlowSlugFromInstallation != flowSlug {
 			return nil, 0, nil, "", "", fmt.Errorf("--installation-id %s belongs to flow %s, not %s", installationID, flowSlugFromInstallation, flowSlug)
+		}
+		if sourceFlowSlugFromInstallation != "" {
+			payload["flowSlug"] = sourceFlowSlugFromInstallation
 		}
 		if resolvedVersion := firstPositiveInt(data["version"], data["installedVersion"], data["installed-version"]); resolvedVersion > 0 {
 			payload["version"] = resolvedVersion
 		}
+		addInstallationSourceLookupArgs(payload, data)
 		payload["source"] = "active"
 		resolvedTarget = "installation"
 	} else if resolvedTarget == "live" {
@@ -442,6 +447,18 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 	}
 	flow := mapStringAny(mapStringAny(resp["data"])["flow"])
 	return resp, status, flow, resolvedTarget, installationID, nil
+}
+
+func addInstallationSourceLookupArgs(payload map[string]any, data map[string]any) {
+	if payload == nil || data == nil {
+		return
+	}
+	if sourceWorkspaceID := firstNonBlankString(data["sourceWorkspaceId"], data["source-workspace-id"]); sourceWorkspaceID != "" {
+		payload["sourceWorkspaceId"] = sourceWorkspaceID
+	}
+	if sourceFlowSlug := firstNonBlankString(data["sourceFlowSlug"], data["source-flow-slug"]); sourceFlowSlug != "" {
+		payload["sourceFlowSlug"] = sourceFlowSlug
+	}
 }
 
 func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, installationID string, target string) []any {

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -76,5 +77,55 @@ func TestRunsShowErrors_FiltersFailedSteps(t *testing.T) {
 	meta, _ := out["meta"].(map[string]any)
 	if meta["errorsOnly"] != true {
 		t.Fatalf("expected errorsOnly meta, got %#v", meta)
+	}
+}
+
+func TestRunsInspect_CompactsLargeHTMLErrorBody(t *testing.T) {
+	largeHTML := "<html>" + strings.Repeat("challenge", 300) + "</html>"
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-1",
+					"status":     "failed",
+					"error":      map[string]any{"message": largeHTML, "status": 403, "contentType": "text/html"},
+					"steps": []any{
+						map[string]any{"stepId": "fetch", "status": "failed", "error": map[string]any{"message": largeHTML, "status": 403, "contentType": "text/html"}},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "inspect", "wf-1",
+	)
+	if err != nil {
+		t.Fatalf("runs inspect failed: %v\n%s", err, stdout)
+	}
+	if strings.Contains(stdout, largeHTML) {
+		t.Fatalf("expected large HTML error body to be summarized, got:\n%s", stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	run, _ := data["run"].(map[string]any)
+	errMap, _ := run["error"].(map[string]any)
+	message, _ := errMap["message"].(map[string]any)
+	if message["truncated"] != true {
+		t.Fatalf("expected compact truncated run error, got %#v", errMap)
 	}
 }

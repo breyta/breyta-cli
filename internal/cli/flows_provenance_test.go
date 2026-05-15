@@ -123,16 +123,70 @@ func TestFlowsCreate_AddsProvenanceHintsFromConsultedFlows(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected meta object, got %#v", envelope["meta"])
 	}
+	if got, _ := meta["provenanceCandidateCount"].(float64); got != 1 {
+		t.Fatalf("expected one provenance candidate count, got %#v", meta)
+	}
+	if got, _ := meta["provenanceChanged"].(bool); got {
+		t.Fatalf("expected create to leave provenance unchanged, got %#v", meta)
+	}
+	if _, exists := meta["provenanceCandidates"]; exists {
+		t.Fatalf("expected compact provenance metadata without candidate list, got %#v", meta)
+	}
+}
+
+func TestFlowsPush_ProvenanceFlagIncludesCandidateList(t *testing.T) {
+	root := withAgentWorkspaceCwd(t)
+	if err := saveConsultedFlowRefsFromStart(root, []provenanceSourceRef{
+		{WorkspaceID: "ws-1", FlowSlug: "source-one"},
+	}); err != nil {
+		t.Fatalf("save consulted refs: %v", err)
+	}
+	flowFile := filepath.Join(root, "flows", "target-flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :target-flow :flow '(do :ok)}\n"), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["command"] != "flows.put_draft" {
+			t.Fatalf("unexpected command: %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-1",
+			"data": map[string]any{
+				"flowSlug": "target-flow",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-1", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsPushCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--validate=false", "--provenance"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	envelope := decodeJSONOutput(t, &out)
+	meta, ok := envelope["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected meta object, got %#v", envelope["meta"])
+	}
 	candidates, ok := meta["provenanceCandidates"].([]any)
 	if !ok || len(candidates) != 1 {
-		t.Fatalf("expected one provenance candidate, got %#v", meta["provenanceCandidates"])
+		t.Fatalf("expected full provenance candidate list, got %#v", meta["provenanceCandidates"])
 	}
-	item, ok := candidates[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected provenance candidate object, got %#v", candidates[0])
-	}
-	if item["workspaceId"] != "ws-1" || item["flowSlug"] != "source-one" {
-		t.Fatalf("unexpected provenance candidate: %#v", item)
+	first, _ := candidates[0].(map[string]any)
+	if first["workspaceId"] != "ws-1" || first["flowSlug"] != "source-one" {
+		t.Fatalf("unexpected provenance candidate: %#v", first)
 	}
 }
 

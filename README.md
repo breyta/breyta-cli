@@ -158,19 +158,21 @@ breyta flows run <slug> --installation-id <installation-id> --wait
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
-previews and bounded table row/cell previews; pass `--full` only when the full resource payload is
-required. `flows show` includes a non-editable `flowLiteralPreview` that keeps
-source structure while omitting heavy leaves; use `flows pull` for editable
-source. `--pretty` changes formatting only; it does not request full payloads.
+previews and bounded table row/cell previews; pass `--full` only when the full
+resource payload is required. `flows show` includes a non-editable
+`flowLiteralPreview` that keeps source structure while omitting heavy leaves;
+use `flows pull` for editable source. `--pretty` changes formatting only; it
+does not request full payloads.
 For large reports and research artifacts, store full bodies as resources and
 move refs, URLs, short summaries, and previews through tables or run output.
+For intermediate blobs, choose the tier deliberately: retained/default for
+durable or user-visible artifacts, and `:persist {:type :blob :tier
+:ephemeral}` on streaming HTTP steps for temporary downloads, exports, generated
+media, and API responses that should use the more generous transient quota.
 
 If the flow should appear in public discover/install surfaces, make that explicit:
 
 ```bash
-# Tag it as end-user installable
-breyta flows update <slug> --tags 'end-user,...'
-
 # Either author this in the flow file:
 # :discover {:public true}
 #
@@ -178,8 +180,8 @@ breyta flows update <slug> --tags 'end-user,...'
 breyta flows discover update <slug> --public=true
 ```
 
-Public discover visibility is stored flow metadata. A released version and the
-`end-user` tag are both required before the flow can be exposed in discover.
+Public discover visibility is stored flow metadata. A released version with an
+installable interface is required before the flow can be exposed in discover.
 This discover catalog is separate from `breyta flows search`, which searches
 actual workspace flow metadata, and from `breyta flows templates search`, which
 searches approved reusable templates to inspect and copy from.
@@ -415,7 +417,7 @@ Preferred handler helpers:
   active job or a kept job directory
 - `breyta jobs worker attach-file` uploads a file resource and appends an
   artifact to the local worker result state
-- `breyta jobs worker attach-kv` persists structured JSON as a KV-backed
+- `breyta jobs worker attach-kv` persists structured JSON as a key-value
   resource and appends an artifact to the local worker result state
 - `breyta jobs worker attach-table` creates or updates a table resource from
   JSON row objects, including schema on write, and appends an artifact to the
@@ -529,7 +531,7 @@ breyta resources read <res://table-uri> --limit 25 --offset 0
 For the richer operational surface, use the dedicated table commands:
 
 ```bash
-breyta resources table query <res://table-uri> --page-mode offset --limit 25 --offset 0
+breyta resources table query <res://table-uri> --limit 25 --offset 0
 breyta resources table query <res://table-uri> --page-mode cursor --limit 250 --sort-json '[["order-id","asc"]]'
 breyta resources table get-row <res://table-uri> --key order-id=ord-1
 breyta resources table aggregate <res://table-uri> --group-by currency --metrics-json '[{"op":"count","as":"count"}]'
@@ -542,9 +544,10 @@ breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1
 breyta resources table materialize-join --left-json '{"table":{"ref":"res://...orders"}}' --right-json '{"table":{"ref":"res://...customers"}}' --on-json '[{"left-field":"customer-id","right-field":"customer-id"}]' --project-json '[{"field":"name","as":"customer-name"}]' --into-json '{"table":"joined-orders","write-mode":"upsert","key-fields":["order-id"]}'
 ```
 
-`breyta resources table query` now uses the same explicit paging contract as flow `:table` queries:
+`breyta resources table query` defaults bounded reads to offset paging:
 
-- `--page-mode` is required
+- `--limit` implies `--page-mode offset` unless `--cursor`,
+  `--include-total-count`, or `--page-mode cursor` is provided
 - `--page-mode cursor` also requires `--sort-json`
 - the first cursor page omits `--cursor`
 

@@ -16,6 +16,15 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	original := string(raw)
 	updated := original
 
+	currentPlaybookRouterSkill := strings.Contains(updated, "## Playbook Matrix") &&
+		strings.Contains(updated, "playbooks/author-flows.md") &&
+		strings.Contains(updated, "playbooks/debug-and-verify.md") &&
+		strings.Contains(updated, "references/runtime-data-shapes.md") &&
+		strings.Contains(updated, "## Default Command Budget")
+	if currentPlaybookRouterSkill {
+		return files
+	}
+
 	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
 		(strings.Contains(updated, "## Public Flow Presentation") ||
 			strings.Contains(updated, "## Public Approval Gate")) &&
@@ -36,7 +45,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- For new or changed OpenAI model config, avoid stale GPT-4-era defaults. Check current OpenAI model guidance and relevant Breyta examples/docs; preserve an explicit user-requested target such as `gpt-5.4`. As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
-			"- For new or changed external API, LLM provider, or model config, avoid stale training-data defaults. Do a quick source-of-truth check against current official provider docs/API references and relevant Breyta docs/examples before choosing endpoints, request shape, auth, rate-limit assumptions, or model ids. For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability; do not claim or use unreleased models such as `gpt-5.5` without provider/API proof.",
+			"- For new or changed external API, LLM provider, or model config, avoid stale training-data defaults. Check current official provider docs/API references and relevant Breyta docs/examples before choosing endpoints, request shape, auth, rate-limit assumptions, or model ids. For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability.",
 		},
 		{
 			"- OpenAI models: check current OpenAI docs before introducing or changing model ids",
@@ -60,7 +69,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
-			"- Do not claim or use unreleased provider models, such as `gpt-5.5`, without provider/API proof.",
+			"- Do not claim or use a provider model unless current provider docs/API availability prove it exists in the target environment.",
 		},
 		{
 			"- Preserve explicit user requests, such as `gpt-5.4`, even when newer models exist.",
@@ -92,11 +101,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\"` for source/config search, search docs snippets for touched primitives, and search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
+			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5` for source/config search, search docs snippets for touched primitives, and search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\"`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\" --limit 5 --format json`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -217,9 +226,9 @@ Goal: operators should scan the flow in UI/CLI quickly, and search/grep by inten
 - pre-push scan check
   - from :name, :description, :triggers, and first few step ids/titles, a new operator should infer flow behavior in ~10 seconds
 - CLI search clarity
-  - breyta flows search <query> searches actual workspace flow metadata
-  - breyta flows grep <literal> searches actual workspace flow source/config
-  - breyta flows templates search/grep searches approved reusable templates
+  - breyta flows search "<query>" --limit 5 searches actual workspace flow metadata
+  - breyta flows grep "<literal>" --limit 5 searches actual workspace flow source/config
+  - breyta flows templates search/grep with --limit 5 searches approved reusable templates
   - use broad flow lists for inventory, slug checks, or explicit user requests only
   - when flows are user-facing, ensure search tokens appear in :name, :description, and :tags (for example invoice, approval, webhook, billing)`
 
@@ -304,7 +313,8 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
 const largeArtifactHygieneBullets = `- For large artifacts, keep chat and run summaries small: report resource refs, signed URLs, and short previews instead of pasting full table/resource content.
 - ` + "`breyta resources read <uri>`" + ` is the normal bounded inspection path for agents. It returns compact blob previews and table row/cell previews by default; use ` + "`--full`" + ` only when the whole payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only. It must not be used as a shortcut for full payload access.
-- When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.`
+- When authoring flows, persist long Markdown reports or JSON bodies as blobs/resources and store refs plus short summaries in tables. Do not put full report bodies in table cells such as ` + "`report_markdown`" + `.
+- For blob persists, choose the tier before authoring the step: retained/default for durable or user-visible artifacts, and ` + "`:persist {:type :blob :tier :ephemeral}`" + ` on streaming HTTP steps for temporary downloads, exports, generated media, and API response blobs that should use the more generous transient quota.`
 
 const workflowQualityContractSection = `## Workflow quality contract (Required)
 
@@ -328,7 +338,7 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
 - do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
 - for installable/public flows, verify Discover install plus an installed run when install behavior matters
-- installable checklist: explicit author approval, ` + "`end-user`" + ` tag, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- installable checklist: explicit author approval, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
@@ -496,7 +506,7 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - before adding or changing model ids, check the provider's current model docs or model-list API when credentials/tooling are available
 - verify the exact model id with a draft run or isolated step run before release when feasible
 - for OpenAI-backed steps, use ` + "`gpt-5.4`" + ` as Breyta's current API default where a default is needed, but still verify availability in the target environment
-- do not claim or use unreleased provider models, such as ` + "`gpt-5.5`" + `, without provider/API proof
+- do not claim or use a provider model unless current provider docs/API availability prove it exists in the target environment
 - for OpenAI-backed ` + "`:llm`" + ` and ` + "`:agent`" + ` steps, use an ` + "`:http-api`" + ` requirement, backend ` + "`openai`" + `, base URL ` + "`https://api.openai.com/v1`" + `, API-key auth, and a non-null config map; use installer ownership when every installer brings their own OpenAI key
 - preserve explicit user requests, such as ` + "`gpt-5.4`" + ` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`

@@ -94,7 +94,12 @@ func NewRootCmd() *cobra.Command {
 		configureVisibility(target, app)
 		configureFlagVisibility(target, app)
 		defaultHelp(c, args)
-		_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nHelp: %s\n", docsHintForCommand(c), helpHintForCommand(c))
+		more := moreHintForCommand(c)
+		if more != "" {
+			_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nMore: %s\nHelp: %s\n", docsHintForCommand(c), more, helpHintForCommand(c))
+		} else {
+			_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nHelp: %s\n", docsHintForCommand(c), helpHintForCommand(c))
+		}
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		// Parse-time: app.DevMode is set from flags/config. Hide dev-only controls unless explicitly enabled.
@@ -250,20 +255,31 @@ func NewRootCmd() *cobra.Command {
 		}
 		app.APIKeyExplicit = machineCredentialExplicit
 		app.TokenExplicit = tokenExplicit || machineCredentialExplicit
+		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
 
 		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
 		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
-		if !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
+		if !skipBackgroundNetwork && !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
 			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
 
+		if isSubcommand && commandShouldWarnSkillDrift(cmd) && !skipBackgroundNetwork {
+			warnCtx, warnCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			for _, warning := range skillsync.MaybeWarnMissingOrOutdatedInstalled(warnCtx, app.APIURL, app.Token) {
+				fmt.Fprintln(cmd.ErrOrStderr(), warning)
+			}
+			warnCancel()
+		}
+
 		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
 		// Run this asynchronously so command startup is never blocked by network issues.
-		skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
+		if !skipBackgroundNetwork {
+			skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
+		}
 
 		// Best-effort update check for JSON commands. Never blocks command execution.
-		if isSubcommand {
+		if isSubcommand && !skipBackgroundNetwork {
 			app.startUpdateCheckNonBlocking(context.Background(), 24*time.Hour)
 			app.emitUpdateReminder(cmd)
 		}
@@ -317,6 +333,39 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newInternalCmd(app))
 
 	return cmd
+}
+
+func commandShouldWarnSkillDrift(cmd *cobra.Command) bool {
+	if cmd == nil || cmd.Root() == nil || cmd == cmd.Root() {
+		return false
+	}
+	root := cmd.Root()
+	top := cmd
+	for top.Parent() != nil && top.Parent() != root {
+		top = top.Parent()
+	}
+	switch strings.TrimSpace(top.Name()) {
+	case "", "auth", "help", "init", "skills", "upgrade", "version":
+		return false
+	default:
+		return true
+	}
+}
+
+func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
+	return commandIsFlowsLintLocalOnly(cmd)
+}
+
+func commandIsFlowsLintLocalOnly(cmd *cobra.Command) bool {
+	if cmd == nil || strings.TrimSpace(cmd.Name()) != "lint" {
+		return false
+	}
+	parent := cmd.Parent()
+	if parent == nil || strings.TrimSpace(parent.Name()) != "flows" {
+		return false
+	}
+	flag := cmd.Flags().Lookup("local-only")
+	return flag != nil && flag.Changed && strings.EqualFold(strings.TrimSpace(flag.Value.String()), "true")
 }
 
 func appStore(app *App) (*state.State, mock.Store, error) {
@@ -413,6 +462,55 @@ func docsHintForCommand(cmd *cobra.Command) string {
 		return rootName + " docs find \"<topic>\""
 	}
 	return fmt.Sprintf("%s docs find %q", rootName, tail)
+}
+
+func moreHintForCommand(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	rootName := "breyta"
+	if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
+		rootName = strings.TrimSpace(root.Name())
+	}
+	path := strings.TrimSpace(cmd.CommandPath())
+	if path == "" {
+		return ""
+	}
+	tail := strings.TrimSpace(strings.TrimPrefix(path, rootName))
+	if tail == "" {
+		return ""
+	}
+	parts := strings.Fields(tail)
+	if len(parts) == 0 {
+		return ""
+	}
+	switch parts[0] {
+	case "flows":
+		if len(parts) == 1 {
+			return rootName + " docs show playbook-author-flows"
+		}
+		switch parts[1] {
+		case "run", "interfaces":
+			return rootName + " docs show playbook-debug-and-verify"
+		case "release", "promote", "installations", "configure":
+			return rootName + " docs show playbook-release-and-install"
+		case "discover", "marketplace":
+			return rootName + " docs show playbook-public-and-marketplace"
+		case "lint", "push", "pull", "show", "search", "grep", "templates", "validate", "diff", "update":
+			return rootName + " docs show playbook-author-flows"
+		}
+	case "steps":
+		return rootName + " docs show playbook-author-flows"
+	case "runs":
+		return rootName + " docs show playbook-debug-and-verify"
+	case "resources":
+		return rootName + " docs show reference-runtime-data-shapes"
+	case "connections", "secrets":
+		return rootName + " docs show playbook-author-flows"
+	case "feedback":
+		return rootName + " docs show playbook-debug-and-verify"
+	}
+	return ""
 }
 
 func must(err error) {

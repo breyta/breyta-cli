@@ -38,6 +38,30 @@ func TestDocsHintForCommand(t *testing.T) {
 	}
 }
 
+func TestMoreHintForCommandRoutesToPlaybooks(t *testing.T) {
+	root := NewRootCmd()
+
+	cases := map[string]string{
+		"flows lint":        "breyta docs show playbook-author-flows",
+		"flows run":         "breyta docs show playbook-debug-and-verify",
+		"flows release":     "breyta docs show playbook-release-and-install",
+		"flows marketplace": "breyta docs show playbook-public-and-marketplace",
+		"steps run":         "breyta docs show playbook-author-flows",
+		"resources read":    "breyta docs show reference-runtime-data-shapes",
+		"docs find":         "",
+	}
+	for path, want := range cases {
+		args := strings.Fields(path)
+		cmd, _, err := root.Find(args)
+		if err != nil {
+			t.Fatalf("find %s command: %v", path, err)
+		}
+		if got := moreHintForCommand(cmd); got != want {
+			t.Fatalf("%s more hint = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestHelpOutputIncludesDocsHint(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
@@ -53,6 +77,9 @@ func TestHelpOutputIncludesDocsHint(t *testing.T) {
 	help := out.String()
 	if !strings.Contains(help, "Docs: breyta docs find \"flows\"") {
 		t.Fatalf("help missing docs hint:\n%s", help)
+	}
+	if !strings.Contains(help, "More: breyta docs show playbook-author-flows") {
+		t.Fatalf("help missing playbook hint:\n%s", help)
 	}
 	if !strings.Contains(help, "Help: breyta help flows") {
 		t.Fatalf("help missing command help hint:\n%s", help)
@@ -503,6 +530,9 @@ func TestRootHasCLIOnboardingCommands(t *testing.T) {
 	}
 	if _, _, err := root.Find([]string{"skills", "install"}); err != nil {
 		t.Fatalf("missing skills install command: %v", err)
+	}
+	if _, _, err := root.Find([]string{"skills", "status"}); err != nil {
+		t.Fatalf("missing skills status command: %v", err)
 	}
 	if _, _, err := root.Find([]string{"workspaces", "use"}); err != nil {
 		t.Fatalf("missing workspaces use command: %v", err)

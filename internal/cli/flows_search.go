@@ -3,10 +3,21 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+var flowGrepMatchSurfaceOrder = []string{"definition", "steps", "tools", "connections", "description"}
+
+var flowGrepMatchSurfaceSet = func() map[string]bool {
+	set := make(map[string]bool, len(flowGrepMatchSurfaceOrder))
+	for _, surface := range flowGrepMatchSurfaceOrder {
+		set[surface] = true
+	}
+	return set
+}()
 
 func searchScopeValue(raw string) (string, error) {
 	scope := strings.TrimSpace(strings.ToLower(raw))
@@ -92,6 +103,40 @@ func addPatternPayload(payload map[string]any, pattern string, ors []string) {
 	}
 }
 
+func normalizedMatchSurfaces(surfaces []string) ([]string, error) {
+	clean := make([]string, 0, len(surfaces))
+	seen := map[string]bool{}
+	for _, raw := range surfaces {
+		for _, part := range strings.Split(raw, ",") {
+			surface := strings.TrimSpace(strings.ToLower(part))
+			if surface == "" || seen[surface] {
+				continue
+			}
+			if !flowGrepMatchSurfaceSet[surface] {
+				return nil, fmt.Errorf("--surface must be one of %s (got %q)", strings.Join(flowGrepMatchSurfaceOrder, ", "), surface)
+			}
+			seen[surface] = true
+			clean = append(clean, surface)
+		}
+	}
+	return clean, nil
+}
+
+func appendMatchSurfacesPayload(payload map[string]any, surfaces []string) error {
+	clean, err := normalizedMatchSurfaces(surfaces)
+	if err != nil {
+		return err
+	}
+	setMatchSurfacesPayload(payload, clean)
+	return nil
+}
+
+func setMatchSurfacesPayload(payload map[string]any, clean []string) {
+	if len(clean) > 0 {
+		payload["matchSurfaces"] = clean
+	}
+}
+
 func dispatchFlowAPICommand(cmd *cobra.Command, app *App, command string, payload map[string]any, allowGlobal bool) error {
 	if allowGlobal && strings.TrimSpace(app.WorkspaceID) == "" {
 		return doGlobalAPICommand(cmd, app, command, payload)
@@ -130,6 +175,25 @@ func dispatchFlowAPICommandWithTransform(cmd *cobra.Command, app *App, command s
 		return writeErr(cmd, err)
 	}
 	transform(out)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
+}
+
+func dispatchGlobalFlowAPICommandWithTransform(cmd *cobra.Command, app *App, command string, payload map[string]any, transform func(map[string]any)) error {
+	if err := requireAPI(app); err != nil {
+		return writeErr(cmd, err)
+	}
+	client := apiClient(app)
+	out, status, err := client.DoGlobalCommand(context.Background(), command, payload)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	trackCommandTelemetry(app, command, payload, status, status < 400 && isOK(out))
+	if transform != nil {
+		transform(out)
+	}
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)
 	}
@@ -256,6 +320,7 @@ func newFlowsGrepCmd(app *App) *cobra.Command {
 	var stepType string
 	var toolName string
 	var connection string
+	var matchSurfaces []string
 	var flowSlug string
 	var target string
 	var limit int
@@ -300,6 +365,10 @@ synonym expansion.
 			if (effectiveScope == "workspace" || effectiveScope == "all") && strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("workspace grep requires --workspace or BREYTA_WORKSPACE; use --scope templates without workspace context"))
 			}
+			normalizedSurfaces, err := normalizedMatchSurfaces(matchSurfaces)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 
 			workspacePayload := map[string]any{
 				"definitionSearch": true,
@@ -310,6 +379,7 @@ synonym expansion.
 			}
 			addPatternPayload(workspacePayload, pattern, ors)
 			appendFlowSearchFilters(workspacePayload, provider, stepType, toolName, connection)
+			setMatchSurfacesPayload(workspacePayload, normalizedSurfaces)
 			if strings.TrimSpace(flowSlug) != "" {
 				workspacePayload["flowSlug"] = strings.TrimSpace(flowSlug)
 			}
@@ -323,6 +393,7 @@ synonym expansion.
 			}
 			addPatternPayload(templatePayload, pattern, ors)
 			appendFlowSearchFilters(templatePayload, provider, stepType, toolName, connection)
+			setMatchSurfacesPayload(templatePayload, normalizedSurfaces)
 
 			switch effectiveScope {
 			case "workspace":
@@ -341,6 +412,7 @@ synonym expansion.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
+	cmd.Flags().StringArrayVar(&matchSurfaces, "surface", nil, "Limit literal matches to a surface: definition|steps|tools|connections|description (repeatable or comma-separated)")
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit workspace search to one known flow slug")
 	cmd.Flags().StringVar(&target, "target", "latest", "Workspace source target: latest|draft|live")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results per scope (1..100 recommended)")
@@ -376,6 +448,9 @@ func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templat
 			"breyta flows grep <pattern> --scope workspace",
 			"breyta flows grep <pattern> --scope templates",
 		},
+	}
+	if matchSurfaces, ok := workspacePayload["matchSurfaces"]; ok {
+		meta["matchSurfaces"] = matchSurfaces
 	}
 	return writeData(cmd, app, meta, map[string]any{
 		"result": map[string]any{
@@ -418,6 +493,7 @@ func newFlowsTemplatesSearchCmd(app *App) *cobra.Command {
 	var stepType string
 	var toolName string
 	var connection string
+	var outFormat string
 	var limit int
 	var from int
 	var full bool
@@ -436,6 +512,9 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows templates search requires API mode"))
+			}
+			if err := validateJSONOnlyFormat(outFormat, "flows templates search"); err != nil {
+				return writeErr(cmd, err)
 			}
 			query := ""
 			if len(args) > 0 {
@@ -463,10 +542,16 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 				payload["query"] = query
 			}
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			if full {
-				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			if effectiveScope == "all" {
+				if full {
+					return dispatchGlobalFlowAPICommandWithTransform(cmd, app, "flows.search", payload, nil)
+				}
+				return dispatchGlobalFlowAPICommandWithTransform(cmd, app, "flows.search", payload, compactTemplateSearchEnvelope)
 			}
-			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
+			if full {
+				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, false)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, false, compactTemplateSearchEnvelope)
 		},
 	}
 
@@ -475,6 +560,7 @@ installable flows live under ` + "`breyta flows discover search`" + `.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded indexed template source preview")
@@ -489,6 +575,8 @@ func newFlowsTemplatesGrepCmd(app *App) *cobra.Command {
 	var stepType string
 	var toolName string
 	var connection string
+	var matchSurfaces []string
+	var outFormat string
 	var limit int
 	var from int
 	var full bool
@@ -506,6 +594,9 @@ hidden semantic or synonym expansion.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows templates grep requires API mode"))
+			}
+			if err := validateJSONOnlyFormat(outFormat, "flows templates grep"); err != nil {
+				return writeErr(cmd, err)
 			}
 			pattern := ""
 			if len(args) > 0 {
@@ -535,10 +626,19 @@ hidden semantic or synonym expansion.
 			}
 			addPatternPayload(payload, pattern, ors)
 			appendFlowSearchFilters(payload, provider, stepType, toolName, connection)
-			if full {
-				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all")
+			if err := appendMatchSurfacesPayload(payload, matchSurfaces); err != nil {
+				return writeErr(cmd, err)
 			}
-			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, strings.TrimSpace(app.WorkspaceID) == "" && effectiveScope == "all", compactTemplateSearchEnvelope)
+			if effectiveScope == "all" {
+				if full {
+					return dispatchGlobalFlowAPICommandWithTransform(cmd, app, "flows.search", payload, nil)
+				}
+				return dispatchGlobalFlowAPICommandWithTransform(cmd, app, "flows.search", payload, compactTemplateSearchEnvelope)
+			}
+			if full {
+				return dispatchFlowAPICommand(cmd, app, "flows.search", payload, false)
+			}
+			return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", payload, false, compactTemplateSearchEnvelope)
 		},
 	}
 
@@ -548,6 +648,8 @@ hidden semantic or synonym expansion.
 	cmd.Flags().StringVar(&stepType, "step-type", "", "Filter by primitive step type")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "Filter by indexed tool-call name")
 	cmd.Flags().StringVar(&connection, "connection", "", "Filter by connection slot/provider token")
+	cmd.Flags().StringArrayVar(&matchSurfaces, "surface", nil, "Limit literal matches to a surface: definition|steps|tools|connections|description (repeatable or comma-separated)")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched templates")

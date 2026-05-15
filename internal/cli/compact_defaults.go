@@ -54,7 +54,7 @@ func compactTemplateSearchEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Template search output is compact by default. Use --full for indexed source previews, or --full --raw-definition only when the complete template definition is required."
+		meta["hint"] = "Flow search results are compact. Use --full, or --full --raw-definition where supported, for source."
 	}
 }
 
@@ -93,6 +93,7 @@ func compactTemplateSearchHit(hit map[string]any) bool {
 	}
 	compacted := map[string]any{}
 	setCompactField(compacted, "flow_slug", firstNonBlankString(hit["flow_slug"], hit["flowSlug"], hit["slug"]))
+	setCompactField(compacted, "scope", firstNonBlankString(hit["scope"]))
 	setCompactField(compacted, "name", firstNonBlankString(hit["name"], hit["title"]))
 	setCompactField(compacted, "description", firstNonBlankString(hit["description"]))
 	setCompactField(compacted, "tags", firstPresentAny(hit["tags"]))
@@ -106,9 +107,13 @@ func compactTemplateSearchHit(hit map[string]any) bool {
 	setCompactField(compacted, "publishDescriptionPreview", firstNonBlankString(hit["publishDescriptionPreview"]))
 	setCompactField(compacted, "stepsTextPreview", firstNonBlankString(hit["stepsTextPreview"]))
 	setCompactField(compacted, "sourcePreview", firstNonBlankString(hit["sourcePreview"]))
+	setCompactField(compacted, "matchedSurfaces", firstPresentAny(hit["matchedSurfaces"], hit["matched_surfaces"]))
+	setCompactField(compacted, "matchedPatterns", firstPresentAny(hit["matchedPatterns"], hit["matched_patterns"]))
+	setCompactField(compacted, "matchPreviews", firstPresentAny(hit["matchPreviews"], hit["match_previews"]))
 	setCompactField(compacted, "flow_web_url", firstNonBlankString(hit["flow_web_url"], hit["flowWebUrl"], hit["webUrl"]))
 	setCompactField(compacted, "workspace_name", firstNonBlankString(hit["workspace_name"], hit["workspaceName"]))
 	setCompactField(compacted, "score", firstPresentAny(hit["score"]))
+	addFlowSearchHitRefs(compacted)
 	if len(compacted) == 0 {
 		return changed
 	}
@@ -169,7 +174,7 @@ func compactResourceListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Resource list output omits storage paths and verbose metadata by default. Use `breyta resources get <uri>` for one resource's metadata or `breyta resources read <uri> --full` for full content."
+		out["hint"] = "Resource lists are compact. Use get for metadata or read --full for content."
 	}
 	return out
 }
@@ -179,23 +184,29 @@ func compactResourceListItem(item map[string]any) map[string]any {
 		return nil
 	}
 	out := compactNonEmptyFields(map[string]any{
-		"uri":            firstNonBlankString(item["uri"]),
-		"type":           firstNonBlankString(item["type"]),
-		"displayName":    resourceDisplayNameForCLI(item),
-		"sourceLabel":    resourceSourceLabelForCLI(item),
-		"contentType":    firstNonBlankString(item["contentType"], item["content-type"], item["mimeType"], item["mime-type"]),
-		"flowSlug":       resourceFlowSlugForCLI(item),
-		"workflowId":     resourceWorkflowIDForCLI(item),
-		"stepId":         firstNonBlankString(item["stepId"], item["step-id"], resourceAdapterDetails(item)["step-id"], resourceAdapterDetails(item)["stepId"]),
-		"tableName":      firstNonBlankString(item["tableName"], item["table-name"]),
-		"rowCount":       firstPresentAny(item["rowCount"], item["row-count"], item["rowsWritten"], item["rows-written"]),
-		"sizeBytes":      firstPresentAny(item["sizeBytes"], item["size-bytes"], item["bytes"], item["length"]),
-		"score":          firstPresentAny(item["score"], item["rank"]),
-		"storageBackend": firstNonBlankString(item["storageBackend"], item["storage-backend"]),
-		"storageRoot":    firstNonBlankString(item["storageRoot"], item["storage-root"]),
-		"updatedAt":      firstNonBlankString(item["updatedAt"], item["updated-at"], item["createdAt"], item["created-at"]),
-		"webUrl":         firstNonBlankString(item["webUrl"], item["web-url"], item["url"]),
+		"uri":              firstNonBlankString(item["uri"]),
+		"type":             firstNonBlankString(item["type"]),
+		"displayName":      resourceDisplayNameForCLI(item),
+		"sourceLabel":      resourceSourceLabelForCLI(item),
+		"contentType":      firstNonBlankString(item["contentType"], item["content-type"], item["mimeType"], item["mime-type"]),
+		"flowSlug":         resourceFlowSlugForCLI(item),
+		"workflowId":       resourceWorkflowIDForCLI(item),
+		"stepId":           firstNonBlankString(item["stepId"], item["step-id"], resourceAdapterDetails(item)["step-id"], resourceAdapterDetails(item)["stepId"]),
+		"tableName":        firstNonBlankString(item["tableName"], item["table-name"]),
+		"rowCount":         firstPresentAny(item["rowCount"], item["row-count"], item["rowsWritten"], item["rows-written"]),
+		"sizeBytes":        firstPresentAny(item["sizeBytes"], item["size-bytes"], item["bytes"], item["length"]),
+		"score":            firstPresentAny(item["score"], item["rank"]),
+		"storageBackend":   firstNonBlankString(item["storageBackend"], item["storage-backend"]),
+		"storageRoot":      firstNonBlankString(item["storageRoot"], item["storage-root"]),
+		"ownerWorkspace":   firstNonBlankString(item["ownerWorkspaceId"], item["owner-workspace-id"], item["resourceWorkspaceId"], item["resource-workspace-id"]),
+		"displayWorkspace": firstNonBlankString(item["displayWorkspaceId"], item["display-workspace-id"]),
+		"updatedAt":        firstNonBlankString(item["updatedAt"], item["updated-at"], item["createdAt"], item["created-at"]),
+		"webUrl":           firstNonBlankString(item["webUrl"], item["web-url"], item["url"]),
 	})
+	if uri := firstNonBlankString(out["uri"]); uri != "" {
+		out["hitRef"] = "resource:" + uri
+		out["nextCommand"] = "breyta resources read " + shellSingleQuote(uri) + " --limit 5"
+	}
 	if tags := sliceAny(item["tags"]); len(tags) > 0 {
 		out["tags"] = tags
 	}
@@ -205,13 +216,50 @@ func compactResourceListItem(item map[string]any) map[string]any {
 	return out
 }
 
+func addFlowSearchHitRefs(hit map[string]any) {
+	if hit == nil {
+		return
+	}
+	slug := firstNonBlankString(hit["flow_slug"], hit["slug"])
+	if slug == "" {
+		return
+	}
+	scope := strings.ToLower(firstNonBlankString(hit["scope"]))
+	if scope == "" {
+		return
+	}
+	hit["hitRef"] = scope + ":" + slug
+	switch scope {
+	case "workspace":
+		hit["nextCommand"] = "breyta flows show " + shellSingleQuote(slug)
+	default:
+		hit["nextCommand"] = "breyta flows templates search " + shellSingleQuote(slug) + " --full"
+	}
+}
+
 func compactResourceReadPayload(payload any, uri string) any {
 	if resourceReadLooksLikeTable(payload, uri) {
-		return payload
+		return compactResourceReadTablePayload(payload, uri)
 	}
 	source := resourceReadDataPayload(payload)
 	contentType := resourceReadContentType(source)
 	previewSource := resourceReadPreviewSource(source)
+	if resourceReadLooksBinary(contentType, previewSource) {
+		return compactNonEmptyFields(map[string]any{
+			"uri":             strings.TrimSpace(uri),
+			"contentType":     contentType,
+			"shape":           "binary",
+			"sizeBytes":       resourceReadSizeBytes(source, previewSource),
+			"firstBytes":      resourceReadFirstBytes(previewSource, 16),
+			"downloadUrl":     firstNonBlankString(mapStringAny(source)["downloadUrl"], mapStringAny(source)["downloadURL"], mapStringAny(source)["url"]),
+			"webUrl":          firstNonBlankString(mapStringAny(source)["webUrl"], mapStringAny(source)["web-url"]),
+			"binaryPreview":   true,
+			"bodyOmitted":     true,
+			"hint":            "Binary resource content is compact. Use resources url for download access or read --full for the raw payload.",
+			"nextCommand":     "breyta resources url " + shellSingleQuote(strings.TrimSpace(uri)),
+			"fullPayloadHint": "breyta resources read " + shellSingleQuote(strings.TrimSpace(uri)) + " --full",
+		})
+	}
 	rendered := renderCompactPreview(previewSource)
 	preview, truncated := truncateRunesWithFlag(rendered, compactResourceReadRunes)
 	return compactNonEmptyFields(map[string]any{
@@ -224,8 +272,140 @@ func compactResourceReadPayload(payload any, uri string) any {
 		"truncated":    truncated,
 		"previewRunes": len([]rune(preview)),
 		"fullBytes":    len([]byte(rendered)),
-		"hint":         "Resource content is compact by default. Use `breyta resources read " + strings.TrimSpace(uri) + " --full` when the full payload is required.",
+		"hint":         "Resource content is compact. Use read --full for the full payload.",
 	})
+}
+
+func compactResourceReadTablePayload(payload any, uri string) any {
+	source := resourceReadDataPayload(payload)
+	m := mapStringAny(source)
+	if m == nil {
+		return payload
+	}
+	query := mapStringAny(m["query"])
+	page := mapStringAny(query["page"])
+	schema := mapStringAny(firstPresentAny(m["schema"], query["schema"]))
+	rows := resourceReadTableRows(m, query)
+	columns := resourceReadTableColumns(schema, query, rows)
+	var schemaOmitted any
+	if schema != nil {
+		schemaOmitted = true
+	}
+	return compactNonEmptyFields(map[string]any{
+		"uri":           firstNonBlankString(m["resourceUri"], m["resource-uri"], m["uri"], uri),
+		"contentType":   resourceReadContentType(m),
+		"shape":         "table",
+		"tableName":     firstNonBlankString(m["tableName"], m["table-name"], query["tableName"], query["table-name"]),
+		"tableId":       firstNonBlankString(m["tableId"], m["table-id"], query["tableId"], query["table-id"]),
+		"rows":          rows,
+		"rowsPreviewed": positiveCount(len(rows)),
+		"rowCount": firstPresentAny(
+			m["rowCount"],
+			m["row-count"],
+			query["totalCount"],
+			query["total-count"],
+			query["count"],
+			page["totalCount"],
+			page["total-count"],
+		),
+		"limit":         firstPresentAny(query["limit"], page["limit"]),
+		"offset":        firstPresentAny(query["offset"], page["offset"]),
+		"hasMore":       firstPresentAny(query["hasMore"], query["has-more"], page["hasMore"], page["has-more"]),
+		"nextOffset":    firstPresentAny(query["nextOffset"], query["next-offset"], page["nextOffset"], page["next-offset"]),
+		"columns":       columns,
+		"schemaMode":    firstNonBlankString(m["schemaMode"], m["schema-mode"], schema["mode"]),
+		"schemaOmitted": schemaOmitted,
+		"schemaHint":    "breyta resources table schema " + shellSingleQuote(strings.TrimSpace(uri)),
+		"hint":          "Table read is compact. Use resources table schema for schema details or read --full for the raw payload.",
+	})
+}
+
+func compactTableQueryPayload(payload any, uri string) any {
+	m := mapStringAny(payload)
+	if m == nil {
+		return payload
+	}
+	target := m
+	if data := mapStringAny(m["data"]); data != nil && tableQueryPayloadLooksLikeResult(data) {
+		target = data
+	}
+	if !tableQueryPayloadLooksLikeResult(target) {
+		return payload
+	}
+	rows := sliceAny(target["rows"])
+	if len(rows) == 0 {
+		return payload
+	}
+	delete(target, "items")
+	if _, ok := target["resourceUri"]; !ok {
+		if _, ok := target["resource-uri"]; !ok && strings.TrimSpace(uri) != "" {
+			target["resourceUri"] = strings.TrimSpace(uri)
+		}
+	}
+	return payload
+}
+
+func tableQueryPayloadLooksLikeResult(m map[string]any) bool {
+	if m == nil {
+		return false
+	}
+	if _, ok := m["rows"]; ok {
+		return true
+	}
+	if _, ok := m["items"]; ok {
+		return true
+	}
+	if _, ok := m["page"]; ok {
+		return true
+	}
+	return firstNonBlankString(m["tableName"], m["table-name"], m["tableId"], m["table-id"]) != ""
+}
+
+func resourceReadTableRows(source map[string]any, query map[string]any) []any {
+	for _, candidate := range []any{query["rows"], query["items"], source["rows"], source["items"]} {
+		if rows := sliceAny(candidate); len(rows) > 0 {
+			return rows
+		}
+	}
+	return nil
+}
+
+func resourceReadTableColumns(schema map[string]any, query map[string]any, rows []any) []any {
+	for _, candidate := range []any{schema["columns"], query["columns"]} {
+		columns := sliceAny(candidate)
+		if len(columns) > 0 {
+			return compactResourceReadTableColumns(columns)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	row := mapStringAny(rows[0])
+	if row == nil {
+		return nil
+	}
+	columns := make([]any, 0, len(row))
+	for key := range row {
+		columns = append(columns, key)
+	}
+	sort.Slice(columns, func(i, j int) bool {
+		return scalarString(columns[i]) < scalarString(columns[j])
+	})
+	return columns
+}
+
+func compactResourceReadTableColumns(columns []any) []any {
+	out := make([]any, 0, len(columns))
+	for _, column := range columns {
+		if m := mapStringAny(column); m != nil {
+			if name := firstNonBlankString(m["name"], m["key"], m["id"], m["field"], m["column"]); name != "" {
+				out = append(out, name)
+				continue
+			}
+		}
+		out = append(out, column)
+	}
+	return out
 }
 
 func compactJobsListEnvelope(out map[string]any) {
@@ -247,7 +427,7 @@ func compactJobsListEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Job list output omits payload/result/attempt details by default. Use `breyta jobs show <job-id>` for one job or rerun the list command with --full for the raw response."
+		meta["hint"] = "Job lists are compact. Use jobs show or rerun with --full."
 	}
 }
 
@@ -369,7 +549,7 @@ func compactConnectionsListPayload(payload any) any {
 	}
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Connection list output omits raw config/auth by default. Use `breyta connections show <connection-id>` or rerun with --full for full connection details."
+		out["hint"] = "Connection lists are compact. Use connections show or --full."
 	}
 	return out
 }
@@ -424,7 +604,7 @@ func compactIncidentsListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Incident list output is compact by default. Use `breyta incidents show <incident-id>` or rerun with --full for full incident details."
+		out["hint"] = "Incident lists are compact. Use incidents show or --full."
 	}
 	return out
 }
@@ -474,7 +654,7 @@ func compactDigestsListPayload(payload any) any {
 	out["items"] = items
 	out["outputView"] = "compact"
 	if _, exists := out["hint"]; !exists {
-		out["hint"] = "Digest list output is compact by default. Use `breyta digests show <digest-id>` or rerun with --full for full digest details."
+		out["hint"] = "Digest lists are compact. Use digests show or --full."
 	}
 	return out
 }
@@ -611,6 +791,68 @@ func resourceReadContentType(source any) string {
 	return firstNonBlankString(m["contentType"], m["content-type"], m["mimeType"], m["mime-type"])
 }
 
+func resourceReadLooksBinary(contentType string, previewSource any) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "image/") ||
+		strings.HasPrefix(ct, "audio/") ||
+		strings.HasPrefix(ct, "video/") ||
+		strings.Contains(ct, "application/pdf") ||
+		strings.Contains(ct, "octet-stream") ||
+		strings.Contains(ct, "zip") ||
+		strings.Contains(ct, "gzip") {
+		return true
+	}
+	s, ok := previewSource.(string)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(s, "%PDF-") {
+		return true
+	}
+	if s == "" {
+		return false
+	}
+	control := 0
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue
+		}
+		if r < 32 || r == 0xfffd {
+			control++
+		}
+	}
+	return control > 0 && control*8 >= len([]rune(s))
+}
+
+func resourceReadSizeBytes(source any, previewSource any) any {
+	m := mapStringAny(source)
+	if m != nil {
+		if v := firstPresentAny(m["sizeBytes"], m["size-bytes"], m["bytes"], m["length"], m["contentLength"], m["content-length"]); v != nil {
+			return v
+		}
+	}
+	if s, ok := previewSource.(string); ok {
+		return len([]byte(s))
+	}
+	return nil
+}
+
+func resourceReadFirstBytes(previewSource any, max int) string {
+	s, ok := previewSource.(string)
+	if !ok || max <= 0 {
+		return ""
+	}
+	b := []byte(s)
+	if len(b) > max {
+		b = b[:max]
+	}
+	parts := make([]string, 0, len(b))
+	for _, v := range b {
+		parts = append(parts, fmt.Sprintf("%02x", v))
+	}
+	return strings.Join(parts, " ")
+}
+
 func resourceReadPreviewSource(source any) any {
 	m := mapStringAny(source)
 	if m == nil {
@@ -742,7 +984,7 @@ func docsCompactHint(slug string) string {
 	if slug == "" {
 		slug = "<slug>"
 	}
-	return "Compact docs preview. Use `breyta docs show " + slug + " --full` for the full page or `breyta docs show " + slug + " --section <heading>` for a focused section."
+	return "Compact docs preview. Use --section <heading> or --full."
 }
 
 type markdownHeading struct {
@@ -808,8 +1050,7 @@ func extractMarkdownSection(markdown string, section string) (string, bool) {
 	lines := strings.Split(markdown, "\n")
 	headings := markdownHeadings(markdown)
 	for i, h := range headings {
-		normalized := normalizeHeadingText(h.Text)
-		if normalized != needle && !strings.Contains(normalized, needle) {
+		if !markdownHeadingMatches(h.Text, needle) {
 			continue
 		}
 		end := len(lines)
@@ -822,6 +1063,47 @@ func extractMarkdownSection(markdown string, section string) (string, bool) {
 		return strings.Join(lines[h.Line:end], "\n"), true
 	}
 	return "", false
+}
+
+func markdownHeadingMatches(heading string, normalizedNeedle string) bool {
+	normalized := normalizeHeadingText(heading)
+	if normalized == "" || normalizedNeedle == "" {
+		return false
+	}
+	if normalized == normalizedNeedle || strings.Contains(normalized, normalizedNeedle) {
+		return true
+	}
+	headingTokens := normalizedHeadingTokens(normalized)
+	needleTokens := strings.Fields(normalizeHeadingText(normalizedNeedle))
+	if len(needleTokens) == 0 {
+		return false
+	}
+	for _, token := range needleTokens {
+		if _, ok := headingTokens[token]; ok {
+			continue
+		}
+		if len(token) > 3 && strings.HasSuffix(token, "s") {
+			if _, ok := headingTokens[strings.TrimSuffix(token, "s")]; ok {
+				continue
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func normalizedHeadingTokens(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, token := range strings.Fields(normalizeHeadingText(s)) {
+		if token == "" {
+			continue
+		}
+		out[token] = struct{}{}
+		if len(token) > 3 && strings.HasSuffix(token, "s") {
+			out[strings.TrimSuffix(token, "s")] = struct{}{}
+		}
+	}
+	return out
 }
 
 func normalizeHeadingText(s string) string {

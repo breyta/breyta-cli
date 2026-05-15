@@ -88,53 +88,72 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "- Breyta skill bundle:") {
 		t.Fatalf("unexpected agents content (missing skill bundle line): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Before meaningful Breyta flow work, state the loaded Breyta skill path and the bundled reference files read for the task.") {
-		t.Fatalf("unexpected agents content (missing skill path proof requirement): %s", string(agents))
+	if !strings.Contains(string(agents), "`breyta skills install --provider all`") {
+		t.Fatalf("unexpected agents content (missing all-provider skill install guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "The bundle may include `SKILL.md` plus `references/`. Read `SKILL.md` first") {
-		t.Fatalf("unexpected agents content (missing skill references guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "CLI warns that the skill is missing or stale") {
+		t.Fatalf("unexpected agents content (missing missing-skill drift guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "load the relevant bundled `references/` file named by `SKILL.md` before creating or editing flows") {
-		t.Fatalf("unexpected agents content (missing persistent references guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "Read `SKILL.md` first; load only the `playbooks/` or `references/` file named for the touched surface.") {
+		t.Fatalf("unexpected agents content (missing persistent playbook/reference guidance): %s", string(agents))
 	}
 	if strings.Contains(string(agents), "(Not installed)") {
 		t.Fatalf("unexpected agents content (expected installed): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "start with `README.md` in this folder") {
+	if !strings.Contains(string(agents), "Start with `README.md` in this folder") {
 		t.Fatalf("unexpected agents content (missing README pointer): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Pick a task mode before running commands: existing-flow edit, new flow, primitive/step edit") {
+	if !strings.Contains(string(agents), "Pick task mode: existing-flow edit, new flow, primitive/step edit") {
 		t.Fatalf("unexpected agents content (missing task mode router guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Start new work by inspecting the smallest current state needed, then use workspace search/grep, docs, and approved templates at the primitive level") {
-		t.Fatalf("unexpected agents content (missing ordered discovery guidance): %s", string(agents))
+	for _, want := range []string{
+		"flow files are a Breyta DSL with Clojure/EDN syntax, not normal Clojure programs",
+		"`breyta flows search \"<query>\" --limit 5`",
+		"`breyta flows grep \"<literal>\" --limit 5`",
+		"`breyta flows templates search \"<query>\" --limit 5`",
+		"`breyta resources search \"<query>\" --limit 5`",
+		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
+		"Persist large or unknown payloads with `:persist`",
+		"`:tier :ephemeral` on streaming `:http` steps",
+		"Keep functions map-oriented",
+		"Do not run `breyta connections test --all`",
+		"After two failed edit/run cycles, stop and re-plan.",
+	} {
+		if !strings.Contains(string(agents), want) {
+			t.Fatalf("unexpected agents content (missing %q): %s", want, string(agents))
+		}
 	}
-	if !strings.Contains(string(agents), "## Primitive-first reuse (required for create/edit)") {
-		t.Fatalf("unexpected agents content (missing primitive-first reuse section): %s", string(agents))
+	if !strings.Contains(string(agents), "Draft/live and release") {
+		t.Fatalf("unexpected agents content (missing draft/live section): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "New flow sequence: `breyta flows search \"<integration or problem query>\" --limit 5`") {
-		t.Fatalf("unexpected agents content (missing new-flow example sequence): %s", string(agents))
+	if !strings.Contains(string(agents), "`draft` is staging/current authoring; `live` is released/runtime.") {
+		t.Fatalf("unexpected agents content (missing draft/live distinction): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Existing flow sequence: `breyta flows show <slug>` or `breyta flows pull <slug>` -> workspace search/grep only for nearby patterns -> docs search snippets") {
-		t.Fatalf("unexpected agents content (missing edit-flow primitive-first sequence): %s", string(agents))
+	if !strings.Contains(string(agents), "Say `draft verified` when only draft was exercised.") {
+		t.Fatalf("unexpected agents content (missing draft verified wording): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Do not use `breyta flows list` for pattern discovery") {
-		t.Fatalf("unexpected agents content (missing workspace search list guard): %s", string(agents))
+	if !strings.Contains(string(agents), "verify live/install-shaped behavior or report `web UI not verified`") {
+		t.Fatalf("unexpected agents content (missing web UI risk wording): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Do not pull a full template for a primitive/step edit unless snippet context") {
-		t.Fatalf("unexpected agents content (missing full-template escalation guard): %s", string(agents))
+	if !strings.Contains(string(agents), "Include workspace/template queries run, chosen/rejected snippets or templates") {
+		t.Fatalf("unexpected agents content (missing discovery proof guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "## Command budget") {
-		t.Fatalf("unexpected agents content (missing command budget): %s", string(agents))
+	if !strings.Contains(string(agents), "Include full Breyta URLs from CLI JSON") {
+		t.Fatalf("unexpected agents content (missing URL proof guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Do not run `breyta connections test --all` by default") {
-		t.Fatalf("unexpected agents content (missing targeted connection-test guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "Prefer recovery URLs from failures: `error.actions[].url`, then `meta.webUrl`.") {
+		t.Fatalf("unexpected agents content (missing recovery URL priority guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Final handoff must include workspace/template queries run, chosen/rejected snippets or templates") {
-		t.Fatalf("unexpected agents content (missing example reporting requirement): %s", string(agents))
+	if !strings.Contains(string(agents), "Submit `breyta feedback send --agent` when flow development hits significant authoring friction") {
+		t.Fatalf("unexpected agents content (missing authoring friction feedback guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "check against current official provider docs/API references or model-list endpoints") {
-		t.Fatalf("unexpected agents content (missing provider/API freshness guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "source flow, live version, activation/setup, Discover install, marketplace visibility") {
+		t.Fatalf("unexpected agents content (missing public surface separation): %s", string(agents))
+	}
+	if strings.Contains(string(agents), "## Reliability checklist (required)") ||
+		strings.Contains(string(agents), "## Scale-aware defaults") ||
+		strings.Contains(string(agents), "## Provenance for derived flows") {
+		t.Fatalf("unexpected agents content (AGENTS.md should stay compact): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
 		t.Fatalf("unexpected agents content (missing n8n import CLI guidance): %s", string(agents))
@@ -142,134 +161,8 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if strings.Contains(string(agents), "## Stop gate") {
 		t.Fatalf("unexpected agents content (AGENTS.md should stay evergreen): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "Verify live install target: `breyta flows show <slug> --target live`") {
-		t.Fatalf("unexpected agents content (missing live verify show step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
-		t.Fatalf("unexpected agents content (missing live verify run step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "## Release hygiene (required)") {
-		t.Fatalf("unexpected agents content (missing release hygiene section): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Do not tell the user a public/end-user flow is \"ready for UI\" from draft proof alone") {
-		t.Fatalf("unexpected agents content (missing ready-for-UI guardrail): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "`web UI not verified` in the risk ledger") {
-		t.Fatalf("unexpected agents content (missing web UI risk ledger wording): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "## Authoring standard (required before editing)") {
-		t.Fatalf("unexpected agents content (missing authoring standard section): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "For public/end-user flows, classify every user value before adding fields:") {
-		t.Fatalf("unexpected agents content (missing setup/run field planning): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "run-each-time values like prompt, file, CSV, resource picker selection") {
-		t.Fatalf("unexpected agents content (missing run field examples): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "## Reliability checklist (required)") {
-		t.Fatalf("unexpected agents content (missing reliability checklist): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "## Scale-aware defaults") {
-		t.Fatalf("unexpected agents content (missing scale-aware defaults): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "idempotency key or dedupe strategy") {
-		t.Fatalf("unexpected agents content (missing duplicate protection guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Choose concurrency mode intentionally before draft runs") {
-		t.Fatalf("unexpected agents content (missing concurrency planning guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "`sequential` for ordered work, shared state, large artifacts, or fragile APIs") {
-		t.Fatalf("unexpected agents content (missing sequential mode guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "`fanout` only for independent bounded items") {
-		t.Fatalf("unexpected agents content (missing fanout guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "`keyed` when work must serialize per entity") {
-		t.Fatalf("unexpected agents content (missing keyed guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "pass signed URLs/blob refs for large files") {
-		t.Fatalf("unexpected agents content (missing large file reference guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Cursors/checkpoints do not advance past failed work.") {
-		t.Fatalf("unexpected agents content (missing cursor safety guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "The chosen concurrency mode is justified in plain language.") {
-		t.Fatalf("unexpected agents content (missing concurrency justification guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Shared state and side effects that must not overlap are named explicitly.") {
-		t.Fatalf("unexpected agents content (missing overlap guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Prefer sequential mode when uncertain; concurrency is opt-in, not the default.") {
-		t.Fatalf("unexpected agents content (missing sequential default guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Run draft target and wait for output: `breyta flows run <slug> --input '{\"n\":41}' --wait`") {
-		t.Fatalf("unexpected agents content (missing draft run step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Search workspace patterns and docs snippets, inspect private snippets with `breyta flows workspace examples step <type> \"<query>\"`") {
-		t.Fatalf("unexpected agents content (missing authoring loop primitive-first step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "If configure check reports missing required config, stop before draft/live runs unless the task is static validation only") {
-		t.Fatalf("unexpected agents content (missing configure-check run gate): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "set explicit order: `breyta flows update <slug> --group-order <n>`") {
-		t.Fatalf("unexpected agents content (missing group ordering guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "confirm ordered siblings with `breyta flows show <slug>`") {
-		t.Fatalf("unexpected agents content (missing ordered siblings verification guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
-		t.Fatalf("unexpected agents content (missing discover card media guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Run at least one failure/no-op/replay check when feasible before release") {
-		t.Fatalf("unexpected agents content (missing failure/no-op/replay step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "If using concurrency, verify no skipped, duplicated, or overlapped work in draft output") {
-		t.Fatalf("unexpected agents content (missing concurrency verification step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "## Provenance for derived flows") {
-		t.Fatalf("unexpected agents content (missing provenance section): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "breyta flows provenance set <slug> --from-consulted") {
-		t.Fatalf("unexpected agents content (missing provenance set command): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "breyta flows provenance set <slug> --template <template-slug>") {
-		t.Fatalf("unexpected agents content (missing template provenance command): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Only flows actually opened with `breyta flows show` or `breyta flows pull` become consulted provenance candidates") {
-		t.Fatalf("unexpected agents content (missing consulted-flow guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Inspect draft vs live before release: `breyta flows diff <slug>`") {
-		t.Fatalf("unexpected agents content (missing diff-before-release step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Release once (after explicit sign-off) with a markdown note: `breyta flows release <slug> --release-note-file ./release-note.md`") {
-		t.Fatalf("unexpected agents content (missing sign-off-gated release step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Use `breyta flows archive <slug>` when the flow should stop appearing in the normal active surface") {
-		t.Fatalf("unexpected agents content (missing archive guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Use `breyta flows delete <slug> --yes` only for permanent removal; add `--force` when runs/installations must also be cleaned up.") {
-		t.Fatalf("unexpected agents content (missing delete guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Edit the note later if needed: `breyta flows versions update <slug> --version <n> --release-note-file ./release-note.md`") {
-		t.Fatalf("unexpected agents content (missing version note update step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Smoke-run live target and capture proof: `breyta flows run <slug> --target live --wait`") {
-		t.Fatalf("unexpected agents content (missing live proof step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "inspect installation setup/config and run with `breyta flows run <slug> --installation-id <installation-id> --wait`") {
-		t.Fatalf("unexpected agents content (missing installation-targeted proof step): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "test the actual setup page, run form fields, upload CSV or file flow, resource picker, and output page") {
-		t.Fatalf("unexpected agents content (missing UI verification ladder): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Prefer exact recovery URLs from failures: `error.actions[].url` first, then `meta.webUrl`.") {
-		t.Fatalf("unexpected agents content (missing recovery URL priority guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "include the exact recovery URL in runtime proof instead of generic \"go to billing/setup\" text") {
-		t.Fatalf("unexpected agents content (missing runtime proof recovery guidance): %s", string(agents))
-	}
-	if !strings.Contains(string(agents), "Skill references: read `SKILL.md` first, then load the bundled `references/` file named for the task surface before creating or editing flows.") {
-		t.Fatalf("unexpected agents content (missing docs skill reference guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "Do not run `breyta connections test --all`") {
+		t.Fatalf("unexpected agents content (missing targeted connection-test guidance): %s", string(agents))
 	}
 	readme, err := os.ReadFile(filepath.Join(wsDir, "README.md"))
 	if err != nil {
@@ -322,6 +215,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only") {
 		t.Fatalf("unexpected readme content (missing configure-check run gate): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows lint --file ./flows/<slug>.clj`") {
+		t.Fatalf("unexpected readme content (missing flow lint guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
 		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
