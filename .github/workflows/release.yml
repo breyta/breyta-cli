@@ -34,14 +34,16 @@ jobs:
           version: latest
           args: release --clean
         env:
-          # Needs access to publish the GitHub Release *and* to push to `breyta/homebrew-tap`.
-          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          # Keep the release itself attributed to GitHub Actions. The PAT is only
+          # used by GoReleaser for the cross-repository Homebrew tap publish.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
       - name: Publish Go module compatibility tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          git config user.name "Chris Moen"
-          git config user.email "chris@breyta.ai"
+          git config user.name "breyta-ci"
+          git config user.email "github-actions@breyta.ai"
           module_tag="$(./scripts/release-go-module-tag.sh "${RELEASE_TAG}")"
           git push origin "${module_tag}"
