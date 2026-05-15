@@ -45,7 +45,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- For new or changed OpenAI model config, avoid stale GPT-4-era defaults. Check current OpenAI model guidance and relevant Breyta examples/docs; preserve an explicit user-requested target such as `gpt-5.4`. As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
-			"- For new or changed external API, LLM provider, or model config, avoid stale training-data defaults. Do a quick source-of-truth check against current official provider docs/API references and relevant Breyta docs/examples before choosing endpoints, request shape, auth, rate-limit assumptions, or model ids. For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability; do not claim or use unreleased models such as `gpt-5.5` without provider/API proof.",
+			"- For new or changed external API, LLM provider, or model config, avoid stale training-data defaults. Check current official provider docs/API references and relevant Breyta docs/examples before choosing endpoints, request shape, auth, rate-limit assumptions, or model ids. For OpenAI-backed steps, use `gpt-5.4` as Breyta's current API default where a default is needed, but still verify availability.",
 		},
 		{
 			"- OpenAI models: check current OpenAI docs before introducing or changing model ids",
@@ -69,7 +69,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- As of the current OpenAI latest-model guide, `gpt-5.5` is the latest model.",
-			"- Do not claim or use unreleased provider models, such as `gpt-5.5`, without provider/API proof.",
+			"- Do not claim or use a provider model unless current provider docs/API availability prove it exists in the target environment.",
 		},
 		{
 			"- Preserve explicit user requests, such as `gpt-5.4`, even when newer models exist.",
@@ -504,7 +504,7 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - before adding or changing model ids, check the provider's current model docs or model-list API when credentials/tooling are available
 - verify the exact model id with a draft run or isolated step run before release when feasible
 - for OpenAI-backed steps, use ` + "`gpt-5.4`" + ` as Breyta's current API default where a default is needed, but still verify availability in the target environment
-- do not claim or use unreleased provider models, such as ` + "`gpt-5.5`" + `, without provider/API proof
+- do not claim or use a provider model unless current provider docs/API availability prove it exists in the target environment
 - for OpenAI-backed ` + "`:llm`" + ` and ` + "`:agent`" + ` steps, use an ` + "`:http-api`" + ` requirement, backend ` + "`openai`" + `, base URL ` + "`https://api.openai.com/v1`" + `, API-key auth, and a non-null config map; use installer ownership when every installer brings their own OpenAI key
 - preserve explicit user requests, such as ` + "`gpt-5.4`" + ` or a specific Claude/Gemini model, unless current provider docs/API availability show the model is unavailable or unsuitable
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
