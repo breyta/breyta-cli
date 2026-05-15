@@ -239,7 +239,7 @@ func addFlowSearchHitRefs(hit map[string]any) {
 
 func compactResourceReadPayload(payload any, uri string) any {
 	if resourceReadLooksLikeTable(payload, uri) {
-		return payload
+		return compactResourceReadTablePayload(payload, uri)
 	}
 	source := resourceReadDataPayload(payload)
 	contentType := resourceReadContentType(source)
@@ -274,6 +274,97 @@ func compactResourceReadPayload(payload any, uri string) any {
 		"fullBytes":    len([]byte(rendered)),
 		"hint":         "Resource content is compact. Use read --full for the full payload.",
 	})
+}
+
+func compactResourceReadTablePayload(payload any, uri string) any {
+	source := resourceReadDataPayload(payload)
+	m := mapStringAny(source)
+	if m == nil {
+		return payload
+	}
+	query := mapStringAny(m["query"])
+	page := mapStringAny(query["page"])
+	schema := mapStringAny(firstPresentAny(m["schema"], query["schema"]))
+	rows := resourceReadTableRows(m, query)
+	columns := resourceReadTableColumns(schema, query, rows)
+	var schemaOmitted any
+	if schema != nil {
+		schemaOmitted = true
+	}
+	return compactNonEmptyFields(map[string]any{
+		"uri":           firstNonBlankString(m["resourceUri"], m["resource-uri"], m["uri"], uri),
+		"contentType":   resourceReadContentType(m),
+		"shape":         "table",
+		"tableName":     firstNonBlankString(m["tableName"], m["table-name"], query["tableName"], query["table-name"]),
+		"tableId":       firstNonBlankString(m["tableId"], m["table-id"], query["tableId"], query["table-id"]),
+		"rows":          rows,
+		"rowsPreviewed": positiveCount(len(rows)),
+		"rowCount": firstPresentAny(
+			m["rowCount"],
+			m["row-count"],
+			query["totalCount"],
+			query["total-count"],
+			query["count"],
+			page["totalCount"],
+			page["total-count"],
+		),
+		"limit":         firstPresentAny(query["limit"], page["limit"]),
+		"offset":        firstPresentAny(query["offset"], page["offset"]),
+		"hasMore":       firstPresentAny(query["hasMore"], query["has-more"], page["hasMore"], page["has-more"]),
+		"nextOffset":    firstPresentAny(query["nextOffset"], query["next-offset"], page["nextOffset"], page["next-offset"]),
+		"columns":       columns,
+		"schemaMode":    firstNonBlankString(m["schemaMode"], m["schema-mode"], schema["mode"]),
+		"schemaOmitted": schemaOmitted,
+		"schemaHint":    "breyta resources table schema " + shellSingleQuote(strings.TrimSpace(uri)),
+		"hint":          "Table read is compact. Use resources table schema for schema details or read --full for the raw payload.",
+	})
+}
+
+func resourceReadTableRows(source map[string]any, query map[string]any) []any {
+	for _, candidate := range []any{query["rows"], query["items"], source["rows"], source["items"]} {
+		if rows := sliceAny(candidate); len(rows) > 0 {
+			return rows
+		}
+	}
+	return nil
+}
+
+func resourceReadTableColumns(schema map[string]any, query map[string]any, rows []any) []any {
+	for _, candidate := range []any{schema["columns"], query["columns"]} {
+		columns := sliceAny(candidate)
+		if len(columns) > 0 {
+			return compactResourceReadTableColumns(columns)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	row := mapStringAny(rows[0])
+	if row == nil {
+		return nil
+	}
+	columns := make([]any, 0, len(row))
+	for key := range row {
+		columns = append(columns, key)
+	}
+	sort.Slice(columns, func(i, j int) bool {
+		return scalarString(columns[i]) < scalarString(columns[j])
+	})
+	return columns
+}
+
+func compactResourceReadTableColumns(columns []any) []any {
+	out := make([]any, 0, len(columns))
+	for _, column := range columns {
+		if m := mapStringAny(column); m != nil {
+			if name := firstNonBlankString(m["name"], m["key"], m["id"], m["field"], m["column"]); name != "" {
+				out = append(out, name)
+				continue
+			}
+		}
+		out = append(out, column)
+	}
+	return out
 }
 
 func compactJobsListEnvelope(out map[string]any) {

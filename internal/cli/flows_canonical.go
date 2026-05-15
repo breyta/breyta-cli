@@ -457,7 +457,8 @@ func newFlowsDiffCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Show a unified diff for flow source.
 
-Defaults to draft versus live so you can inspect unpublished changes. If a
+Defaults to live versus draft so you can inspect unpublished changes as
+additions to the draft. If a
 draft-only flow has pushed draft history but no live version, the server can
 compare the current draft to the previous pushed draft version.
 
@@ -476,6 +477,7 @@ compare the current draft to the previous pushed draft version.
 			toChanged := cmd.Flags().Changed("to")
 			file = strings.TrimSpace(file)
 			if file != "" && !fromChanged && !toChanged {
+				from = "draft"
 				to = "file"
 			}
 			if file != "" && !diffSourceStringIsFile(from) && !diffSourceStringIsFile(to) {
@@ -512,8 +514,8 @@ compare the current draft to the previous pushed draft version.
 		},
 	}
 
-	cmd.Flags().StringVar(&from, "from", "draft", "Diff source (draft|live|version|file)")
-	cmd.Flags().StringVar(&to, "to", "live", "Diff target (draft|live|version|file)")
+	cmd.Flags().StringVar(&from, "from", "live", "Diff source (draft|live|version|file)")
+	cmd.Flags().StringVar(&to, "to", "draft", "Diff target (draft|live|version|file)")
 	cmd.Flags().IntVar(&fromVersion, "from-version", 0, "Version number when --from=version")
 	cmd.Flags().IntVar(&toVersion, "to-version", 0, "Version number when --to=version")
 	cmd.Flags().BoolVar(&full, "full", false, "Include the full unified diff")

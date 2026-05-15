@@ -58,9 +58,17 @@ func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	data, _ := out["data"].(map[string]any)
-	query, _ := data["query"].(map[string]any)
-	if got, _ := query["limit"].(float64); got != 50 {
-		t.Fatalf("unexpected query.limit: %v", query["limit"])
+	if data["shape"] != "table" {
+		t.Fatalf("expected compact table shape, got %#v", data["shape"])
+	}
+	if got, _ := data["limit"].(float64); got != 50 {
+		t.Fatalf("unexpected limit: %v", data["limit"])
+	}
+	if got, _ := data["offset"].(float64); got != 200 {
+		t.Fatalf("unexpected offset: %v", data["offset"])
+	}
+	if _, ok := data["query"]; ok {
+		t.Fatalf("expected compact output to omit raw query payload, got %#v", data["query"])
 	}
 }
 
@@ -316,6 +324,13 @@ func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"resourceUri": "res://v1/ws/ws-acme/result/table/tbl_1",
 			"tableName":   "orders",
+			"schema":      map[string]any{"columns": []any{"order_id", "status", "amount"}},
+			"query": map[string]any{
+				"rows": []any{
+					map[string]any{"order_id": "ord-1", "status": "open", "amount": 12},
+				},
+				"count": float64(1),
+			},
 		})
 	}))
 	defer srv.Close()
@@ -329,6 +344,20 @@ func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("resources read failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, ok := data["schema"]; ok {
+		t.Fatalf("expected compact table read to omit raw schema, got %#v", data["schema"])
+	}
+	if data["shape"] != "table" || data["schemaOmitted"] != true {
+		t.Fatalf("expected compact table metadata, got %#v", data)
+	}
+	if rows, _ := data["rows"].([]any); len(rows) != 1 {
+		t.Fatalf("expected compact rows preview, got %#v", data["rows"])
 	}
 }
 

@@ -2439,7 +2439,7 @@ func TestFlowsDiff_UsesCanonicalCommand(t *testing.T) {
 			return
 		}
 		args, _ := body["args"].(map[string]any)
-		if args["flowSlug"] != "flow-release" || args["from"] != "draft" || args["to"] != "live" {
+		if args["flowSlug"] != "flow-release" || args["from"] != "live" || args["to"] != "draft" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected diff args"}})
 			return
