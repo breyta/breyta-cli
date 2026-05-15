@@ -50,10 +50,14 @@ Pick the next `vYYYY.M.PATCH` value for the release.
 
 ## 3) Create and push the tag
 
-Create an annotated tag on the release commit (normally `main`):
+Create an annotated tag on the release commit (normally `main`). Use the shared
+CI identity so GitHub shows the release tag as Breyta-owned rather than a
+maintainer's personal git identity:
 
 ```bash
-git tag -a vYYYY.M.PATCH -m "breyta-cli vYYYY.M.PATCH"
+git -c user.name=breyta-ci \
+  -c user.email=github-actions@breyta.ai \
+  tag -a vYYYY.M.PATCH -m "breyta-cli vYYYY.M.PATCH" origin/main
 git push origin vYYYY.M.PATCH
 ```
 
