@@ -120,6 +120,11 @@ func TestFlowsLintLocalOnlyWarnsOnUnboundedRange(t *testing.T) {
 	}
 	data, _ := body["data"].(map[string]any)
 	items, _ := data["diagnostics"].([]any)
+	meta, _ := body["meta"].(map[string]any)
+	nextCommands, _ := meta["nextCommands"].([]any)
+	if len(nextCommands) == 0 {
+		t.Fatalf("expected warning-only lint to include next commands, got meta=%#v", meta)
+	}
 	for _, itemAny := range items {
 		item, _ := itemAny.(map[string]any)
 		if item["code"] == "sandbox_unbounded_range" && item["severity"] == "warning" {

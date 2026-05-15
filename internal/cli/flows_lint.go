@@ -117,7 +117,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 				}
 			}
 
-			if len(diagnostics) == 0 {
+			if !lintHasErrors(diagnostics) {
 				meta["nextCommands"] = []string{"breyta flows push --file " + file}
 				if flowSlug != "" {
 					meta["nextCommands"] = append(meta["nextCommands"].([]string), "breyta flows validate "+flowSlug)

@@ -54,7 +54,7 @@ func compactTemplateSearchEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Template search is compact. Use --full, or --full --raw-definition for source."
+		meta["hint"] = "Flow search results are compact. Use --full, or --full --raw-definition where supported, for source."
 	}
 }
 

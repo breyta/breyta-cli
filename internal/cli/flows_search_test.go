@@ -386,6 +386,9 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 	if meta["outputView"] != "compact" {
 		t.Fatalf("expected compact outputView, got %#v", meta)
 	}
+	if hint, _ := meta["hint"].(string); !strings.Contains(hint, "Flow search results are compact") {
+		t.Fatalf("expected generic compact search hint, got %#v", meta["hint"])
+	}
 	data, _ := envelope["data"].(map[string]any)
 	result, _ := data["result"].(map[string]any)
 	hits, _ := result["hits"].([]any)
