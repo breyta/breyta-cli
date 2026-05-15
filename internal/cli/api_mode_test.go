@@ -1160,6 +1160,75 @@ func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T)
 	}
 }
 
+func TestResourcesRead_FallsBackToRunsGetForStepOutputRefs(t *testing.T) {
+	uri := "res://v1/ws/ws-acme/result/run/wf-step/step/review/output"
+	var sawResourceRead bool
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/resources/content":
+			sawResourceRead = true
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "Access denied: not a workspace member",
+			})
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "runs.get" {
+				t.Fatalf("expected fallback runs.get, got %#v", body["command"])
+			}
+			capturedArgs, _ = body["args"].(map[string]any)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step",
+						"steps": []map[string]any{
+							{
+								"stepId": "review",
+								"status": "completed",
+								"output": map[string]any{"full": "nested-output"},
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "read", uri,
+		"--full",
+	)
+	if err != nil {
+		t.Fatalf("resources read --full fallback failed: %v\n%s", err, stdout)
+	}
+	if !sawResourceRead {
+		t.Fatalf("expected initial resources/content request")
+	}
+	if capturedArgs["includeStepResults"] != true || capturedArgs["stepId"] != "review" {
+		t.Fatalf("expected fallback step payload request, got %#v", capturedArgs)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["full"] != "nested-output" {
+		t.Fatalf("expected full fallback payload, got %#v", data)
+	}
+}
+
 func TestResourcesRead_CompactsBinaryBlobWithoutRawPreview(t *testing.T) {
 	uri := "res://v1/ws/ws-acme/result/blob/file-pdf"
 	pdfBody := "%PDF-1.7\x00\x01binary"

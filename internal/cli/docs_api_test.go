@@ -586,6 +586,33 @@ func TestDocsShow_SectionMissReturnsHeadings(t *testing.T) {
 	}
 }
 
+func TestDocsShow_SectionAliasMatchesSingularHeading(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/docs/pages/reference-flow-definition" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("# Flow Definition\n\n## Agent Definitions\n\nDefine reusable agents here.\n\n## Interfaces\n\nManual run setup.\n"))
+	}))
+	defer srv.Close()
+
+	cmd := newDocsShowCmd(&App{APIURL: srv.URL})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"reference-flow-definition", "--section", "Agents"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "## Agent Definitions") || strings.Contains(got, "## Interfaces") {
+		t.Fatalf("expected focused agent definitions section, got: %q", got)
+	}
+}
+
 func TestDocsShow_PrintsHTML(t *testing.T) {
 	t.Parallel()
 

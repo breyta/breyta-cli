@@ -894,7 +894,7 @@ func escapeMarkdownTableCell(s string) string {
 }
 
 func docsSectionNotFoundError(slug string, section string, markdown string) error {
-	headings := markdownContents(markdown, 8)
+	headings := markdownContents(markdown, 20)
 	if len(headings) == 0 {
 		return fmt.Errorf("section %q not found in %s; page has no markdown headings", section, slug)
 	}

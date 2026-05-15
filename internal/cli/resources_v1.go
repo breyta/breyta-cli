@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -398,6 +399,11 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if status == http.StatusForbidden {
+				if fallback, ok := readRunStepResourceViaRunsGet(app, uri, full); ok {
+					return writeREST(cmd, app, http.StatusOK, fallback)
+				}
+			}
 			if !full {
 				out = compactResourceReadPayload(out, uri)
 			}
@@ -410,6 +416,70 @@ func newResourcesReadCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Preview a single table partition")
 	cmd.Flags().StringVar(&partitionKeys, "partition-keys", "", "Preview a comma-separated subset of table partitions")
 	return cmd
+}
+
+var runStepResourceURIRe = regexp.MustCompile(`^res://v1/ws/([^/]+)/result/run/([^/]+)/step/([^/]+)/(input|output|error)$`)
+
+type runStepResourceRef struct {
+	WorkspaceID string
+	WorkflowID  string
+	StepID      string
+	Kind        string
+}
+
+func parseRunStepResourceURI(raw string) (runStepResourceRef, bool) {
+	m := runStepResourceURIRe.FindStringSubmatch(strings.TrimSpace(raw))
+	if len(m) != 5 {
+		return runStepResourceRef{}, false
+	}
+	stepID, err := url.QueryUnescape(m[3])
+	if err != nil {
+		stepID = m[3]
+	}
+	return runStepResourceRef{
+		WorkspaceID: m[1],
+		WorkflowID:  m[2],
+		StepID:      strings.TrimPrefix(stepID, ":"),
+		Kind:        m[4],
+	}, true
+}
+
+func readRunStepResourceViaRunsGet(app *App, rawURI string, full bool) (any, bool) {
+	ref, ok := parseRunStepResourceURI(rawURI)
+	if !ok || strings.TrimSpace(ref.WorkflowID) == "" || strings.TrimSpace(ref.StepID) == "" {
+		return nil, false
+	}
+	out, status, err := runAPICommand(app, "runs.get", map[string]any{
+		"workflowId":         ref.WorkflowID,
+		"includeSteps":       true,
+		"includeResult":      false,
+		"includeStepResults": true,
+		"stepId":             ref.StepID,
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil, false
+	}
+	run := mapStringAny(mapStringAny(out["data"])["run"])
+	step := findRunStep(run, ref.StepID)
+	if step == nil {
+		return nil, false
+	}
+	var payload any
+	switch ref.Kind {
+	case "output":
+		payload = firstPresent(step, "output", "result")
+	case "error":
+		payload = firstPresent(step, "errorOutput", "error-output", "error")
+	case "input":
+		payload = firstPresent(step, "input", "params")
+	}
+	if payload == nil {
+		return nil, false
+	}
+	if full {
+		return payload, true
+	}
+	return compactResourceReadPayload(map[string]any{"data": payload}, rawURI), true
 }
 
 func newResourcesURLCmd(app *App) *cobra.Command {

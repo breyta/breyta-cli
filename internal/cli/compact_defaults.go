@@ -1050,8 +1050,7 @@ func extractMarkdownSection(markdown string, section string) (string, bool) {
 	lines := strings.Split(markdown, "\n")
 	headings := markdownHeadings(markdown)
 	for i, h := range headings {
-		normalized := normalizeHeadingText(h.Text)
-		if normalized != needle && !strings.Contains(normalized, needle) {
+		if !markdownHeadingMatches(h.Text, needle) {
 			continue
 		}
 		end := len(lines)
@@ -1064,6 +1063,47 @@ func extractMarkdownSection(markdown string, section string) (string, bool) {
 		return strings.Join(lines[h.Line:end], "\n"), true
 	}
 	return "", false
+}
+
+func markdownHeadingMatches(heading string, normalizedNeedle string) bool {
+	normalized := normalizeHeadingText(heading)
+	if normalized == "" || normalizedNeedle == "" {
+		return false
+	}
+	if normalized == normalizedNeedle || strings.Contains(normalized, normalizedNeedle) {
+		return true
+	}
+	headingTokens := normalizedHeadingTokens(normalized)
+	needleTokens := strings.Fields(normalizeHeadingText(normalizedNeedle))
+	if len(needleTokens) == 0 {
+		return false
+	}
+	for _, token := range needleTokens {
+		if _, ok := headingTokens[token]; ok {
+			continue
+		}
+		if len(token) > 3 && strings.HasSuffix(token, "s") {
+			if _, ok := headingTokens[strings.TrimSuffix(token, "s")]; ok {
+				continue
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func normalizedHeadingTokens(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, token := range strings.Fields(normalizeHeadingText(s)) {
+		if token == "" {
+			continue
+		}
+		out[token] = struct{}{}
+		if len(token) > 3 && strings.HasSuffix(token, "s") {
+			out[strings.TrimSuffix(token, "s")] = struct{}{}
+		}
+	}
+	return out
 }
 
 func normalizeHeadingText(s string) string {

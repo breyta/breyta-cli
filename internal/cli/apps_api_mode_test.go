@@ -4416,6 +4416,72 @@ func TestRunsStep_InspectsOneStepInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-step",
+					"flowSlug":   "flow-step",
+					"steps": []map[string]any{
+						{
+							"stepId":         "review",
+							"stepType":       "agent",
+							"status":         "completed",
+							"resultPreview":  map[string]any{"summary": "compact"},
+							"output":         map[string]any{"nested": map[string]any{"ok": true}},
+							"outputResource": "res://v1/ws/ws-acme/result/run/wf-step/step/review/output",
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "step", "wf-step", "review", "--full",
+	)
+	if err != nil {
+		t.Fatalf("runs step --full failed: %v\n%s", err, stdout)
+	}
+	if capturedArgs["includeStepResults"] != true || capturedArgs["stepId"] != "review" {
+		t.Fatalf("expected full step payload request, got %#v", capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	output, _ := data["output"].(map[string]any)
+	nested, _ := output["nested"].(map[string]any)
+	if nested["ok"] != true {
+		t.Fatalf("expected full nested output, got %#v", data["output"])
+	}
+	if data["outputResource"] == "" {
+		t.Fatalf("expected outputResource, got %#v", data)
+	}
+}
+
 func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
 	var sawList bool
 	var approvedWait string

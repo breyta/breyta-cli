@@ -636,24 +636,27 @@ func newRunsReplayCmd(app *App) *cobra.Command {
 
 func newRunsStepCmd(app *App) *cobra.Command {
 	var installationID string
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "step <run-id> <step-id>",
 		Short: "Show compact step input/output detail for a run",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return doRunsStepInspect(cmd, app, args[0], args[1], installationID)
+				return doRunsStepInspect(cmd, app, args[0], args[1], installationID, full)
 			}
 			return writeLocalRunStepInspect(cmd, app, args[0], args[1])
 		},
 	}
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full captured step output when available (API mode only)")
 	return cmd
 }
 
 func newRunsInspectCmd(app *App) *cobra.Command {
 	var stepID string
 	var installationID string
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "inspect <workflow-id>",
 		Short: "Inspect a run or one step's compact I/O",
@@ -663,7 +666,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				if !isAPIMode(app) {
 					return writeLocalRunStepInspect(cmd, app, args[0], stepID)
 				}
-				return doRunsStepInspect(cmd, app, args[0], stepID, installationID)
+				return doRunsStepInspect(cmd, app, args[0], stepID, installationID, full)
 			}
 			if !isAPIMode(app) {
 				return writeLocalRunInspect(cmd, app, args[0])
@@ -689,6 +692,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full captured step output with --step in API mode")
 	return cmd
 }
 
@@ -863,14 +867,16 @@ func compactLocalStepExecution(execStep *state.StepExecution) map[string]any {
 	}
 }
 
-func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID string, installationID string) error {
+func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID string, installationID string, full bool) error {
 	if strings.TrimSpace(stepID) == "" {
 		return writeErr(cmd, errors.New("missing step id"))
 	}
 	payload := map[string]any{
-		"workflowId":    strings.TrimSpace(workflowID),
-		"includeSteps":  true,
-		"includeResult": false,
+		"workflowId":         strings.TrimSpace(workflowID),
+		"includeSteps":       true,
+		"includeResult":      false,
+		"includeStepResults": full,
+		"stepId":             strings.TrimSpace(stepID),
 	}
 	if strings.TrimSpace(installationID) != "" {
 		payload["installationId"] = strings.TrimSpace(installationID)
@@ -893,23 +899,26 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 		"workflowId":    strings.TrimSpace(workflowID),
 		"stepId":        stepIDOut,
 		"sourceCommand": "runs.get",
+		"outputView":    map[bool]string{true: "full", false: "compact"}[full],
 		"nextCommands": []string{
 			"breyta runs show " + strings.TrimSpace(workflowID) + " --include-steps",
-			"breyta runs show " + strings.TrimSpace(workflowID) + " --full",
+			"breyta runs step " + strings.TrimSpace(workflowID) + " " + shellSingleQuote(stepIDOut) + " --full",
 		},
 	}, map[string]any{
-		"workflowId": strings.TrimSpace(workflowID),
-		"flowSlug":   flowSlug,
-		"stepId":     stepIDOut,
-		"status":     firstNonBlankString(step["status"]),
-		"type":       firstNonBlankString(step["stepType"], step["step-type"], step["type"]),
-		"title":      firstNonBlankString(step["title"], step["label"]),
-		"durationMs": firstPresent(step, "durationMs", "duration-ms"),
-		"input":      firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview"),
-		"output":     firstPresent(step, "resultPreview", "result-preview", "outputPreview", "output-preview", "output", "result"),
-		"error":      firstPresent(step, "error", "errorMessage", "error-message"),
-		"cost":       firstPresent(step, "cost", "usage", "counters", "metering"),
-		"execution":  compactAPIRunStepExecution(step),
+		"workflowId":     strings.TrimSpace(workflowID),
+		"flowSlug":       flowSlug,
+		"stepId":         stepIDOut,
+		"status":         firstNonBlankString(step["status"]),
+		"type":           firstNonBlankString(step["stepType"], step["step-type"], step["type"]),
+		"title":          firstNonBlankString(step["title"], step["label"]),
+		"durationMs":     firstPresent(step, "durationMs", "duration-ms"),
+		"input":          firstPresent(step, "inputPreview", "input-preview", "input", "paramsPreview", "params-preview"),
+		"output":         firstPresent(step, "output", "result", "resultPreview", "result-preview", "outputPreview", "output-preview"),
+		"outputResource": firstPresent(step, "outputResource", "output-resource"),
+		"errorResource":  firstPresent(step, "errorResource", "error-resource"),
+		"error":          firstPresent(step, "error", "errorMessage", "error-message"),
+		"cost":           firstPresent(step, "cost", "usage", "counters", "metering"),
+		"execution":      compactAPIRunStepExecution(step),
 	})
 }
 
