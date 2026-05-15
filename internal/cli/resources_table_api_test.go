@@ -454,8 +454,12 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"tableName": "orders",
-			"rows":      []any{map[string]any{"order-id": "ord-1"}},
-			"count":     1,
+			"items": []any{map[string]any{
+				"rowId": "row-1",
+				"data":  map[string]any{"order-id": "ord-1"},
+			}},
+			"rows":  []any{map[string]any{"order-id": "ord-1"}},
+			"count": 1,
 			"page": map[string]any{
 				"mode":   "offset",
 				"limit":  25,
@@ -486,6 +490,12 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 	data, _ := out["data"].(map[string]any)
 	if got, _ := data["tableName"].(string); got != "orders" {
 		t.Fatalf("unexpected tableName: %v", data["tableName"])
+	}
+	if _, ok := data["items"]; ok {
+		t.Fatalf("expected compact query output to omit duplicate items when rows are present, got %#v", data["items"])
+	}
+	if rows, _ := data["rows"].([]any); len(rows) != 1 {
+		t.Fatalf("expected rows to remain in compact query output, got %#v", data["rows"])
 	}
 }
 
@@ -659,6 +669,43 @@ func TestResourcesTableGetRow_UsesGetRowEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "\"event-id\":\"evt-1\"") {
 		t.Fatalf("expected row payload in output, got:\n%s", stdout)
+	}
+}
+
+func TestResourcesTableGetRow_SendsCompositeKeyAssignments(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/get-row" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		key, _ := body["key"].(map[string]any)
+		if got, _ := key["meeting_key"].(string); got != "ojai-2024-06-11" {
+			t.Fatalf("expected meeting_key in keyed get-row payload, got %#v", body["key"])
+		}
+		if got, _ := key["agenda_item_number"].(string); got != "1" {
+			t.Fatalf("expected agenda_item_number in keyed get-row payload, got %#v", body["key"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"row": map[string]any{"meeting_key": "ojai-2024-06-11", "agenda_item_number": "1"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "get-row", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--key", "meeting_key=ojai-2024-06-11",
+		"--key", "agenda_item_number=1",
+	)
+	if err != nil {
+		t.Fatalf("resources table get-row failed: %v\n%s", err, stdout)
 	}
 }
 
@@ -915,6 +962,45 @@ func TestResourcesTableUpdateCell_UsesUpdateEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "\"status\":true") {
 		t.Fatalf("expected updated row in output, got:\n%s", stdout)
+	}
+}
+
+func TestResourcesTableUpdateCell_SendsCompositeKeyAssignments(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/table/update-cell" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		key, _ := body["key"].(map[string]any)
+		if got, _ := key["meeting_key"].(string); got != "ojai-2024-06-11" {
+			t.Fatalf("expected meeting_key in keyed update-cell payload, got %#v", body["key"])
+		}
+		if got, _ := key["agenda_item_number"].(string); got != "1" {
+			t.Fatalf("expected agenda_item_number in keyed update-cell payload, got %#v", body["key"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"row": map[string]any{"reviewed": true},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "table", "update-cell", "res://v1/ws/ws-acme/result/table/tbl_1",
+		"--key", "meeting_key=ojai-2024-06-11",
+		"--key", "agenda_item_number=1",
+		"--column", "reviewed",
+		"--value-json", "true",
+	)
+	if err != nil {
+		t.Fatalf("resources table update-cell failed: %v\n%s", err, stdout)
 	}
 }
 

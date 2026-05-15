@@ -320,6 +320,47 @@ func compactResourceReadTablePayload(payload any, uri string) any {
 	})
 }
 
+func compactTableQueryPayload(payload any, uri string) any {
+	m := mapStringAny(payload)
+	if m == nil {
+		return payload
+	}
+	target := m
+	if data := mapStringAny(m["data"]); data != nil && tableQueryPayloadLooksLikeResult(data) {
+		target = data
+	}
+	if !tableQueryPayloadLooksLikeResult(target) {
+		return payload
+	}
+	rows := sliceAny(target["rows"])
+	if len(rows) == 0 {
+		return payload
+	}
+	delete(target, "items")
+	if _, ok := target["resourceUri"]; !ok {
+		if _, ok := target["resource-uri"]; !ok && strings.TrimSpace(uri) != "" {
+			target["resourceUri"] = strings.TrimSpace(uri)
+		}
+	}
+	return payload
+}
+
+func tableQueryPayloadLooksLikeResult(m map[string]any) bool {
+	if m == nil {
+		return false
+	}
+	if _, ok := m["rows"]; ok {
+		return true
+	}
+	if _, ok := m["items"]; ok {
+		return true
+	}
+	if _, ok := m["page"]; ok {
+		return true
+	}
+	return firstNonBlankString(m["tableName"], m["table-name"], m["tableId"], m["table-id"]) != ""
+}
+
 func resourceReadTableRows(source map[string]any, query map[string]any) []any {
 	for _, candidate := range []any{query["rows"], query["items"], source["rows"], source["items"]} {
 		if rows := sliceAny(candidate); len(rows) > 0 {

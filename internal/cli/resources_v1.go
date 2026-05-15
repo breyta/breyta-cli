@@ -625,6 +625,9 @@ func newResourcesTableQueryCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if status < 400 {
+				out = compactTableQueryPayload(out, uri)
+			}
 			return writeREST(cmd, app, status, out)
 		},
 	}
@@ -922,7 +925,11 @@ func newResourcesTableGetRowCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-row <uri>",
 		Short: "Fetch a single row from a table resource",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table get-row <res://table-uri> --row-id <row-id>
+breyta resources table get-row <res://table-uri> --key order-id=ord-1
+breyta resources table get-row <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -954,7 +961,7 @@ func newResourcesTableGetRowCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&partitionKey, "partition-key", "", "Target a single table partition")
 	return cmd
 }
@@ -1235,7 +1242,11 @@ func newResourcesTableUpdateCellCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-cell <uri>",
 		Short: "Update a single table cell value",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table update-cell <res://table-uri> --row-id <row-id> --column status --value closed
+breyta resources table update-cell <res://table-uri> --key order-id=ord-1 --column status --value closed
+breyta resources table update-cell <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1 --column reviewed --value-json true`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -1286,7 +1297,7 @@ func newResourcesTableUpdateCellCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&column, "column", "", "Target column")
 	cmd.Flags().StringVar(&value, "value", "", "String cell value")
 	cmd.Flags().StringVar(&valueJSON, "value-json", "", "Raw JSON cell value")
@@ -1305,7 +1316,11 @@ func newResourcesTableUpdateCellFormatCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-cell-format <uri>",
 		Short: "Update or clear a sparse table cell formatting override",
-		Args:  cobra.ExactArgs(1),
+		Example: strings.TrimSpace(`
+breyta resources table update-cell-format <res://table-uri> --row-id <row-id> --column amount --format-json '{"display":"currency","currency":"USD"}'
+breyta resources table update-cell-format <res://table-uri> --key order-id=ord-1 --column amount --format-json '{"display":"currency","currency":"USD"}'
+breyta resources table update-cell-format <res://table-uri> --key meeting-key=m1 --key agenda-item-number=1 --column amount --clear`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -1355,7 +1370,7 @@ func newResourcesTableUpdateCellFormatCmd(app *App) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rowID, "row-id", "", "Stable row id")
-	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeatable), e.g. --key order-id=ord-1")
+	cmd.Flags().StringArrayVar(&keyPairs, "key", nil, "Key field assignment (repeat for composite keys), e.g. --key order-id=ord-1")
 	cmd.Flags().StringVar(&column, "column", "", "Target column")
 	cmd.Flags().StringVar(&formatJSON, "format-json", "", "Raw JSON formatting payload")
 	cmd.Flags().BoolVar(&clear, "clear", false, "Clear the sparse formatting override")
