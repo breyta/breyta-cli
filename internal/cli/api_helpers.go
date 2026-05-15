@@ -426,6 +426,10 @@ func finalWaitRunsGetPayload(workflowID string) map[string]any {
 }
 
 func hydrateTerminalWaitRun(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
+	return hydrateWaitRunSnapshot(client, workflowID, installationID)
+}
+
+func hydrateWaitRunSnapshot(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
 	payload := finalWaitRunsGetPayload(workflowID)
 	if strings.TrimSpace(installationID) != "" {
 		payload["installationId"] = strings.TrimSpace(installationID)

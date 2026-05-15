@@ -149,6 +149,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"workflow_id": workflowID,
 				"wait":        true,
 			})
+			lastPoll := execResp
+			if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+				lastPoll = snapshot
+			}
+			nextCommands := []string{
+				"breyta runs inspect " + workflowID,
+				"breyta runs show " + workflowID + " --include-steps",
+				"breyta resources workflow list " + workflowID,
+			}
+			if flowSlug != "" {
+				nextCommands = append(nextCommands, "breyta flows run "+flowSlug+" --wait --timeout 2m")
+			}
 			timeoutOut := map[string]any{
 				"ok": false,
 				"error": map[string]any{
@@ -160,13 +172,14 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 					},
 				},
 				"meta": map[string]any{
-					"timedOut": true,
-					"hint":     "The run may still be in progress. Use `breyta runs show <workflow-id>` to check status.",
+					"timedOut":     true,
+					"hint":         "The run may still be in progress. Inspect the workflow id, or use a longer --timeout on the next waited run.",
+					"nextCommands": nextCommands,
 				},
 				"data": map[string]any{
 					"workflowId": workflowID,
 					"start":      startResp,
-					"lastPoll":   execResp,
+					"lastPoll":   lastPoll,
 				},
 			}
 			if err := writeAPIResult(cmd, app, timeoutOut, 200); err != nil {

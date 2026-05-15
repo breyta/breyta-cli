@@ -4048,6 +4048,71 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-slow",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			run := map[string]any{
+				"workflowId": "wf-slow",
+				"status":     "running",
+			}
+			if args["includeSteps"] == true {
+				run["steps"] = []any{map[string]any{"stepId": "slow-step", "stepType": "llm", "status": "running", "resultPreview": "omit me"}}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"run": run},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-slow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"stepId":"slow-step"`) {
+		t.Fatalf("expected hydrated compact step snapshot, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "resultPreview") {
+		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run flow-slow --wait --timeout 2m") {
+		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRun_WaitReturnsNonZeroForFailedRun(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
