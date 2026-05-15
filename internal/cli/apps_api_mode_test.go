@@ -3929,8 +3929,14 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	if !strings.Contains(stdout, `"http-requests":1`) {
 		t.Fatalf("expected hydrated wait output to include fresh http counter, got:\n%s", stdout)
 	}
-	if strings.Contains(stdout, `"stepId": "fetch"`) {
-		t.Fatalf("expected wait output to strip hydrated step details, got:\n%s", stdout)
+	if !strings.Contains(stdout, `"stepId":"fetch"`) {
+		t.Fatalf("expected wait output to include compact step summary, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "resultPreview") {
+		t.Fatalf("expected wait output to strip verbose step details, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta runs inspect wf-nested") {
+		t.Fatalf("expected wait output to include run inspection next command, got:\n%s", stdout)
 	}
 }
 

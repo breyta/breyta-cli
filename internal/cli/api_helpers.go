@@ -435,6 +435,7 @@ func hydrateTerminalWaitRun(client apiCommandRunner, workflowID string, installa
 		return nil, status, err
 	}
 	compactWaitRunOutput(out)
+	addWaitRunNextCommands(out, workflowID)
 	return out, status, nil
 }
 
@@ -445,8 +446,48 @@ func compactWaitRunOutput(out map[string]any) {
 		return
 	}
 	if _, ok := run["steps"]; ok {
-		run["steps"] = []any{}
+		run["steps"] = compactRunStepSummaries(run["steps"])
 	}
+}
+
+func compactRunStepSummaries(value any) []any {
+	steps := sliceAny(value)
+	if len(steps) == 0 {
+		return []any{}
+	}
+	out := make([]any, 0, len(steps))
+	for _, raw := range steps {
+		step := mapStringAny(raw)
+		if step == nil {
+			continue
+		}
+		summary := map[string]any{}
+		for _, key := range []string{"stepId", "stepType", "status", "durationMs", "attempt"} {
+			if v, ok := step[key]; ok && v != nil {
+				summary[key] = v
+			}
+		}
+		if errMap := mapStringAny(step["error"]); errMap != nil {
+			if message := firstNonBlankString(errMap["message"], errMap["error"], errMap["code"]); message != "" {
+				summary["error"] = map[string]any{"message": message}
+			}
+		}
+		if len(summary) > 0 {
+			out = append(out, summary)
+		}
+	}
+	return out
+}
+
+func addWaitRunNextCommands(out map[string]any, workflowID string) {
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID == "" {
+		return
+	}
+	meta := ensureMeta(out)
+	appendMetaNextCommands(meta,
+		"breyta runs inspect "+workflowID,
+		"breyta resources workflow list "+workflowID)
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
