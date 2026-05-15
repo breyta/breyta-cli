@@ -2032,6 +2032,70 @@ func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallations_StatsAndEventsUseCreatorCommands(t *testing.T) {
+	seen := map[string]bool{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		switch body["command"] {
+		case "flows.installations.stats":
+			seen["stats"] = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"totalInstalls": 1}})
+		case "flows.installations.events":
+			seen["events"] = true
+			if args["limit"] != float64(10) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing limit"}})
+				return
+			}
+			if args["since"] != "7d" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing since"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"items": []any{}}})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	if stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "stats", "public-flow",
+	); err != nil {
+		t.Fatalf("flows installations stats failed: %v\n%s", err, stdout)
+	}
+	if stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "events", "public-flow",
+		"--limit", "10",
+		"--since", "7d",
+	); err != nil {
+		t.Fatalf("flows installations events failed: %v\n%s", err, stdout)
+	}
+	if !seen["stats"] || !seen["events"] {
+		t.Fatalf("expected stats/events commands, got %#v", seen)
+	}
+}
+
 func TestFlowsInstallations_Delete_UsesFlowsInstallationsDeleteCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,76 @@ func TestFlowsUpdate_BuildsPublishMediaPayload(t *testing.T) {
 	}
 	if media["alt"] != "Generated hero" {
 		t.Fatalf("expected publishMedia.alt=Generated hero, got %#v", media["alt"])
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishMediaPayloadFromSourceFile(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	origUpload := publishMediaUploadFileResource
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+		publishMediaUploadFileResource = origUpload
+	})
+
+	var gotPayload map[string]any
+	var uploadedPath string
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, path string, filename string, contentType string) (map[string]any, error) {
+		uploadedPath = path
+		if filename != "hero.png" {
+			t.Fatalf("expected upload filename hero.png, got %q", filename)
+		}
+		if contentType != "" {
+			t.Fatalf("expected inferred content type, got %q", contentType)
+		}
+		return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/uploaded-hero"}, nil
+	}
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(path, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--publish-media-type", "image",
+		"--publish-media-source-file", path,
+		"--publish-media-alt", "Uploaded hero",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if uploadedPath != path {
+		t.Fatalf("expected upload path %q, got %q", path, uploadedPath)
+	}
+	media, ok := gotPayload["publishMedia"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia object, got %T", gotPayload["publishMedia"])
+	}
+	source, ok := media["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia.source object, got %T", media["source"])
+	}
+	if source["kind"] != "flow-resource" || source["uri"] != "res://v1/ws/ws-test/file/uploaded-hero" {
+		t.Fatalf("unexpected publishMedia.source: %#v", source)
 	}
 }
 

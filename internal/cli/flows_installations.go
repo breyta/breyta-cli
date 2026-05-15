@@ -25,6 +25,8 @@ config/triggers, or controlled promotion.
 `),
 	}
 	cmd.AddCommand(newFlowsInstallationsListCmd(app))
+	cmd.AddCommand(newFlowsInstallationsStatsCmd(app))
+	cmd.AddCommand(newFlowsInstallationsEventsCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCreateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsGetCmd(app))
 	cmd.AddCommand(newFlowsInstallationsRenameCmd(app))
@@ -67,6 +69,49 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "List all installations for the flow (creator-only)")
 	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id for cross-workspace listing")
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override")
+	return cmd
+}
+
+func newFlowsInstallationsStatsCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stats <flow-slug>",
+		Short: "Show creator install and subscriber stats for a public flow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows installations stats requires API mode"))
+			}
+			return doAPICommand(cmd, app, "flows.installations.stats", map[string]any{
+				"flowSlug": args[0],
+			})
+		},
+	}
+	return cmd
+}
+
+func newFlowsInstallationsEventsCmd(app *App) *cobra.Command {
+	var limit int
+	var since string
+	cmd := &cobra.Command{
+		Use:   "events <flow-slug>",
+		Short: "Show recent creator install state events for a public flow",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows installations events requires API mode"))
+			}
+			payload := map[string]any{"flowSlug": args[0]}
+			if cmd.Flags().Changed("limit") {
+				payload["limit"] = limit
+			}
+			if strings.TrimSpace(since) != "" {
+				payload["since"] = strings.TrimSpace(since)
+			}
+			return doAPICommand(cmd, app, "flows.installations.events", payload)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 25, "Maximum events to return")
+	cmd.Flags().StringVar(&since, "since", "", "Only include events since a relative value like 7d or an ISO timestamp")
 	return cmd
 }
 

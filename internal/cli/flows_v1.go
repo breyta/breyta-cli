@@ -1330,7 +1330,7 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 func newFlowsUpdateCmd(app *App) *cobra.Command {
 	var name, description, publishDescription, publishDescriptionFile, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
-	var publishMediaType, publishMediaSourceKind, publishMediaSource string
+	var publishMediaType, publishMediaSourceKind, publishMediaSource, publishMediaSourceFile string
 	var publishMediaPosterKind, publishMediaPoster, publishMediaAlt string
 	var clearPublishMedia bool
 	cmd := &cobra.Command{
@@ -1376,6 +1376,11 @@ breyta flows update invoice-start --group-key ""
 
 breyta flows update customer-support --publish-description-file ./marketplace.md
 
+breyta flows update customer-support \
+  --publish-media-type image \
+  --publish-media-source-file ./screenshot.png \
+  --publish-media-alt "Screenshot of the generated report"
+
 breyta flows update ugc-video-generator \
   --publish-media-type video \
   --publish-media-source-kind https-url \
@@ -1393,9 +1398,11 @@ breyta flows update customer-support --primary-display-connection-slot ""
 		RunE: func(cmd *cobra.Command, args []string) error {
 			publishMediaProvided, publishMediaValue, err := resolvePublishMediaInput(
 				cmd,
+				app,
 				publishMediaType,
 				publishMediaSourceKind,
 				publishMediaSource,
+				publishMediaSourceFile,
 				publishMediaPosterKind,
 				publishMediaPoster,
 				publishMediaAlt,
@@ -1524,6 +1531,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 	cmd.Flags().StringVar(&publishMediaType, "publish-media-type", "", "Discover card media type: image or video")
 	cmd.Flags().StringVar(&publishMediaSourceKind, "publish-media-source-kind", "", "Discover card media source kind: https-url or flow-resource")
 	cmd.Flags().StringVar(&publishMediaSource, "publish-media-source", "", "Discover card media source value (https URL or res:// URI)")
+	cmd.Flags().StringVar(&publishMediaSourceFile, "publish-media-source-file", "", "Upload a local file and use the resulting res:// URI as discover card media")
 	cmd.Flags().StringVar(&publishMediaPosterKind, "publish-media-poster-kind", "", "Optional poster source kind for video media: https-url or flow-resource")
 	cmd.Flags().StringVar(&publishMediaPoster, "publish-media-poster", "", "Optional poster source value for video media")
 	cmd.Flags().StringVar(&publishMediaAlt, "publish-media-alt", "", "Optional alt text for discover card media")

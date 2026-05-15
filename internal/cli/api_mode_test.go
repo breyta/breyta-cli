@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1078,6 +1079,72 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 	}
 	if ok, _ := out["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", out)
+	}
+}
+
+func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
+	const resourceURI = "res://v1/ws/ws-acme/file/uploaded-hero"
+	var sawInit, sawDirect, sawComplete bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/files/uploads/init":
+			sawInit = true
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["filename"] != "hero-card.png" {
+				t.Fatalf("expected filename hero-card.png, got %#v", body["filename"])
+			}
+			if body["content-type"] != "image/png" {
+				t.Fatalf("expected content-type image/png, got %#v", body["content-type"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI}})
+		case "/api/files/uploads/direct":
+			sawDirect = true
+			if got := r.URL.Query().Get("uri"); got != resourceURI {
+				t.Fatalf("expected direct upload uri %s, got %q", resourceURI, got)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "png-bytes" {
+				t.Fatalf("expected uploaded body, got %q", string(body))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "/api/files/uploads/complete":
+			sawComplete = true
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["uri"] != resourceURI {
+				t.Fatalf("expected complete uri %s, got %#v", resourceURI, body["uri"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"contentType": "image/png", "sizeBytes": 9}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "hero.png")
+	if err := os.WriteFile(path, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "upload", path,
+		"--name", "hero-card.png",
+		"--content-type", "image/png",
+		"--print-uri",
+	)
+	if err != nil {
+		t.Fatalf("resources upload failed: %v\n%s", err, stdout)
+	}
+	if strings.TrimSpace(stdout) != resourceURI {
+		t.Fatalf("expected printed resource URI %q, got %q", resourceURI, stdout)
+	}
+	if !sawInit || !sawDirect || !sawComplete {
+		t.Fatalf("expected init/direct/complete calls, got init=%v direct=%v complete=%v", sawInit, sawDirect, sawComplete)
 	}
 }
 
