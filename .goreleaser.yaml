@@ -77,6 +77,7 @@ brews:
       owner: breyta
       name: homebrew-tap
       branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://flows.breyta.ai
     description: "Command-line interface for working with Breyta flows"
