@@ -181,6 +181,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, ":persist {:type :blob :tier :ephemeral}") {
 		t.Fatalf("expected ephemeral blob tier guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
+		t.Fatalf("expected n8n importer-first guidance, got:\n%s", body)
+	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")
 	}
@@ -314,6 +317,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "## Provider/API Freshness And Model Selection") {
 		t.Fatalf("expected provider/API freshness section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
+		t.Fatalf("expected n8n importer-first guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "OpenAI, Anthropic/Claude, Google/Gemini, OpenAI-compatible providers") {
 		t.Fatalf("expected broad provider guidance, got:\n%s", body)

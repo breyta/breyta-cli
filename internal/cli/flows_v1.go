@@ -342,6 +342,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsPullCmd(app))
 	cmd.AddCommand(newFlowsLintCmd(app))
 	cmd.AddCommand(newFlowsPushCmd(app))
+	cmd.AddCommand(newFlowsImportCmd(app))
 	cmd.AddCommand(newFlowsParenRepairCmd(app))
 	cmd.AddCommand(newFlowsParenCheckCmd(app))
 	cmd.AddCommand(newFlowsDeployCmd(app))

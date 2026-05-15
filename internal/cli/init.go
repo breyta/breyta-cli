@@ -220,6 +220,14 @@ This ` + "`AGENTS.md`" + ` is the always-loaded baseline. Keep it short. The
 installed skill has the full Breyta playbook and should be loaded only when the
 task touches flows.
 
+Keep durable discovery minimal:
+- Pick a task mode before commands: existing-flow edit, new flow, primitive/step edit, debug run, public publish/install, output/table, provider/API, n8n import, or release.
+- Inspect the smallest current state first; then use workspace search/grep, docs, and approved templates at the primitive level.
+- Verify identity/workspace with ` + "`breyta auth whoami`" + ` when workspace state matters.
+- For n8n workflow JSON imports, use ` + "`breyta flows import n8n <workflow.json>`" + ` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed.
+
+Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows/`" + ` for scratch pulls/edits.
+
 ` + skillLine + `
 - Install/update: ` + "`breyta skills install --provider all`" + `, or one provider such as ` + "`--provider " + string(target.Provider) + "`" + `
 - Drift check: ` + "`breyta skills status --provider all`" + `
