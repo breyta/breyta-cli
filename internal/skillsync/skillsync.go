@@ -357,8 +357,8 @@ func ClearCachedStatusWarnings() {
 }
 
 // MaybeWarnMissingOrOutdatedInstalled checks whether Breyta agent guidance is
-// installed and fresh at most once per cache period, then returns cached warnings
-// on subsequent calls until the installed bundle is refreshed.
+// installed and fresh at most once per cache period. Warnings are emitted only
+// on the first check in the period so normal command loops stay quiet.
 func MaybeWarnMissingOrOutdatedInstalled(ctx context.Context, apiURL, token string) []string {
 	if !enabled() {
 		return nil
