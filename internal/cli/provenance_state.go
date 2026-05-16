@@ -370,11 +370,13 @@ func appendProvenanceHintsWithOptions(out map[string]any, targetWorkspaceID, tar
 			meta["provenanceCandidates"] = provenanceCandidatesMetaItems(candidates)
 		}
 	}
-	appendEnvelopeHints(
-		out,
-		"Consulted flow provenance is optional and was not changed; persist it intentionally with: breyta flows provenance set "+targetFlowSlug+" --from-consulted",
-		"Clear flow provenance intentionally with: breyta flows provenance set "+targetFlowSlug+" --clear",
-	)
+	if includeCandidates {
+		appendEnvelopeHints(
+			out,
+			"Consulted flow provenance is optional and was not changed; persist it intentionally with: breyta flows provenance set "+targetFlowSlug+" --from-consulted",
+			"Clear flow provenance intentionally with: breyta flows provenance set "+targetFlowSlug+" --clear",
+		)
+	}
 	return nil
 }
 

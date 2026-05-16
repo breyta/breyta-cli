@@ -77,7 +77,7 @@ func TestFlowsShow_RecordsConsultedFlowInAgentWorkspace(t *testing.T) {
 	}
 }
 
-func TestFlowsCreate_AddsProvenanceHintsFromConsultedFlows(t *testing.T) {
+func TestFlowsCreate_AddsCompactProvenanceCountFromConsultedFlows(t *testing.T) {
 	root := withAgentWorkspaceCwd(t)
 	if err := saveConsultedFlowRefsFromStart(root, []provenanceSourceRef{
 		{WorkspaceID: "ws-1", FlowSlug: "source-one"},
@@ -115,9 +115,8 @@ func TestFlowsCreate_AddsProvenanceHintsFromConsultedFlows(t *testing.T) {
 	}
 
 	envelope := decodeJSONOutput(t, &out)
-	hintsAny, ok := envelope["_hints"].([]any)
-	if !ok || len(hintsAny) < 2 {
-		t.Fatalf("expected _hints in output, got %#v", envelope["_hints"])
+	if _, exists := envelope["_hints"]; exists {
+		t.Fatalf("expected compact output without repeated provenance hints, got %#v", envelope["_hints"])
 	}
 	meta, ok := envelope["meta"].(map[string]any)
 	if !ok {
