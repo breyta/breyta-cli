@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -878,6 +879,26 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 				},
 				"meta": map[string]any{"nextCommands": []string{"breyta flows public preflight public-flow"}},
 			})
+		case "flows.invocations.metrics":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"items": []map[string]any{{
+						"installationId":   "inst-1",
+						"entrypointId":     "manual",
+						"invocationKind":   "manual",
+						"interfaceScope":   "installation",
+						"lastWorkflowId":   "wf-installed-1",
+						"lastCalledAt":     "2026-05-18T10:00:00Z",
+						"lastStatus":       "completed",
+						"lastStatusBucket": "2xx",
+						"requestCount":     3,
+						"successCount":     2,
+						"errorCount":       1,
+					}},
+				},
+			})
 		default:
 			t.Fatalf("unexpected command: %s", command)
 		}
@@ -893,7 +914,7 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("readiness execute: %v\n%s", err, out.String())
 	}
-	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight" {
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics" {
 		t.Fatalf("unexpected commands: %s", got)
 	}
 	var envelope map[string]any
@@ -921,6 +942,21 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	}
 	if len(sliceAny(readiness["blockers"])) != 1 {
 		t.Fatalf("expected one blocker, got %#v", readiness["blockers"])
+	}
+	blocker := mapStringAny(sliceAny(readiness["blockers"])[0])
+	if blocker["status"] != "fail" {
+		t.Fatalf("expected blocking public check status=fail, got %#v", blocker)
+	}
+	if blocker["fixCommand"] != "breyta flows discover update public-flow --public=true" {
+		t.Fatalf("expected discover fix command, got %#v", blocker["fixCommand"])
+	}
+	latestInstalled := mapStringAny(readiness["latestInstalledRun"])
+	if latestInstalled["workflowId"] != "wf-installed-1" || latestInstalled["installationId"] != "inst-1" {
+		t.Fatalf("expected latest installed run context, got %#v", latestInstalled)
+	}
+	nextCommands := stringSlice(mapStringAny(envelope["meta"])["nextCommands"])
+	if !slices.Contains(nextCommands, "breyta flows discover update public-flow --public=true") {
+		t.Fatalf("expected blocker fix command in nextCommands, got %#v", nextCommands)
 	}
 }
 
@@ -961,6 +997,12 @@ func TestFlowsReadinessFullIncludesRawPayloads(t *testing.T) {
 						"checks":   []map[string]any{{"id": "discover-public", "label": "Discover visibility", "pass": true}},
 					},
 				},
+			})
+		case "flows.invocations.metrics":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data":        map[string]any{"items": []map[string]any{}},
 			})
 		default:
 			t.Fatalf("unexpected command: %s", body["command"])
@@ -1045,6 +1087,12 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 				},
 				"meta": map[string]any{"nextCommands": []string{"breyta flows public preflight private-flow"}},
 			})
+		case "flows.invocations.metrics":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data":        map[string]any{"items": []map[string]any{}},
+			})
 		default:
 			t.Fatalf("unexpected command: %s", command)
 		}
@@ -1060,7 +1108,7 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("readiness execute: %v\n%s", err, out.String())
 	}
-	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight" {
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics" {
 		t.Fatalf("unexpected commands: %s", got)
 	}
 	var envelope map[string]any
@@ -1079,6 +1127,17 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 	}
 	if len(sliceAny(readiness["blockers"])) != 0 {
 		t.Fatalf("expected no blockers, got %#v", readiness["blockers"])
+	}
+	var publicCheck map[string]any
+	for _, item := range sliceAny(readiness["checks"]) {
+		check := mapStringAny(item)
+		if check != nil && check["id"] == "discover-public" {
+			publicCheck = check
+			break
+		}
+	}
+	if publicCheck == nil || publicCheck["status"] != "warn" {
+		t.Fatalf("expected non-required failed public check to be status=warn, got %#v", publicCheck)
 	}
 }
 

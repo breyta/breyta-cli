@@ -141,11 +141,12 @@ func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target stri
 		}
 	}
 
-	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, includePublic, requirePublic, requireMarketplace, full)
+	invocationMetrics := buildFlowsInvocationMetricsReport(app, flowSlug)
+	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, invocationMetrics, includePublic, requirePublic, requireMarketplace, full)
 	return writeAPIResult(cmd, app, readiness, 200)
 }
 
-func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
+func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, invocationMetrics map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
 	doctor := flowsDoctorBody(doctorOut)
 	preflight := mapStringAny(mapStringAny(publicOut["data"])["preflight"])
 	doctorReady := boolValue(doctor["ready"])
@@ -162,6 +163,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		if m := mapStringAny(item); m != nil {
 			check := cloneAnyMap(m)
 			check["surface"] = "flow"
+			decorateReadinessCheck(flowSlug, target, check, true)
 			checks = append(checks, check)
 		}
 	}
@@ -170,18 +172,21 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			if m := mapStringAny(item); m != nil {
 				check := cloneAnyMap(m)
 				check["surface"] = "public"
+				decorateReadinessCheck(flowSlug, target, check, publicRequired)
 				checks = append(checks, check)
 			}
 		}
 	}
 	if requireMarketplace {
-		checks = append(checks, map[string]any{
+		check := map[string]any{
 			"id":      "marketplace-visible",
 			"label":   "Marketplace visible",
 			"pass":    marketplaceReady,
 			"surface": "marketplace",
 			"hint":    "Enable marketplace visibility after approval.",
-		})
+		}
+		decorateReadinessCheck(flowSlug, target, check, true)
+		checks = append(checks, check)
 	}
 	blockers := []any{}
 	for _, item := range checks {
@@ -199,6 +204,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	if meta := mapStringAny(publicOut["meta"]); meta != nil {
 		nextCommands = appendUniqueStrings(nextCommands, stringSlice(meta["nextCommands"]))
 	}
+	nextCommands = appendUniqueStrings(nextCommands, readinessFixCommands(blockers))
 	if len(nextCommands) == 0 {
 		nextCommands = []string{
 			fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
@@ -238,6 +244,15 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"checks":              checks,
 		"blockers":            blockers,
 	}
+	if len(invocationMetrics) > 0 {
+		readiness["invocationMetrics"] = invocationMetrics
+		if latest := mapStringAny(invocationMetrics["latestInvocation"]); latest != nil {
+			readiness["latestInvocation"] = latest
+		}
+		if latestInstalled := mapStringAny(invocationMetrics["latestInstalledRun"]); latestInstalled != nil {
+			readiness["latestInstalledRun"] = latestInstalled
+		}
+	}
 	if full {
 		readiness["doctor"] = doctor
 		readiness["publicPreflight"] = preflight
@@ -253,6 +268,138 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"data": map[string]any{
 			"readiness": readiness,
 		},
+	}
+}
+
+func buildFlowsInvocationMetricsReport(app *App, flowSlug string) map[string]any {
+	out, status, err := runAPICommand(app, "flows.invocations.metrics", map[string]any{
+		"flowSlug": flowSlug,
+		"limit":    10,
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil
+	}
+	return compactFlowsInvocationMetrics(out)
+}
+
+func compactFlowsInvocationMetrics(out map[string]any) map[string]any {
+	data := mapStringAny(out["data"])
+	items := sliceAny(data["items"])
+	if len(items) == 0 {
+		return map[string]any{
+			"source": "flows.invocations.metrics",
+			"count":  0,
+		}
+	}
+	var latest map[string]any
+	var latestInstalled map[string]any
+	for _, item := range items {
+		metric := compactReadinessInvocationMetric(mapStringAny(item))
+		if metric == nil {
+			continue
+		}
+		if latest == nil {
+			latest = metric
+		}
+		if latestInstalled == nil && firstNonBlankString(metric["installationId"]) != "" {
+			latestInstalled = metric
+		}
+	}
+	outMetrics := map[string]any{
+		"source": "flows.invocations.metrics",
+		"count":  len(items),
+	}
+	if latest != nil {
+		outMetrics["latestInvocation"] = latest
+	}
+	if latestInstalled != nil {
+		outMetrics["latestInstalledRun"] = latestInstalled
+	}
+	return outMetrics
+}
+
+func compactReadinessInvocationMetric(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	metric := compactNonEmptyFields(map[string]any{
+		"workflowId":       firstNonBlankString(item["lastWorkflowId"], item["last-workflow-id"], item["workflowId"], item["workflow-id"]),
+		"installationId":   firstNonBlankString(item["installationId"], item["installation-id"]),
+		"entrypointId":     firstNonBlankString(item["entrypointId"], item["entrypoint-id"]),
+		"invocationId":     firstNonBlankString(item["invocationId"], item["invocation-id"]),
+		"invocationKind":   firstNonBlankString(item["invocationKind"], item["invocation-kind"]),
+		"interfaceScope":   firstNonBlankString(item["interfaceScope"], item["interface-scope"]),
+		"authMode":         firstNonBlankString(item["authMode"], item["auth-mode"]),
+		"lastCalledAt":     firstNonBlankString(item["lastCalledAt"], item["last-called-at"]),
+		"lastStatus":       firstNonBlankString(item["lastStatus"], item["last-status"]),
+		"lastStatusBucket": firstNonBlankString(item["lastStatusBucket"], item["last-status-bucket"]),
+		"lastErrorCode":    firstNonBlankString(item["lastErrorCode"], item["last-error-code"]),
+		"requestCount":     firstPresentAny(item["requestCount"], item["request-count"]),
+		"successCount":     firstPresentAny(item["successCount"], item["success-count"]),
+		"errorCount":       firstPresentAny(item["errorCount"], item["error-count"]),
+	})
+	if len(metric) == 0 {
+		return nil
+	}
+	return metric
+}
+
+func decorateReadinessCheck(flowSlug, target string, check map[string]any, required bool) {
+	if check == nil {
+		return
+	}
+	pass := boolValue(check["pass"])
+	if _, ok := check["status"]; !ok {
+		switch {
+		case pass:
+			check["status"] = "pass"
+		case required:
+			check["status"] = "fail"
+		default:
+			check["status"] = "warn"
+		}
+	}
+	if pass {
+		return
+	}
+	if _, ok := check["fixCommand"]; ok {
+		return
+	}
+	if fixCommand := readinessFixCommand(flowSlug, target, check); fixCommand != "" {
+		check["fixCommand"] = fixCommand
+	}
+}
+
+func readinessFixCommands(blockers []any) []string {
+	out := []string{}
+	for _, item := range blockers {
+		if m := mapStringAny(item); m != nil {
+			out = appendUniqueStrings(out, []string{firstNonBlankString(m["fixCommand"])})
+		}
+	}
+	return out
+}
+
+func readinessFixCommand(flowSlug, target string, check map[string]any) string {
+	id := strings.ToLower(firstNonBlankString(check["id"]))
+	target = strings.TrimSpace(target)
+	targetFlag := ""
+	if target != "" {
+		targetFlag = " --target " + target
+	}
+	switch id {
+	case "configuration":
+		return fmt.Sprintf("breyta flows configure suggest %s%s", flowSlug, targetFlag)
+	case "definition", "steps", "entrypoints":
+		return fmt.Sprintf("breyta flows pull %s --out ./tmp/flows/%s.clj", flowSlug, flowSlug)
+	case "live-version", "released":
+		return fmt.Sprintf("breyta flows release %s --release-note-file ./release-note.md", flowSlug)
+	case "discover-public":
+		return fmt.Sprintf("breyta flows discover update %s --public=true", flowSlug)
+	case "marketplace-visible", "marketplace-visibility":
+		return fmt.Sprintf("breyta flows marketplace update %s --visible=true", flowSlug)
+	default:
+		return ""
 	}
 }
 
