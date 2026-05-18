@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -141,11 +142,13 @@ func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target stri
 		}
 	}
 
-	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, includePublic, requirePublic, requireMarketplace, full)
+	invocationMetrics := buildFlowsInvocationMetricsReport(app, flowSlug)
+	diffReport := buildFlowsReadinessDiffReport(app, flowSlug)
+	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, invocationMetrics, diffReport, includePublic, requirePublic, requireMarketplace, full)
 	return writeAPIResult(cmd, app, readiness, 200)
 }
 
-func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
+func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, invocationMetrics map[string]any, diffReport map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
 	doctor := flowsDoctorBody(doctorOut)
 	preflight := mapStringAny(mapStringAny(publicOut["data"])["preflight"])
 	doctorReady := boolValue(doctor["ready"])
@@ -162,6 +165,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		if m := mapStringAny(item); m != nil {
 			check := cloneAnyMap(m)
 			check["surface"] = "flow"
+			decorateReadinessCheck(flowSlug, target, check, true)
 			checks = append(checks, check)
 		}
 	}
@@ -170,18 +174,21 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			if m := mapStringAny(item); m != nil {
 				check := cloneAnyMap(m)
 				check["surface"] = "public"
+				decorateReadinessCheck(flowSlug, target, check, publicRequired)
 				checks = append(checks, check)
 			}
 		}
 	}
 	if requireMarketplace {
-		checks = append(checks, map[string]any{
+		check := map[string]any{
 			"id":      "marketplace-visible",
 			"label":   "Marketplace visible",
 			"pass":    marketplaceReady,
 			"surface": "marketplace",
 			"hint":    "Enable marketplace visibility after approval.",
-		})
+		}
+		decorateReadinessCheck(flowSlug, target, check, true)
+		checks = append(checks, check)
 	}
 	blockers := []any{}
 	for _, item := range checks {
@@ -200,6 +207,10 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		nextCommands = appendUniqueStrings(nextCommands, stringSlice(meta["nextCommands"]))
 	}
 	noLiveTarget := flowReadinessNoLiveTarget(target, doctor)
+	nextCommands = appendUniqueStrings(nextCommands, readinessFixCommands(blockers))
+	if boolValue(diffReport["changed"]) {
+		nextCommands = appendUniqueStrings(nextCommands, []string{fmt.Sprintf("breyta flows diff %s", flowSlug)})
+	}
 	if noLiveTarget {
 		nextCommands = appendUniqueStrings(
 			flowReadinessNoLiveNextCommands(flowSlug),
@@ -216,6 +227,9 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			}
 		}
 	}
+	readinessURLs := buildReadinessURLs(app, flowSlug, invocationMetrics)
+	attachReadinessCheckURLs(checks, readinessURLs)
+	nextActions := buildReadinessNextActions(readinessURLs)
 	webURL := firstNonBlankString(
 		mapStringAny(doctorOut["meta"])["webUrl"],
 		mapStringAny(publicOut["meta"])["webUrl"],
@@ -240,7 +254,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"marketplaceRequired": requireMarketplace,
 		"summary":             doctor["summary"],
 		"liveUnavailable":     noLiveTarget,
-		"draftLive":           map[string]any{"activeVersion": activeVersion, "latestVersion": latestVersion, "draftAhead": versionsSuggestDraftAhead(activeVersion, latestVersion)},
+		"draftLive":           buildReadinessDraftLive(activeVersion, latestVersion, diffReport),
 		"configuration":       doctor["configuration"],
 		"public":              preflight["public"],
 		"discover":            preflight["discover"],
@@ -250,18 +264,37 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"checks":              checks,
 		"blockers":            blockers,
 	}
+	if len(readinessURLs) > 0 {
+		readiness["urls"] = readinessURLs
+	}
+	if len(diffReport) > 0 {
+		readiness["diff"] = diffReport
+	}
+	if len(invocationMetrics) > 0 {
+		readiness["invocationMetrics"] = invocationMetrics
+		if latest := mapStringAny(invocationMetrics["latestInvocation"]); latest != nil {
+			readiness["latestInvocation"] = latest
+		}
+		if latestInstalled := mapStringAny(invocationMetrics["latestInstalledRun"]); latestInstalled != nil {
+			readiness["latestInstalledRun"] = latestInstalled
+		}
+	}
 	if full {
 		readiness["doctor"] = doctor
 		readiness["publicPreflight"] = preflight
 	}
+	meta := map[string]any{
+		"webUrl":       webURL,
+		"nextCommands": nextCommands,
+		"hint":         "Readiness is compact. Follow blocker nextCommands.",
+	}
+	if len(nextActions) > 0 {
+		meta["nextActions"] = nextActions
+	}
 	return map[string]any{
 		"ok":          true,
 		"workspaceId": workspaceID,
-		"meta": map[string]any{
-			"webUrl":       webURL,
-			"nextCommands": nextCommands,
-			"hint":         "Readiness is compact. Follow blocker nextCommands.",
-		},
+		"meta":        meta,
 		"data": map[string]any{
 			"readiness": readiness,
 		},
@@ -312,6 +345,318 @@ func filterInvalidLiveRunNextCommands(commands []string, flowSlug string) []stri
 		out = append(out, command)
 	}
 	return out
+}
+
+func buildFlowsReadinessDiffReport(app *App, flowSlug string) map[string]any {
+	out, status, err := runAPICommand(app, "flows.diff", map[string]any{
+		"flowSlug": flowSlug,
+		"from":     "live",
+		"to":       "draft",
+		"view":     "summary",
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil
+	}
+	return compactFlowsReadinessDiff(out)
+}
+
+func compactFlowsReadinessDiff(out map[string]any) map[string]any {
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return nil
+	}
+	diff := compactNonEmptyFields(map[string]any{
+		"source":          "flows.diff",
+		"flowSlug":        firstNonBlankString(data["flowSlug"], data["flow-slug"]),
+		"changed":         firstPresentAny(data["changed"]),
+		"from":            compactReadinessDiffSide(mapStringAny(data["from"])),
+		"to":              compactReadinessDiffSide(mapStringAny(data["to"])),
+		"stat":            mapStringAny(data["stat"]),
+		"changedSections": sliceAny(data["changedSections"]),
+	})
+	if len(diff) == 0 {
+		return nil
+	}
+	return diff
+}
+
+func compactReadinessDiffSide(side map[string]any) map[string]any {
+	if side == nil {
+		return nil
+	}
+	out := compactNonEmptyFields(map[string]any{
+		"source":  firstNonBlankString(side["source"]),
+		"version": firstPresentAny(side["version"]),
+		"label":   firstNonBlankString(side["label"]),
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildReadinessDraftLive(activeVersion any, latestVersion any, diffReport map[string]any) map[string]any {
+	draftLive := map[string]any{
+		"activeVersion": activeVersion,
+		"latestVersion": latestVersion,
+		"draftAhead":    versionsSuggestDraftAhead(activeVersion, latestVersion),
+	}
+	if len(diffReport) > 0 {
+		draftLive["diff"] = diffReport
+		if changed := firstPresentAny(diffReport["changed"]); changed != nil {
+			draftLive["changed"] = changed
+		}
+		if from := mapStringAny(diffReport["from"]); from != nil {
+			draftLive["from"] = from
+		}
+		if to := mapStringAny(diffReport["to"]); to != nil {
+			draftLive["to"] = to
+		}
+		if stat := mapStringAny(diffReport["stat"]); stat != nil {
+			draftLive["stat"] = stat
+		}
+	}
+	return draftLive
+}
+
+func buildReadinessURLs(app *App, flowSlug string, invocationMetrics map[string]any) map[string]any {
+	base := normalizeLocalhostWebURL(workspaceWebBaseURL(app))
+	if strings.TrimSpace(base) == "" {
+		return nil
+	}
+	latest := mapStringAny(invocationMetrics["latestInstalledRun"])
+	if latest == nil {
+		latest = mapStringAny(invocationMetrics["latestInvocation"])
+	}
+	installationID := firstNonBlankString(latest["installationId"])
+	workflowID := firstNonBlankString(latest["workflowId"])
+	installationURL := installationWebURL(base, flowSlug, installationID)
+	urls := compactNonEmptyFields(map[string]any{
+		"flow":                    flowWebURL(base, flowSlug),
+		"publicApp":               flowInstallationsWebURL(base, flowSlug),
+		"install":                 flowInstallationsWebURL(base, flowSlug),
+		"discover":                webURL(base, "discover"),
+		"runs":                    flowRunsWebURL(base, flowSlug),
+		"installation":            installationURL,
+		"installationSetup":       appendReadinessQuery(installationURL, "configure", "setup"),
+		"installationManageSetup": appendReadinessQuery(installationURL, "configure", "manage-setup"),
+		"latestRun":               runWebURL(base, flowSlug, workflowID),
+		"latestRunOutput":         runOutputWebURL(base, flowSlug, workflowID),
+	})
+	if len(urls) == 0 {
+		return nil
+	}
+	return urls
+}
+
+func appendReadinessQuery(rawURL, key, value string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	key = strings.TrimSpace(key)
+	if rawURL == "" || key == "" {
+		return ""
+	}
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	return rawURL + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+}
+
+func attachReadinessCheckURLs(checks []any, urls map[string]any) {
+	if len(urls) == 0 {
+		return
+	}
+	for _, item := range checks {
+		check := mapStringAny(item)
+		if check == nil {
+			continue
+		}
+		if firstNonBlankString(check["openUrl"]) != "" {
+			continue
+		}
+		if openURL := readinessCheckOpenURL(check, urls); openURL != "" {
+			check["openUrl"] = openURL
+		}
+	}
+}
+
+func readinessCheckOpenURL(check map[string]any, urls map[string]any) string {
+	id := strings.ToLower(firstNonBlankString(check["id"]))
+	surface := strings.ToLower(firstNonBlankString(check["surface"]))
+	switch {
+	case id == "discover-public":
+		return firstNonBlankString(urls["discover"])
+	case strings.Contains(id, "marketplace"):
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	case strings.Contains(id, "install"):
+		return firstNonBlankString(urls["install"], urls["publicApp"])
+	case surface == "public":
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	case surface == "marketplace":
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	default:
+		return firstNonBlankString(urls["flow"])
+	}
+}
+
+func buildReadinessNextActions(urls map[string]any) []any {
+	if len(urls) == 0 {
+		return nil
+	}
+	actions := []any{}
+	actions = appendReadinessNextAction(actions, "open-flow", "Open flow", firstNonBlankString(urls["flow"]))
+	actions = appendReadinessNextAction(actions, "open-public-app", "Open public app", firstNonBlankString(urls["publicApp"]))
+	actions = appendReadinessNextAction(actions, "open-latest-installation", "Open latest installation", firstNonBlankString(urls["installation"]))
+	actions = appendReadinessNextAction(actions, "configure-latest-installation", "Configure latest installation", firstNonBlankString(urls["installationSetup"]))
+	actions = appendReadinessNextAction(actions, "open-latest-run", "Open latest run", firstNonBlankString(urls["latestRun"]))
+	if len(actions) == 0 {
+		return nil
+	}
+	return actions
+}
+
+func appendReadinessNextAction(actions []any, id, label, rawURL string) []any {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return actions
+	}
+	return append(actions, map[string]any{
+		"id":    id,
+		"label": label,
+		"url":   rawURL,
+	})
+}
+
+func buildFlowsInvocationMetricsReport(app *App, flowSlug string) map[string]any {
+	out, status, err := runAPICommand(app, "flows.invocations.metrics", map[string]any{
+		"flowSlug": flowSlug,
+		"limit":    10,
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil
+	}
+	return compactFlowsInvocationMetrics(out)
+}
+
+func compactFlowsInvocationMetrics(out map[string]any) map[string]any {
+	data := mapStringAny(out["data"])
+	items := sliceAny(data["items"])
+	if len(items) == 0 {
+		return map[string]any{
+			"source": "flows.invocations.metrics",
+			"count":  0,
+		}
+	}
+	var latest map[string]any
+	var latestInstalled map[string]any
+	for _, item := range items {
+		metric := compactReadinessInvocationMetric(mapStringAny(item))
+		if metric == nil {
+			continue
+		}
+		if latest == nil {
+			latest = metric
+		}
+		if latestInstalled == nil && firstNonBlankString(metric["installationId"]) != "" {
+			latestInstalled = metric
+		}
+	}
+	outMetrics := map[string]any{
+		"source": "flows.invocations.metrics",
+		"count":  len(items),
+	}
+	if latest != nil {
+		outMetrics["latestInvocation"] = latest
+	}
+	if latestInstalled != nil {
+		outMetrics["latestInstalledRun"] = latestInstalled
+	}
+	return outMetrics
+}
+
+func compactReadinessInvocationMetric(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	metric := compactNonEmptyFields(map[string]any{
+		"workflowId":       firstNonBlankString(item["lastWorkflowId"], item["last-workflow-id"], item["workflowId"], item["workflow-id"]),
+		"installationId":   firstNonBlankString(item["installationId"], item["installation-id"]),
+		"entrypointId":     firstNonBlankString(item["entrypointId"], item["entrypoint-id"]),
+		"invocationId":     firstNonBlankString(item["invocationId"], item["invocation-id"]),
+		"invocationKind":   firstNonBlankString(item["invocationKind"], item["invocation-kind"]),
+		"interfaceScope":   firstNonBlankString(item["interfaceScope"], item["interface-scope"]),
+		"authMode":         firstNonBlankString(item["authMode"], item["auth-mode"]),
+		"lastCalledAt":     firstNonBlankString(item["lastCalledAt"], item["last-called-at"]),
+		"lastStatus":       firstNonBlankString(item["lastStatus"], item["last-status"]),
+		"lastStatusBucket": firstNonBlankString(item["lastStatusBucket"], item["last-status-bucket"]),
+		"lastErrorCode":    firstNonBlankString(item["lastErrorCode"], item["last-error-code"]),
+		"requestCount":     firstPresentAny(item["requestCount"], item["request-count"]),
+		"successCount":     firstPresentAny(item["successCount"], item["success-count"]),
+		"errorCount":       firstPresentAny(item["errorCount"], item["error-count"]),
+	})
+	if len(metric) == 0 {
+		return nil
+	}
+	return metric
+}
+
+func decorateReadinessCheck(flowSlug, target string, check map[string]any, required bool) {
+	if check == nil {
+		return
+	}
+	pass := boolValue(check["pass"])
+	if _, ok := check["status"]; !ok {
+		switch {
+		case pass:
+			check["status"] = "pass"
+		case required:
+			check["status"] = "fail"
+		default:
+			check["status"] = "warn"
+		}
+	}
+	if pass {
+		return
+	}
+	if _, ok := check["fixCommand"]; ok {
+		return
+	}
+	if fixCommand := readinessFixCommand(flowSlug, target, check); fixCommand != "" {
+		check["fixCommand"] = fixCommand
+	}
+}
+
+func readinessFixCommands(blockers []any) []string {
+	out := []string{}
+	for _, item := range blockers {
+		if m := mapStringAny(item); m != nil {
+			out = appendUniqueStrings(out, []string{firstNonBlankString(m["fixCommand"])})
+		}
+	}
+	return out
+}
+
+func readinessFixCommand(flowSlug, target string, check map[string]any) string {
+	id := strings.ToLower(firstNonBlankString(check["id"]))
+	target = strings.TrimSpace(target)
+	targetFlag := ""
+	if target != "" {
+		targetFlag = " --target " + target
+	}
+	switch id {
+	case "configuration":
+		return fmt.Sprintf("breyta flows configure suggest %s%s", flowSlug, targetFlag)
+	case "definition", "steps", "entrypoints":
+		return fmt.Sprintf("breyta flows pull %s --out ./tmp/flows/%s.clj", flowSlug, flowSlug)
+	case "live-version", "released":
+		return fmt.Sprintf("breyta flows release %s --release-note-file ./release-note.md", flowSlug)
+	case "discover-public":
+		return fmt.Sprintf("breyta flows discover update %s --public=true", flowSlug)
+	case "marketplace-visible", "marketplace-visibility":
+		return fmt.Sprintf("breyta flows marketplace update %s --visible=true", flowSlug)
+	default:
+		return ""
+	}
 }
 
 func normalizeLocalhostWebURL(raw string) string {
