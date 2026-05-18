@@ -632,6 +632,26 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *testing.T) {
+	stdout, _, err := runCLIArgs(t,
+		"flows", "installations", "create", "--help",
+	)
+	if err != nil {
+		t.Fatalf("flows installations create --help failed: %v\n%s", err, stdout)
+	}
+	for _, want := range []string{
+		"active live version",
+		"breyta flows release-check <flow-slug>",
+		"zero-setup installations",
+		"--local-private-test",
+		"active source version",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected help to contain %q\n%s", want, stdout)
+		}
+	}
+}
+
 func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -2832,6 +2852,23 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	}
 	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/stripe" {
 		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
+	}
+}
+
+func TestFlowsInterfacesBareSlugSuggestsListSubcommand(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", "http://localhost:65535",
+		"--token", "user-dev",
+		"flows", "interfaces", "reliability-wait-timeout-probe",
+	)
+	if err == nil {
+		t.Fatalf("expected bare interfaces slug to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	combined := stdout + stderr
+	if !strings.Contains(combined, "did you mean `breyta flows interfaces list reliability-wait-timeout-probe`") {
+		t.Fatalf("expected list suggestion, got stdout=%s stderr=%s", stdout, stderr)
 	}
 }
 

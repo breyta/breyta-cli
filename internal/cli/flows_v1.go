@@ -584,12 +584,13 @@ Working-copy runs use a user-scoped draft profile. Bind credentials here:
 
 func newFlowsSpineCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "spine <flow-slug>",
-		Short: "Show a flow spine (textual structure)",
-		Args:  cobra.ExactArgs(1),
+		Use:    "spine <flow-slug>",
+		Short:  "Show a flow spine (textual structure)",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta flows show` in API mode).")
+				return writeNotImplemented(cmd, app, "Local/mock-only command. In API mode use `breyta flows doctor <flow-slug>` for readiness/structure or `breyta flows show <flow-slug> --full` for source.")
 			}
 			st, store, err := appStore(app)
 			if err != nil {

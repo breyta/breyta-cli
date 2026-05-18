@@ -23,6 +23,16 @@ Inspect callable surfaces declared under :interfaces.
 These commands read interface metadata from the API. They do not construct runtime
 HTTP or MCP routes locally.
 `),
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				return writeErr(cmd, fmt.Errorf("unknown subcommand %q; did you mean `breyta flows interfaces list %s`?", args[0], args[0]))
+			}
+			if len(args) > 1 {
+				return writeErr(cmd, fmt.Errorf("unknown subcommand %q; did you mean `breyta flows interfaces list %s`?", strings.Join(args, " "), args[0]))
+			}
+			return cmd.Help()
+		},
 	}
 	cmd.AddCommand(newFlowsInterfacesListCmd(app))
 	cmd.AddCommand(newFlowsInterfacesShowCmd(app))
