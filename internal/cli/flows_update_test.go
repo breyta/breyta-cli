@@ -454,6 +454,47 @@ func TestFlowsUpdate_BuildsPublishMediaPayloadFromSourceFile(t *testing.T) {
 	}
 }
 
+func TestFlowsUpdate_RejectsPublishMediaSourceFileInExplicitMockMode(t *testing.T) {
+	origUpload := publishMediaUploadFileResource
+	t.Cleanup(func() {
+		publishMediaUploadFileResource = origUpload
+	})
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string) (map[string]any, error) {
+		t.Fatalf("upload should not run in explicit mock mode")
+		return nil, nil
+	}
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(path, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	cmd.Flags().StringVar(&app.APIURL, "api", "", "API base URL")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--api=",
+		"--publish-media-type", "image",
+		"--publish-media-source-file", path,
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected explicit mock mode to reject publish media file upload")
+	}
+	if !strings.Contains(out.String(), "--publish-media-source-file requires API mode") {
+		t.Fatalf("expected API mode error, got %q", out.String())
+	}
+	if strings.TrimSpace(app.APIURL) != "" {
+		t.Fatalf("explicit mock mode should not be replaced by configured API URL, got %q", app.APIURL)
+	}
+}
+
 func TestFlowsUpdate_BuildsPublishMediaClearPayload(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

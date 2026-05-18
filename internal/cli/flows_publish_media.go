@@ -138,6 +138,9 @@ func resolvePublishMediaPrimarySource(cmd *cobra.Command, app *App, publishMedia
 		if cmd.Flags().Changed("publish-media-source-kind") || cmd.Flags().Changed("publish-media-source") {
 			return nil, errors.New("--publish-media-source-file cannot be combined with --publish-media-source-kind or --publish-media-source")
 		}
+		if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
+			return nil, errors.New("--publish-media-source-file requires API mode (set BREYTA_API_URL)")
+		}
 		if err := requireAPI(app); err != nil {
 			return nil, errors.New("--publish-media-source-file requires API mode")
 		}
