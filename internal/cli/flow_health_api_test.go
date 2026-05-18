@@ -7,7 +7,15 @@ import (
 	"testing"
 )
 
+func disableFlowHealthBackgroundNetwork(t *testing.T) {
+	t.Helper()
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+}
+
 func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var gotPath string
 	var gotQuery url.Values
 
@@ -64,6 +72,8 @@ func TestIncidentsListBuildsCanonicalRequest(t *testing.T) {
 }
 
 func TestIncidentsShowBuildsFailureLimitRequest(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var gotPath string
 	var gotQuery url.Values
 
@@ -101,6 +111,8 @@ func TestIncidentsShowBuildsFailureLimitRequest(t *testing.T) {
 }
 
 func TestIncidentOperatorCommandsBuildCanonicalRequests(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var requests []struct {
 		Method string
 		Path   string
@@ -177,6 +189,8 @@ func TestIncidentOperatorCommandsBuildCanonicalRequests(t *testing.T) {
 }
 
 func TestIncidentSnoozeRejectsInvalidDurationBeforeRequest(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var requestCount int
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +216,8 @@ func TestIncidentSnoozeRejectsInvalidDurationBeforeRequest(t *testing.T) {
 }
 
 func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var requests []struct {
 		Method string
 		Path   string
@@ -298,6 +314,8 @@ func TestDigestsCommandsBuildCanonicalRequests(t *testing.T) {
 }
 
 func TestDigestsListDefaultsToCompactRows(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var gotQuery url.Values
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/digests" {
@@ -359,6 +377,8 @@ func TestDigestsListDefaultsToCompactRows(t *testing.T) {
 }
 
 func TestDigestsCadenceRejectsInvalidValueBeforeRequest(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var requestCount int
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -383,6 +403,8 @@ func TestDigestsCadenceRejectsInvalidValueBeforeRequest(t *testing.T) {
 }
 
 func TestDigestsListRejectsInvalidCadenceFilterBeforeRequest(t *testing.T) {
+	disableFlowHealthBackgroundNetwork(t)
+
 	var requestCount int
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
