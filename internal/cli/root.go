@@ -124,6 +124,21 @@ func NewRootCmd() *cobra.Command {
 				app.DevProfileOverride = val
 			}
 		}
+		devEnvExplicit := false
+		if !devFlagExplicit && !app.DevMode {
+			val := strings.TrimSpace(os.Getenv("BREYTA_DEV"))
+			switch strings.ToLower(val) {
+			case "", "false", "0", "no", "n", "off":
+			case "true", "1", "yes", "y", "on":
+				app.DevMode = true
+				app.DevProfileOverride = ""
+				devEnvExplicit = true
+			default:
+				app.DevMode = true
+				app.DevProfileOverride = val
+				devEnvExplicit = true
+			}
+		}
 		if !app.DevMode {
 			if st, ok := loadDevConfig(app); ok && st.DevMode {
 				app.DevMode = true
@@ -173,6 +188,9 @@ func NewRootCmd() *cobra.Command {
 			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
 			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
 				return writeErr(cmd, errors.New("--api override is disabled unless you provide a service-account API key"))
+			}
+			if app.DevMode && devEnvExplicit && !apiFlagExplicit && apiEnvExplicit && strings.TrimSpace(app.APIURL) == "" {
+				app.APIURL = apiURLFromEnv
 			}
 			if ((app.DevMode && !apiFlagExplicit) || (!app.DevMode && !apiFlagExplicit && !apiEnvExplicit)) && strings.TrimSpace(app.APIURL) == "" {
 				if st, ok := loadDevConfig(app); ok {
@@ -233,6 +251,9 @@ func NewRootCmd() *cobra.Command {
 			return writeErr(cmd, errors.New("--token override is disabled; use `breyta auth login` instead"))
 		}
 		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
+		if app.DevMode && devEnvExplicit && tokenEnvExplicit && !tokenFlagExplicit && strings.TrimSpace(app.Token) == "" {
+			app.Token = tokenEnvValue
+		}
 		if app.DevMode && !tokenFlagExplicit && !apiKeyFlagExplicit && strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIKey) == "" {
 			if st, ok := loadDevConfig(app); ok {
 				_, prof, err := resolveDevProfile(app, st)
