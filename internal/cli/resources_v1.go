@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -156,11 +157,55 @@ Types:
 
 	cmd.AddCommand(newResourcesListCmd(app))
 	cmd.AddCommand(newResourcesSearchCmd(app))
+	cmd.AddCommand(newResourcesUploadCmd(app))
 	cmd.AddCommand(newResourcesGetCmd(app))
 	cmd.AddCommand(newResourcesReadCmd(app))
 	cmd.AddCommand(newResourcesTableCmd(app))
 	cmd.AddCommand(newResourcesURLCmd(app))
 	cmd.AddCommand(newResourcesWorkflowCmd(app))
+	return cmd
+}
+
+func newResourcesUploadCmd(app *App) *cobra.Command {
+	var name string
+	var contentType string
+	var printURI bool
+
+	cmd := &cobra.Command{
+		Use:   "upload <file>",
+		Short: "Upload a local file as a workspace file resource",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireResourcesAPI(cmd, app); err != nil {
+				return writeErr(cmd, err)
+			}
+			path := strings.TrimSpace(args[0])
+			if path == "" {
+				return writeErr(cmd, errors.New("upload requires a local file path"))
+			}
+			filename := strings.TrimSpace(name)
+			if filename == "" {
+				filename = filepath.Base(path)
+			}
+			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			uri := firstNonBlankString(result["resourceUri"], result["uri"])
+			if printURI {
+				if uri == "" {
+					return writeErr(cmd, errors.New("upload response missing resource URI"))
+				}
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), uri)
+				return err
+			}
+			return writeData(cmd, app, nil, map[string]any{"resource": result})
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Resource filename to store; defaults to the local file basename")
+	cmd.Flags().StringVar(&contentType, "content-type", "", "Content type to store; defaults to extension or file sniffing")
+	cmd.Flags().BoolVar(&printURI, "print-uri", false, "Print only the uploaded res:// URI")
 	return cmd
 }
 

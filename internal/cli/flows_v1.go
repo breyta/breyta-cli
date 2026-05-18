@@ -1330,7 +1330,7 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 func newFlowsUpdateCmd(app *App) *cobra.Command {
 	var name, description, publishDescription, publishDescriptionFile, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
-	var publishMediaType, publishMediaSourceKind, publishMediaSource string
+	var publishMediaType, publishMediaSourceKind, publishMediaSource, publishMediaSourceFile string
 	var publishMediaPosterKind, publishMediaPoster, publishMediaAlt string
 	var clearPublishMedia bool
 	cmd := &cobra.Command{
@@ -1376,6 +1376,11 @@ breyta flows update invoice-start --group-key ""
 
 breyta flows update customer-support --publish-description-file ./marketplace.md
 
+breyta flows update customer-support \
+  --publish-media-type image \
+  --publish-media-source-file ./screenshot.png \
+  --publish-media-alt "Screenshot of the generated report"
+
 breyta flows update ugc-video-generator \
   --publish-media-type video \
   --publish-media-source-kind https-url \
@@ -1388,14 +1393,43 @@ breyta flows update ugc-video-generator --clear-publish-media
 
 breyta flows update customer-support --primary-display-connection-slot crm
 breyta flows update customer-support --primary-display-connection-slot ""
-		`),
+			`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			publishDescriptionChanged := cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file")
+			var resolvedPublishDescription string
+			if publishDescriptionChanged {
+				var err error
+				resolvedPublishDescription, err = resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
+			groupOrderChanged := cmd.Flags().Changed("group-order")
+			var resolvedGroupOrder *int
+			if groupOrderChanged {
+				var err error
+				resolvedGroupOrder, err = parseOptionalGroupOrder(groupOrder)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
+			primaryDisplayConnectionSlotChanged := cmd.Flags().Changed("primary-display-connection-slot")
+			var resolvedSelector string
+			if primaryDisplayConnectionSlotChanged {
+				var err error
+				resolvedSelector, err = parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
 			publishMediaProvided, publishMediaValue, err := resolvePublishMediaInput(
 				cmd,
+				app,
 				publishMediaType,
 				publishMediaSourceKind,
 				publishMediaSource,
+				publishMediaSourceFile,
 				publishMediaPosterKind,
 				publishMediaPoster,
 				publishMediaAlt,
@@ -1412,11 +1446,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if strings.TrimSpace(description) != "" {
 					payload["description"] = description
 				}
-				if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
-					resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if publishDescriptionChanged {
 					payload["publishDescription"] = normalizeOptionalMarkdown(resolvedPublishDescription)
 				}
 				if strings.TrimSpace(tags) != "" {
@@ -1438,22 +1468,14 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if cmd.Flags().Changed("group-description") {
 					payload["groupDescription"] = normalizeOptionalText(groupDescription)
 				}
-				if cmd.Flags().Changed("group-order") {
-					resolvedGroupOrder, err := parseOptionalGroupOrder(groupOrder)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if groupOrderChanged {
 					if resolvedGroupOrder == nil {
 						payload["groupOrder"] = ""
 					} else {
 						payload["groupOrder"] = *resolvedGroupOrder
 					}
 				}
-				if cmd.Flags().Changed("primary-display-connection-slot") {
-					resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if primaryDisplayConnectionSlotChanged {
 					payload["primaryDisplayConnectionSlot"] = resolvedSelector
 				}
 				if useDoAPICommandFn {
@@ -1479,11 +1501,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 			if description != "" {
 				f.Description = description
 			}
-			if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
-				resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
+			if publishDescriptionChanged {
 				f.PublishDescription = normalizeOptionalMarkdown(resolvedPublishDescription)
 			}
 			if tags != "" {
@@ -1502,11 +1520,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				f.GroupDescription = resolvedGroupDescription
 				f.GroupOrder = resolvedGroupOrder
 			}
-			if cmd.Flags().Changed("primary-display-connection-slot") {
-				resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
+			if primaryDisplayConnectionSlotChanged {
 				f.PrimaryDisplayConnectionSlot = resolvedSelector
 			}
 			f.UpdatedAt = time.Now().UTC()
@@ -1524,6 +1538,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 	cmd.Flags().StringVar(&publishMediaType, "publish-media-type", "", "Discover card media type: image or video")
 	cmd.Flags().StringVar(&publishMediaSourceKind, "publish-media-source-kind", "", "Discover card media source kind: https-url or flow-resource")
 	cmd.Flags().StringVar(&publishMediaSource, "publish-media-source", "", "Discover card media source value (https URL or res:// URI)")
+	cmd.Flags().StringVar(&publishMediaSourceFile, "publish-media-source-file", "", "Upload a local file and use the resulting res:// URI as discover card media")
 	cmd.Flags().StringVar(&publishMediaPosterKind, "publish-media-poster-kind", "", "Optional poster source kind for video media: https-url or flow-resource")
 	cmd.Flags().StringVar(&publishMediaPoster, "publish-media-poster", "", "Optional poster source value for video media")
 	cmd.Flags().StringVar(&publishMediaAlt, "publish-media-alt", "", "Optional alt text for discover card media")

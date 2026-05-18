@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,206 @@ func TestFlowsUpdate_BuildsPublishMediaPayload(t *testing.T) {
 	}
 	if media["alt"] != "Generated hero" {
 		t.Fatalf("expected publishMedia.alt=Generated hero, got %#v", media["alt"])
+	}
+}
+
+func TestFlowsUpdate_BuildsPublishMediaPayloadFromSourceFile(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	origUpload := publishMediaUploadFileResource
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+		publishMediaUploadFileResource = origUpload
+	})
+
+	var gotPayload map[string]any
+	var uploadedPath string
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, path string, filename string, contentType string) (map[string]any, error) {
+		uploadedPath = path
+		if filename != "hero.png" {
+			t.Fatalf("expected upload filename hero.png, got %q", filename)
+		}
+		if contentType != "" {
+			t.Fatalf("expected inferred content type, got %q", contentType)
+		}
+		return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/uploaded-hero"}, nil
+	}
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		if method != "flows.update" {
+			t.Fatalf("expected method flows.update, got %q", method)
+		}
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(path, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--publish-media-type", "image",
+		"--publish-media-source-file", path,
+		"--publish-media-alt", "Uploaded hero",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if uploadedPath != path {
+		t.Fatalf("expected upload path %q, got %q", path, uploadedPath)
+	}
+	media, ok := gotPayload["publishMedia"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia object, got %T", gotPayload["publishMedia"])
+	}
+	source, ok := media["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected publishMedia.source object, got %T", media["source"])
+	}
+	if source["kind"] != "flow-resource" || source["uri"] != "res://v1/ws/ws-test/file/uploaded-hero" {
+		t.Fatalf("unexpected publishMedia.source: %#v", source)
+	}
+}
+
+func TestFlowsUpdate_ValidatesUpdateBeforePublishMediaSourceFileUpload(t *testing.T) {
+	origUpload := publishMediaUploadFileResource
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		publishMediaUploadFileResource = origUpload
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	doAPICommandFn = func(_ *cobra.Command, _ *App, _ string, _ map[string]any) error {
+		t.Fatalf("flows.update should not run after validation fails")
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmp := t.TempDir()
+	sourcePath := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(sourcePath, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name        string
+		args        []string
+		wantMessage string
+	}{
+		{
+			name: "group order",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--group-order", "bad",
+			},
+			wantMessage: "invalid --group-order",
+		},
+		{
+			name: "publish description file",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--publish-description-file", filepath.Join(tmp, "missing.md"),
+			},
+			wantMessage: "read --publish-description-file",
+		},
+		{
+			name: "poster media",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--publish-media-poster-kind", "https-url",
+				"--publish-media-poster", "https://cdn.example.com/poster.jpg",
+			},
+			wantMessage: "poster media is only supported for video publish media",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uploadCalled := false
+			publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string) (map[string]any, error) {
+				uploadCalled = true
+				return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/should-not-exist"}, nil
+			}
+
+			app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+			cmd := newFlowsUpdateCmd(app)
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected execute to fail")
+			}
+			if uploadCalled {
+				t.Fatalf("upload should not run before update validation succeeds")
+			}
+			if !strings.Contains(out.String(), tc.wantMessage) {
+				t.Fatalf("expected error to contain %q, got %q", tc.wantMessage, out.String())
+			}
+		})
+	}
+}
+
+func TestFlowsUpdate_RejectsPublishMediaSourceFileInExplicitMockMode(t *testing.T) {
+	origUpload := publishMediaUploadFileResource
+	t.Cleanup(func() {
+		publishMediaUploadFileResource = origUpload
+	})
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string) (map[string]any, error) {
+		t.Fatalf("upload should not run in explicit mock mode")
+		return nil, nil
+	}
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(path, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", Token: "t", TokenExplicit: true}
+	cmd := newFlowsUpdateCmd(app)
+	cmd.Flags().StringVar(&app.APIURL, "api", "", "API base URL")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"demo-flow",
+		"--api=",
+		"--publish-media-type", "image",
+		"--publish-media-source-file", path,
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected explicit mock mode to reject publish media file upload")
+	}
+	if !strings.Contains(out.String(), "--publish-media-source-file requires API mode") {
+		t.Fatalf("expected API mode error, got %q", out.String())
+	}
+	if strings.TrimSpace(app.APIURL) != "" {
+		t.Fatalf("explicit mock mode should not be replaced by configured API URL, got %q", app.APIURL)
 	}
 }
 

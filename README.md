@@ -211,7 +211,7 @@ Prefer the app-owned catalog shape for new paid apps:
 ```clojure
 {:slug :customer-insights
  :name "Customer Insights"
- :tags ["end-user" "analytics"]
+ :tags ["analytics" "customer-insights"]
  :discover {:public true}
  :marketplace
  {:visible true
@@ -284,6 +284,11 @@ breyta flows update <slug> \
   --publish-media-source-kind https-url \
   --publish-media-source https://cdn.example.com/hero.png \
   --publish-media-alt "Preview of the generated result"
+
+breyta flows update <slug> \
+  --publish-media-type image \
+  --publish-media-source-file ./screenshot.png \
+  --publish-media-alt "Screenshot of the generated result"
 
 # Clear it later
 breyta flows update <slug> --clear-publish-media

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	"github.com/breyta/breyta-cli/internal/state"
@@ -14,11 +15,14 @@ var publishMediaFlagNames = []string{
 	"publish-media-type",
 	"publish-media-source-kind",
 	"publish-media-source",
+	"publish-media-source-file",
 	"publish-media-poster-kind",
 	"publish-media-poster",
 	"publish-media-alt",
 	"clear-publish-media",
 }
+
+var publishMediaUploadFileResource = jobsWorkerUploadFileResource
 
 func publishMediaFlagsChanged(cmd *cobra.Command) bool {
 	if cmd == nil {
@@ -69,9 +73,11 @@ func publishMediaSourcePayloadValue(source *state.FlowPublishMediaSource) map[st
 
 func resolvePublishMediaInput(
 	cmd *cobra.Command,
+	app *App,
 	publishMediaType string,
 	publishMediaSourceKind string,
 	publishMediaSource string,
+	publishMediaSourceFile string,
 	publishMediaPosterKind string,
 	publishMediaPoster string,
 	publishMediaAlt string,
@@ -94,14 +100,26 @@ func resolvePublishMediaInput(
 		return false, nil, errors.New("publish media updates require --publish-media-type image|video")
 	}
 
-	source, err := resolvePublishMediaSource(
-		"--publish-media-source-kind",
-		"--publish-media-source",
-		publishMediaSourceKind,
-		publishMediaSource,
-	)
-	if err != nil {
-		return false, nil, err
+	var source *state.FlowPublishMediaSource
+	var sourceFilePath string
+	var sourceFileName string
+	var err error
+	sourceFileChanged := cmd != nil && cmd.Flags().Changed("publish-media-source-file")
+	if sourceFileChanged {
+		sourceFilePath, sourceFileName, err = validatePublishMediaSourceFileInput(cmd, app, publishMediaSourceFile)
+		if err != nil {
+			return false, nil, err
+		}
+	} else {
+		source, err = resolvePublishMediaSource(
+			"--publish-media-source-kind",
+			"--publish-media-source",
+			publishMediaSourceKind,
+			publishMediaSource,
+		)
+		if err != nil {
+			return false, nil, err
+		}
 	}
 
 	posterProvided := cmd.Flags().Changed("publish-media-poster-kind") || cmd.Flags().Changed("publish-media-poster")
@@ -121,6 +139,13 @@ func resolvePublishMediaInput(
 		}
 	}
 
+	if sourceFileChanged {
+		source, err = uploadPublishMediaSourceFile(cmd, app, sourceFilePath, sourceFileName)
+		if err != nil {
+			return false, nil, err
+		}
+	}
+
 	media := &state.FlowPublishMedia{
 		Type:   typeValue,
 		Source: source,
@@ -130,6 +155,35 @@ func resolvePublishMediaInput(
 		media.PosterSource = posterSource
 	}
 	return true, media, nil
+}
+
+func validatePublishMediaSourceFileInput(cmd *cobra.Command, app *App, publishMediaSourceFile string) (string, string, error) {
+	if cmd.Flags().Changed("publish-media-source-kind") || cmd.Flags().Changed("publish-media-source") {
+		return "", "", errors.New("--publish-media-source-file cannot be combined with --publish-media-source-kind or --publish-media-source")
+	}
+	if apiFlagExplicit(cmd) && strings.TrimSpace(app.APIURL) == "" {
+		return "", "", errors.New("--publish-media-source-file requires API mode (set BREYTA_API_URL)")
+	}
+	if err := requireAPI(app); err != nil {
+		return "", "", errors.New("--publish-media-source-file requires API mode")
+	}
+	path := strings.TrimSpace(publishMediaSourceFile)
+	if path == "" {
+		return "", "", errors.New("--publish-media-source-file requires a local file path")
+	}
+	return path, strings.TrimSpace(filepath.Base(path)), nil
+}
+
+func uploadPublishMediaSourceFile(cmd *cobra.Command, app *App, path string, filename string) (*state.FlowPublishMediaSource, error) {
+	uploadResult, err := publishMediaUploadFileResource(cmd.Context(), app, path, filename, "")
+	if err != nil {
+		return nil, err
+	}
+	uri := firstNonBlankString(uploadResult["resourceUri"], uploadResult["uri"])
+	if uri == "" {
+		return nil, errors.New("publish media upload response missing resource URI")
+	}
+	return &state.FlowPublishMediaSource{Kind: "flow-resource", URI: uri}, nil
 }
 
 func publishMediaNonClearFlagsChanged(cmd *cobra.Command) bool {
