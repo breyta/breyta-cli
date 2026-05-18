@@ -124,6 +124,18 @@ func NewRootCmd() *cobra.Command {
 				app.DevProfileOverride = val
 			}
 		}
+		if !devFlagExplicit && !app.DevMode {
+			val := strings.TrimSpace(os.Getenv("BREYTA_DEV"))
+			switch strings.ToLower(val) {
+			case "", "false", "0", "no", "n", "off":
+			case "true", "1", "yes", "y", "on":
+				app.DevMode = true
+				app.DevProfileOverride = ""
+			default:
+				app.DevMode = true
+				app.DevProfileOverride = val
+			}
+		}
 		if !app.DevMode {
 			if st, ok := loadDevConfig(app); ok && st.DevMode {
 				app.DevMode = true

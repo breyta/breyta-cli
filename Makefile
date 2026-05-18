@@ -1,6 +1,7 @@
 BINARY_NAME=breyta
+BREYTA_REPO ?= ../breyta
 
-.PHONY: build run install tidy fmt test integration-test release-check
+.PHONY: build run install tidy fmt test integration-test release-check release
 
 VERSION ?= $(shell (git describe --tags --dirty --always --match 'v[0-9][0-9][0-9][0-9].*' 2>/dev/null || git describe --tags --dirty --always 2>/dev/null) || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -31,7 +32,10 @@ install: test
 	@echo "Installed: $$(go env GOPATH)/bin/$(BINARY_NAME)"
 
 integration-test: build
-	@test -x ../breyta/bases/flows-api/scripts/integration_tests.sh || (echo "Missing ../breyta checkout; expected sibling directories: breyta/ and breyta-cli/" >&2; exit 1)
-	BREYTA_CLI_BIN="$$(pwd)/dist/$(BINARY_NAME)" ../breyta/bases/flows-api/scripts/integration_tests.sh
+	@test -x "$(BREYTA_REPO)/bases/flows-api/scripts/integration_tests.sh" || (echo "Missing $(BREYTA_REPO) checkout; set BREYTA_REPO=/path/to/breyta" >&2; exit 1)
+	BREYTA_CLI_BIN="$$(pwd)/dist/$(BINARY_NAME)" "$(BREYTA_REPO)/bases/flows-api/scripts/integration_tests.sh"
 
 release-check: fmt test integration-test
+
+release: release-check
+	@echo "release checks passed; create and push the release tag per docs/RELEASING.md"

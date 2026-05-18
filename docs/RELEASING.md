@@ -28,6 +28,9 @@ From `breyta-cli/`:
 make release-check
 ```
 
+`make release` is a local alias for `make release-check`; it does not publish
+or push a tag.
+
 What this runs:
 
 - `gofmt -w` on tracked Go files
@@ -37,6 +40,12 @@ What this runs:
 If the integration harness needs overrides, see:
 
 - `breyta/bases/flows-api/docs/internal/INTEGRATION_TESTS.md`
+
+If your `breyta/` checkout is not at `../breyta`, pass `BREYTA_REPO`:
+
+```bash
+make release-check BREYTA_REPO=/path/to/breyta
+```
 
 ## 2) Pick the next tag
 
