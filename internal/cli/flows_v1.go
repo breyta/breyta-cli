@@ -1393,9 +1393,36 @@ breyta flows update ugc-video-generator --clear-publish-media
 
 breyta flows update customer-support --primary-display-connection-slot crm
 breyta flows update customer-support --primary-display-connection-slot ""
-		`),
+			`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			publishDescriptionChanged := cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file")
+			var resolvedPublishDescription string
+			if publishDescriptionChanged {
+				var err error
+				resolvedPublishDescription, err = resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
+			groupOrderChanged := cmd.Flags().Changed("group-order")
+			var resolvedGroupOrder *int
+			if groupOrderChanged {
+				var err error
+				resolvedGroupOrder, err = parseOptionalGroupOrder(groupOrder)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
+			primaryDisplayConnectionSlotChanged := cmd.Flags().Changed("primary-display-connection-slot")
+			var resolvedSelector string
+			if primaryDisplayConnectionSlotChanged {
+				var err error
+				resolvedSelector, err = parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			}
 			publishMediaProvided, publishMediaValue, err := resolvePublishMediaInput(
 				cmd,
 				app,
@@ -1419,11 +1446,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if strings.TrimSpace(description) != "" {
 					payload["description"] = description
 				}
-				if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
-					resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if publishDescriptionChanged {
 					payload["publishDescription"] = normalizeOptionalMarkdown(resolvedPublishDescription)
 				}
 				if strings.TrimSpace(tags) != "" {
@@ -1445,22 +1468,14 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if cmd.Flags().Changed("group-description") {
 					payload["groupDescription"] = normalizeOptionalText(groupDescription)
 				}
-				if cmd.Flags().Changed("group-order") {
-					resolvedGroupOrder, err := parseOptionalGroupOrder(groupOrder)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if groupOrderChanged {
 					if resolvedGroupOrder == nil {
 						payload["groupOrder"] = ""
 					} else {
 						payload["groupOrder"] = *resolvedGroupOrder
 					}
 				}
-				if cmd.Flags().Changed("primary-display-connection-slot") {
-					resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
+				if primaryDisplayConnectionSlotChanged {
 					payload["primaryDisplayConnectionSlot"] = resolvedSelector
 				}
 				if useDoAPICommandFn {
@@ -1486,11 +1501,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 			if description != "" {
 				f.Description = description
 			}
-			if cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file") {
-				resolvedPublishDescription, err := resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
+			if publishDescriptionChanged {
 				f.PublishDescription = normalizeOptionalMarkdown(resolvedPublishDescription)
 			}
 			if tags != "" {
@@ -1509,11 +1520,7 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				f.GroupDescription = resolvedGroupDescription
 				f.GroupOrder = resolvedGroupOrder
 			}
-			if cmd.Flags().Changed("primary-display-connection-slot") {
-				resolvedSelector, err := parseOptionalDisplayConnectionSlot(primaryDisplayConnectionSlot)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
+			if primaryDisplayConnectionSlotChanged {
 				f.PrimaryDisplayConnectionSlot = resolvedSelector
 			}
 			f.UpdatedAt = time.Now().UTC()

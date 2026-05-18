@@ -454,6 +454,95 @@ func TestFlowsUpdate_BuildsPublishMediaPayloadFromSourceFile(t *testing.T) {
 	}
 }
 
+func TestFlowsUpdate_ValidatesUpdateBeforePublishMediaSourceFileUpload(t *testing.T) {
+	origUpload := publishMediaUploadFileResource
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		publishMediaUploadFileResource = origUpload
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	doAPICommandFn = func(_ *cobra.Command, _ *App, _ string, _ map[string]any) error {
+		t.Fatalf("flows.update should not run after validation fails")
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmp := t.TempDir()
+	sourcePath := filepath.Join(tmp, "hero.png")
+	if err := os.WriteFile(sourcePath, []byte("fake image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name        string
+		args        []string
+		wantMessage string
+	}{
+		{
+			name: "group order",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--group-order", "bad",
+			},
+			wantMessage: "invalid --group-order",
+		},
+		{
+			name: "publish description file",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--publish-description-file", filepath.Join(tmp, "missing.md"),
+			},
+			wantMessage: "read --publish-description-file",
+		},
+		{
+			name: "poster media",
+			args: []string{
+				"demo-flow",
+				"--publish-media-type", "image",
+				"--publish-media-source-file", sourcePath,
+				"--publish-media-poster-kind", "https-url",
+				"--publish-media-poster", "https://cdn.example.com/poster.jpg",
+			},
+			wantMessage: "poster media is only supported for video publish media",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uploadCalled := false
+			publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string) (map[string]any, error) {
+				uploadCalled = true
+				return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/should-not-exist"}, nil
+			}
+
+			app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+			cmd := newFlowsUpdateCmd(app)
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected execute to fail")
+			}
+			if uploadCalled {
+				t.Fatalf("upload should not run before update validation succeeds")
+			}
+			if !strings.Contains(out.String(), tc.wantMessage) {
+				t.Fatalf("expected error to contain %q, got %q", tc.wantMessage, out.String())
+			}
+		})
+	}
+}
+
 func TestFlowsUpdate_RejectsPublishMediaSourceFileInExplicitMockMode(t *testing.T) {
 	origUpload := publishMediaUploadFileResource
 	t.Cleanup(func() {
