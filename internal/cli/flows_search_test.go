@@ -838,6 +838,7 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 			t.Fatalf("decode body: %v", err)
 		}
 		command, _ := body["command"].(string)
+		args := mapStringAny(body["args"])
 		seenCommands = append(seenCommands, command)
 		switch command {
 		case "flows.doctor":
@@ -899,6 +900,24 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 					}},
 				},
 			})
+		case "flows.diff":
+			if args["from"] != "live" || args["to"] != "draft" || args["view"] != "summary" {
+				t.Fatalf("unexpected readiness diff args: %#v", args)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug": "public-flow",
+					"from":     map[string]any{"source": "live", "version": 3},
+					"to":       map[string]any{"source": "draft", "version": 4},
+					"changed":  true,
+					"stat":     map[string]any{"additions": 2, "deletions": 1, "hunks": 1},
+					"changedSections": []string{
+						"@@ -10,7 +10,8 @@",
+					},
+				},
+			})
 		default:
 			t.Fatalf("unexpected command: %s", command)
 		}
@@ -914,7 +933,7 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("readiness execute: %v\n%s", err, out.String())
 	}
-	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics" {
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics,flows.diff" {
 		t.Fatalf("unexpected commands: %s", got)
 	}
 	var envelope map[string]any
@@ -957,6 +976,18 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if latestInstalled["workflowId"] != "wf-installed-1" || latestInstalled["installationId"] != "inst-1" {
 		t.Fatalf("expected latest installed run context, got %#v", latestInstalled)
 	}
+	diff := mapStringAny(readiness["diff"])
+	if diff["changed"] != true {
+		t.Fatalf("expected compact changed diff, got %#v", diff)
+	}
+	diffStat := mapStringAny(diff["stat"])
+	if diffStat["additions"] != float64(2) || diffStat["deletions"] != float64(1) || diffStat["hunks"] != float64(1) {
+		t.Fatalf("expected compact diff stat, got %#v", diffStat)
+	}
+	draftLive := mapStringAny(readiness["draftLive"])
+	if draftLive["changed"] != true || mapStringAny(draftLive["stat"])["additions"] != float64(2) {
+		t.Fatalf("expected draftLive diff summary, got %#v", draftLive)
+	}
 	urls := mapStringAny(readiness["urls"])
 	if urls["flow"] != srv.URL+"/ws-test/flows/public-flow" {
 		t.Fatalf("expected flow URL, got %#v", urls["flow"])
@@ -976,6 +1007,9 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	nextCommands := stringSlice(mapStringAny(envelope["meta"])["nextCommands"])
 	if !slices.Contains(nextCommands, "breyta flows discover update public-flow --public=true") {
 		t.Fatalf("expected blocker fix command in nextCommands, got %#v", nextCommands)
+	}
+	if !slices.Contains(nextCommands, "breyta flows diff public-flow") {
+		t.Fatalf("expected changed diff command in nextCommands, got %#v", nextCommands)
 	}
 	nextActions := sliceAny(mapStringAny(envelope["meta"])["nextActions"])
 	if !hasReadinessNextAction(nextActions, "configure-latest-installation", srv.URL+"/ws-test/flows/public-flow/installations/inst-1?configure=setup") {
@@ -1039,6 +1073,18 @@ func TestFlowsReadinessFullIncludesRawPayloads(t *testing.T) {
 				"ok":          true,
 				"workspaceId": "ws-test",
 				"data":        map[string]any{"items": []map[string]any{}},
+			})
+		case "flows.diff":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug": "public-flow",
+					"from":     map[string]any{"source": "live", "version": 1},
+					"to":       map[string]any{"source": "draft", "version": 1},
+					"changed":  false,
+					"stat":     map[string]any{"additions": 0, "deletions": 0, "hunks": 0},
+				},
 			})
 		default:
 			t.Fatalf("unexpected command: %s", body["command"])
@@ -1129,6 +1175,21 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 				"workspaceId": "ws-test",
 				"data":        map[string]any{"items": []map[string]any{}},
 			})
+		case "flows.diff":
+			if args["from"] != "live" || args["to"] != "draft" || args["view"] != "summary" {
+				t.Fatalf("unexpected readiness diff args: %#v", args)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug": "private-flow",
+					"from":     map[string]any{"source": "live", "version": 1},
+					"to":       map[string]any{"source": "draft", "version": 1},
+					"changed":  false,
+					"stat":     map[string]any{"additions": 0, "deletions": 0, "hunks": 0},
+				},
+			})
 		default:
 			t.Fatalf("unexpected command: %s", command)
 		}
@@ -1144,7 +1205,7 @@ func TestFlowsReadinessDefaultKeepsPublicSnapshotNonBlocking(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("readiness execute: %v\n%s", err, out.String())
 	}
-	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics" {
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight,flows.invocations.metrics,flows.diff" {
 		t.Fatalf("unexpected commands: %s", got)
 	}
 	var envelope map[string]any

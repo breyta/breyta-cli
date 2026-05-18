@@ -143,11 +143,12 @@ func doFlowsReadinessCommand(cmd *cobra.Command, app *App, flowSlug, target stri
 	}
 
 	invocationMetrics := buildFlowsInvocationMetricsReport(app, flowSlug)
-	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, invocationMetrics, includePublic, requirePublic, requireMarketplace, full)
+	diffReport := buildFlowsReadinessDiffReport(app, flowSlug)
+	readiness := buildFlowsReadinessEnvelope(app, flowSlug, target, doctorOut, publicOut, invocationMetrics, diffReport, includePublic, requirePublic, requireMarketplace, full)
 	return writeAPIResult(cmd, app, readiness, 200)
 }
 
-func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, invocationMetrics map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
+func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut map[string]any, publicOut map[string]any, invocationMetrics map[string]any, diffReport map[string]any, includePublic bool, requirePublic bool, requireMarketplace bool, full bool) map[string]any {
 	doctor := flowsDoctorBody(doctorOut)
 	preflight := mapStringAny(mapStringAny(publicOut["data"])["preflight"])
 	doctorReady := boolValue(doctor["ready"])
@@ -206,6 +207,9 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		nextCommands = appendUniqueStrings(nextCommands, stringSlice(meta["nextCommands"]))
 	}
 	nextCommands = appendUniqueStrings(nextCommands, readinessFixCommands(blockers))
+	if boolValue(diffReport["changed"]) {
+		nextCommands = appendUniqueStrings(nextCommands, []string{fmt.Sprintf("breyta flows diff %s", flowSlug)})
+	}
 	if len(nextCommands) == 0 {
 		nextCommands = []string{
 			fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
@@ -238,7 +242,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"marketplaceReady":    marketplaceReady,
 		"marketplaceRequired": requireMarketplace,
 		"summary":             doctor["summary"],
-		"draftLive":           map[string]any{"activeVersion": activeVersion, "latestVersion": latestVersion, "draftAhead": versionsSuggestDraftAhead(activeVersion, latestVersion)},
+		"draftLive":           buildReadinessDraftLive(activeVersion, latestVersion, diffReport),
 		"configuration":       doctor["configuration"],
 		"public":              preflight["public"],
 		"discover":            preflight["discover"],
@@ -250,6 +254,9 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	}
 	if len(readinessURLs) > 0 {
 		readiness["urls"] = readinessURLs
+	}
+	if len(diffReport) > 0 {
+		readiness["diff"] = diffReport
 	}
 	if len(invocationMetrics) > 0 {
 		readiness["invocationMetrics"] = invocationMetrics
@@ -280,6 +287,78 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			"readiness": readiness,
 		},
 	}
+}
+
+func buildFlowsReadinessDiffReport(app *App, flowSlug string) map[string]any {
+	out, status, err := runAPICommand(app, "flows.diff", map[string]any{
+		"flowSlug": flowSlug,
+		"from":     "live",
+		"to":       "draft",
+		"view":     "summary",
+	})
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil
+	}
+	return compactFlowsReadinessDiff(out)
+}
+
+func compactFlowsReadinessDiff(out map[string]any) map[string]any {
+	data := mapStringAny(out["data"])
+	if data == nil {
+		return nil
+	}
+	diff := compactNonEmptyFields(map[string]any{
+		"source":          "flows.diff",
+		"flowSlug":        firstNonBlankString(data["flowSlug"], data["flow-slug"]),
+		"changed":         firstPresentAny(data["changed"]),
+		"from":            compactReadinessDiffSide(mapStringAny(data["from"])),
+		"to":              compactReadinessDiffSide(mapStringAny(data["to"])),
+		"stat":            mapStringAny(data["stat"]),
+		"changedSections": sliceAny(data["changedSections"]),
+	})
+	if len(diff) == 0 {
+		return nil
+	}
+	return diff
+}
+
+func compactReadinessDiffSide(side map[string]any) map[string]any {
+	if side == nil {
+		return nil
+	}
+	out := compactNonEmptyFields(map[string]any{
+		"source":  firstNonBlankString(side["source"]),
+		"version": firstPresentAny(side["version"]),
+		"label":   firstNonBlankString(side["label"]),
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildReadinessDraftLive(activeVersion any, latestVersion any, diffReport map[string]any) map[string]any {
+	draftLive := map[string]any{
+		"activeVersion": activeVersion,
+		"latestVersion": latestVersion,
+		"draftAhead":    versionsSuggestDraftAhead(activeVersion, latestVersion),
+	}
+	if len(diffReport) > 0 {
+		draftLive["diff"] = diffReport
+		if changed := firstPresentAny(diffReport["changed"]); changed != nil {
+			draftLive["changed"] = changed
+		}
+		if from := mapStringAny(diffReport["from"]); from != nil {
+			draftLive["from"] = from
+		}
+		if to := mapStringAny(diffReport["to"]); to != nil {
+			draftLive["to"] = to
+		}
+		if stat := mapStringAny(diffReport["stat"]); stat != nil {
+			draftLive["stat"] = stat
+		}
+	}
+	return draftLive
 }
 
 func buildReadinessURLs(app *App, flowSlug string, invocationMetrics map[string]any) map[string]any {
