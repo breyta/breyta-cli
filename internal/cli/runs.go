@@ -1060,7 +1060,22 @@ func doRunsContinueApproveLatestWait(cmd *cobra.Command, app *App, workflowID st
 	}
 	selected := latestApprovableWait(items)
 	if selected == nil {
-		return writeErr(cmd, fmt.Errorf("no active approval wait found for workflow %s", workflowID))
+		return writeFailure(
+			cmd,
+			app,
+			"no_approval_wait",
+			fmt.Errorf("no active approval wait found for workflow %s", workflowID),
+			"--approve-latest-wait requires an active wait with approval metadata or an approve action. Use `breyta waits list --workflow-id "+workflowID+"` to inspect the wait shape.",
+			map[string]any{
+				"workflowId":         workflowID,
+				"activeWaitCount":    len(items),
+				"requiredWaitShape":  "wait.approval or wait.actions must contain approve",
+				"ineligibleWaits":    waitIneligibilityDetails(items),
+				"nextCommand":        "breyta waits list --workflow-id " + workflowID,
+				"manualInspect":      "breyta runs show " + workflowID + " --include-steps",
+				"continueActionFlag": "--approve-latest-wait",
+			},
+		)
 	}
 	waitID := waitIDValue(selected)
 	if waitID == "" {
@@ -1173,6 +1188,37 @@ func waitLooksApprovable(wait map[string]any) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(string(encoded)), "approve")
+}
+
+func waitIneligibilityDetails(items []map[string]any) []map[string]any {
+	details := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if item == nil || waitLooksApprovable(item) {
+			continue
+		}
+		status := strings.ToLower(firstNonBlankString(item["status"], item["state"]))
+		reason := "missing approval metadata or approve action"
+		switch status {
+		case "completed", "complete", "cancelled", "canceled", "rejected", "expired", "failed":
+			reason = "wait is not active"
+		}
+		detail := map[string]any{
+			"waitId": waitIDValue(item),
+			"status": status,
+			"reason": reason,
+		}
+		if stepID := firstNonBlankString(item["stepId"], item["step-id"], item["step"], item["currentStep"]); stepID != "" {
+			detail["stepId"] = stepID
+		}
+		if actions := stringSlice(item["actions"]); len(actions) > 0 {
+			detail["actions"] = actions
+		}
+		if approval := mapStringAny(item["approval"]); approval != nil {
+			detail["approvalActions"] = stringSlice(approval["actions"])
+		}
+		details = append(details, detail)
+	}
+	return details
 }
 
 func containsFold(items []string, needle string) bool {
@@ -1437,11 +1483,12 @@ func newRunsRetryCmd(app *App) *cobra.Command {
 func newRunsEventsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "events <run-id>",
-		Short: "Show run event timeline (mock)",
+		Short: "Show run event timeline (mock only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (API events stream is not implemented).")
+				runID := strings.TrimSpace(args[0])
+				return writeNotImplemented(cmd, app, "API run timelines are not available yet. Use `breyta runs show "+runID+" --include-steps`, `breyta runs step "+runID+" STEP_ID --full`, or `breyta resources workflow list "+runID+"`.")
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1463,11 +1510,12 @@ func newRunsLogsCmd(app *App) *cobra.Command {
 	var stepID string
 	cmd := &cobra.Command{
 		Use:   "logs <run-id>",
-		Short: "Show run logs (mock)",
+		Short: "Show run logs (mock only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (API logs are not implemented).")
+				runID := strings.TrimSpace(args[0])
+				return writeNotImplemented(cmd, app, "API run logs are not available yet. Use `breyta runs inspect "+runID+"` or `breyta runs step "+runID+" STEP_ID --full`.")
 			}
 			st, store, err := appStore(app)
 			if err != nil {

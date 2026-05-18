@@ -4668,6 +4668,82 @@ func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsContinue_ExplainsIneligibleActiveWaits(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/waits" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"items": []map[string]any{
+					{"waitId": "wait-manual", "workflowId": "wf-wait", "stepId": "approval", "status": "running", "actions": []string{"continue"}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "continue", "wf-wait",
+		"--approve-latest-wait",
+	)
+	if err == nil {
+		t.Fatalf("expected ineligible wait to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"code":"no_approval_wait"`) {
+		t.Fatalf("expected no_approval_wait code, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"activeWaitCount":1`) || !strings.Contains(stdout, "missing approval metadata or approve action") {
+		t.Fatalf("expected active wait eligibility details, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "wait.approval or wait.actions must contain approve") {
+		t.Fatalf("expected required wait shape guidance, got:\n%s", stdout)
+	}
+}
+
+func TestRunsEventsAndLogsAPIModePointToSupportedInspection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "events",
+			args: []string{"runs", "events", "wf-123"},
+			want: []string{"API run timelines are not available yet", "breyta runs show wf-123 --include-steps", "breyta resources workflow list wf-123"},
+		},
+		{
+			name: "logs",
+			args: []string{"runs", "logs", "wf-123"},
+			want: []string{"API run logs are not available yet", "breyta runs inspect wf-123", "breyta runs step wf-123 STEP_ID --full"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := []string{
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", "http://127.0.0.1:9",
+				"--token", "user-dev",
+			}
+			stdout, stderr, err := runCLIArgs(t, append(base, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected API-mode mock-only command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected output to contain %q, got:\n%s", want, stdout)
+				}
+			}
+		})
+	}
+}
+
 func TestFlowsRun_RejectsPreviewTarget(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
