@@ -296,7 +296,7 @@ func TestDocsFields_SelectsMultipleFieldsAsJSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"http", "response-as", "persist", "--format", "json"})
+	cmd.SetArgs([]string{"http", "responseAs", "persist", "--format", "json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v\n%s", err, out.String())

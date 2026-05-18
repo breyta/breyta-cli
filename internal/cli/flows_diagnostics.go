@@ -199,10 +199,21 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	if meta := mapStringAny(publicOut["meta"]); meta != nil {
 		nextCommands = appendUniqueStrings(nextCommands, stringSlice(meta["nextCommands"]))
 	}
+	noLiveTarget := flowReadinessNoLiveTarget(target, doctor)
+	if noLiveTarget {
+		nextCommands = appendUniqueStrings(
+			flowReadinessNoLiveNextCommands(flowSlug),
+			filterInvalidLiveRunNextCommands(nextCommands, flowSlug),
+		)
+	}
 	if len(nextCommands) == 0 {
-		nextCommands = []string{
-			fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
-			fmt.Sprintf("breyta flows run %s --target %s --wait", flowSlug, target),
+		if noLiveTarget {
+			nextCommands = flowReadinessNoLiveNextCommands(flowSlug)
+		} else {
+			nextCommands = []string{
+				fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
+				fmt.Sprintf("breyta flows run %s --target %s --wait", flowSlug, target),
+			}
 		}
 	}
 	webURL := firstNonBlankString(
@@ -228,6 +239,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"marketplaceReady":    marketplaceReady,
 		"marketplaceRequired": requireMarketplace,
 		"summary":             doctor["summary"],
+		"liveUnavailable":     noLiveTarget,
 		"draftLive":           map[string]any{"activeVersion": activeVersion, "latestVersion": latestVersion, "draftAhead": versionsSuggestDraftAhead(activeVersion, latestVersion)},
 		"configuration":       doctor["configuration"],
 		"public":              preflight["public"],
@@ -254,6 +266,44 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			"readiness": readiness,
 		},
 	}
+}
+
+func flowReadinessNoLiveTarget(target string, doctor map[string]any) bool {
+	if strings.ToLower(strings.TrimSpace(target)) != "live" {
+		return false
+	}
+	summary := mapStringAny(doctor["summary"])
+	if boolValue(summary["liveUnavailable"]) || firstNonBlankString(summary["unavailableReason"]) == "no_live_version" {
+		return true
+	}
+	for _, item := range sliceAny(doctor["checks"]) {
+		check := mapStringAny(item)
+		if strings.ToLower(firstNonBlankString(check["id"])) == "live-version" && !boolValue(check["pass"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func flowReadinessNoLiveNextCommands(flowSlug string) []string {
+	return []string{
+		fmt.Sprintf("breyta flows release %s", flowSlug),
+		fmt.Sprintf("breyta flows diff %s", flowSlug),
+		fmt.Sprintf("breyta flows readiness %s --target live", flowSlug),
+	}
+}
+
+func filterInvalidLiveRunNextCommands(commands []string, flowSlug string) []string {
+	out := make([]string, 0, len(commands))
+	needle := "flows run " + strings.TrimSpace(flowSlug)
+	for _, command := range commands {
+		compact := strings.Join(strings.Fields(command), " ")
+		if strings.Contains(compact, needle) && strings.Contains(compact, "--target live") {
+			continue
+		}
+		out = append(out, command)
+	}
+	return out
 }
 
 func normalizeLocalhostWebURL(raw string) string {
