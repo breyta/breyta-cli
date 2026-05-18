@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -1016,6 +1017,102 @@ func TestFlowsReleaseCheckNoLiveFiltersInvalidLiveRunCommand(t *testing.T) {
 		t.Fatalf("release-check should not suggest known-invalid live run:\n%s", nextJoined)
 	}
 	if !strings.Contains(nextJoined, "breyta flows release draft-only-flow") {
+		t.Fatalf("expected release command before live run proof:\n%s", nextJoined)
+	}
+}
+
+func TestFlowsReleaseCheckConfiguredLiveWithoutActiveFiltersInvalidLiveRunCommand(t *testing.T) {
+	seenCommands := []string{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		seenCommands = append(seenCommands, command)
+		switch command {
+		case "flows.doctor":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"doctor": map[string]any{
+						"flowSlug": "draft-configured-flow",
+						"target":   "live",
+						"ready":    false,
+						"summary": map[string]any{
+							"activeVersion": nil,
+							"latestVersion": 2,
+							"stepCount":     0,
+						},
+						"checks": []map[string]any{{"id": "live-version", "label": "Live version", "pass": false}},
+					},
+				},
+				"meta": map[string]any{
+					"nextCommands": []string{"breyta flows run draft-configured-flow --target live --wait"},
+				},
+			})
+		case "flows.configure.check":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"flowSlug": "draft-configured-flow",
+					"target":   "live",
+					"version":  2,
+					"ready":    true,
+				},
+			})
+		case "flows.public.preflight":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-test",
+				"data": map[string]any{
+					"preflight": map[string]any{
+						"flowSlug": "draft-configured-flow",
+						"target":   "live",
+						"ready":    false,
+						"public":   map[string]any{"discoverPublic": false, "marketplaceVisible": false},
+						"checks":   []map[string]any{{"id": "released", "label": "Released version", "pass": false}},
+					},
+				},
+				"meta": map[string]any{
+					"nextCommands": []string{"breyta flows run draft-configured-flow --target live --wait"},
+				},
+			})
+		default:
+			t.Fatalf("unexpected command: %s", command)
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsReleaseCheckCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"draft-configured-flow", "--public"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("release-check execute: %v\n%s", err, out.String())
+	}
+	if got := strings.Join(seenCommands, ","); got != "flows.doctor,flows.configure.check,flows.public.preflight" {
+		t.Fatalf("unexpected commands: %s", got)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	readiness := mapStringAny(mapStringAny(envelope["data"])["readiness"])
+	if readiness["liveUnavailable"] != true {
+		t.Fatalf("expected liveUnavailable=true, got %#v", readiness["liveUnavailable"])
+	}
+	summary := mapStringAny(readiness["summary"])
+	if got := fmt.Sprint(summary["liveConfiguredVersion"]); got != "2" {
+		t.Fatalf("expected liveConfiguredVersion=2, got %#v", summary["liveConfiguredVersion"])
+	}
+	nextJoined := strings.Join(stringSlice(mapStringAny(envelope["meta"])["nextCommands"]), "\n")
+	if strings.Contains(nextJoined, "flows run draft-configured-flow --target live") {
+		t.Fatalf("release-check should not suggest live run before release:\n%s", nextJoined)
+	}
+	if !strings.Contains(nextJoined, "breyta flows release draft-configured-flow") {
 		t.Fatalf("expected release command before live run proof:\n%s", nextJoined)
 	}
 }

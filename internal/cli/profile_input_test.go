@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -120,6 +121,17 @@ func TestParseSetAssignments(t *testing.T) {
 	}
 	if fmt.Sprint(out["form-batch-size"]) != "500" {
 		t.Fatalf("expected form-batch-size to be 500")
+	}
+}
+
+func TestParseSetAssignmentsUnknownFieldGivesConfigureShapeHint(t *testing.T) {
+	_, err := parseSetAssignments([]string{"not-a-slot.foo=bar"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "activation.<input>") || !strings.Contains(msg, "<slot>.<field>") || !strings.Contains(msg, "conn") {
+		t.Fatalf("expected configure shape hint, got %q", msg)
 	}
 }
 

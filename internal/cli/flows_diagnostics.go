@@ -273,12 +273,20 @@ func flowReadinessNoLiveTarget(target string, doctor map[string]any) bool {
 		return false
 	}
 	summary := mapStringAny(doctor["summary"])
-	if boolValue(summary["liveUnavailable"]) || firstNonBlankString(summary["unavailableReason"]) == "no_live_version" {
+	reason := firstNonBlankString(summary["unavailableReason"])
+	if boolValue(summary["liveUnavailable"]) || reason == "no_live_version" || reason == "live_configured_without_release" {
 		return true
+	}
+	activeVersion, activeOK := numericValue(firstPresent(summary, "activeVersion", "active-version"))
+	if !activeOK || activeVersion <= 0 {
+		if _, configuredOK := numericValue(firstPresent(summary, "liveConfiguredVersion", "live-configured-version")); configuredOK {
+			return true
+		}
 	}
 	for _, item := range sliceAny(doctor["checks"]) {
 		check := mapStringAny(item)
-		if strings.ToLower(firstNonBlankString(check["id"])) == "live-version" && !boolValue(check["pass"]) {
+		id := strings.ToLower(firstNonBlankString(check["id"]))
+		if (id == "live-version" || id == "released-live-version") && !boolValue(check["pass"]) {
 			return true
 		}
 	}
@@ -381,6 +389,18 @@ func mergeFlowsDoctorConfigureReadiness(doctorOut map[string]any, checkOut map[s
 	doctor["definitionReady"] = definitionReady
 	doctor["configurationReady"] = configReady
 	doctor["configuration"] = config
+	if strings.ToLower(strings.TrimSpace(target)) == "live" {
+		summary := mapStringAny(doctor["summary"])
+		activeVersion, activeOK := numericValue(firstPresent(summary, "activeVersion", "active-version"))
+		configVersion, configVersionOK := numericValue(firstPresent(config, "version"))
+		if summary != nil && (!activeOK || activeVersion <= 0) && configVersionOK && configVersion > 0 {
+			summary["liveConfiguredVersion"] = configVersion
+			if reason := firstNonBlankString(summary["unavailableReason"]); reason == "" || reason == "no_live_version" {
+				summary["unavailableReason"] = "live_configured_without_release"
+			}
+			summary["liveUnavailable"] = true
+		}
+	}
 	doctor["ready"] = definitionReady && configReady
 	upsertFlowsDoctorCheck(doctor, map[string]any{
 		"id":     "configuration",
