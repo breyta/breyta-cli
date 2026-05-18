@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -211,6 +212,9 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			fmt.Sprintf("breyta flows run %s --target %s --wait", flowSlug, target),
 		}
 	}
+	readinessURLs := buildReadinessURLs(app, flowSlug, invocationMetrics)
+	attachReadinessCheckURLs(checks, readinessURLs)
+	nextActions := buildReadinessNextActions(readinessURLs)
 	webURL := firstNonBlankString(
 		mapStringAny(doctorOut["meta"])["webUrl"],
 		mapStringAny(publicOut["meta"])["webUrl"],
@@ -244,6 +248,9 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"checks":              checks,
 		"blockers":            blockers,
 	}
+	if len(readinessURLs) > 0 {
+		readiness["urls"] = readinessURLs
+	}
 	if len(invocationMetrics) > 0 {
 		readiness["invocationMetrics"] = invocationMetrics
 		if latest := mapStringAny(invocationMetrics["latestInvocation"]); latest != nil {
@@ -257,18 +264,130 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		readiness["doctor"] = doctor
 		readiness["publicPreflight"] = preflight
 	}
+	meta := map[string]any{
+		"webUrl":       webURL,
+		"nextCommands": nextCommands,
+		"hint":         "Readiness is compact. Follow blocker nextCommands.",
+	}
+	if len(nextActions) > 0 {
+		meta["nextActions"] = nextActions
+	}
 	return map[string]any{
 		"ok":          true,
 		"workspaceId": workspaceID,
-		"meta": map[string]any{
-			"webUrl":       webURL,
-			"nextCommands": nextCommands,
-			"hint":         "Readiness is compact. Follow blocker nextCommands.",
-		},
+		"meta":        meta,
 		"data": map[string]any{
 			"readiness": readiness,
 		},
 	}
+}
+
+func buildReadinessURLs(app *App, flowSlug string, invocationMetrics map[string]any) map[string]any {
+	base := normalizeLocalhostWebURL(workspaceWebBaseURL(app))
+	if strings.TrimSpace(base) == "" {
+		return nil
+	}
+	latest := mapStringAny(invocationMetrics["latestInstalledRun"])
+	if latest == nil {
+		latest = mapStringAny(invocationMetrics["latestInvocation"])
+	}
+	installationID := firstNonBlankString(latest["installationId"])
+	workflowID := firstNonBlankString(latest["workflowId"])
+	installationURL := installationWebURL(base, flowSlug, installationID)
+	urls := compactNonEmptyFields(map[string]any{
+		"flow":                    flowWebURL(base, flowSlug),
+		"publicApp":               flowInstallationsWebURL(base, flowSlug),
+		"install":                 flowInstallationsWebURL(base, flowSlug),
+		"discover":                webURL(base, "discover"),
+		"runs":                    flowRunsWebURL(base, flowSlug),
+		"installation":            installationURL,
+		"installationSetup":       appendReadinessQuery(installationURL, "configure", "setup"),
+		"installationManageSetup": appendReadinessQuery(installationURL, "configure", "manage-setup"),
+		"latestRun":               runWebURL(base, flowSlug, workflowID),
+		"latestRunOutput":         runOutputWebURL(base, flowSlug, workflowID),
+	})
+	if len(urls) == 0 {
+		return nil
+	}
+	return urls
+}
+
+func appendReadinessQuery(rawURL, key, value string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	key = strings.TrimSpace(key)
+	if rawURL == "" || key == "" {
+		return ""
+	}
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	return rawURL + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+}
+
+func attachReadinessCheckURLs(checks []any, urls map[string]any) {
+	if len(urls) == 0 {
+		return
+	}
+	for _, item := range checks {
+		check := mapStringAny(item)
+		if check == nil {
+			continue
+		}
+		if firstNonBlankString(check["openUrl"]) != "" {
+			continue
+		}
+		if openURL := readinessCheckOpenURL(check, urls); openURL != "" {
+			check["openUrl"] = openURL
+		}
+	}
+}
+
+func readinessCheckOpenURL(check map[string]any, urls map[string]any) string {
+	id := strings.ToLower(firstNonBlankString(check["id"]))
+	surface := strings.ToLower(firstNonBlankString(check["surface"]))
+	switch {
+	case id == "discover-public":
+		return firstNonBlankString(urls["discover"])
+	case strings.Contains(id, "marketplace"):
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	case strings.Contains(id, "install"):
+		return firstNonBlankString(urls["install"], urls["publicApp"])
+	case surface == "public":
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	case surface == "marketplace":
+		return firstNonBlankString(urls["publicApp"], urls["install"])
+	default:
+		return firstNonBlankString(urls["flow"])
+	}
+}
+
+func buildReadinessNextActions(urls map[string]any) []any {
+	if len(urls) == 0 {
+		return nil
+	}
+	actions := []any{}
+	actions = appendReadinessNextAction(actions, "open-flow", "Open flow", firstNonBlankString(urls["flow"]))
+	actions = appendReadinessNextAction(actions, "open-public-app", "Open public app", firstNonBlankString(urls["publicApp"]))
+	actions = appendReadinessNextAction(actions, "open-latest-installation", "Open latest installation", firstNonBlankString(urls["installation"]))
+	actions = appendReadinessNextAction(actions, "configure-latest-installation", "Configure latest installation", firstNonBlankString(urls["installationSetup"]))
+	actions = appendReadinessNextAction(actions, "open-latest-run", "Open latest run", firstNonBlankString(urls["latestRun"]))
+	if len(actions) == 0 {
+		return nil
+	}
+	return actions
+}
+
+func appendReadinessNextAction(actions []any, id, label, rawURL string) []any {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return actions
+	}
+	return append(actions, map[string]any{
+		"id":    id,
+		"label": label,
+		"url":   rawURL,
+	})
 }
 
 func buildFlowsInvocationMetricsReport(app *App, flowSlug string) map[string]any {

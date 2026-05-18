@@ -950,14 +950,50 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if blocker["fixCommand"] != "breyta flows discover update public-flow --public=true" {
 		t.Fatalf("expected discover fix command, got %#v", blocker["fixCommand"])
 	}
+	if blocker["openUrl"] != srv.URL+"/ws-test/discover" {
+		t.Fatalf("expected discover blocker open URL, got %#v", blocker["openUrl"])
+	}
 	latestInstalled := mapStringAny(readiness["latestInstalledRun"])
 	if latestInstalled["workflowId"] != "wf-installed-1" || latestInstalled["installationId"] != "inst-1" {
 		t.Fatalf("expected latest installed run context, got %#v", latestInstalled)
+	}
+	urls := mapStringAny(readiness["urls"])
+	if urls["flow"] != srv.URL+"/ws-test/flows/public-flow" {
+		t.Fatalf("expected flow URL, got %#v", urls["flow"])
+	}
+	if urls["publicApp"] != srv.URL+"/ws-test/flows/public-flow/installations" {
+		t.Fatalf("expected public app URL, got %#v", urls["publicApp"])
+	}
+	if urls["installation"] != srv.URL+"/ws-test/flows/public-flow/installations/inst-1" {
+		t.Fatalf("expected latest installation URL, got %#v", urls["installation"])
+	}
+	if urls["installationSetup"] != srv.URL+"/ws-test/flows/public-flow/installations/inst-1?configure=setup" {
+		t.Fatalf("expected latest installation setup URL, got %#v", urls["installationSetup"])
+	}
+	if urls["latestRun"] != srv.URL+"/ws-test/runs/public-flow/wf-installed-1" {
+		t.Fatalf("expected latest run URL, got %#v", urls["latestRun"])
 	}
 	nextCommands := stringSlice(mapStringAny(envelope["meta"])["nextCommands"])
 	if !slices.Contains(nextCommands, "breyta flows discover update public-flow --public=true") {
 		t.Fatalf("expected blocker fix command in nextCommands, got %#v", nextCommands)
 	}
+	nextActions := sliceAny(mapStringAny(envelope["meta"])["nextActions"])
+	if !hasReadinessNextAction(nextActions, "configure-latest-installation", srv.URL+"/ws-test/flows/public-flow/installations/inst-1?configure=setup") {
+		t.Fatalf("expected configure latest installation next action, got %#v", nextActions)
+	}
+	if !hasReadinessNextAction(nextActions, "open-latest-run", srv.URL+"/ws-test/runs/public-flow/wf-installed-1") {
+		t.Fatalf("expected latest run next action, got %#v", nextActions)
+	}
+}
+
+func hasReadinessNextAction(actions []any, id string, rawURL string) bool {
+	for _, item := range actions {
+		action := mapStringAny(item)
+		if action != nil && action["id"] == id && action["url"] == rawURL {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFlowsReadinessFullIncludesRawPayloads(t *testing.T) {
