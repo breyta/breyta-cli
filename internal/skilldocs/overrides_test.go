@@ -72,6 +72,15 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Discover install plus an installed run") {
 		t.Fatalf("expected Discover installed-run proof in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
+		t.Fatalf("expected paid app marketplace section in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "CLI metadata commands manage tags, discover visibility, marketplace visibility") {
+		t.Fatalf("expected paid app CLI scope guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "seat-based pricing is not implemented") {
+		t.Fatalf("expected paid app seat-pricing guardrail in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "https://api.openai.com/v1") {
 		t.Fatalf("expected OpenAI base URL guidance in override, got:\n%s", body)
 	}
@@ -183,6 +192,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	}
 	if !strings.Contains(body, "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
 		t.Fatalf("expected n8n importer-first guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
+		t.Fatalf("expected paid app marketplace section added to canonical skill, got:\n%s", body)
 	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")

@@ -278,6 +278,8 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - Prefer recovery URLs from failures: ` + "`error.actions[].url`" + `, then ` + "`meta.webUrl`" + `.
 - Submit ` + "`breyta feedback send --agent`" + ` when flow development hits significant authoring friction: excessive trial/error, misleading docs/help, unclear CLI/API behavior, blocked command paths, or missing examples. Include commands tried, URLs/workflow ids, expected path, and impact.
 - For public/installable flows, keep source flow, live version, activation/setup, Discover install, marketplace visibility, installed run, public app page, and output page separate.
+- For paid apps, author pricing in source under ` + "`:marketplace {:app ... :monetization {:plans [...]}}`" + `. New paid apps should use app-owned plan catalogs; preserve legacy flow-level monetization only for existing listings.
+- Seat-based pricing is not implemented; do not describe a paid app plan as N seats or N installs unless explicit seat entitlements exist.
 `)
 }
 
@@ -362,10 +364,14 @@ Advanced ideas:
 - For intermediate blobs, choose the storage tier deliberately: retained/default for durable or user-visible artifacts; ` + "`:persist {:type :blob :tier :ephemeral}`" + ` on streaming HTTP steps for temporary downloads, exports, generated media, and API responses that should use the more generous transient quota.
 - If a flow belongs to a sequential group, set explicit order with ` + "`breyta flows update <slug> --group-order <n>`" + ` and verify ordered siblings with ` + "`breyta flows show <slug>`" + ` so ` + "`groupFlows`" + ` is visible
 - If the flow should look polished in public discover/install surfaces, set curated media with ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + ` or author ` + "`:publish-media`" + ` in the flow file
+- For paid apps, author pricing in source under ` + "`:marketplace {:app ... :monetization {:plans [...]}}`" + `. Supported plan price types are ` + "`free`" + `, ` + "`one-time`" + `, ` + "`subscription`" + `, ` + "`usage`" + `, and ` + "`subscription-usage`" + `; subscription intervals are ` + "`month`" + ` or ` + "`year`" + `; usage quantities are run-based with ` + "`:unit \"run\"`" + ` and ` + "`:included-quantity`" + `.
+- New paid apps should use app-owned plan catalogs. Use legacy flow-level monetization only to preserve existing legacy listings.
+- Seat-based pricing is not implemented; do not describe a paid app plan as N seats or N installs unless explicit seat entitlements exist.
 - If the flow was derived from other flows or public templates, persist curated lineage with ` + "`breyta flows provenance set <slug> --from-consulted`" + `, ` + "`--source`" + `, or ` + "`--template`" + `
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
 - For installable/public flows, do not stop at activation; verify Discover install plus an installed run. The CLI path is installation create/configure/enable plus ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `.
+- For paid apps, draft runs and owner activation checks are not enough; verify checkout or trial entry, install handoff, installed run behavior, billing state, and exhausted/remediation state when relevant.
 - When browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
 - Delete flows only for permanent cleanup: ` + "`breyta flows delete <slug> --yes`" + ` (add ` + "`--force`" + ` to cancel runs/delete installations; add ` + "`--timeout 5m`" + ` for large cleanup jobs)

@@ -164,6 +164,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Do not run `breyta connections test --all`") {
 		t.Fatalf("unexpected agents content (missing targeted connection-test guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "For paid apps, author pricing in source under `:marketplace {:app ... :monetization {:plans [...]}}`") {
+		t.Fatalf("unexpected agents content (missing paid app source-authored pricing guidance): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "Seat-based pricing is not implemented") {
+		t.Fatalf("unexpected agents content (missing paid app seat-pricing guardrail): %s", string(agents))
+	}
 	readme, err := os.ReadFile(filepath.Join(wsDir, "README.md"))
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
@@ -260,6 +266,12 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
 		t.Fatalf("unexpected readme content (missing discover card media workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "For paid apps, author pricing in source under `:marketplace {:app ... :monetization {:plans [...]}}`") {
+		t.Fatalf("unexpected readme content (missing paid app source-authored pricing guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Seat-based pricing is not implemented; do not describe a paid app plan as N seats or N installs") {
+		t.Fatalf("unexpected readme content (missing paid app seat-pricing restriction): %s", string(readme))
 	}
 	if !strings.Contains(stdout, "Verify identity + workspace summary: breyta auth whoami") {
 		t.Fatalf("unexpected init stdout (missing whoami next step): %s", stdout)
