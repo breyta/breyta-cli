@@ -264,7 +264,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "set explicit order with `breyta flows update <slug> --group-order <n>` and verify ordered siblings with `breyta flows show <slug>`") {
 		t.Fatalf("unexpected readme content (missing group ordering workflow): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`") {
+	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-file ./screenshot.png`") {
 		t.Fatalf("unexpected readme content (missing discover card media workflow): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "For paid apps, author pricing in source under `:marketplace {:app ... :monetization {:plans [...]}}`") {

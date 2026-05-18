@@ -444,6 +444,7 @@ Goal: make public discover/install cards show creator-curated media instead of o
 
 - set discover card media with:
   - ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-kind https-url --publish-media-source https://...`" + `
+  - ` + "`breyta flows update <slug> --publish-media-type image --publish-media-source-file ./screenshot.png`" + `
 - video media can also include an optional poster:
   - ` + "`breyta flows update <slug> --publish-media-type video --publish-media-source-kind https-url --publish-media-source https://... --publish-media-poster-kind https-url --publish-media-poster https://...`" + `
 - clear discover card media intentionally with:
