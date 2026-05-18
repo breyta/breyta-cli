@@ -64,6 +64,22 @@ func TestDevModeEnvUsesAPIURLAndTokenEnv(t *testing.T) {
 	t.Setenv("APPDATA", tmp)
 	t.Setenv("LOCALAPPDATA", tmp)
 	t.Setenv("BREYTA_AUTH_STORE", filepath.Join(tmp, "auth.json"))
+	path, err := configstore.DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if err := configstore.SaveAtomic(path, &configstore.Store{
+		DevMode:   true,
+		DevActive: "stale",
+		DevProfiles: map[string]configstore.DevProfile{
+			"stale": {
+				APIURL: "http://127.0.0.1:1",
+				Token:  "stale-token",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -84,7 +100,7 @@ func TestDevModeEnvUsesAPIURLAndTokenEnv(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("BREYTA_API_URL", srv.URL)
-	_, _, err := runCLIArgs(t,
+	_, _, err = runCLIArgs(t,
 		"--workspace", "ws-acme",
 		"flows", "list",
 	)
