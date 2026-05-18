@@ -86,6 +86,17 @@ func extractHints(out map[string]any) []string {
 	// Fall back to a single meta.hint if that's all we have.
 	if metaAny, ok := out["meta"]; ok {
 		if meta, ok := metaAny.(map[string]any); ok {
+			if hs, ok := meta["hints"].([]any); ok {
+				var hints []string
+				for _, h := range hs {
+					if s, ok := h.(string); ok && strings.TrimSpace(s) != "" {
+						hints = append(hints, strings.TrimSpace(s))
+					}
+				}
+				if len(hints) > 0 {
+					return hints
+				}
+			}
 			if s, _ := meta["hint"].(string); strings.TrimSpace(s) != "" {
 				return []string{strings.TrimSpace(s)}
 			}

@@ -134,8 +134,11 @@ func TestStepsRunCompactsResultByDefault(t *testing.T) {
 		t.Fatalf("expected compact output to drop duplicate meta.hints, got %#v", meta["hints"])
 	}
 	hints, _ := out["_hints"].([]any)
-	if len(hints) != 1 || !strings.Contains(hints[0].(string), "breyta steps record") {
+	if len(hints) != 1 || !strings.Contains(hints[0].(string), "breyta steps record --flow my-flow --type code --id make-output") {
 		t.Fatalf("expected one compact record hint, got %#v", out["_hints"])
+	}
+	if strings.Contains(hints[0].(string), "<type>") || strings.Contains(hints[0].(string), "<step-id>") {
+		t.Fatalf("expected server-provided record hint, got %#v", hints[0])
 	}
 	nextCommands, _ := meta["nextCommands"].([]any)
 	if len(nextCommands) > 1 {
