@@ -246,7 +246,7 @@ func applyBindingsSection(payload *profilePayload, value any) error {
 			}
 			canon, ok := canonicalBindingField(field)
 			if !ok {
-				return fmt.Errorf("bindings.%s has unknown field: %s", slotName, field)
+				return fmt.Errorf("bindings.%s has unknown field %q (common binding fields: %s)", slotName, field, commonBindingFieldsHint())
 			}
 			payload.Inputs[canon+"-"+slotName] = fieldValue
 		}
@@ -322,7 +322,7 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 		}
 		canon, ok := canonicalBindingField(field)
 		if !ok {
-			return nil, fmt.Errorf("invalid --set %q (unknown field %q)", raw, field)
+			return nil, fmt.Errorf("invalid --set %q (unknown field %q; use activation.<input>=<value> for activation inputs or <slot>.<field>=<value> for bindings; common binding fields: %s)", raw, field, commonBindingFieldsHint())
 		}
 		val, err := parseSetValue(valRaw)
 		if err != nil {
@@ -334,6 +334,10 @@ func parseSetAssignments(items []string) (map[string]any, error) {
 		out[canon+"-"+slot] = val
 	}
 	return out, nil
+}
+
+func commonBindingFieldsHint() string {
+	return "conn, secret, url, apikey, headers.<name>, location, param-name, query-param, db-param, host, port, database, user, pass"
 }
 
 func parseSetValueFromContent(content string, trimOnStringReturn bool) any {

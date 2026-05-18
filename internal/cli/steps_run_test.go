@@ -22,6 +22,12 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
+			"_hints": []any{
+				"breyta steps docs set my-flow make-output --markdown '...'",
+				"breyta steps record --flow my-flow --type code --id make-output --params '{...}'",
+				"breyta steps examples add my-flow make-output --input '{...}' --output '{...}'",
+				"breyta steps tests add my-flow make-output --name '...' --input '{...}' --expected '{...}'",
+			},
 			"data": map[string]any{
 				"stepType":   "code",
 				"stepId":     "make-output",
@@ -80,6 +86,13 @@ func TestStepsRunCompactsResultByDefault(t *testing.T) {
 					"summary": "ready",
 				},
 			},
+			"meta": map[string]any{
+				"hints": []any{
+					"breyta steps docs set my-flow make-output --markdown '...'",
+					"breyta steps record --flow my-flow --type code --id make-output --params '{...}'",
+					"breyta steps examples add my-flow make-output --input '{...}' --output '{...}'",
+				},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -116,6 +129,16 @@ func TestStepsRunCompactsResultByDefault(t *testing.T) {
 	meta, _ := out["meta"].(map[string]any)
 	if meta["outputView"] != "compact" {
 		t.Fatalf("expected compact outputView, got %#v", meta)
+	}
+	if _, exists := meta["hints"]; exists {
+		t.Fatalf("expected compact output to drop duplicate meta.hints, got %#v", meta["hints"])
+	}
+	hints, _ := out["_hints"].([]any)
+	if len(hints) != 1 || !strings.Contains(hints[0].(string), "breyta steps record --flow my-flow --type code --id make-output") {
+		t.Fatalf("expected one compact record hint, got %#v", out["_hints"])
+	}
+	if strings.Contains(hints[0].(string), "<type>") || strings.Contains(hints[0].(string), "<step-id>") {
+		t.Fatalf("expected server-provided record hint, got %#v", hints[0])
 	}
 	nextCommands, _ := meta["nextCommands"].([]any)
 	if len(nextCommands) > 1 {

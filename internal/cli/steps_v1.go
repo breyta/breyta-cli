@@ -19,9 +19,7 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 	if meta == nil {
 		return
 	}
-	if _, exists := meta["hint"]; exists {
-		return
-	}
+	_, hadHint := meta["hint"]
 
 	fs := strings.TrimSpace(flowSlug)
 	if fs == "" {
@@ -32,7 +30,22 @@ func addStepSidecarHint(out map[string]any, flowSlug string, stepID string) {
 		sid = "<step-id>"
 	}
 
-	meta["hint"] = "Step probe completed. Use focused result flags before rerunning the full flow."
+	recordHint := ""
+	for _, hint := range extractHints(out) {
+		if strings.Contains(hint, "breyta steps record") {
+			recordHint = hint
+			break
+		}
+	}
+	if recordHint == "" {
+		recordHint = "breyta steps record --flow " + fs + " --type <type> --id " + sid + " --params '{...}'"
+	}
+	out["_hints"] = []any{recordHint}
+	delete(meta, "hints")
+
+	if !hadHint {
+		meta["hint"] = "Step probe completed. Use focused result flags before rerunning the full flow."
+	}
 	appendMetaNextCommands(meta,
 		"breyta steps run --flow "+fs+" --source draft --type <type> --id "+sid+" --result-path <path>")
 }
@@ -73,6 +86,17 @@ func extractHints(out map[string]any) []string {
 	// Fall back to a single meta.hint if that's all we have.
 	if metaAny, ok := out["meta"]; ok {
 		if meta, ok := metaAny.(map[string]any); ok {
+			if hs, ok := meta["hints"].([]any); ok {
+				var hints []string
+				for _, h := range hs {
+					if s, ok := h.(string); ok && strings.TrimSpace(s) != "" {
+						hints = append(hints, strings.TrimSpace(s))
+					}
+				}
+				if len(hints) > 0 {
+					return hints
+				}
+			}
 			if s, _ := meta["hint"].(string); strings.TrimSpace(s) != "" {
 				return []string{strings.TrimSpace(s)}
 			}

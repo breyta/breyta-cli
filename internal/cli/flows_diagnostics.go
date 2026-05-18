@@ -206,14 +206,25 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 	if meta := mapStringAny(publicOut["meta"]); meta != nil {
 		nextCommands = appendUniqueStrings(nextCommands, stringSlice(meta["nextCommands"]))
 	}
+	noLiveTarget := flowReadinessNoLiveTarget(target, doctor)
 	nextCommands = appendUniqueStrings(nextCommands, readinessFixCommands(blockers))
 	if boolValue(diffReport["changed"]) {
 		nextCommands = appendUniqueStrings(nextCommands, []string{fmt.Sprintf("breyta flows diff %s", flowSlug)})
 	}
+	if noLiveTarget {
+		nextCommands = appendUniqueStrings(
+			flowReadinessNoLiveNextCommands(flowSlug),
+			filterInvalidLiveRunNextCommands(nextCommands, flowSlug),
+		)
+	}
 	if len(nextCommands) == 0 {
-		nextCommands = []string{
-			fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
-			fmt.Sprintf("breyta flows run %s --target %s --wait", flowSlug, target),
+		if noLiveTarget {
+			nextCommands = flowReadinessNoLiveNextCommands(flowSlug)
+		} else {
+			nextCommands = []string{
+				fmt.Sprintf("breyta flows show %s --target %s", flowSlug, target),
+				fmt.Sprintf("breyta flows run %s --target %s --wait", flowSlug, target),
+			}
 		}
 	}
 	readinessURLs := buildReadinessURLs(app, flowSlug, invocationMetrics)
@@ -242,6 +253,7 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 		"marketplaceReady":    marketplaceReady,
 		"marketplaceRequired": requireMarketplace,
 		"summary":             doctor["summary"],
+		"liveUnavailable":     noLiveTarget,
 		"draftLive":           buildReadinessDraftLive(activeVersion, latestVersion, diffReport),
 		"configuration":       doctor["configuration"],
 		"public":              preflight["public"],
@@ -287,6 +299,52 @@ func buildFlowsReadinessEnvelope(app *App, flowSlug, target string, doctorOut ma
 			"readiness": readiness,
 		},
 	}
+}
+
+func flowReadinessNoLiveTarget(target string, doctor map[string]any) bool {
+	if strings.ToLower(strings.TrimSpace(target)) != "live" {
+		return false
+	}
+	summary := mapStringAny(doctor["summary"])
+	reason := firstNonBlankString(summary["unavailableReason"])
+	if boolValue(summary["liveUnavailable"]) || reason == "no_live_version" || reason == "live_configured_without_release" {
+		return true
+	}
+	activeVersion, activeOK := numericValue(firstPresent(summary, "activeVersion", "active-version"))
+	if !activeOK || activeVersion <= 0 {
+		if _, configuredOK := numericValue(firstPresent(summary, "liveConfiguredVersion", "live-configured-version")); configuredOK {
+			return true
+		}
+	}
+	for _, item := range sliceAny(doctor["checks"]) {
+		check := mapStringAny(item)
+		id := strings.ToLower(firstNonBlankString(check["id"]))
+		if (id == "live-version" || id == "released-live-version") && !boolValue(check["pass"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func flowReadinessNoLiveNextCommands(flowSlug string) []string {
+	return []string{
+		fmt.Sprintf("breyta flows release %s", flowSlug),
+		fmt.Sprintf("breyta flows diff %s", flowSlug),
+		fmt.Sprintf("breyta flows readiness %s --target live", flowSlug),
+	}
+}
+
+func filterInvalidLiveRunNextCommands(commands []string, flowSlug string) []string {
+	out := make([]string, 0, len(commands))
+	needle := "flows run " + strings.TrimSpace(flowSlug)
+	for _, command := range commands {
+		compact := strings.Join(strings.Fields(command), " ")
+		if strings.Contains(compact, needle) && strings.Contains(compact, "--target live") {
+			continue
+		}
+		out = append(out, command)
+	}
+	return out
 }
 
 func buildFlowsReadinessDiffReport(app *App, flowSlug string) map[string]any {
@@ -676,6 +734,18 @@ func mergeFlowsDoctorConfigureReadiness(doctorOut map[string]any, checkOut map[s
 	doctor["definitionReady"] = definitionReady
 	doctor["configurationReady"] = configReady
 	doctor["configuration"] = config
+	if strings.ToLower(strings.TrimSpace(target)) == "live" {
+		summary := mapStringAny(doctor["summary"])
+		activeVersion, activeOK := numericValue(firstPresent(summary, "activeVersion", "active-version"))
+		configVersion, configVersionOK := numericValue(firstPresent(config, "version"))
+		if summary != nil && (!activeOK || activeVersion <= 0) && configVersionOK && configVersion > 0 {
+			summary["liveConfiguredVersion"] = configVersion
+			if reason := firstNonBlankString(summary["unavailableReason"]); reason == "" || reason == "no_live_version" {
+				summary["unavailableReason"] = "live_configured_without_release"
+			}
+			summary["liveUnavailable"] = true
+		}
+	}
 	doctor["ready"] = definitionReady && configReady
 	upsertFlowsDoctorCheck(doctor, map[string]any{
 		"id":     "configuration",

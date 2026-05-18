@@ -124,7 +124,21 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
 		Short: "Create a new installation",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Create an installation for a flow that has an active live version.
+
+Before creating an installation, check the source with:
+- breyta flows release-check <flow-slug>
+- breyta flows release <flow-slug>
+
+Creation auto-enables zero-setup installations. Installations that still need
+setup are created disabled until configured. Use --enable only when you want to
+state the enable intent explicitly.
+
+Local private cross-workspace tests require --local-private-test plus
+--source-workspace-id, --source-flow-slug, and an active source version.
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations create requires API mode"))
@@ -149,10 +163,10 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Installation name (optional)")
-	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id (advanced)")
-	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override (advanced)")
-	cmd.Flags().BoolVar(&enable, "enable", false, "Enable the installation after create when setup is ready")
-	cmd.Flags().BoolVar(&localPrivateTest, "local-private-test", false, "Local dev only: allow cross-workspace install testing for a private source flow")
+	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Source workspace id for cross-workspace installs")
+	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Source flow slug override for cross-workspace installs")
+	cmd.Flags().BoolVar(&enable, "enable", false, "Explicitly request enabled state after create; zero-setup installs enable by default")
+	cmd.Flags().BoolVar(&localPrivateTest, "local-private-test", false, "Local dev only: test a private cross-workspace source flow; requires source ids and an active source version")
 	return cmd
 }
 

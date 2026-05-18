@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/breyta/breyta-cli/internal/api"
 	cliFormat "github.com/breyta/breyta-cli/internal/format"
@@ -859,13 +860,31 @@ func docsConfigFieldAliases(cell string) []string {
 }
 
 func normalizeDocsFieldName(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimSpace(s)
 	s = strings.Trim(s, "`")
 	s = strings.TrimPrefix(s, ":")
-	s = strings.ReplaceAll(s, "_", "-")
 	s = strings.Trim(s, "[](){}.,;:")
+	s = camelCaseToKebab(s)
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "_", "-")
 	s = strings.TrimSpace(s)
 	return s
+}
+
+func camelCaseToKebab(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	var prev rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
+			b.WriteRune('-')
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
 }
 
 func displayDocsFieldName(s string) string {
