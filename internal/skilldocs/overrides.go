@@ -155,6 +155,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		}
 	}
 	updated = ensureN8NImportGuidance(updated)
+	updated = ensurePaidAppMarketplaceSection(updated)
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -169,6 +170,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureWorkflowPlanningSection(updated)
 	updated = ensureReliabilitySection(updated)
 	updated = ensureProvenanceSection(updated)
+	updated = ensurePaidAppMarketplaceSection(updated)
 	updated = ensureDiscoverCardMediaSection(updated)
 	updated = ensureFlowLifecycleSection(updated)
 	updated = ensureNamingConventionsSection(updated)
@@ -449,6 +451,29 @@ Goal: make public discover/install cards show creator-curated media instead of o
 - if you keep the flow in source control, you can also author the same value in the flow file as ` + "`:publish-media`" + ` and push it
 - use alt text that explains the visible result, not the implementation detail`
 
+const paidAppMarketplaceSection = `## Paid app marketplace authoring (Source-authored)
+
+Goal: create paid public apps with explicit app and plan identity while using
+the CLI for source push, release, visibility, and verification.
+
+- paid app pricing is authored in flow source and pushed with:
+  - ` + "`breyta flows push --file ./flows/<slug>.clj`" + `
+- CLI metadata commands manage tags, discover visibility, marketplace visibility, publish description, and card media; they do not set pricing flags
+- prefer new paid apps to use app-owned catalogs:
+  - ` + "`:marketplace {:visible true :app {:app-id \"...\" :app-primary-flow-slug \"...\" :app-flow-slugs [...] :monetization {:plans [...]}}}`" + `
+- supported plan price types are:
+  - ` + "`free`" + `
+  - ` + "`one-time`" + `
+  - ` + "`subscription`" + `
+  - ` + "`usage`" + `
+  - ` + "`subscription-usage`" + `
+- subscription intervals are ` + "`month`" + ` or ` + "`year`" + ` on the publish path
+- usage-priced plans are run-based only: use ` + "`:unit \"run\"`" + ` and ` + "`:included-quantity`" + `
+- plan ids must be stable; keep exactly one intended default plan, otherwise the first plan is treated as default
+- use legacy flow-level monetization only when preserving an existing legacy priced listing
+- seat-based pricing is not implemented; do not describe a plan as N seats or N installs unless explicit seat entitlements exist
+- paid app verification must cover checkout or trial entry, install handoff, installed run behavior, billing state, and exhausted/remediation state when relevant`
+
 const flowLifecycleSection = `## Flow lifecycle cleanup (Public CLI surface)
 
 Goal: use the public lifecycle commands intentionally when a flow should stop being used or be removed entirely.
@@ -591,6 +616,26 @@ func ensureDiscoverCardMediaSection(body string) string {
 		return body[:headingPos] + discoverCardMediaSection + "\n\n" + body[headingPos:]
 	}
 	return strings.TrimRight(body, "\n") + "\n\n" + discoverCardMediaSection + "\n"
+}
+
+func ensurePaidAppMarketplaceSection(body string) string {
+	if h2LineStartOutsideFences(body, "## Paid app marketplace authoring (Source-authored)") >= 0 {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Discover card media (Public discover polish)"); headingPos >= 0 {
+		return body[:headingPos] + paidAppMarketplaceSection + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Public/end-user UI verification (Required for public flows)"); headingPos >= 0 {
+		insertPos := nextH2LineStartOutsideFences(body, headingPos+len("## Public/end-user UI verification (Required for public flows)"))
+		if insertPos >= 0 {
+			return body[:insertPos] + paidAppMarketplaceSection + "\n\n" + body[insertPos:]
+		}
+		return strings.TrimRight(body, "\n") + "\n\n" + paidAppMarketplaceSection + "\n"
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Public Approval Gate"); headingPos >= 0 {
+		return body[:headingPos] + paidAppMarketplaceSection + "\n\n" + body[headingPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + paidAppMarketplaceSection + "\n"
 }
 
 func ensureWorkflowPlanningSection(body string) string {

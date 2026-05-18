@@ -199,6 +199,78 @@ breyta flows run <slug> --installation-id <installation-id> --wait
 When browser access is available, also open the Discover install dialog and
 confirm setup fields, upload/resource fields, and output render as expected.
 
+## Paid app marketplace authoring
+
+Paid app pricing is authored in the flow source and pushed with
+`breyta flows push`. The CLI metadata commands only manage surrounding public
+metadata such as tags, discover visibility, marketplace visibility, publish
+description, and card media; they do not expose pricing flags.
+
+Prefer the app-owned catalog shape for new paid apps:
+
+```clojure
+{:slug :customer-insights
+ :name "Customer Insights"
+ :tags ["end-user" "analytics"]
+ :discover {:public true}
+ :marketplace
+ {:visible true
+  :app
+  {:app-id "customer-insights-suite"
+   :app-name "Customer Insights"
+   :app-primary-flow-slug "customer-insights"
+   :app-flow-slugs ["customer-insights"]
+   :monetization
+   {:plans
+    [{:plan-id "starter"
+      :name "Starter"
+      :default true
+      :pricing {:type "subscription"
+                :amount 29
+                :currency "usd"
+                :interval "month"}
+      :trial {:days 7
+              :payment-method-required false}}
+     {:plan-id "pro-pack"
+      :name "Pro Pack"
+      :pricing {:type "usage"
+                :amount 49
+                :currency "usd"
+                :unit "run"
+                :included-quantity 250}}]}}}}
+```
+
+Supported plan price types are `free`, `one-time`, `subscription`, `usage`, and
+`subscription-usage`. Subscription intervals are `month` or `year` on the
+publish path. Usage is run-based only with `:unit "run"` and
+`:included-quantity`. Plan ids must be stable; keep exactly one intended default
+plan. If no default is set, the first plan is treated as the default.
+
+Use legacy flow-level monetization only when preserving an existing legacy
+listing. New paid apps should use `:marketplace {:app ...}` so Discover,
+checkout, billing, install ownership, and future migrations share the same app
+and plan identity.
+
+Paid app smoke path:
+
+```bash
+breyta flows push --file ./flows/<slug>.clj
+breyta flows diff <slug>
+breyta flows release <slug> --release-note-file ./release-note.md
+breyta flows discover search "<app name>" --include-own
+breyta flows show <slug> --target live
+```
+
+Then verify from a buyer workspace with the web Discover checkout/install path
+or an installation smoke run. For paid behavior, draft runs and owner
+`/activate` checks are not enough: verify checkout or trial entry, install
+handoff, installed run behavior, exhausted/remediation state when relevant, and
+Billing page state.
+
+Current restrictions: seat-based pricing is not implemented. Do not represent a
+plan as "N seats" or "N installs" unless the product has added explicit seat
+entitlements; use run quantities only for usage-priced plans.
+
 OpenAI-backed `:llm` and `:agent` flows should use an `:http-api` requirement
 with backend `openai`, base URL `https://api.openai.com/v1`, API-key auth, and a
 non-null config map. Use installer ownership when every installer brings their
