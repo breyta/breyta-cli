@@ -4648,6 +4648,64 @@ func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsEvents_ListsTimelineInAPIMode(t *testing.T) {
+	var capturedCommand string
+	var capturedArgs map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capturedCommand, _ = body["command"].(string)
+		capturedArgs, _ = body["args"].(map[string]any)
+		if capturedCommand != "runs.events" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"meta": map[string]any{
+				"count": 2,
+			},
+			"data": map[string]any{
+				"workflowId": "wf-events",
+				"items": []map[string]any{
+					{"type": "run_started", "workflowId": "wf-events"},
+					{"type": "step_started", "workflowId": "wf-events", "stepId": "review"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "events", "wf-events", "--step", "review", "--limit", "25",
+	)
+	if err != nil {
+		t.Fatalf("runs events failed: %v\n%s", err, stdout)
+	}
+	if capturedCommand != "runs.events" || capturedArgs["workflowId"] != "wf-events" || capturedArgs["stepId"] != "review" || capturedArgs["limit"] != float64(25) {
+		t.Fatalf("expected runs.events payload, command=%q args=%#v", capturedCommand, capturedArgs)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected timeline items, got %#v", data)
+	}
+}
+
 func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
 	var sawList bool
 	var approvedWait string
@@ -4744,17 +4802,12 @@ func TestRunsContinue_ExplainsIneligibleActiveWaits(t *testing.T) {
 	}
 }
 
-func TestRunsEventsAndLogsAPIModePointToSupportedInspection(t *testing.T) {
+func TestRunsLogsAPIModePointsToSupportedInspection(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
 		want []string
 	}{
-		{
-			name: "events",
-			args: []string{"runs", "events", "wf-123"},
-			want: []string{"API run timelines are not available yet", "breyta runs show wf-123 --include-steps", "breyta resources workflow list wf-123"},
-		},
 		{
 			name: "logs",
 			args: []string{"runs", "logs", "wf-123"},
@@ -4770,7 +4823,7 @@ func TestRunsEventsAndLogsAPIModePointToSupportedInspection(t *testing.T) {
 			}
 			stdout, stderr, err := runCLIArgs(t, append(base, tc.args...)...)
 			if err == nil {
-				t.Fatalf("expected API-mode mock-only command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+				t.Fatalf("expected API-mode unsupported command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
 			}
 			for _, want := range tc.want {
 				if !strings.Contains(stdout, want) {
