@@ -4583,7 +4583,8 @@ func TestRunsStep_InspectsOneStepInAPIMode(t *testing.T) {
 }
 
 func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
-	var capturedArgs map[string]any
+	var capturedGetArgs map[string]any
+	var capturedEventsArgs map[string]any
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -4592,31 +4593,46 @@ func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "runs.get" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
-			return
-		}
-		capturedArgs, _ = body["args"].(map[string]any)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok": true,
-			"data": map[string]any{
-				"run": map[string]any{
-					"workflowId": "wf-step",
-					"flowSlug":   "flow-step",
-					"steps": []map[string]any{
-						{
-							"stepId":         "review",
-							"stepType":       "agent",
-							"status":         "completed",
-							"resultPreview":  map[string]any{"summary": "compact"},
-							"output":         map[string]any{"nested": map[string]any{"ok": true}},
-							"outputResource": "res://v1/ws/ws-acme/result/run/wf-step/step/review/output",
+		command, _ := body["command"].(string)
+		switch command {
+		case "runs.get":
+			capturedGetArgs, _ = body["args"].(map[string]any)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step",
+						"flowSlug":   "flow-step",
+						"steps": []map[string]any{
+							{
+								"stepId":         "review",
+								"stepType":       "agent",
+								"status":         "completed",
+								"resultPreview":  map[string]any{"summary": "compact"},
+								"output":         map[string]any{"nested": map[string]any{"ok": true}},
+								"outputResource": "res://v1/ws/ws-acme/result/run/wf-step/step/review/output",
+							},
 						},
 					},
 				},
-			},
-		})
+			})
+		case "runs.events":
+			capturedEventsArgs, _ = body["args"].(map[string]any)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"meta": map[string]any{
+					"count": 1,
+				},
+				"data": map[string]any{
+					"items": []map[string]any{
+						{"type": "step_completed", "stepId": "review"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
 	}))
 	defer srv.Close()
 
@@ -4630,8 +4646,11 @@ func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runs step --full failed: %v\n%s", err, stdout)
 	}
-	if capturedArgs["includeStepResults"] != true || capturedArgs["stepId"] != "review" {
-		t.Fatalf("expected full step payload request, got %#v", capturedArgs)
+	if capturedGetArgs["includeStepResults"] != true || capturedGetArgs["stepId"] != "review" {
+		t.Fatalf("expected full step payload request, got %#v", capturedGetArgs)
+	}
+	if capturedEventsArgs["workflowId"] != "wf-step" || capturedEventsArgs["stepId"] != "review" || capturedEventsArgs["limit"] != float64(50) {
+		t.Fatalf("expected step events payload request, got %#v", capturedEventsArgs)
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
@@ -4645,6 +4664,9 @@ func TestRunsStep_FullRequestsCapturedStepOutputInAPIMode(t *testing.T) {
 	}
 	if data["outputResource"] == "" {
 		t.Fatalf("expected outputResource, got %#v", data)
+	}
+	if events, _ := data["events"].([]any); len(events) != 1 {
+		t.Fatalf("expected enriched step events, got %#v", data)
 	}
 }
 

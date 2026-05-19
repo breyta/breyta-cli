@@ -1562,7 +1562,7 @@ func newRunsEventsCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Filter events by step id/title")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
-	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum number of events to return (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum number of events to return")
 	return cmd
 }
 
