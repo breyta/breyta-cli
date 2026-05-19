@@ -587,14 +587,29 @@ Use runs start only when integrating with older scripts.
 	return cmd
 }
 
+func doRunsReplayAPI(cmd *cobra.Command, app *App, runID string) error {
+	workflowID := strings.TrimSpace(runID)
+	if workflowID == "" {
+		return writeErr(cmd, errors.New("missing run id"))
+	}
+	if err := requireAPI(app); err != nil {
+		return writeErr(cmd, err)
+	}
+	out, status, err := runAPICommand(app, "runs.replay", map[string]any{"workflowId": workflowID})
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	return writeAPIResult(cmd, app, out, status)
+}
+
 func newRunsReplayCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "replay <run-id>",
-		Short: "Replay a run (mock)",
+		Short: "Replay a failed webhook run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (API replay is not implemented).")
+				return doRunsReplayAPI(cmd, app, args[0])
 			}
 			runID := args[0]
 			st, store, err := appStore(app)
@@ -605,7 +620,7 @@ func newRunsReplayCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			// Create a new run that represents “replay” of the original.
+			// Create a new run that represents "replay" of the original.
 			now := time.Now().UTC()
 			newID := "replay-" + runID + "-" + now.Format("150405")
 			replayed := *orig
@@ -1479,11 +1494,14 @@ func newRunsRetryCmd(app *App) *cobra.Command {
 	var stepID string
 	cmd := &cobra.Command{
 		Use:   "retry <run-id>",
-		Short: "Retry a run (mock)",
+		Short: "Retry a failed webhook run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Mock-only command (use `breyta flows run <flow-slug>` to re-run in API mode).")
+				if strings.TrimSpace(stepID) != "" {
+					return writeFailure(cmd, app, "not_implemented", errors.New("partial step retry is not implemented"), "Use `breyta runs replay <run-id>` to replay the whole failed webhook run.", nil)
+				}
+				return doRunsReplayAPI(cmd, app, args[0])
 			}
 			st, store, err := appStore(app)
 			if err != nil {
