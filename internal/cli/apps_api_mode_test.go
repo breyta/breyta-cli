@@ -4728,6 +4728,32 @@ func TestRunsEvents_ListsTimelineInAPIMode(t *testing.T) {
 	}
 }
 
+func TestRunsEvents_RejectsNonPositiveLimit(t *testing.T) {
+	called := false
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "events", "wf-events", "--limit", "0",
+	)
+	if err == nil {
+		t.Fatalf("expected invalid limit to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout+stderr+err.Error(), "--limit must be > 0") {
+		t.Fatalf("expected limit error, stdout=%s stderr=%s err=%v", stdout, stderr, err)
+	}
+	if called {
+		t.Fatalf("invalid limit should not call API")
+	}
+}
+
 func TestRunsContinue_ApprovesLatestWaitInAPIMode(t *testing.T) {
 	var sawList bool
 	var approvedWait string

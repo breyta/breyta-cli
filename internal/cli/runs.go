@@ -1525,6 +1525,9 @@ func newRunsEventsCmd(app *App) *cobra.Command {
 		Short: "Show run event timeline",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("limit") && limit <= 0 {
+				return writeErr(cmd, errors.New("--limit must be > 0"))
+			}
 			if isAPIMode(app) {
 				payload := map[string]any{
 					"workflowId": strings.TrimSpace(args[0]),
