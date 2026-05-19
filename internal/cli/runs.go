@@ -620,7 +620,7 @@ func newRunsReplayCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			// Create a new run that represents “replay” of the original.
+			// Create a new run that represents "replay" of the original.
 			now := time.Now().UTC()
 			newID := "replay-" + runID + "-" + now.Format("150405")
 			replayed := *orig
