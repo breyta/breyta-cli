@@ -107,6 +107,30 @@ func TestApplyCLIOverrides_BreytaSkillAddsKeyedScheduleGuard(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaSkillUpdatesRuntimeDebuggingGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Failure Triage",
+			"4. Runtime mismatch: inspect one step with `breyta runs inspect <workflow-id> --step <step-id>`, isolate the primitive, rerun the intended interface. For waits, approve deliberately with `breyta runs continue <workflow-id> --approve-latest-wait`.",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "breyta runs events <workflow-id> --limit 100") {
+		t.Fatalf("expected runs events debugging guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "--step <step-id>") || !strings.Contains(body, "--installation-id <id>") {
+		t.Fatalf("expected runs events filter guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta runs step <workflow-id> <step-id>") {
+		t.Fatalf("expected runs step guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "using `--full` only when captured output/error payloads are required") {
+		t.Fatalf("expected bounded --full guidance, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_NonBreytaNoop(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte("hello"),

@@ -895,16 +895,18 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 	}
 	flowSlug := firstNonBlankString(run["flowSlug"], run["flow-slug"])
 	stepIDOut := firstNonBlankString(step["stepId"], step["step-id"], step["id"], stepID)
-	return writeData(cmd, app, map[string]any{
+	meta := map[string]any{
 		"workflowId":    strings.TrimSpace(workflowID),
 		"stepId":        stepIDOut,
 		"sourceCommand": "runs.get",
 		"outputView":    map[bool]string{true: "full", false: "compact"}[full],
 		"nextCommands": []string{
 			"breyta runs show " + strings.TrimSpace(workflowID) + " --include-steps",
+			"breyta runs events " + strings.TrimSpace(workflowID) + " --step " + shellSingleQuote(stepIDOut),
 			"breyta runs step " + strings.TrimSpace(workflowID) + " " + shellSingleQuote(stepIDOut) + " --full",
 		},
-	}, map[string]any{
+	}
+	data := map[string]any{
 		"workflowId":     strings.TrimSpace(workflowID),
 		"flowSlug":       flowSlug,
 		"stepId":         stepIDOut,
@@ -919,7 +921,41 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 		"error":          firstPresent(step, "error", "errorMessage", "error-message"),
 		"cost":           firstPresent(step, "cost", "usage", "counters", "metering"),
 		"execution":      compactAPIRunStepExecution(step),
-	})
+	}
+	if events, eventsMeta := fetchAPIRunEvents(app, strings.TrimSpace(workflowID), stepIDOut, installationID, 50); events != nil {
+		data["events"] = events
+		meta["eventCount"] = len(events)
+		meta["eventsSourceCommand"] = "runs.events"
+		if count, ok := eventsMeta["count"]; ok {
+			meta["eventsTotal"] = count
+		}
+	}
+	return writeData(cmd, app, meta, data)
+}
+
+func fetchAPIRunEvents(app *App, workflowID string, stepID string, installationID string, limit int) ([]any, map[string]any) {
+	payload := map[string]any{
+		"workflowId": strings.TrimSpace(workflowID),
+	}
+	if strings.TrimSpace(stepID) != "" {
+		payload["stepId"] = strings.TrimSpace(stepID)
+	}
+	if strings.TrimSpace(installationID) != "" {
+		payload["installationId"] = strings.TrimSpace(installationID)
+	}
+	if limit > 0 {
+		payload["limit"] = limit
+	}
+	out, status, err := runAPICommand(app, "runs.events", payload)
+	if err != nil || status >= 400 || !isOK(out) {
+		return nil, nil
+	}
+	data := mapStringAny(out["data"])
+	items := sliceAny(data["items"])
+	if items == nil {
+		items = []any{}
+	}
+	return items, mapStringAny(out["meta"])
 }
 
 func compactAPIRunStepExecution(step map[string]any) map[string]any {
@@ -1481,14 +1517,35 @@ func newRunsRetryCmd(app *App) *cobra.Command {
 }
 
 func newRunsEventsCmd(app *App) *cobra.Command {
+	var stepID string
+	var installationID string
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "events <run-id>",
-		Short: "Show run event timeline (mock only)",
+		Short: "Show run event timeline",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("limit") && limit <= 0 {
+				return writeErr(cmd, errors.New("--limit must be > 0"))
+			}
 			if isAPIMode(app) {
-				runID := strings.TrimSpace(args[0])
-				return writeNotImplemented(cmd, app, "API run timelines are not available yet. Use `breyta runs show "+runID+" --include-steps`, `breyta runs step "+runID+" STEP_ID --full`, or `breyta resources workflow list "+runID+"`.")
+				payload := map[string]any{
+					"workflowId": strings.TrimSpace(args[0]),
+				}
+				if strings.TrimSpace(stepID) != "" {
+					payload["stepId"] = strings.TrimSpace(stepID)
+				}
+				if strings.TrimSpace(installationID) != "" {
+					payload["installationId"] = strings.TrimSpace(installationID)
+				}
+				if limit > 0 {
+					payload["limit"] = limit
+				}
+				out, status, err := runAPICommand(app, "runs.events", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				return writeAPIResult(cmd, app, out, status)
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1498,12 +1555,31 @@ func newRunsEventsCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			events := deriveRunEvents(r)
+			events := filterLocalRunEvents(deriveRunEvents(r), stepID)
+			if limit > 0 && len(events) > limit {
+				events = events[:limit]
+			}
 			meta := map[string]any{"count": len(events)}
 			return writeData(cmd, app, meta, map[string]any{"runId": r.WorkflowID, "items": events})
 		},
 	}
+	cmd.Flags().StringVar(&stepID, "step", "", "Filter events by step id/title")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum number of events to return")
 	return cmd
+}
+
+func filterLocalRunEvents(events []map[string]any, stepID string) []map[string]any {
+	if strings.TrimSpace(stepID) == "" {
+		return events
+	}
+	filtered := make([]map[string]any, 0, len(events))
+	for _, event := range events {
+		if localRunStepMatches(scalarString(event["stepId"]), scalarString(event["title"]), stepID) {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }
 
 func newRunsLogsCmd(app *App) *cobra.Command {
