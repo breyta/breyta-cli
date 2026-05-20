@@ -378,6 +378,9 @@ func TestFlowsReleaseHelpDescribesLatestPushedVersion(t *testing.T) {
 	if !strings.Contains(help, "--release-note-file") {
 		t.Fatalf("flows release help missing release note file flag:\n%s", help)
 	}
+	if !strings.Contains(help, "--notes") {
+		t.Fatalf("flows release help missing inline notes alias:\n%s", help)
+	}
 }
 
 func TestFlowsHelpDistinguishesPushReleasePromote(t *testing.T) {

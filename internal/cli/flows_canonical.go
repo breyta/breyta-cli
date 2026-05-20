@@ -450,6 +450,7 @@ version carries operator-facing context:
 	cmd.Flags().StringVar(&version, "version", "", "Released version to activate (default latest from workspace current)")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note to attach to the activated version")
+	cmd.Flags().StringVar(&releaseNote, "notes", "", "Alias for --release-note")
 	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
 	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
 	_ = cmd.Flags().MarkHidden("note")
