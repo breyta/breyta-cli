@@ -5108,7 +5108,19 @@ func TestFlowsValidate_DefaultsToDraftSource(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"flowSlug": "flow-validate", "source": "draft", "valid": true},
+			"data": map[string]any{
+				"flowSlug":    "flow-validate",
+				"source":      "draft",
+				"version":     154,
+				"contentHash": "abc123",
+				"target": map[string]any{
+					"source":      "draft",
+					"version":     154,
+					"kind":        "draftProfile",
+					"contentHash": "abc123",
+				},
+				"valid": true,
+			},
 		})
 	}))
 	defer srv.Close()
@@ -5122,6 +5134,17 @@ func TestFlowsValidate_DefaultsToDraftSource(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows validate failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["source"] != "draft" || out.Data["version"] != float64(154) {
+		t.Fatalf("expected validate output to preserve draft v154 proof, got %#v", out.Data)
+	}
+	if out.Data["contentHash"] != "abc123" {
+		t.Fatalf("expected validate output to preserve content hash proof, got %#v", out.Data)
+	}
+	target, _ := out.Data["target"].(map[string]any)
+	if target["kind"] != "draftProfile" || target["version"] != float64(154) || target["contentHash"] != "abc123" {
+		t.Fatalf("expected validate target proof, got %#v", target)
 	}
 }
 
