@@ -528,6 +528,7 @@ version carries operator-facing context:
 					"liveRuntime": liveRuntime,
 				},
 			}
+			addPublicAppURLHint(combined, args[0])
 			appendEnvelopeHints(combined, releaseNoteHintCommands(args[0], activeVersion)...)
 			if err := writeAPIResult(cmd, app, combined, 200); err != nil {
 				return writeErr(cmd, err)

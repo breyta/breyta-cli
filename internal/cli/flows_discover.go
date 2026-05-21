@@ -143,6 +143,7 @@ Typical authoring flow:
 2. ` + "`breyta flows push --file ...`" + `
 3. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
 4. ` + "`breyta flows discover list`" + ` from another workspace to verify visibility
+5. Open the marketing app page at ` + "`https://breyta.ai/apps/<flow-slug>`" + `
 
 Use ` + "`breyta flows show <slug>`" + ` after updating to confirm stored metadata includes
 ` + "`discover.public`" + `.
