@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,6 +186,71 @@ func TestFlowsUpdate_BuildsPublishDescriptionPayload(t *testing.T) {
 	}
 	if value != "## Install\n\nUse this flow." {
 		t.Fatalf("expected publishDescription markdown, got %#v", value)
+	}
+}
+
+func TestFlowsUpdate_AddsPublicAppURLHint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.update" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"meta": map[string]any{
+				"nextActions": []map[string]any{{
+					"id":    "open-public-app",
+					"label": "Open old public app",
+					"url":   "https://old.example/apps/market-flow",
+				}},
+			},
+			"data": map[string]any{"flowSlug": "market-flow"},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", TokenExplicit: true, DevMode: true, PrettyJSON: true}
+	cmd := newFlowsUpdateCmd(app)
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&outBuf)
+	cmd.SetArgs([]string{
+		"market-flow",
+		"--publish-description", "## Install\n\nUse this flow.",
+	})
+	err := cmd.Execute()
+	stdout := outBuf.String()
+	if err != nil {
+		t.Fatalf("flows update failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if meta["publicAppUrl"] != "https://breyta.ai/apps/market-flow" {
+		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
+	}
+	count := 0
+	for _, item := range sliceAny(meta["nextActions"]) {
+		action := mapStringAny(item)
+		if action["id"] == "open-public-app" {
+			count++
+			if action["url"] != "https://breyta.ai/apps/market-flow" {
+				t.Fatalf("expected public app action URL to be replaced, got %#v", action)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected one public app next action, got %d in %#v", count, meta["nextActions"])
 	}
 }
 

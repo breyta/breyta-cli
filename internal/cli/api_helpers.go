@@ -555,9 +555,10 @@ func addPublicAppURLHint(out map[string]any, flowSlug string) {
 	actions := sliceAny(meta["nextActions"])
 	for _, item := range actions {
 		action := mapStringAny(item)
-		if action != nil &&
-			firstNonBlankString(action["id"]) == "open-public-app" &&
-			firstNonBlankString(action["url"]) == publicAppURL {
+		if action != nil && firstNonBlankString(action["id"]) == "open-public-app" {
+			action["label"] = "Open public app"
+			action["url"] = publicAppURL
+			meta["nextActions"] = actions
 			return
 		}
 	}
