@@ -254,6 +254,58 @@ func TestFlowsUpdate_AddsPublicAppURLHint(t *testing.T) {
 	}
 }
 
+func TestFlowsUpdate_DoesNotAddPublicAppURLHintForGroupingOnly(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.update" || args["groupKey"] != "billing" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "internal-flow"},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", TokenExplicit: true, DevMode: true, PrettyJSON: true}
+	cmd := newFlowsUpdateCmd(app)
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&outBuf)
+	cmd.SetArgs([]string{
+		"internal-flow",
+		"--group-key", "billing",
+	})
+	err := cmd.Execute()
+	stdout := outBuf.String()
+	if err != nil {
+		t.Fatalf("flows update failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if meta != nil && meta["publicAppUrl"] != nil {
+		t.Fatalf("did not expect public app URL hint for grouping-only update, got %#v", meta)
+	}
+	for _, item := range sliceAny(meta["nextActions"]) {
+		action := mapStringAny(item)
+		if action["id"] == "open-public-app" {
+			t.Fatalf("did not expect public app next action for grouping-only update, got %#v", meta["nextActions"])
+		}
+	}
+}
+
 func TestFlowsUpdate_PreservesPublishDescriptionMarkdownWhitespace(t *testing.T) {
 	origDo := doAPICommandFn
 	origUse := useDoAPICommandFn

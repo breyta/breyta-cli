@@ -571,8 +571,10 @@ func addPublicAppURLHint(out map[string]any, flowSlug string) {
 
 func publicAppHintRelevant(command string, args map[string]any) bool {
 	switch command {
-	case "flows.release", "flows.update":
+	case "flows.release":
 		return true
+	case "flows.update":
+		return flowsUpdatePublicAppHintRelevant(args)
 	case "flows.discover.update":
 		return boolValue(args["public"])
 	case "flows.marketplace.update":
@@ -580,6 +582,15 @@ func publicAppHintRelevant(command string, args map[string]any) bool {
 	default:
 		return false
 	}
+}
+
+func flowsUpdatePublicAppHintRelevant(args map[string]any) bool {
+	for _, key := range []string{"name", "description", "tags", "publishDescription", "publishMedia"} {
+		if _, ok := args[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func draftBindingsHintRelevant(out map[string]any) bool {
