@@ -302,7 +302,7 @@ Default:
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
 	- --invocation <id> : select a named invocation input contract
-	- --interface-id <id> : select a manual interface when a flow exposes more than one
+	- --interface-id <id> : select the declared manual interface explicitly
 	- --target draft|live : select workspace draft/live when not using --installation-id
 	- --version <n> : force a specific release version for this invocation
 	- --trigger-id <id> : compatibility alias for legacy trigger-backed flows
@@ -378,7 +378,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
 	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
-	cmd.Flags().StringVar(&interfaceID, "interface-id", "", "Manual interface id for flows with multiple manual interfaces")
+	cmd.Flags().StringVar(&interfaceID, "interface-id", "", "Manual interface id to select explicitly")
 	cmd.Flags().StringVar(&interfaceID, "interface", "", "Alias for --interface-id")
 	cmd.Flags().StringVar(&triggerID, "trigger-id", "", "Compatibility: legacy manual trigger id")
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
