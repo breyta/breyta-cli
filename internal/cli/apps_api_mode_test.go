@@ -2569,7 +2569,6 @@ func TestFlowsRelease_WarnsWhenLatestDiffersFromActive(t *testing.T) {
 					"target":                      "live",
 					"version":                     149,
 					"activeVersion":               149,
-					"latestVersion":               150,
 					"runtimeMatchesActiveVersion": true,
 				},
 			})

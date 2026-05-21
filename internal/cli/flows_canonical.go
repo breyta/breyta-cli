@@ -37,9 +37,17 @@ func asInt(v any) int {
 }
 
 func releaseLiveRuntimeSummary(flowSlug string, releaseData, promoteData map[string]any) map[string]any {
+	releaseRuntime := mapStringAny(releaseData["liveRuntime"])
 	promoteRuntime := mapStringAny(promoteData["liveRuntime"])
 	activeVersion := asInt(firstPresentAny(releaseData["activeVersion"], promoteData["activeVersion"], promoteRuntime["activeVersion"]))
-	latestVersion := asInt(firstPresentAny(promoteData["latestVersion"], promoteRuntime["latestVersion"], promoteData["latestAvailable"]))
+	latestVersion := asInt(firstPresentAny(
+		promoteData["latestVersion"],
+		promoteRuntime["latestVersion"],
+		releaseData["latestVersion"],
+		releaseRuntime["latestVersion"],
+		promoteData["latestAvailable"],
+		releaseData["latestAvailable"],
+	))
 	runtimeVersion := asInt(firstPresentAny(promoteData["liveRuntimeVersion"], promoteData["version"], promoteRuntime["version"]))
 
 	summary := map[string]any{
