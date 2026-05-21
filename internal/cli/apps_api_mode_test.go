@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -2314,7 +2315,15 @@ func TestFlowsRelease_SendsReleaseNoteAndHints(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
-				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+				"data": map[string]any{
+					"flowSlug":                    "flow-release",
+					"profileId":                   "prof-live",
+					"target":                      "live",
+					"version":                     7,
+					"activeVersion":               7,
+					"latestVersion":               7,
+					"runtimeMatchesActiveVersion": true,
+				},
 			})
 		default:
 			w.WriteHeader(400)
@@ -2464,7 +2473,15 @@ func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
-				"data":        map[string]any{"flowSlug": "flow-release", "profileId": "prof-live", "target": "live"},
+				"data": map[string]any{
+					"flowSlug":                    "flow-release",
+					"profileId":                   "prof-live",
+					"target":                      "live",
+					"version":                     3,
+					"activeVersion":               3,
+					"latestVersion":               3,
+					"runtimeMatchesActiveVersion": true,
+				},
 			})
 		default:
 			w.WriteHeader(400)
@@ -2506,6 +2523,89 @@ func TestFlowsRelease_EmitsLiveVerificationHint(t *testing.T) {
 	}
 	if verifyCommands[1] != "breyta flows run flow-release --target live --wait" {
 		t.Fatalf("unexpected second verify command: %#v", verifyCommands[1])
+	}
+	data, _ := out["data"].(map[string]any)
+	liveRuntime, _ := data["liveRuntime"].(map[string]any)
+	if got, _ := liveRuntime["version"].(float64); got != 3 {
+		t.Fatalf("expected liveRuntime.version=3, got %#v", liveRuntime["version"])
+	}
+	if got, _ := liveRuntime["runtimeMatchesActiveVersion"].(bool); !got {
+		t.Fatalf("expected live runtime to match active version, got %#v", liveRuntime)
+	}
+}
+
+func TestFlowsRelease_WarnsWhenLatestDiffersFromActive(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		switch body["command"] {
+		case "flows.release":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug":      "flow-release",
+					"activeVersion": 149,
+					"latestVersion": 150,
+				},
+			})
+		case "flows.promote":
+			if args["version"] != float64(149) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected promote version"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug":                    "flow-release",
+					"profileId":                   "prof-live",
+					"target":                      "live",
+					"version":                     149,
+					"activeVersion":               149,
+					"latestVersion":               150,
+					"runtimeMatchesActiveVersion": true,
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "release", "flow-release",
+	)
+	if err != nil {
+		t.Fatalf("flows release failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	warnings, _ := meta["warnings"].([]any)
+	if len(warnings) == 0 || !strings.Contains(fmt.Sprint(warnings[0]), "latestVersion is 150 while activeVersion is 149") {
+		t.Fatalf("expected latest/active mismatch warning, got %#v", meta["warnings"])
+	}
+	data, _ := out["data"].(map[string]any)
+	liveRuntime, _ := data["liveRuntime"].(map[string]any)
+	if got, _ := liveRuntime["latestVersion"].(float64); got != 150 {
+		t.Fatalf("expected liveRuntime.latestVersion=150, got %#v", liveRuntime["latestVersion"])
+	}
+	if got, _ := liveRuntime["latestMatchesActiveVersion"].(bool); got {
+		t.Fatalf("expected latestMatchesActiveVersion=false, got %#v", liveRuntime)
 	}
 }
 

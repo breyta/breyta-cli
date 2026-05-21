@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,9 +25,79 @@ func asInt(v any) int {
 		return int(t)
 	case float32:
 		return int(t)
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(t))
+		if err == nil {
+			return n
+		}
 	default:
 		return 0
 	}
+	return 0
+}
+
+func releaseLiveRuntimeSummary(flowSlug string, releaseData, promoteData map[string]any) map[string]any {
+	promoteRuntime := mapStringAny(promoteData["liveRuntime"])
+	activeVersion := asInt(firstPresentAny(releaseData["activeVersion"], promoteData["activeVersion"], promoteRuntime["activeVersion"]))
+	latestVersion := asInt(firstPresentAny(promoteData["latestVersion"], promoteRuntime["latestVersion"], promoteData["latestAvailable"]))
+	runtimeVersion := asInt(firstPresentAny(promoteData["liveRuntimeVersion"], promoteData["version"], promoteRuntime["version"]))
+
+	summary := map[string]any{
+		"flowSlug": flowSlug,
+		"target":   "live",
+	}
+	if profileID := strings.TrimSpace(scalarString(firstPresentAny(promoteData["profileId"], promoteRuntime["profileId"]))); profileID != "" {
+		summary["profileId"] = profileID
+	}
+	if runtimeVersion > 0 {
+		summary["version"] = runtimeVersion
+	}
+	if activeVersion > 0 {
+		summary["activeVersion"] = activeVersion
+	}
+	if latestVersion > 0 {
+		summary["latestVersion"] = latestVersion
+	}
+	if runtimeVersion > 0 && activeVersion > 0 {
+		summary["runtimeMatchesActiveVersion"] = runtimeVersion == activeVersion
+	}
+	if latestVersion > 0 && activeVersion > 0 {
+		summary["latestMatchesActiveVersion"] = latestVersion == activeVersion
+	}
+
+	status := "live_runtime_version_verified"
+	if activeVersion == 0 {
+		status = "active_version_missing"
+	} else if runtimeVersion == 0 {
+		status = "live_runtime_version_missing"
+	} else if runtimeVersion != activeVersion {
+		status = "live_runtime_version_differs_from_active_version"
+	} else if latestVersion > 0 && latestVersion != activeVersion {
+		status = "latest_version_differs_from_active_version"
+	}
+	summary["status"] = status
+	return summary
+}
+
+func releaseLiveRuntimeWarnings(summary map[string]any) []string {
+	runtimeVersion := asInt(summary["version"])
+	activeVersion := asInt(summary["activeVersion"])
+	latestVersion := asInt(summary["latestVersion"])
+	warnings := []string{}
+	if runtimeVersion > 0 && activeVersion > 0 && runtimeVersion != activeVersion {
+		warnings = append(warnings, fmt.Sprintf("Live target now uses version %d while activeVersion is %d; webhook/live traffic follows the live target version.", runtimeVersion, activeVersion))
+	}
+	if latestVersion > 0 && activeVersion > 0 && latestVersion != activeVersion {
+		warnings = append(warnings, fmt.Sprintf("latestVersion is %d while activeVersion is %d; release/promote the intended version explicitly if this was not intentional.", latestVersion, activeVersion))
+	}
+	if runtimeVersion == 0 {
+		slug := strings.TrimSpace(scalarString(summary["flowSlug"]))
+		if slug == "" {
+			slug = "<slug>"
+		}
+		warnings = append(warnings, fmt.Sprintf("Live target version was not returned by promote; verify with `breyta flows show %s --target live` before assuming webhook traffic changed.", slug))
+	}
+	return warnings
 }
 
 func commandWorkspaceID(out map[string]any) string {
@@ -409,6 +480,9 @@ version carries operator-facing context:
 			}
 
 			activeVersion := asInt(releaseData["activeVersion"])
+			promoteData := mapStringAny(promoteOut["data"])
+			liveRuntime := releaseLiveRuntimeSummary(args[0], releaseData, promoteData)
+			warnings := releaseLiveRuntimeWarnings(liveRuntime)
 			combined := map[string]any{
 				"ok": true,
 				"workspaceId": func() string {
@@ -417,25 +491,33 @@ version carries operator-facing context:
 					}
 					return commandWorkspaceID(promoteOut)
 				}(),
-				"meta": map[string]any{
-					"released":   true,
-					"installed":  !skipPromoteInstallations,
-					"target":     "live",
-					"verifyHint": "Live runtime can differ from flow activeVersion. Verify with `breyta flows show <slug> --target live` and `breyta flows run <slug> --target live --wait`.",
-					"scope": func() string {
-						if skipPromoteInstallations {
-							return "live"
-						}
-						return "all"
-					}(),
-					"verifyCommands": []string{
-						"breyta flows show " + args[0] + " --target live",
-						"breyta flows run " + args[0] + " --target live --wait",
-					},
-				},
+				"meta": func() map[string]any {
+					meta := map[string]any{
+						"released":    true,
+						"installed":   !skipPromoteInstallations,
+						"target":      "live",
+						"liveRuntime": liveRuntime,
+						"verifyHint":  "Live runtime can differ from flow activeVersion. Verify with `breyta flows show <slug> --target live` and `breyta flows run <slug> --target live --wait`.",
+						"scope": func() string {
+							if skipPromoteInstallations {
+								return "live"
+							}
+							return "all"
+						}(),
+						"verifyCommands": []string{
+							"breyta flows show " + args[0] + " --target live",
+							"breyta flows run " + args[0] + " --target live --wait",
+						},
+					}
+					if len(warnings) > 0 {
+						meta["warnings"] = warnings
+					}
+					return meta
+				}(),
 				"data": map[string]any{
-					"release": releaseOut["data"],
-					"install": promoteOut["data"],
+					"release":     releaseOut["data"],
+					"install":     promoteOut["data"],
+					"liveRuntime": liveRuntime,
 				},
 			}
 			appendEnvelopeHints(combined, releaseNoteHintCommands(args[0], activeVersion)...)
