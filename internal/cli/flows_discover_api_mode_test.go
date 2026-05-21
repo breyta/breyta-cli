@@ -229,7 +229,7 @@ func TestFlowsDiscoverUpdate_UsesAPICommand(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if meta["publicAppUrl"] != "https://breyta.ai/apps/discover-flow" {
+	if meta["publicAppUrl"] != srv.URL+"/apps/discover-flow" {
 		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
 	}
 }

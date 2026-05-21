@@ -534,16 +534,43 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
-func publicAppWebURL(flowSlug string) string {
+func publicAppWebURL(app *App, flowSlug string) string {
 	slug := strings.TrimSpace(flowSlug)
 	if slug == "" {
 		return ""
 	}
-	return "https://breyta.ai/apps/" + url.PathEscape(slug)
+	base := publicAppWebBaseURL(app)
+	if base == "" {
+		return ""
+	}
+	return base + "/apps/" + url.PathEscape(slug)
 }
 
-func addPublicAppURLHint(out map[string]any, flowSlug string) {
-	publicAppURL := publicAppWebURL(flowSlug)
+func publicAppWebBaseURL(app *App) string {
+	if app == nil {
+		return ""
+	}
+	ensureAPIURL(app)
+	raw := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	if strings.EqualFold(u.Hostname(), "flows.breyta.ai") {
+		return "https://breyta.ai"
+	}
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/")
+}
+
+func addPublicAppURLHint(app *App, out map[string]any, flowSlug string) {
+	publicAppURL := publicAppWebURL(app, flowSlug)
 	if publicAppURL == "" {
 		return
 	}
@@ -657,7 +684,7 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 	}
 
 	if status < 400 && isOK(out) && publicAppHintRelevant(command, args) {
-		addPublicAppURLHint(out, slug)
+		addPublicAppURLHint(app, out, slug)
 	}
 
 	switch command {

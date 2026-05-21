@@ -162,6 +162,37 @@ func TestRequireAPI_StillRequiresTokenForNonLoopbackAPI(t *testing.T) {
 	}
 }
 
+func TestPublicAppWebURL_UsesActiveAPIEnvironment(t *testing.T) {
+	cases := []struct {
+		name string
+		app  *App
+		want string
+	}{
+		{
+			name: "production marketing host",
+			app:  &App{APIURL: "https://flows.breyta.ai"},
+			want: "https://breyta.ai/apps/my-flow",
+		},
+		{
+			name: "custom API origin",
+			app:  &App{APIURL: "https://flows-staging.example.test/api"},
+			want: "https://flows-staging.example.test/apps/my-flow",
+		},
+		{
+			name: "local API origin",
+			app:  &App{APIURL: "http://127.0.0.1:30639"},
+			want: "http://127.0.0.1:30639/apps/my-flow",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := publicAppWebURL(tc.app, "my-flow"); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestRefreshTokenViaAPI_ToleratesSnakeCase(t *testing.T) {
 	var gotRefreshToken string
 	var gotRefreshTokenSnake string

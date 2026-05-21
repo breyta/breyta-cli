@@ -236,7 +236,7 @@ func TestFlowsUpdate_AddsPublicAppURLHint(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if meta["publicAppUrl"] != "https://breyta.ai/apps/market-flow" {
+	if meta["publicAppUrl"] != srv.URL+"/apps/market-flow" {
 		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
 	}
 	count := 0
@@ -244,7 +244,7 @@ func TestFlowsUpdate_AddsPublicAppURLHint(t *testing.T) {
 		action := mapStringAny(item)
 		if action["id"] == "open-public-app" {
 			count++
-			if action["url"] != "https://breyta.ai/apps/market-flow" {
+			if action["url"] != srv.URL+"/apps/market-flow" {
 				t.Fatalf("expected public app action URL to be replaced, got %#v", action)
 			}
 		}

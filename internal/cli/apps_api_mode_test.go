@@ -2352,14 +2352,14 @@ func TestFlowsRelease_SendsReleaseNoteAndHints(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if meta["publicAppUrl"] != "https://breyta.ai/apps/flow-release" {
+	if meta["publicAppUrl"] != srv.URL+"/apps/flow-release" {
 		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
 	}
 	foundPublicAppAction := false
 	actions, _ := meta["nextActions"].([]any)
 	for _, item := range actions {
 		action, _ := item.(map[string]any)
-		if action["id"] == "open-public-app" && action["url"] == "https://breyta.ai/apps/flow-release" {
+		if action["id"] == "open-public-app" && action["url"] == srv.URL+"/apps/flow-release" {
 			foundPublicAppAction = true
 		}
 	}
