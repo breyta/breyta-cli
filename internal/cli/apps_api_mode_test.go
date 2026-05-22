@@ -1554,6 +1554,68 @@ func TestFlowsConfigureSuggest_LiveTarget_UsesProdProfileType(t *testing.T) {
 	}
 }
 
+func TestConnectionsCreate_OAuthAccountAPIModePassesCreateAlias(t *testing.T) {
+	var createCalls int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/connections" && r.Method == http.MethodPost:
+			createCalls++
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["type"] != "oauth-account" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing oauth-account type"}})
+				return
+			}
+			if body["name"] != "LinkedIn OAuth" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing name"}})
+				return
+			}
+			if body["base-url"] != "https://api.linkedin.com" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing base-url"}})
+				return
+			}
+			if body["slot"] != "linkedin" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing slot"}})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"connection-id": "conn-linkedin",
+				"type":          "http-api",
+				"status":        "pending",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "create",
+		"--type", "oauth-account",
+		"--name", "LinkedIn OAuth",
+		"--base-url", "https://api.linkedin.com",
+		"--slot", "linkedin",
+	)
+	if err != nil {
+		t.Fatalf("connections create oauth-account failed: %v\n%s", err, stdout)
+	}
+	if createCalls != 1 {
+		t.Fatalf("expected one create call, got %d", createCalls)
+	}
+	if !strings.Contains(stdout, "conn-linkedin") {
+		t.Fatalf("expected created connection in output, got:\n%s", stdout)
+	}
+}
+
 func TestConnectionsTest_All(t *testing.T) {
 	var bulkCalls int
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
