@@ -59,6 +59,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 				diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
 			} else {
 				expandedLiteral = expanded
+				diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 			}
 
 			meta := map[string]any{
@@ -187,6 +188,322 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "sandbox_unbounded_range", []string{":flow"}, "Flow source calls unbounded (range), which is rejected by the runtime sandbox.", "Use a bounded range such as (range n), take from a finite collection, or derive limits from invocation inputs.", "local"))
 	}
 	return diagnostics
+}
+
+type functionCodeString struct {
+	Code       string
+	Path       []string
+	ByteOffset int
+}
+
+func localFunctionCodeStringDiagnostics(flowLiteral string) []flowLintDiagnostic {
+	codes, err := extractTopLevelFunctionCodeStrings(flowLiteral)
+	if err != nil {
+		return nil
+	}
+	diagnostics := make([]flowLintDiagnostic, 0)
+	for _, code := range codes {
+		if err := validateFunctionCodeString(code.Code); err != nil {
+			diag := lintDiagnostic(
+				"error",
+				"function_code_string_invalid",
+				code.Path,
+				fmt.Sprintf("Function :code string is not readable: %v", err),
+				"Fix the string code or use a directly quoted form, for example :code '(fn [input] ...).",
+				"local",
+			)
+			diag["byteOffset"] = code.ByteOffset
+			diagnostics = append(diagnostics, diag)
+		}
+	}
+	return diagnostics
+}
+
+func validateFunctionCodeString(code string) error {
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return errors.New("empty function code")
+	}
+	if err := parenrepair.Check(trimmed); err != nil {
+		return err
+	}
+	start := skipClojureWhitespaceCommaAndComments(trimmed, 0)
+	next, err := readClojureFormEnd(trimmed, start)
+	if err != nil {
+		return err
+	}
+	if next <= start {
+		return errors.New("could not read function code form")
+	}
+	end := skipClojureWhitespaceCommaAndComments(trimmed, next)
+	if end < len(trimmed) {
+		return errors.New("trailing content after function code form")
+	}
+	return nil
+}
+
+func extractTopLevelFunctionCodeStrings(src string) ([]functionCodeString, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	if i >= len(src) || src[i] != '{' {
+		return nil, nil
+	}
+	var out []functionCodeString
+	i++
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, fmt.Errorf("unterminated top-level map")
+		}
+		if src[i] == '}' {
+			return out, nil
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return out, err
+		}
+		if keyEnd <= keyStart {
+			return out, fmt.Errorf("could not read top-level key near byte %d", keyStart)
+		}
+		key := clojureKeywordName(src[keyStart:keyEnd])
+		i = skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if i >= len(src) {
+			return out, fmt.Errorf("missing value for top-level key near byte %d", keyStart)
+		}
+		if key == "functions" {
+			codes, next, err := extractFunctionsValueCodeStrings(src, i)
+			if err != nil {
+				return out, err
+			}
+			out = append(out, codes...)
+			i = next
+			continue
+		}
+		next, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return out, err
+		}
+		if next <= i {
+			return out, fmt.Errorf("could not read value for key %s near byte %d", src[keyStart:keyEnd], i)
+		}
+		i = next
+	}
+	return out, fmt.Errorf("unterminated top-level map")
+}
+
+func extractFunctionsValueCodeStrings(src string, start int) ([]functionCodeString, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) {
+		return nil, i, fmt.Errorf("missing :functions value")
+	}
+	switch src[i] {
+	case '[':
+		return extractFunctionVectorCodeStrings(src, i)
+	case '{':
+		return extractFunctionMapCodeStrings(src, i)
+	default:
+		next, err := readClojureFormEnd(src, i)
+		return nil, next, err
+	}
+}
+
+func extractFunctionVectorCodeStrings(src string, start int) ([]functionCodeString, int, error) {
+	var out []functionCodeString
+	i := start + 1
+	index := 0
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated :functions vector")
+		}
+		if src[i] == ']' {
+			return out, i + 1, nil
+		}
+		if src[i] == '{' {
+			codes, next, err := extractFunctionEntryCodeStrings(src, i, fmt.Sprintf("[%d]", index))
+			if err != nil {
+				return out, next, err
+			}
+			out = append(out, codes...)
+			i = next
+		} else {
+			next, err := readClojureFormEnd(src, i)
+			if err != nil {
+				return out, next, err
+			}
+			if next <= i {
+				return out, next, fmt.Errorf("could not read :functions entry near byte %d", i)
+			}
+			i = next
+		}
+		index++
+	}
+	return out, i, fmt.Errorf("unterminated :functions vector")
+}
+
+func extractFunctionMapCodeStrings(src string, start int) ([]functionCodeString, int, error) {
+	var out []functionCodeString
+	i := start + 1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated :functions map")
+		}
+		if src[i] == '}' {
+			return out, i + 1, nil
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return out, keyEnd, err
+		}
+		if keyEnd <= keyStart {
+			return out, keyEnd, fmt.Errorf("could not read :functions map key near byte %d", keyStart)
+		}
+		label := functionLabelFromToken(src[keyStart:keyEnd], "")
+		i = skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("missing :functions map value")
+		}
+		if src[i] == '"' {
+			_, value, next, err := readClojureStringToken(src, i)
+			if err != nil {
+				return out, next, err
+			}
+			out = append(out, functionCodeString{
+				Code:       value,
+				Path:       []string{":functions", label, ":code"},
+				ByteOffset: i,
+			})
+			i = next
+			continue
+		}
+		next, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return out, next, err
+		}
+		if next <= i {
+			return out, next, fmt.Errorf("could not read :functions map value near byte %d", i)
+		}
+		i = next
+	}
+	return out, i, fmt.Errorf("unterminated :functions map")
+}
+
+func extractFunctionEntryCodeStrings(src string, start int, fallbackLabel string) ([]functionCodeString, int, error) {
+	var local []functionCodeString
+	label := fallbackLabel
+	i := start + 1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return local, i, fmt.Errorf("unterminated function map")
+		}
+		if src[i] == '}' {
+			for idx := range local {
+				local[idx].Path = []string{":functions", label, ":code"}
+			}
+			return local, i + 1, nil
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return local, keyEnd, err
+		}
+		if keyEnd <= keyStart {
+			return local, keyEnd, fmt.Errorf("could not read function map key near byte %d", keyStart)
+		}
+		key := clojureKeywordName(src[keyStart:keyEnd])
+		i = skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if i >= len(src) {
+			return local, i, fmt.Errorf("missing function map value")
+		}
+		switch key {
+		case "id", "name":
+			label = readFunctionLabel(src, i, fallbackLabel)
+			next, err := readClojureFormEnd(src, i)
+			if err != nil {
+				return local, next, err
+			}
+			if next <= i {
+				return local, next, fmt.Errorf("could not read function label near byte %d", i)
+			}
+			i = next
+		case "code":
+			if src[i] == '"' {
+				_, value, next, err := readClojureStringToken(src, i)
+				if err != nil {
+					return local, next, err
+				}
+				local = append(local, functionCodeString{
+					Code:       value,
+					ByteOffset: i,
+				})
+				i = next
+			} else {
+				next, err := readClojureFormEnd(src, i)
+				if err != nil {
+					return local, next, err
+				}
+				if next <= i {
+					return local, next, fmt.Errorf("could not read function :code near byte %d", i)
+				}
+				i = next
+			}
+		default:
+			next, err := readClojureFormEnd(src, i)
+			if err != nil {
+				return local, next, err
+			}
+			if next <= i {
+				return local, next, fmt.Errorf("could not read function map value near byte %d", i)
+			}
+			i = next
+		}
+	}
+	return local, i, fmt.Errorf("unterminated function map")
+}
+
+func clojureKeywordName(token string) string {
+	token = strings.TrimSpace(token)
+	if !strings.HasPrefix(token, ":") {
+		return ""
+	}
+	token = strings.TrimPrefix(token, ":")
+	if slash := strings.LastIndex(token, "/"); slash >= 0 && slash+1 < len(token) {
+		token = token[slash+1:]
+	}
+	return token
+}
+
+func functionLabelFromToken(token string, fallback string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fallback
+	}
+	if strings.HasPrefix(token, ":") {
+		return token
+	}
+	return strings.Trim(token, `"`)
+}
+
+func readFunctionLabel(src string, start int, fallback string) string {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) {
+		return fallback
+	}
+	if src[i] == '"' {
+		_, value, _, err := readClojureStringToken(src, i)
+		if err == nil && strings.TrimSpace(value) != "" {
+			return value
+		}
+		return fallback
+	}
+	next, err := readClojureFormEnd(src, i)
+	if err != nil || next <= i {
+		return fallback
+	}
+	return functionLabelFromToken(src[i:next], fallback)
 }
 
 func containsLongQuotedString(s string, minLen int) bool {
