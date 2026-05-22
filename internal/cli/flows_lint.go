@@ -198,10 +198,18 @@ type functionCodeString struct {
 
 func localFunctionCodeStringDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	codes, err := extractTopLevelFunctionCodeStrings(flowLiteral)
-	if err != nil {
-		return nil
-	}
 	diagnostics := make([]flowLintDiagnostic, 0)
+	if err != nil {
+		diagnostics = append(diagnostics, lintDiagnostic(
+			"warning",
+			"function_code_string_scan_incomplete",
+			[]string{":functions"},
+			fmt.Sprintf("Function :code string validation fell back to a best-effort scan: %v", err),
+			"Remove unsupported reader syntax from the top-level flow source or use directly quoted function forms so local lint can validate every function.",
+			"local",
+		))
+		codes = bestEffortFunctionCodeStrings(flowLiteral)
+	}
 	for _, code := range codes {
 		if err := validateFunctionCodeString(code.Code); err != nil {
 			diag := lintDiagnostic(
@@ -240,6 +248,54 @@ func validateFunctionCodeString(code string) error {
 		return errors.New("trailing content after function code form")
 	}
 	return nil
+}
+
+func bestEffortFunctionCodeStrings(src string) []functionCodeString {
+	var out []functionCodeString
+	for i := 0; i < len(src); {
+		switch src[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i)
+			if err != nil {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case ';':
+			i = readCommentEnd(src, i)
+			continue
+		}
+
+		if isClojureKeywordAt(src, i, ":code") {
+			valueStart := skipClojureWhitespaceCommaAndComments(src, i+len(":code"))
+			if valueStart < len(src) && src[valueStart] == '"' {
+				_, value, next, err := readClojureStringToken(src, valueStart)
+				if err == nil {
+					out = append(out, functionCodeString{
+						Code:       value,
+						Path:       []string{":functions", ":code"},
+						ByteOffset: valueStart,
+					})
+					i = next
+					continue
+				}
+			}
+		}
+		i++
+	}
+	return out
+}
+
+func isClojureKeywordAt(src string, start int, keyword string) bool {
+	if start < 0 || start >= len(src) || !strings.HasPrefix(src[start:], keyword) {
+		return false
+	}
+	if start > 0 && !isClojureTokenDelimiter(src[start-1]) {
+		return false
+	}
+	next := start + len(keyword)
+	return next >= len(src) || isClojureTokenDelimiter(src[next])
 }
 
 func extractTopLevelFunctionCodeStrings(src string) ([]functionCodeString, error) {
