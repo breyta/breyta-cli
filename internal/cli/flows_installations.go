@@ -127,7 +127,15 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Create an installation for a flow that has an active live version.
 
-Before creating an installation, check the source with:
+For a public flow returned by ` + "`breyta flows discover list`" + ` or
+` + "`breyta flows discover search <query>`" + `, pass the listed flow slug:
+- breyta flows installations create <flow-slug> --name "Smoke install"
+
+If more than one public source uses the same slug, pass the source fields from
+Discover:
+- breyta flows installations create <flow-slug> --source-workspace-id <workspace-id> --source-flow-slug <flow-slug>
+
+Before creating an installation for your own workspace flow, check the source with:
 - breyta flows release-check <flow-slug>
 - breyta flows release <flow-slug>
 
