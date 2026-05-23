@@ -145,6 +145,8 @@ func readClojureFormEnd(src string, start int) (int, error) {
 			return 0, fmt.Errorf("incomplete reader macro")
 		}
 		switch src[i+1] {
+		case '\'':
+			return readClojureFormEnd(src, i+2)
 		case '{':
 			return readDelimitedFormEnd(src, i+1, '}')
 		case '(':

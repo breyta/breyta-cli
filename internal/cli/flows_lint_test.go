@@ -179,6 +179,46 @@ func TestFlowsLintLocalOnlyReportsFunctionCodeStringSyntaxErrors(t *testing.T) {
 	t.Fatalf("expected function_code_string_invalid diagnostic, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyAcceptsVarQuoteInFunctionCodeStrings(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :var-quote-function-code
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :build-plan
+              :code "(fn [input]\n  {:handler #'my.ns/f\n   :input input})"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint returned error for valid var-quote code string: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_code_string_invalid" {
+			t.Fatalf("unexpected function_code_string_invalid diagnostic: %#v", item)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
@@ -186,7 +226,7 @@ func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *tes
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :helper #'some/var
+ :helper #^String some-var
  :functions [{:id :build-plan
               :code "(fn [input]\n  (assoc input :ok true)"}]
  :flow '(let [input (flow/input)]
