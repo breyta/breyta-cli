@@ -450,13 +450,14 @@ Use direct HTTP MCP when the coding agent supports hosted Streamable HTTP MCP.
 Use the CLI stdio proxy when the agent or ACP-compatible host only supports
 stdio MCP servers. Both forms stay bound to one explicit workspace id.
 
-Create a scoped service account and key for the MCP host:
+Create a scoped service account and key for the MCP host. For the read-only
+setup below, start with discovery, setup, run inspection, connection inventory,
+step reference, and feedback scopes:
 
 ```bash
 breyta service-accounts create \
   --name workspace-mcp-agent \
   --scope flows.read \
-  --scope flows.run \
   --scope runs.read \
   --scope resources.read \
   --scope installations.read \
@@ -466,6 +467,9 @@ breyta service-accounts create \
 
 breyta service-accounts keys create <service-account-id> --name coding-agent
 ```
+
+Add `flows.run` only for MCP server entries that expose the `run` toolset or
+allow `call_flow_tool`.
 
 Store the returned `apiKey` outside source control:
 

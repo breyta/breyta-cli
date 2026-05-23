@@ -292,15 +292,77 @@ func TestMCPWorkspaceBindingMustBeExplicit(t *testing.T) {
 
 func TestMCPTokenEnvVarSuppliesProxyToken(t *testing.T) {
 	t.Setenv("BREYTA_MCP_TOKEN", "env-secret-key")
-	app := &App{}
-	if err := applyMCPTokenEnvVar(app, "BREYTA_MCP_TOKEN"); err != nil {
+	app := &App{Token: "ambient-cli-token"}
+	if err := applyMCPTokenEnvVar(NewRootCmd(), app, "BREYTA_MCP_TOKEN"); err != nil {
 		t.Fatalf("applyMCPTokenEnvVar: %v", err)
 	}
 	if app.Token != "env-secret-key" || !app.TokenExplicit || !app.APIKeyExplicit {
 		t.Fatalf("token env var did not populate explicit app token: %#v", app)
 	}
-	if err := applyMCPTokenEnvVar(&App{}, "MISSING_BREYTA_TOKEN"); err == nil {
+	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "MISSING_BREYTA_TOKEN"); err == nil {
 		t.Fatalf("expected missing env var error")
+	}
+}
+
+func TestMCPTokenEnvVarDoesNotOverrideExplicitTokenFlag(t *testing.T) {
+	t.Setenv("BREYTA_MCP_TOKEN", "env-secret-key")
+	app := &App{Token: "flag-token"}
+	cmd := NewRootCmd()
+	if err := cmd.PersistentFlags().Set("token", "flag-token"); err != nil {
+		t.Fatalf("set token flag: %v", err)
+	}
+	if err := applyMCPTokenEnvVar(cmd, app, "BREYTA_MCP_TOKEN"); err != nil {
+		t.Fatalf("applyMCPTokenEnvVar: %v", err)
+	}
+	if app.Token != "flag-token" {
+		t.Fatalf("token env var overrode explicit flag token: %#v", app)
+	}
+}
+
+func TestMCPStdioCommandTokenEnvVarOverridesAmbientToken(t *testing.T) {
+	t.Setenv("BREYTA_TOKEN", "ambient-user-token")
+	t.Setenv("BREYTA_MCP_TOKEN", "service-account-token")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var seenAuth string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "one",
+			"result":  map[string]any{"ok": true},
+		})
+	}))
+	defer srv.Close()
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetIn(strings.NewReader(`{"jsonrpc":"2.0","id":"one","method":"ping"}` + "\n"))
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"--api", srv.URL,
+		"mcp", "stdio",
+		"--workspace-id", "ws-acme",
+		"--token-env-var", "BREYTA_MCP_TOKEN",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("mcp stdio failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if seenAuth != "Bearer service-account-token" {
+		t.Fatalf("expected token-env-var auth, got %q", seenAuth)
+	}
+	if strings.Contains(stdout.String(), "service-account-token") || strings.Contains(stderr.String(), "service-account-token") {
+		t.Fatalf("secret leaked\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestMCPErrorRedactionIncludesActiveProxyToken(t *testing.T) {
+	got := sanitizeMCPError("request failed with custom-secret-token", "custom-secret-token")
+	if strings.Contains(got, "custom-secret-token") {
+		t.Fatalf("active token was not redacted: %s", got)
 	}
 }
 

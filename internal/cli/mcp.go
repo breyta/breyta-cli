@@ -54,12 +54,6 @@ type mcpSetupOptions struct {
 	Policy      mcpPolicyOptions
 }
 
-type mcpRPCError struct {
-	Code    int
-	Message string
-	Data    any
-}
-
 func newMCPCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
@@ -110,7 +104,7 @@ default workspace.
 				return writeErr(cmd, err)
 			}
 			app.WorkspaceID = resolvedWorkspace
-			if err := applyMCPTokenEnvVar(app, tokenEnvVar); err != nil {
+			if err := applyMCPTokenEnvVar(cmd, app, tokenEnvVar); err != nil {
 				return writeErr(cmd, err)
 			}
 			if err := requireAPI(app); err != nil {
@@ -201,7 +195,7 @@ func newMCPDoctorCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			app.WorkspaceID = resolvedWorkspace
-			if err := applyMCPTokenEnvVar(app, tokenEnvVar); err != nil {
+			if err := applyMCPTokenEnvVar(cmd, app, tokenEnvVar); err != nil {
 				return writeErr(cmd, err)
 			}
 			if err := requireAPI(app); err != nil {
@@ -235,9 +229,9 @@ func newMCPDoctorCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func applyMCPTokenEnvVar(app *App, tokenEnvVar string) error {
+func applyMCPTokenEnvVar(cmd *cobra.Command, app *App, tokenEnvVar string) error {
 	tokenEnvVar = strings.TrimSpace(tokenEnvVar)
-	if tokenEnvVar == "" || strings.TrimSpace(app.Token) != "" {
+	if tokenEnvVar == "" || flagExplicit(cmd, "token") || flagExplicit(cmd, "api-key") {
 		return nil
 	}
 	value := strings.TrimSpace(os.Getenv(tokenEnvVar))
@@ -293,11 +287,11 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 		resp, status, err := postWorkspaceMCP(ctx, opts, line)
 		if err != nil {
 			if idPresent {
-				if writeErr := writeMCPJSONRPCError(writer, id, -32000, "Breyta MCP upstream request failed", map[string]any{"error": sanitizeMCPError(err.Error())}); writeErr != nil {
+				if writeErr := writeMCPJSONRPCError(writer, id, -32000, "Breyta MCP upstream request failed", map[string]any{"error": sanitizeMCPError(err.Error(), opts.Token)}); writeErr != nil {
 					return writeErr
 				}
 			} else {
-				fmt.Fprintf(opts.Err, "breyta mcp stdio: upstream request failed: %s\n", sanitizeMCPError(err.Error()))
+				fmt.Fprintf(opts.Err, "breyta mcp stdio: upstream request failed: %s\n", sanitizeMCPError(err.Error(), opts.Token))
 			}
 			continue
 		}
@@ -311,6 +305,7 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 				if msg == "" {
 					msg = fmt.Sprintf("Breyta MCP upstream returned HTTP %d", status)
 				}
+				msg = sanitizeMCPError(msg, opts.Token)
 				if err := writeMCPJSONRPCError(writer, id, -32000, msg, map[string]any{"status": status}); err != nil {
 					return err
 				}
@@ -566,12 +561,14 @@ func upstreamMCPErrorMessage(body []byte) string {
 	return ""
 }
 
-func sanitizeMCPError(message string) string {
+func sanitizeMCPError(message string, extraSecrets ...string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return "unknown error"
 	}
-	for _, key := range []string{os.Getenv("BREYTA_API_KEY"), os.Getenv("BREYTA_TOKEN"), os.Getenv(defaultMCPTokenEnvVar)} {
+	secrets := []string{os.Getenv("BREYTA_API_KEY"), os.Getenv("BREYTA_TOKEN"), os.Getenv(defaultMCPTokenEnvVar)}
+	secrets = append(secrets, extraSecrets...)
+	for _, key := range secrets {
 		if strings.TrimSpace(key) != "" {
 			message = strings.ReplaceAll(message, key, "[redacted]")
 		}
