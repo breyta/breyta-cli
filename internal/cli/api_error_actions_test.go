@@ -151,6 +151,55 @@ func TestAPIErrorActions_LegacyBillingFallbackOverridesGenericActivationURL(t *t
 	}
 }
 
+func TestAPIErrorActions_CheckoutActionUsesCheckoutLabel(t *testing.T) {
+	t.Parallel()
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error": map[string]any{
+				"code":    "installation_unavailable",
+				"message": "Installation is unavailable",
+				"actions": []map[string]any{
+					{
+						"kind": "checkout",
+						"url":  "/ws-acme/flows/paid-flow/checkout?sourceWorkspaceId=ws-public&sourceFlowSlug=paid-flow",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "create", "paid-flow",
+	)
+	if err == nil {
+		t.Fatalf("expected installation create to fail")
+	}
+
+	out := decodeAPIErrorEnvelope(t, stdout)
+	meta, _ := out["meta"].(map[string]any)
+	wantURL := srv.URL + "/ws-acme/flows/paid-flow/checkout?sourceWorkspaceId=ws-public&sourceFlowSlug=paid-flow"
+	if got, _ := meta["webUrl"].(string); got != wantURL {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+	if !strings.Contains(stderr, "Open Checkout: "+wantURL) {
+		t.Fatalf("stderr missing checkout action:\n%s", stderr)
+	}
+}
+
 func TestAPIErrorActions_ConnectionFallbackBuildsEditURL(t *testing.T) {
 	t.Parallel()
 
