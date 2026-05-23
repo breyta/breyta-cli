@@ -349,6 +349,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newDemandCmd(app))
 	cmd.AddCommand(newDocsCmd(app))
 	cmd.AddCommand(newFeedbackCmd(app))
+	cmd.AddCommand(newMCPCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.AddCommand(newUpgradeCmd(app))
 	cmd.AddCommand(newInternalCmd(app))
@@ -374,7 +375,22 @@ func commandShouldWarnSkillDrift(cmd *cobra.Command) bool {
 }
 
 func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
+	if topLevelCommandName(cmd) == "mcp" {
+		return true
+	}
 	return commandIsFlowsLintLocalOnly(cmd)
+}
+
+func topLevelCommandName(cmd *cobra.Command) string {
+	if cmd == nil || cmd.Root() == nil || cmd == cmd.Root() {
+		return ""
+	}
+	root := cmd.Root()
+	top := cmd
+	for top.Parent() != nil && top.Parent() != root {
+		top = top.Parent()
+	}
+	return strings.TrimSpace(top.Name())
 }
 
 func commandIsFlowsLintLocalOnly(cmd *cobra.Command) bool {
