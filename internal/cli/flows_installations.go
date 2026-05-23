@@ -135,6 +135,13 @@ Creation auto-enables zero-setup installations. Installations that still need
 setup are created disabled until configured. Use --enable only when you want to
 state the enable intent explicitly.
 
+For paid public apps, use the Discover/public app checkout surface first when
+purchase, subscription, prepaid runs, or trial entry is required. After checkout
+or trial entry, create/configure/enable the installation here, inspect callable
+surfaces with ` + "`breyta flows installations interfaces <installation-id>`" + `, then call
+installed interfaces with ` + "`breyta flows interfaces call ... --installation-id <installation-id>`" + `.
+If creation returns a checkout action, open that URL and retry after checkout.
+
 Local private cross-workspace tests require --local-private-test plus
 --source-workspace-id, --source-flow-slug, and an active source version.
 `),

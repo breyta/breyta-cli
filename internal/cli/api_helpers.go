@@ -997,6 +997,8 @@ func defaultRecoveryActionLabel(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "billing":
 		return "Billing"
+	case "checkout":
+		return "Checkout"
 	case "draft-bindings":
 		return "Draft setup"
 	case "flow-activation":
