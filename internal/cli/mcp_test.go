@@ -168,6 +168,63 @@ func TestMCPStdioProxyDecodesSSEAndPreservesSessionID(t *testing.T) {
 	}
 }
 
+func TestMCPStdioProxyUsesNegotiatedProtocolVersion(t *testing.T) {
+	var requestCount int
+	var secondProtocolVersion string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch requestCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"protocolVersion": "2025-06-18"},
+			})
+		case 2:
+			secondProtocolVersion = r.Header.Get("MCP-Protocol-Version")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In: strings.NewReader(
+			`{"jsonrpc":"2.0","id":"one","method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n" +
+				`{"jsonrpc":"2.0","id":"two","method":"tools/list"}` + "\n"),
+		Out: &stdout,
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	if secondProtocolVersion != "2025-06-18" {
+		t.Fatalf("second request did not use negotiated MCP protocol version: %q", secondProtocolVersion)
+	}
+}
+
+func TestMCPStdioProxyDecodesCRLFSSEEvents(t *testing.T) {
+	got, err := decodeMCPSSEData([]byte("event: message\r\ndata: {\"one\":true}\r\n\r\nevent: message\r\ndata: {\"two\":true}\r\n\r\n"))
+	if err != nil {
+		t.Fatalf("decodeMCPSSEData: %v", err)
+	}
+	if string(got) != "{\"one\":true}\n{\"two\":true}" {
+		t.Fatalf("unexpected decoded SSE payloads: %q", string(got))
+	}
+}
+
 func TestMCPStdioProxySuppressesNotificationResponses(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
@@ -188,6 +245,39 @@ func TestMCPStdioProxySuppressesNotificationResponses(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "" {
 		t.Fatalf("expected no notification response, got %q", stdout.String())
+	}
+}
+
+func TestMCPStdioProxyLogsNotificationHTTPError(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"message": "token secret-api-key rejected"},
+		})
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In:          strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"),
+		Out:         &stdout,
+		Err:         &stderr,
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	if strings.TrimSpace(stdout.String()) != "" {
+		t.Fatalf("expected no notification response, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "upstream notification failed") || !strings.Contains(stderr.String(), "[redacted] rejected") {
+		t.Fatalf("missing sanitized notification failure log: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "secret-api-key") {
+		t.Fatalf("secret leaked in stderr: %s", stderr.String())
 	}
 }
 
@@ -228,6 +318,31 @@ func TestMCPStdioProxyReturnsJSONRPCErrorForUpstreamHTTPError(t *testing.T) {
 	}
 	if got := firstNonBlankString(errMap["message"]); got != "Authentication required" {
 		t.Fatalf("unexpected message: %q", got)
+	}
+}
+
+func TestMCPDoctorRedactsUpstreamErrors(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"message": "doctor-key is not allowed"},
+		})
+	}))
+	defer srv.Close()
+
+	_, err := runMCPDoctor(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "doctor-key",
+	})
+	if err == nil {
+		t.Fatalf("expected doctor failure")
+	}
+	if strings.Contains(err.Error(), "doctor-key") {
+		t.Fatalf("doctor error leaked token: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[redacted] is not allowed") {
+		t.Fatalf("doctor error was not sanitized: %v", err)
 	}
 }
 
@@ -310,6 +425,48 @@ func TestMCPConfigRendersWorkspaceBoundStdioAndHTTPConfigs(t *testing.T) {
 	}
 	if headers["X-MCP-Toolsets"] != "read,feedback" {
 		t.Fatalf("missing toolsets header: %#v", headers)
+	}
+}
+
+func TestMCPConfigEscapesProviderSpecificConfigValues(t *testing.T) {
+	codex, err := renderMCPClientConfig(mcpSetupOptions{
+		Provider:    "codex",
+		Transport:   "stdio",
+		ServerName:  "breyta]\nmalicious = true",
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://flows.breyta.ai",
+		TokenEnvVar: "BREYTA_MCP_TOKEN",
+	})
+	if err != nil {
+		t.Fatalf("render codex: %v", err)
+	}
+	if !strings.Contains(codex, "[mcp_servers.breyta_malicious_true]") {
+		t.Fatalf("codex config did not sanitize table name:\n%s", codex)
+	}
+	if strings.Contains(codex, "malicious = true") {
+		t.Fatalf("codex config allowed table-name injection:\n%s", codex)
+	}
+
+	continueConfig, err := renderMCPClientConfig(mcpSetupOptions{
+		Provider:    "continue",
+		Transport:   "http",
+		ServerName:  "breyta: workspace\n- bad",
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://flows.breyta.ai",
+		TokenEnvVar: "BREYTA_MCP_TOKEN",
+		Policy:      mcpPolicyOptions{Toolsets: "read:\n- bad", ReadOnly: true},
+	})
+	if err != nil {
+		t.Fatalf("render continue: %v", err)
+	}
+	for _, want := range []string{
+		`name: "breyta: workspace\n- bad"`,
+		`Authorization: "Bearer ${env:BREYTA_MCP_TOKEN}"`,
+		`"X-MCP-Toolsets": "read:\n- bad"`,
+	} {
+		if !strings.Contains(continueConfig, want) {
+			t.Fatalf("continue config missing escaped value %q:\n%s", want, continueConfig)
+		}
 	}
 }
 

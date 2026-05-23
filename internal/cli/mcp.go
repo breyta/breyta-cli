@@ -315,6 +315,9 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 				if err := writeMCPJSONRPCError(writer, id, -32000, msg, map[string]any{"status": status}); err != nil {
 					return err
 				}
+			} else {
+				msg := sanitizedMCPUpstreamMessage(resp, opts.Token, fmt.Sprintf("Breyta MCP upstream returned HTTP %d", status))
+				fmt.Fprintf(opts.Err, "breyta mcp stdio: upstream notification failed (HTTP %d): %s\n", status, msg)
 			}
 			continue
 		}
@@ -345,12 +348,14 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 		return map[string]any{"stage": "initialize"}, err
 	}
 	if status < 200 || status > 299 {
-		return map[string]any{"stage": "initialize", "status": status}, fmt.Errorf("initialize failed: %s", upstreamMCPErrorMessage(initResp))
+		msg := sanitizedMCPUpstreamMessage(initResp, opts.Token, fmt.Sprintf("HTTP %d", status))
+		return map[string]any{"stage": "initialize", "status": status}, fmt.Errorf("initialize failed: %s", msg)
 	}
 	initMap := map[string]any{}
 	_ = json.Unmarshal(initResp, &initMap)
 	if errMap := mapStringAny(initMap["error"]); errMap != nil {
-		return map[string]any{"stage": "initialize", "response": redactMCPValue(initMap)}, fmt.Errorf("initialize failed: %s", firstNonBlankString(errMap["message"]))
+		msg := sanitizeMCPError(firstNonBlankString(errMap["message"]), opts.Token)
+		return map[string]any{"stage": "initialize", "response": redactMCPValueWithSecrets(initMap, opts.Token)}, fmt.Errorf("initialize failed: %s", msg)
 	}
 
 	initializedReq := []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
@@ -359,7 +364,8 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 		return map[string]any{"stage": "notifications/initialized"}, err
 	}
 	if status < 200 || status > 299 {
-		return map[string]any{"stage": "notifications/initialized", "status": status}, fmt.Errorf("notifications/initialized failed: %s", upstreamMCPErrorMessage(initializedResp))
+		msg := sanitizedMCPUpstreamMessage(initializedResp, opts.Token, fmt.Sprintf("HTTP %d", status))
+		return map[string]any{"stage": "notifications/initialized", "status": status}, fmt.Errorf("notifications/initialized failed: %s", msg)
 	}
 
 	toolsReq := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-tools","method":"tools/list","params":{}}`)
@@ -368,12 +374,14 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 		return map[string]any{"stage": "tools/list"}, err
 	}
 	if status < 200 || status > 299 {
-		return map[string]any{"stage": "tools/list", "status": status}, fmt.Errorf("tools/list failed: %s", upstreamMCPErrorMessage(toolsResp))
+		msg := sanitizedMCPUpstreamMessage(toolsResp, opts.Token, fmt.Sprintf("HTTP %d", status))
+		return map[string]any{"stage": "tools/list", "status": status}, fmt.Errorf("tools/list failed: %s", msg)
 	}
 	toolsMap := map[string]any{}
 	_ = json.Unmarshal(toolsResp, &toolsMap)
 	if errMap := mapStringAny(toolsMap["error"]); errMap != nil {
-		return map[string]any{"stage": "tools/list", "response": redactMCPValue(toolsMap)}, fmt.Errorf("tools/list failed: %s", firstNonBlankString(errMap["message"]))
+		msg := sanitizeMCPError(firstNonBlankString(errMap["message"]), opts.Token)
+		return map[string]any{"stage": "tools/list", "response": redactMCPValueWithSecrets(toolsMap, opts.Token)}, fmt.Errorf("tools/list failed: %s", msg)
 	}
 	toolNames := []string{}
 	for _, item := range sliceAny(mapStringAny(toolsMap["result"])["tools"]) {
@@ -447,6 +455,11 @@ func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, session *mcpHTT
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
+	if session != nil && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		if protocolVersion := mcpProtocolVersionFromResponse(respBody); protocolVersion != "" {
+			session.ProtocolVersion = protocolVersion
+		}
+	}
 	return respBody, resp.StatusCode, nil
 }
 
@@ -473,7 +486,7 @@ func decodeMCPSSEData(body []byte) ([]byte, error) {
 		dataLines = nil
 	}
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimSuffix(scanner.Text(), "\r")
 		if line == "" {
 			flush()
 			continue
@@ -540,6 +553,15 @@ func mcpStandardHTTPHeaders(body []byte, session *mcpHTTPSession) map[string]str
 		headers["Mcp-Name"] = mcpHeaderValue(name)
 	}
 	return headers
+}
+
+func mcpProtocolVersionFromResponse(body []byte) string {
+	var message map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(body), &message); err != nil {
+		return ""
+	}
+	result := mapStringAny(message["result"])
+	return firstNonBlankString(result["protocolVersion"], mapStringAny(result["serverInfo"])["protocolVersion"])
 }
 
 func mcpHeaderValue(value string) string {
@@ -647,6 +669,14 @@ func upstreamMCPErrorMessage(body []byte) string {
 	return ""
 }
 
+func sanitizedMCPUpstreamMessage(body []byte, token string, fallback string) string {
+	message := upstreamMCPErrorMessage(body)
+	if strings.TrimSpace(message) == "" {
+		message = fallback
+	}
+	return sanitizeMCPError(message, token)
+}
+
 func sanitizeMCPError(message string, extraSecrets ...string) string {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -663,6 +693,10 @@ func sanitizeMCPError(message string, extraSecrets ...string) string {
 }
 
 func redactMCPValue(v any) any {
+	return redactMCPValueWithSecrets(v)
+}
+
+func redactMCPValueWithSecrets(v any, extraSecrets ...string) any {
 	switch x := v.(type) {
 	case map[string]any:
 		out := map[string]any{}
@@ -671,18 +705,18 @@ func redactMCPValue(v any) any {
 			if strings.Contains(lk, "token") || strings.Contains(lk, "secret") || strings.Contains(lk, "key") || strings.Contains(lk, "authorization") {
 				out[k] = "[redacted]"
 			} else {
-				out[k] = redactMCPValue(val)
+				out[k] = redactMCPValueWithSecrets(val, extraSecrets...)
 			}
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(x))
 		for _, item := range x {
-			out = append(out, redactMCPValue(item))
+			out = append(out, redactMCPValueWithSecrets(item, extraSecrets...))
 		}
 		return out
 	case string:
-		return sanitizeMCPError(x)
+		return sanitizeMCPError(x, extraSecrets...)
 	default:
 		return v
 	}
@@ -852,7 +886,7 @@ mcpServers:
     url: %s
     requestOptions:
       headers:
-        Authorization: "Bearer ${env:%s}"%s`, opts.ServerName, workspaceMCPEndpoint(opts.APIURL, opts.WorkspaceID), opts.TokenEnvVar, yamlPolicyHeaders(opts.Policy, "        ")))
+        Authorization: %s%s`, yamlScalar(opts.ServerName), yamlScalar(workspaceMCPEndpoint(opts.APIURL, opts.WorkspaceID)), yamlScalar("Bearer ${env:"+opts.TokenEnvVar+"}"), yamlPolicyHeaders(opts.Policy, "        ")))
 	}
 	return strings.TrimSpace(fmt.Sprintf(`
 name: Breyta MCP
@@ -864,7 +898,7 @@ mcpServers:
     args: %s
     env:
       BREYTA_API_URL: %s
-      %s: "${env:%s}"`, opts.ServerName, yamlStringArray(stdioMCPArgs(opts)), opts.APIURL, opts.TokenEnvVar, opts.TokenEnvVar))
+      %s: %s`, yamlScalar(opts.ServerName), yamlStringArray(stdioMCPArgs(opts)), yamlScalar(opts.APIURL), yamlScalar(opts.TokenEnvVar), yamlScalar("${env:"+opts.TokenEnvVar+"}")))
 }
 
 func renderGooseMCPConfig(opts mcpSetupOptions) string {
@@ -965,8 +999,25 @@ func sanitizeConfigName(name string) string {
 	if name == "" {
 		return defaultMCPServerName
 	}
-	replacer := strings.NewReplacer("-", "_", ".", "_", " ", "_")
-	return replacer.Replace(name)
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range name {
+		ok := r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	clean := strings.Trim(b.String(), "_")
+	if clean == "" {
+		return defaultMCPServerName
+	}
+	return clean
 }
 
 func yamlStringArray(values []string) string {
@@ -975,6 +1026,10 @@ func yamlStringArray(values []string) string {
 		quoted = append(quoted, strconv.Quote(value))
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func yamlScalar(value string) string {
+	return strconv.Quote(value)
 }
 
 func orderedMCPPolicyHeaderKeys() []string {
@@ -989,7 +1044,7 @@ func yamlPolicyHeaders(policy mcpPolicyOptions, indent string) string {
 	var b strings.Builder
 	for _, key := range orderedMCPPolicyHeaderKeys() {
 		if value, ok := headers[key]; ok {
-			fmt.Fprintf(&b, "\n%s%s: %q", indent, key, value)
+			fmt.Fprintf(&b, "\n%s%s: %s", indent, yamlScalar(key), yamlScalar(value))
 		}
 	}
 	return b.String()
