@@ -255,6 +255,30 @@ func TestMCPConfigRendersWorkspaceBoundStdioAndHTTPConfigs(t *testing.T) {
 		t.Fatalf("codex config should not embed a secret:\n%s", codex)
 	}
 
+	codexHTTP, err := renderMCPClientConfig(mcpSetupOptions{
+		Provider:    "codex",
+		Transport:   "http",
+		ServerName:  "breyta-ws-acme",
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://flows.breyta.ai",
+		TokenEnvVar: "BREYTA_MCP_TOKEN",
+		Policy:      mcpPolicyOptions{Toolsets: "read,feedback", ReadOnly: true},
+	})
+	if err != nil {
+		t.Fatalf("render codex http: %v", err)
+	}
+	for _, want := range []string{
+		"[mcp_servers.breyta_ws_acme]",
+		"bearer_token_env_var = \"BREYTA_MCP_TOKEN\"",
+		"[mcp_servers.breyta_ws_acme.http_headers]",
+		"\"X-MCP-Readonly\" = \"true\"",
+		"\"X-MCP-Toolsets\" = \"read,feedback\"",
+	} {
+		if !strings.Contains(codexHTTP, want) {
+			t.Fatalf("codex http config missing %q:\n%s", want, codexHTTP)
+		}
+	}
+
 	opencode, err := renderMCPClientConfig(mcpSetupOptions{
 		Provider:    "opencode",
 		Transport:   "http",

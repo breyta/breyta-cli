@@ -496,9 +496,10 @@ Print a direct HTTP config for clients that support hosted HTTP MCP:
 ```bash
 breyta mcp config \
   --workspace-id ws-acme \
-  --provider opencode \
+  --provider codex \
   --transport http \
-  --toolsets read,feedback
+  --read-only \
+  --toolsets read,setup,debug,feedback
 ```
 
 Run the stdio proxy manually when testing a generated config:

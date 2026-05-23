@@ -743,10 +743,20 @@ func stdioMCPArgs(opts mcpSetupOptions) []string {
 func renderCodexMCPConfig(opts mcpSetupOptions) string {
 	name := sanitizeConfigName(opts.ServerName)
 	if opts.Transport == "http" {
-		return strings.TrimSpace(fmt.Sprintf(`
+		var b strings.Builder
+		fmt.Fprintf(&b, `
 [mcp_servers.%s]
 url = %q
-bearer_token_env_var = %q`, name, workspaceMCPEndpoint(opts.APIURL, opts.WorkspaceID), opts.TokenEnvVar))
+bearer_token_env_var = %q`, name, workspaceMCPEndpoint(opts.APIURL, opts.WorkspaceID), opts.TokenEnvVar)
+		if headers := mcpPolicyHeaders(opts.Policy); len(headers) > 0 {
+			fmt.Fprintf(&b, "\n\n[mcp_servers.%s.http_headers]", name)
+			for _, key := range orderedMCPPolicyHeaderKeys() {
+				if value, ok := headers[key]; ok {
+					fmt.Fprintf(&b, "\n%s = %q", strconv.Quote(key), value)
+				}
+			}
+		}
+		return strings.TrimSpace(b.String())
 	}
 	args := stdioMCPArgs(opts)
 	quotedArgs := make([]string, 0, len(args))
@@ -951,14 +961,17 @@ func yamlStringArray(values []string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
+func orderedMCPPolicyHeaderKeys() []string {
+	return []string{"X-MCP-Readonly", "X-MCP-Toolsets", "X-MCP-Tools", "X-MCP-Exclude-Tools"}
+}
+
 func yamlPolicyHeaders(policy mcpPolicyOptions, indent string) string {
 	headers := mcpPolicyHeaders(policy)
 	if len(headers) == 0 {
 		return ""
 	}
-	order := []string{"X-MCP-Readonly", "X-MCP-Toolsets", "X-MCP-Tools", "X-MCP-Exclude-Tools"}
 	var b strings.Builder
-	for _, key := range order {
+	for _, key := range orderedMCPPolicyHeaderKeys() {
 		if value, ok := headers[key]; ok {
 			fmt.Fprintf(&b, "\n%s%s: %q", indent, key, value)
 		}
