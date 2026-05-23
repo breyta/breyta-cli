@@ -103,6 +103,7 @@ func TestMCPStdioProxyBridgesJSONRPCAndPolicyHeaders(t *testing.T) {
 func TestMCPStdioProxyDecodesSSEAndPreservesSessionID(t *testing.T) {
 	var requestCount int
 	var secondSessionID string
+	var secondProtocolVersion string
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -119,6 +120,7 @@ func TestMCPStdioProxyDecodesSSEAndPreservesSessionID(t *testing.T) {
 			_, _ = w.Write([]byte(`data: {"jsonrpc":"2.0","id":"one","result":{"ok":true}}` + "\n\n"))
 		case 2:
 			secondSessionID = r.Header.Get("Mcp-Session-Id")
+			secondProtocolVersion = r.Header.Get("MCP-Protocol-Version")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      body["id"],
@@ -146,6 +148,9 @@ func TestMCPStdioProxyDecodesSSEAndPreservesSessionID(t *testing.T) {
 	}
 	if secondSessionID != "session-123" {
 		t.Fatalf("second request did not preserve session id: %q", secondSessionID)
+	}
+	if secondProtocolVersion != "2025-11-25" {
+		t.Fatalf("second request did not preserve MCP protocol version: %q", secondProtocolVersion)
 	}
 	out := strings.TrimSpace(stdout.String())
 	if strings.Contains(out, "event:") || strings.Contains(out, "data:") {
@@ -310,7 +315,11 @@ func TestMCPConfigRendersWorkspaceBoundStdioAndHTTPConfigs(t *testing.T) {
 
 func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 	var methods []string
+	var initializedSessionID string
+	var initializedProtocolVersion string
 	var toolsListSessionID string
+	var toolsListProtocolVersion string
+	var sawInitializeCapabilities bool
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/workspaces/ws-acme/mcp" {
 			http.NotFound(w, r)
@@ -328,14 +337,23 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 		methods = append(methods, method)
 		switch method {
 		case "initialize":
+			params := mapStringAny(body["params"])
+			if _, ok := params["capabilities"].(map[string]any); ok {
+				sawInitializeCapabilities = true
+			}
 			w.Header().Set("Mcp-Session-Id", "doctor-session-123")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      body["id"],
 				"result":  map[string]any{"protocolVersion": "2025-11-25", "serverInfo": map[string]any{"name": "breyta-workspace-mcp"}},
 			})
+		case "notifications/initialized":
+			initializedSessionID = r.Header.Get("Mcp-Session-Id")
+			initializedProtocolVersion = r.Header.Get("MCP-Protocol-Version")
+			w.WriteHeader(http.StatusAccepted)
 		case "tools/list":
 			toolsListSessionID = r.Header.Get("Mcp-Session-Id")
+			toolsListProtocolVersion = r.Header.Get("MCP-Protocol-Version")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      body["id"],
@@ -356,11 +374,23 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runMCPDoctor: %v", err)
 	}
-	if strings.Join(methods, ",") != "initialize,tools/list" {
+	if strings.Join(methods, ",") != "initialize,notifications/initialized,tools/list" {
 		t.Fatalf("unexpected methods: %#v", methods)
+	}
+	if !sawInitializeCapabilities {
+		t.Fatalf("doctor initialize request omitted capabilities")
+	}
+	if initializedSessionID != "doctor-session-123" {
+		t.Fatalf("doctor initialized notification did not preserve MCP session id: %q", initializedSessionID)
+	}
+	if initializedProtocolVersion != "2025-11-25" {
+		t.Fatalf("doctor initialized notification did not preserve MCP protocol version: %q", initializedProtocolVersion)
 	}
 	if toolsListSessionID != "doctor-session-123" {
 		t.Fatalf("doctor did not preserve MCP session id: %q", toolsListSessionID)
+	}
+	if toolsListProtocolVersion != "2025-11-25" {
+		t.Fatalf("doctor tools/list did not preserve MCP protocol version: %q", toolsListProtocolVersion)
 	}
 	if result["toolCount"] != 2 {
 		t.Fatalf("unexpected doctor result: %#v", result)

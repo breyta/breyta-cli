@@ -55,7 +55,8 @@ type mcpSetupOptions struct {
 }
 
 type mcpHTTPSession struct {
-	SessionID string
+	SessionID       string
+	ProtocolVersion string
 }
 
 func newMCPCmd(app *App) *cobra.Command {
@@ -338,7 +339,7 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 
 func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, error) {
 	httpSession := &mcpHTTPSession{}
-	initialize := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-init","method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"breyta-cli","version":"doctor"}}}`)
+	initialize := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-init","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"breyta-cli","version":"doctor"}}}`)
 	initResp, status, err := postWorkspaceMCP(ctx, opts, httpSession, initialize)
 	if err != nil {
 		return map[string]any{"stage": "initialize"}, err
@@ -350,6 +351,15 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 	_ = json.Unmarshal(initResp, &initMap)
 	if errMap := mapStringAny(initMap["error"]); errMap != nil {
 		return map[string]any{"stage": "initialize", "response": redactMCPValue(initMap)}, fmt.Errorf("initialize failed: %s", firstNonBlankString(errMap["message"]))
+	}
+
+	initializedReq := []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	initializedResp, status, err := postWorkspaceMCP(ctx, opts, httpSession, initializedReq)
+	if err != nil {
+		return map[string]any{"stage": "notifications/initialized"}, err
+	}
+	if status < 200 || status > 299 {
+		return map[string]any{"stage": "notifications/initialized", "status": status}, fmt.Errorf("notifications/initialized failed: %s", upstreamMCPErrorMessage(initializedResp))
 	}
 
 	toolsReq := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-tools","method":"tools/list","params":{}}`)
@@ -413,7 +423,7 @@ func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, session *mcpHTT
 	if session != nil && strings.TrimSpace(session.SessionID) != "" {
 		req.Header.Set("Mcp-Session-Id", strings.TrimSpace(session.SessionID))
 	}
-	for k, v := range mcpStandardHTTPHeaders(body) {
+	for k, v := range mcpStandardHTTPHeaders(body, session) {
 		req.Header.Set(k, v)
 	}
 	for k, v := range mcpPolicyHeaders(opts.Policy) {
@@ -492,7 +502,7 @@ func decodeMCPSSEData(body []byte) ([]byte, error) {
 	return bytes.Join(payloads, []byte("\n")), nil
 }
 
-func mcpStandardHTTPHeaders(body []byte) map[string]string {
+func mcpStandardHTTPHeaders(body []byte, session *mcpHTTPSession) map[string]string {
 	var message map[string]any
 	if err := json.Unmarshal(body, &message); err != nil {
 		return nil
@@ -510,7 +520,13 @@ func mcpStandardHTTPHeaders(body []byte) map[string]string {
 		params["protocolVersion"],
 		params["protocol-version"],
 	)
+	if protocolVersion == "" && session != nil {
+		protocolVersion = strings.TrimSpace(session.ProtocolVersion)
+	}
 	if protocolVersion != "" {
+		if session != nil {
+			session.ProtocolVersion = strings.TrimSpace(protocolVersion)
+		}
 		headers["MCP-Protocol-Version"] = mcpHeaderValue(protocolVersion)
 	}
 	var name string
