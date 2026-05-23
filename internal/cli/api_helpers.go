@@ -566,7 +566,7 @@ func publicAppWebBaseURL(app *App) string {
 	u.RawPath = ""
 	u.RawQuery = ""
 	u.Fragment = ""
-	return strings.TrimRight(u.String(), "/")
+	return strings.TrimRight(normalizeLocalhostWebURL(u.String()), "/")
 }
 
 func addPublicAppURLHint(app *App, out map[string]any, flowSlug string) {

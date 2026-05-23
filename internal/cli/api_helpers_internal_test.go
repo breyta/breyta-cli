@@ -183,6 +183,16 @@ func TestPublicAppWebURL_UsesActiveAPIEnvironment(t *testing.T) {
 			app:  &App{APIURL: "http://127.0.0.1:30639"},
 			want: "http://127.0.0.1:30639/apps/my-flow",
 		},
+		{
+			name: "https localhost API origin",
+			app:  &App{APIURL: "https://localhost:30639/api?debug=true"},
+			want: "http://localhost:30639/apps/my-flow",
+		},
+		{
+			name: "https loopback API origin",
+			app:  &App{APIURL: "https://127.0.0.1:30639/api"},
+			want: "http://127.0.0.1:30639/apps/my-flow",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
