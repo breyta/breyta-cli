@@ -224,6 +224,14 @@ func TestFlowsDiscoverUpdate_UsesAPICommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flows discover update failed: %v\n%s", err, stdout)
 	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if meta["publicAppUrl"] != srv.URL+"/apps/discover-flow" {
+		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
+	}
 }
 
 func TestFlowsDiscoverUpdate_ForwardsPublicFalse(t *testing.T) {

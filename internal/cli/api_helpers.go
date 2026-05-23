@@ -534,6 +534,92 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
+func publicAppWebURL(app *App, flowSlug string) string {
+	slug := strings.TrimSpace(flowSlug)
+	if slug == "" {
+		return ""
+	}
+	base := publicAppWebBaseURL(app)
+	if base == "" {
+		return ""
+	}
+	return base + "/apps/" + url.PathEscape(slug)
+}
+
+func publicAppWebBaseURL(app *App) string {
+	if app == nil {
+		return ""
+	}
+	ensureAPIURL(app)
+	raw := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	if strings.EqualFold(u.Hostname(), "flows.breyta.ai") {
+		return "https://breyta.ai"
+	}
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(normalizeLocalhostWebURL(u.String()), "/")
+}
+
+func addPublicAppURLHint(app *App, out map[string]any, flowSlug string) {
+	publicAppURL := publicAppWebURL(app, flowSlug)
+	if publicAppURL == "" {
+		return
+	}
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["publicAppUrl"] = publicAppURL
+	actions := sliceAny(meta["nextActions"])
+	for _, item := range actions {
+		action := mapStringAny(item)
+		if action != nil && firstNonBlankString(action["id"]) == "open-public-app" {
+			action["label"] = "Open public app"
+			action["url"] = publicAppURL
+			meta["nextActions"] = actions
+			return
+		}
+	}
+	meta["nextActions"] = append(actions, map[string]any{
+		"id":    "open-public-app",
+		"label": "Open public app",
+		"url":   publicAppURL,
+	})
+}
+
+func publicAppHintRelevant(command string, args map[string]any) bool {
+	switch command {
+	case "flows.release":
+		return true
+	case "flows.update":
+		return flowsUpdatePublicAppHintRelevant(args)
+	case "flows.discover.update":
+		return boolValue(args["public"])
+	case "flows.marketplace.update":
+		return boolValue(args["visible"])
+	default:
+		return false
+	}
+}
+
+func flowsUpdatePublicAppHintRelevant(args map[string]any) bool {
+	for _, key := range []string{"name", "description", "tags", "publishDescription", "publishMedia"} {
+		if _, ok := args[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func draftBindingsHintRelevant(out map[string]any) bool {
 	errMap := mapStringAny(out["error"])
 	if errMap == nil {
@@ -595,6 +681,10 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 	slug, _ := args["flowSlug"].(string)
 	if strings.TrimSpace(slug) == "" {
 		return
+	}
+
+	if status < 400 && isOK(out) && publicAppHintRelevant(command, args) {
+		addPublicAppURLHint(app, out, slug)
 	}
 
 	switch command {

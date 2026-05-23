@@ -433,7 +433,7 @@ func buildReadinessURLs(app *App, flowSlug string, invocationMetrics map[string]
 	installationURL := installationWebURL(base, flowSlug, installationID)
 	urls := compactNonEmptyFields(map[string]any{
 		"flow":                    flowWebURL(base, flowSlug),
-		"publicApp":               flowInstallationsWebURL(base, flowSlug),
+		"publicApp":               publicAppWebURL(app, flowSlug),
 		"install":                 flowInstallationsWebURL(base, flowSlug),
 		"discover":                webURL(base, "discover"),
 		"runs":                    flowRunsWebURL(base, flowSlug),

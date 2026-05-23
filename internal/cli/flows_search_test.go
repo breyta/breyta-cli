@@ -993,8 +993,11 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 	if urls["flow"] != srv.URL+"/ws-test/flows/public-flow" {
 		t.Fatalf("expected flow URL, got %#v", urls["flow"])
 	}
-	if urls["publicApp"] != srv.URL+"/ws-test/flows/public-flow/installations" {
+	if urls["publicApp"] != srv.URL+"/apps/public-flow" {
 		t.Fatalf("expected public app URL, got %#v", urls["publicApp"])
+	}
+	if urls["install"] != srv.URL+"/ws-test/flows/public-flow/installations" {
+		t.Fatalf("expected install URL, got %#v", urls["install"])
 	}
 	if urls["installation"] != srv.URL+"/ws-test/flows/public-flow/installations/inst-1" {
 		t.Fatalf("expected latest installation URL, got %#v", urls["installation"])
@@ -1013,6 +1016,9 @@ func TestFlowsReadinessAggregatesDoctorConfigureAndPublicPreflight(t *testing.T)
 		t.Fatalf("expected changed diff command in nextCommands, got %#v", nextCommands)
 	}
 	nextActions := sliceAny(mapStringAny(envelope["meta"])["nextActions"])
+	if !hasReadinessNextAction(nextActions, "open-public-app", srv.URL+"/apps/public-flow") {
+		t.Fatalf("expected public app next action, got %#v", nextActions)
+	}
 	if !hasReadinessNextAction(nextActions, "configure-latest-installation", srv.URL+"/ws-test/flows/public-flow/installations/inst-1?configure=setup") {
 		t.Fatalf("expected configure latest installation next action, got %#v", nextActions)
 	}
