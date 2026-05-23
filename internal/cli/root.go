@@ -183,7 +183,8 @@ func NewRootCmd() *cobra.Command {
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		machineCredentialExplicit := apiKeyFlagExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
+		mcpTokenEnvVarExplicit := flagExplicit(cmd, "token-env-var")
+		machineCredentialExplicit := apiKeyFlagExplicit || mcpTokenEnvVarExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
 		if isSubcommand {
 			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
 			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
