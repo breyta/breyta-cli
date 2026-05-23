@@ -100,6 +100,69 @@ func TestMCPStdioProxyBridgesJSONRPCAndPolicyHeaders(t *testing.T) {
 	}
 }
 
+func TestMCPStdioProxyDecodesSSEAndPreservesSessionID(t *testing.T) {
+	var requestCount int
+	var secondSessionID string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch requestCount {
+		case 1:
+			if got := r.Header.Get("Mcp-Session-Id"); got != "" {
+				t.Fatalf("first request should not send session id, got %q", got)
+			}
+			w.Header().Set("Mcp-Session-Id", "session-123")
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("event: message\n"))
+			_, _ = w.Write([]byte(`data: {"jsonrpc":"2.0","id":"one","result":{"ok":true}}` + "\n\n"))
+		case 2:
+			secondSessionID = r.Header.Get("Mcp-Session-Id")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In: strings.NewReader(
+			`{"jsonrpc":"2.0","id":"one","method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n" +
+				`{"jsonrpc":"2.0","id":"two","method":"tools/list"}` + "\n"),
+		Out: &stdout,
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	if secondSessionID != "session-123" {
+		t.Fatalf("second request did not preserve session id: %q", secondSessionID)
+	}
+	out := strings.TrimSpace(stdout.String())
+	if strings.Contains(out, "event:") || strings.Contains(out, "data:") {
+		t.Fatalf("stdio output leaked SSE framing:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two JSON-RPC output lines, got %d:\n%s", len(lines), out)
+	}
+	for _, line := range lines {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			t.Fatalf("invalid JSON-RPC output line %q: %v", line, err)
+		}
+	}
+}
+
 func TestMCPStdioProxySuppressesNotificationResponses(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
@@ -223,6 +286,7 @@ func TestMCPConfigRendersWorkspaceBoundStdioAndHTTPConfigs(t *testing.T) {
 
 func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 	var methods []string
+	var toolsListSessionID string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/workspaces/ws-acme/mcp" {
 			http.NotFound(w, r)
@@ -240,12 +304,14 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 		methods = append(methods, method)
 		switch method {
 		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "doctor-session-123")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      body["id"],
 				"result":  map[string]any{"protocolVersion": "2025-11-25", "serverInfo": map[string]any{"name": "breyta-workspace-mcp"}},
 			})
 		case "tools/list":
+			toolsListSessionID = r.Header.Get("Mcp-Session-Id")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      body["id"],
@@ -268,6 +334,9 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 	}
 	if strings.Join(methods, ",") != "initialize,tools/list" {
 		t.Fatalf("unexpected methods: %#v", methods)
+	}
+	if toolsListSessionID != "doctor-session-123" {
+		t.Fatalf("doctor did not preserve MCP session id: %q", toolsListSessionID)
 	}
 	if result["toolCount"] != 2 {
 		t.Fatalf("unexpected doctor result: %#v", result)

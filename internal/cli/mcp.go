@@ -54,6 +54,10 @@ type mcpSetupOptions struct {
 	Policy      mcpPolicyOptions
 }
 
+type mcpHTTPSession struct {
+	SessionID string
+}
+
 func newMCPCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
@@ -271,6 +275,7 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	writer := bufio.NewWriter(opts.Out)
 	defer writer.Flush()
+	httpSession := &mcpHTTPSession{}
 
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -284,7 +289,7 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 			}
 			continue
 		}
-		resp, status, err := postWorkspaceMCP(ctx, opts, line)
+		resp, status, err := postWorkspaceMCP(ctx, opts, httpSession, line)
 		if err != nil {
 			if idPresent {
 				if writeErr := writeMCPJSONRPCError(writer, id, -32000, "Breyta MCP upstream request failed", map[string]any{"error": sanitizeMCPError(err.Error(), opts.Token)}); writeErr != nil {
@@ -332,8 +337,9 @@ func runMCPStdioProxy(ctx context.Context, opts mcpProxyOptions) error {
 }
 
 func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, error) {
+	httpSession := &mcpHTTPSession{}
 	initialize := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-init","method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"breyta-cli","version":"doctor"}}}`)
-	initResp, status, err := postWorkspaceMCP(ctx, opts, initialize)
+	initResp, status, err := postWorkspaceMCP(ctx, opts, httpSession, initialize)
 	if err != nil {
 		return map[string]any{"stage": "initialize"}, err
 	}
@@ -347,7 +353,7 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 	}
 
 	toolsReq := []byte(`{"jsonrpc":"2.0","id":"breyta-mcp-doctor-tools","method":"tools/list","params":{}}`)
-	toolsResp, status, err := postWorkspaceMCP(ctx, opts, toolsReq)
+	toolsResp, status, err := postWorkspaceMCP(ctx, opts, httpSession, toolsReq)
 	if err != nil {
 		return map[string]any{"stage": "tools/list"}, err
 	}
@@ -377,7 +383,7 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 	}, nil
 }
 
-func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, body []byte) ([]byte, int, error) {
+func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, session *mcpHTTPSession, body []byte) ([]byte, int, error) {
 	if strings.TrimSpace(opts.WorkspaceID) == "" {
 		return nil, 0, errors.New("missing workspace id")
 	}
@@ -404,6 +410,9 @@ func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, body []byte) ([
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(opts.Token))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
+	if session != nil && strings.TrimSpace(session.SessionID) != "" {
+		req.Header.Set("Mcp-Session-Id", strings.TrimSpace(session.SessionID))
+	}
 	for k, v := range mcpStandardHTTPHeaders(body) {
 		req.Header.Set(k, v)
 	}
@@ -419,7 +428,68 @@ func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, body []byte) ([
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
+	if session != nil {
+		if sessionID := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); sessionID != "" {
+			session.SessionID = sessionID
+		}
+	}
+	respBody, err = decodeMCPHTTPResponseBody(resp.Header.Get("Content-Type"), respBody)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
 	return respBody, resp.StatusCode, nil
+}
+
+func decodeMCPHTTPResponseBody(contentType string, body []byte) ([]byte, error) {
+	if !strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		return body, nil
+	}
+	return decodeMCPSSEData(body)
+}
+
+func decodeMCPSSEData(body []byte) ([]byte, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	var payloads [][]byte
+	var dataLines []string
+	flush := func() {
+		if len(dataLines) == 0 {
+			return
+		}
+		payload := strings.TrimSpace(strings.Join(dataLines, "\n"))
+		if payload != "" {
+			payloads = append(payloads, []byte(payload))
+		}
+		dataLines = nil
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			flush()
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(value, " ") {
+			value = strings.TrimPrefix(value, " ")
+		}
+		if field == "data" {
+			dataLines = append(dataLines, value)
+		}
+	}
+	flush()
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse MCP SSE response: %w", err)
+	}
+	if len(payloads) == 0 {
+		return nil, nil
+	}
+	return bytes.Join(payloads, []byte("\n")), nil
 }
 
 func mcpStandardHTTPHeaders(body []byte) map[string]string {
