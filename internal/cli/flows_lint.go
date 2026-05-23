@@ -325,7 +325,7 @@ func topLevelFlowMapStart(src string) (int, error) {
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
 		default:
-			return -1, nil
+			return -1, fmt.Errorf("top-level flow form is not a map near byte %d", i)
 		}
 	}
 	return -1, nil
