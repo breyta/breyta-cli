@@ -267,19 +267,13 @@ func bestEffortFunctionCodeStrings(src string) []functionCodeString {
 			continue
 		}
 
-		if isClojureKeywordAt(src, i, ":code") {
-			valueStart := skipClojureWhitespaceCommaAndComments(src, i+len(":code"))
-			if valueStart < len(src) && src[valueStart] == '"' {
-				_, value, next, err := readClojureStringToken(src, valueStart)
-				if err == nil {
-					out = append(out, functionCodeString{
-						Code:       value,
-						Path:       []string{":functions", ":code"},
-						ByteOffset: valueStart,
-					})
-					i = next
-					continue
-				}
+		if isClojureKeywordAt(src, i, ":functions") {
+			valueStart := skipClojureWhitespaceCommaAndComments(src, i+len(":functions"))
+			codes, next, err := extractFunctionsValueCodeStrings(src, valueStart)
+			out = append(out, codes...)
+			if err == nil && next > i {
+				i = next
+				continue
 			}
 		}
 		i++
