@@ -298,9 +298,45 @@ func isClojureKeywordAt(src string, start int, keyword string) bool {
 	return next >= len(src) || isClojureTokenDelimiter(src[next])
 }
 
-func extractTopLevelFunctionCodeStrings(src string) ([]functionCodeString, error) {
+func topLevelFlowMapStart(src string) (int, error) {
 	i := skipClojureWhitespaceCommaAndComments(src, 0)
-	if i >= len(src) || src[i] != '{' {
+	for i < len(src) {
+		switch {
+		case src[i] == '{':
+			return i, nil
+		case src[i] == '^':
+			metaStart := i
+			metaEnd, err := readClojureFormEnd(src, i+1)
+			if err != nil {
+				return -1, err
+			}
+			if metaEnd <= i+1 {
+				return -1, fmt.Errorf("could not read metadata before top-level map near byte %d", metaStart)
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardStart := i
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil {
+				return -1, err
+			}
+			if discardEnd <= i+2 {
+				return -1, fmt.Errorf("could not read discard form before top-level map near byte %d", discardStart)
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		default:
+			return -1, nil
+		}
+	}
+	return -1, nil
+}
+
+func extractTopLevelFunctionCodeStrings(src string) ([]functionCodeString, error) {
+	i, err := topLevelFlowMapStart(src)
+	if err != nil {
+		return nil, err
+	}
+	if i < 0 {
 		return nil, nil
 	}
 	var out []functionCodeString
