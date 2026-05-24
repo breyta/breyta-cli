@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,7 +28,7 @@ func parseProfileArg(raw string) (*profilePayload, error) {
 		if path == "" {
 			return nil, errors.New("missing profile file path")
 		}
-		b, err := os.ReadFile(path)
+		b, err := readExplicitFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read profile file: %w", err)
 		}
@@ -371,7 +370,7 @@ func parseSetValue(raw string) (any, error) {
 		if path == "" {
 			return nil, errors.New("invalid --set value (missing @file path)")
 		}
-		b, err := os.ReadFile(path)
+		b, err := readExplicitFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read --set file %q: %w", path, err)
 		}

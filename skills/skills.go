@@ -13,6 +13,11 @@ import (
 
 const BreytaSkillSlug = "breyta"
 
+const (
+	skillDirMode  = 0o700
+	skillFileMode = 0o600
+)
+
 type Provider string
 
 const (
@@ -59,11 +64,11 @@ func targetForProvider(homeDir string, provider Provider) InstallTarget {
 }
 
 func installToTarget(content []byte, t InstallTarget) error {
-	if err := os.MkdirAll(t.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(t.Dir, skillDirMode); err != nil {
 		return err
 	}
 	// Intentionally overwrite: this is a managed artifact.
-	return os.WriteFile(t.File, content, 0o644)
+	return os.WriteFile(t.File, content, skillFileMode)
 }
 
 func sanitizeRelPath(rel string) (string, bool) {
@@ -129,10 +134,10 @@ func InstallBreytaSkillFiles(homeDir string, provider Provider, files map[string
 			return nil, fmt.Errorf("invalid skill file path %q", rel)
 		}
 		dest := filepath.Join(t.Dir, filepath.FromSlash(safeRel))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), skillDirMode); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(dest, files[rel], 0o644); err != nil {
+		if err := os.WriteFile(dest, files[rel], skillFileMode); err != nil {
 			return nil, err
 		}
 		written = append(written, dest)

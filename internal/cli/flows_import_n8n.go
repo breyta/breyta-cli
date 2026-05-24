@@ -245,7 +245,7 @@ func apiEnvelopeError(command string, status int, envelope map[string]any) error
 }
 
 func importN8NWorkflowFile(path, slug, outPath string) (*n8nImportResult, error) {
-	b, err := os.ReadFile(path)
+	b, err := readExplicitFile(path)
 	if err != nil {
 		return nil, err
 	}

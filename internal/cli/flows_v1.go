@@ -402,7 +402,7 @@ By default this command is a dry run; pass --write to update files in place.
 			parinferRunner := parinfer.Runner{BinaryPath: parinferPath}
 
 			for _, path := range allFiles {
-				b, err := os.ReadFile(path)
+				b, err := readExplicitFile(path)
 				if err != nil {
 					return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
 				}
@@ -489,7 +489,7 @@ func newFlowsParenCheckCmd(app *App) *cobra.Command {
 			if path == "" {
 				return writeErr(cmd, errors.New("missing file path (use --file <path> or pass a positional file)"))
 			}
-			b, err := os.ReadFile(path)
+			b, err := readExplicitFile(path)
 			if err != nil {
 				return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
 			}
@@ -505,7 +505,7 @@ func newFlowsParenCheckCmd(app *App) *cobra.Command {
 
 func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := makePublicDir(dir); err != nil {
 		return err
 	}
 
@@ -1080,10 +1080,10 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("missing data.flowLiteral in response"))
 			}
 
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			if err := makePublicDir(filepath.Dir(path)); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
+			if err := writePublicFile(path, []byte(flowLiteral+"\n")); err != nil {
 				return writeErr(cmd, err)
 			}
 			_ = recordConsultedFlow(provenanceSourceRef{
@@ -1137,7 +1137,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(file) == "" {
 				return writeErr(cmd, errors.New("missing --file"))
 			}
-			b, err := os.ReadFile(file)
+			b, err := readExplicitFile(file)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

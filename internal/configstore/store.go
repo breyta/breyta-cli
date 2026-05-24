@@ -51,7 +51,7 @@ func Load(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("missing path")
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- config store path is resolved from the user config directory or explicit operator configuration.
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func SaveAtomic(path string, st *Store) error {
 		return errors.New("missing store")
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	payload, err := json.MarshalIndent(st, "", "  ")

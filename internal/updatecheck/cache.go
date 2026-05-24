@@ -31,7 +31,7 @@ func loadCache() (Cache, error) {
 	if err != nil {
 		return Cache{}, err
 	}
-	b, err := os.ReadFile(p)
+	b, err := os.ReadFile(p) // #nosec G304 -- update cache path is resolved under the user cache directory.
 	if err != nil {
 		return Cache{}, err
 	}
@@ -49,7 +49,7 @@ func saveCache(c Cache) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
@@ -57,7 +57,7 @@ func saveCache(c Cache) error {
 		return err
 	}
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, p)

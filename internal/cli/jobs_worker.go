@@ -698,7 +698,7 @@ func writeJobsWorkerJSONFile(path string, value any) error {
 }
 
 func readJobsWorkerResult(path string) (*jobsWorkerResult, error) {
-	bytes, err := os.ReadFile(path)
+	bytes, err := readExplicitFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

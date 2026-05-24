@@ -34,11 +34,11 @@ func DefaultPath() (string, error) {
 }
 
 func EnsureParentDir(path string) error {
-	return os.MkdirAll(filepath.Dir(path), 0o755)
+	return os.MkdirAll(filepath.Dir(path), 0o700)
 }
 
 func Load(path string) (*Store, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- auth store path is resolved from Breyta config or explicit operator configuration.
 	if err != nil {
 		return nil, err
 	}

@@ -505,7 +505,7 @@ compare the current draft to the previous pushed draft version.
 				payload["to"] = strings.TrimSpace(to)
 			}
 			if file != "" {
-				b, err := os.ReadFile(file)
+				b, err := readExplicitFile(file)
 				if err != nil {
 					return writeErr(cmd, err)
 				}

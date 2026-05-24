@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -47,7 +46,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 			if server && localOnly {
 				return writeErr(cmd, errors.New("--server cannot be combined with --local-only"))
 			}
-			b, err := os.ReadFile(file)
+			b, err := readExplicitFile(file)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

@@ -2,14 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
 func resolvePublishDescriptionInput(publishDescription string, publishDescriptionFile string) (string, error) {
 	description := publishDescription
 	if path := strings.TrimSpace(publishDescriptionFile); path != "" {
-		b, err := os.ReadFile(path)
+		b, err := readExplicitFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read --publish-description-file: %w", err)
 		}
@@ -24,7 +23,7 @@ func resolveReleaseNoteInput(releaseNote string, legacyNote string, releaseNoteF
 		note = strings.TrimSpace(legacyNote)
 	}
 	if path := strings.TrimSpace(releaseNoteFile); path != "" {
-		b, err := os.ReadFile(path)
+		b, err := readExplicitFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read --release-note-file: %w", err)
 		}

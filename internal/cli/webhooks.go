@@ -316,7 +316,7 @@ func buildWebhookPayload(jsonPayload string, jsonFile string, formFields []strin
 	}
 
 	if jsonFile != "" {
-		body, err := os.ReadFile(jsonFile)
+		body, err := readExplicitFile(jsonFile)
 		if err != nil {
 			return webhookPayload{}, fmt.Errorf("read json-file: %w", err)
 		}
@@ -328,7 +328,7 @@ func buildWebhookPayload(jsonPayload string, jsonFile string, formFields []strin
 	}
 
 	if rawFile != "" {
-		body, err := os.ReadFile(rawFile)
+		body, err := readExplicitFile(rawFile)
 		if err != nil {
 			return webhookPayload{}, fmt.Errorf("read raw-file: %w", err)
 		}
@@ -490,7 +490,7 @@ func buildMultipartBody(formMap map[string]any, files []webhookFilePart) ([]byte
 	}
 
 	for _, part := range files {
-		body, err := os.ReadFile(part.Path)
+		body, err := readExplicitFile(part.Path)
 		if err != nil {
 			return nil, "", nil, fmt.Errorf("read %s: %w", part.Path, err)
 		}
@@ -763,7 +763,7 @@ func parseTimestampMs(raw string) (int64, error) {
 }
 
 func readECDSAPrivateKey(path string) (*ecdsa.PrivateKey, error) {
-	data, err := os.ReadFile(path)
+	data, err := readExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read private key: %w", err)
 	}
@@ -786,7 +786,7 @@ func readECDSAPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 }
 
 func readECDSAPublicKey(path string) (*ecdsa.PublicKey, error) {
-	data, err := os.ReadFile(path)
+	data, err := readExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read public key: %w", err)
 	}
@@ -810,7 +810,7 @@ func writeResponseFile(path string, data any, pretty bool) error {
 	if path == "" {
 		return nil
 	}
-	file, err := os.Create(path)
+	file, err := createExplicitFile(path)
 	if err != nil {
 		return err
 	}

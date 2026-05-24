@@ -136,7 +136,7 @@ func writeStepResultFile(path string, result any) error {
 		return fmt.Errorf("encode --result-file: %w", err)
 	}
 	if dir := strings.TrimSpace(filepath.Dir(path)); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create --result-file directory: %w", err)
 		}
 	}

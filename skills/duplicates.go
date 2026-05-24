@@ -45,7 +45,7 @@ func FindDuplicateInstalledSkillsByName(homeDir string, provider Provider, name 
 		if samePath(candidate, target.File) {
 			continue
 		}
-		content, err := os.ReadFile(candidate)
+		content, err := os.ReadFile(candidate) // #nosec G304 -- candidate is constrained to sibling skill directories under the provider root.
 		if err != nil {
 			continue
 		}

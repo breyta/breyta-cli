@@ -73,7 +73,7 @@ func newDocsSyncCmd(app *App) *cobra.Command {
 					return writeErr(cmd, fmt.Errorf("clean output dir: %w", err))
 				}
 			}
-			if err := os.MkdirAll(rootOut, 0o755); err != nil {
+			if err := makePublicDir(rootOut); err != nil {
 				return writeErr(cmd, fmt.Errorf("create output dir: %w", err))
 			}
 
@@ -277,7 +277,7 @@ func fetchDocsPageContent(ctx context.Context, client api.Client, slug string, o
 
 func writeDocsPages(client api.Client, rootOut string, pages []docsPageMeta, timeout time.Duration) error {
 	pagesOutDir := filepath.Join(rootOut, "pages")
-	if err := os.MkdirAll(pagesOutDir, 0o755); err != nil {
+	if err := makePublicDir(pagesOutDir); err != nil {
 		return fmt.Errorf("create pages output dir: %w", err)
 	}
 
@@ -392,10 +392,10 @@ func decodeLooseJSON(raw any, into any) error {
 }
 
 func writeFile(path string, content []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := makePublicDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("create parent dir for %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := writePublicFile(path, content); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

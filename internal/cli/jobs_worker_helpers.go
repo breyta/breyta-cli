@@ -651,7 +651,7 @@ func jobsWorkerReadStateFile(path string) map[string]any {
 		return snapshot
 	}
 
-	bytes, err := os.ReadFile(path)
+	bytes, err := readExplicitFile(path)
 	if err != nil {
 		snapshot["exists"] = false
 		if !os.IsNotExist(err) {
@@ -794,7 +794,7 @@ func jobsWorkerReadContextFile(path string) (map[string]any, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	bytes, err := os.ReadFile(path) // #nosec G304,G703 -- worker context path is explicit local worker configuration.
+	bytes, err := readExplicitFile(path) // #nosec G304,G703 -- worker context path is explicit local worker configuration.
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -861,7 +861,7 @@ func readJobsWorkerState(path string) (map[string]any, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("result file path is required")
 	}
-	bytes, err := os.ReadFile(path)
+	bytes, err := readExplicitFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]any{}, nil
@@ -1044,7 +1044,7 @@ func detectJobsWorkerContentType(path string, explicit string, file *os.File) (s
 }
 
 func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string) (map[string]any, error) {
-	file, err := os.Open(path)
+	file, err := openExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open upload file: %w", err)
 	}
