@@ -43,7 +43,7 @@ func (r Runner) RepairIndent(text string) (string, Answer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, r.BinaryPath,
+	cmd := exec.CommandContext(ctx, r.BinaryPath, // #nosec G204 -- BinaryPath is resolved from the bundled parinfer binary, PATH, or explicit user configuration. nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		"--output-format", "json",
 		"-l", "clojure",
 		"-m", "indent",

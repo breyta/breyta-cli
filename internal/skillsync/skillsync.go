@@ -515,6 +515,6 @@ func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	backup := path + ".bak-" + ts
 	// Best-effort: keep a copy for manual rollback.
-	_ = os.WriteFile(backup, b, 0o644)
+	_ = os.WriteFile(backup, b, 0o644) // #nosec G306,G703 -- backup path is derived from the installed skill target path.
 	return b, true
 }

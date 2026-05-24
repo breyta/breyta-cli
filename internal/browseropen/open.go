@@ -10,7 +10,7 @@ import (
 )
 
 var startCommand = func(name string, args ...string) error {
-	return exec.Command(name, args...).Start()
+	return exec.Command(name, args...).Start() // #nosec G204 -- command comes from fixed platform openers or the user's BROWSER setting. nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 }
 
 func Open(u string) error {

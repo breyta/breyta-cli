@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/breyta/breyta-cli/internal/format"
 	"github.com/spf13/cobra"
@@ -804,24 +803,6 @@ func readECDSAPublicKey(path string) (*ecdsa.PublicKey, error) {
 		return nil, errors.New("public key is not ECDSA")
 	}
 	return key, nil
-}
-
-func buildValidateOnlyPreview(fullURL string, headers map[string]string, query url.Values, body []byte) map[string]any {
-	preview := map[string]any{
-		"method":  http.MethodPost,
-		"url":     fullURL,
-		"headers": headers,
-	}
-	if len(query) > 0 {
-		preview["query"] = query
-	}
-	if utf8.Valid(body) {
-		preview["body"] = string(body)
-	} else {
-		preview["body_base64"] = base64.StdEncoding.EncodeToString(body)
-	}
-	preview["body_bytes"] = len(body)
-	return map[string]any{"data": preview}
 }
 
 func writeResponseFile(path string, data any, pretty bool) error {

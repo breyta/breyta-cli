@@ -403,7 +403,7 @@ func runStepHasError(step map[string]any) bool {
 	if strings.Contains(status, "fail") || strings.Contains(status, "error") {
 		return true
 	}
-	if errMap := mapStringAny(step["error"]); errMap != nil && len(errMap) > 0 {
+	if errMap := mapStringAny(step["error"]); len(errMap) > 0 {
 		return true
 	}
 	return firstNonBlankString(step["error"], step["errorMessage"], step["error-message"]) != ""

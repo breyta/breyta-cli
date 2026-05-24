@@ -852,9 +852,9 @@ func scalarString(v any) string {
 	switch t := v.(type) {
 	case string:
 		return strings.TrimSpace(t)
-	case fmt.Stringer:
-		return strings.TrimSpace(t.String())
 	case json.Number:
+		return strings.TrimSpace(t.String())
+	case fmt.Stringer:
 		return strings.TrimSpace(t.String())
 	case nil:
 		return ""
@@ -1273,21 +1273,6 @@ func guidedCLIErrorForCommand(cmd *cobra.Command, message string, lines []string
 	return &guidedCLIError{message: strings.Join(parts, "\n")}
 }
 
-func writeErrorRecoveryActions(cmd *cobra.Command, out map[string]any) {
-	for _, action := range errorRecoveryActions(out) {
-		url := firstNonBlankString(action["url"])
-		if url == "" {
-			continue
-		}
-		line := fmt.Sprintf("Open %s: %s", recoveryActionDisplayLabel(action), url)
-		if cmd != nil {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
-		} else {
-			_, _ = fmt.Fprintln(os.Stderr, line)
-		}
-	}
-}
-
 func errorDocsHintLines(out map[string]any) []string {
 	if out == nil {
 		return nil
@@ -1345,20 +1330,6 @@ func errorDocsHintLines(out map[string]any) []string {
 		}
 	}
 	return lines
-}
-
-func writeErrorDocsHints(cmd *cobra.Command, out map[string]any) {
-	lines := errorDocsHintLines(out)
-	if len(lines) == 0 {
-		return
-	}
-	for _, line := range lines {
-		if cmd != nil {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
-		} else {
-			_, _ = fmt.Fprintln(os.Stderr, line)
-		}
-	}
 }
 
 func apiWarningMaps(out map[string]any) []map[string]any {

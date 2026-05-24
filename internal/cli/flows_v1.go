@@ -356,6 +356,9 @@ Public discover notes:
 	steps := &cobra.Command{Use: "steps", Short: "Manage flow steps"}
 	steps.AddCommand(newFlowsStepsListCmd(app))
 	steps.AddCommand(newFlowsStepsShowCmd(app))
+	steps.AddCommand(newFlowsStepsSetCmd(app))
+	steps.AddCommand(newFlowsStepsDeleteCmd(app))
+	steps.AddCommand(newFlowsStepsMoveCmd(app))
 	cmd.AddCommand(steps)
 
 	versions := &cobra.Command{Use: "versions", Short: "Manage flow versions"}

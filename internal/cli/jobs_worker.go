@@ -311,7 +311,7 @@ func jobsWorkerExecuteClaimedJob(ctx context.Context, stderr io.Writer, app *App
 		return execResult, execErr
 	}
 
-	handlerCmd := exec.CommandContext(ctx, cfg.handler, cfg.handlerArgs...)
+	handlerCmd := exec.CommandContext(ctx, cfg.handler, cfg.handlerArgs...) // #nosec G204 -- jobs worker handlers are explicit local operator configuration. nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	handlerCmd.Stdout = stderr
 	handlerCmd.Stderr = stderr
 	handlerCmd.Env = jobsWorkerEnv(app, cfg, job, jobDir, jobFile, payloadFile, resultFile, contextFile)

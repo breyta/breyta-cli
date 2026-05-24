@@ -794,7 +794,7 @@ func jobsWorkerReadContextFile(path string) (map[string]any, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	bytes, err := os.ReadFile(path)
+	bytes, err := os.ReadFile(path) // #nosec G304,G703 -- worker context path is explicit local worker configuration.
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
