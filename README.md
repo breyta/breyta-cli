@@ -477,6 +477,10 @@ Store the returned `apiKey` outside source control:
 export BREYTA_MCP_TOKEN="<service-account-api-key>"
 ```
 
+Do not point MCP configs at `BREYTA_TOKEN`; that variable is reserved for
+interactive user login tokens. Use `BREYTA_MCP_TOKEN`, `BREYTA_API_KEY`, or
+another env var that contains a service-account API key.
+
 Print a copyable stdio config for an MCP host:
 
 ```bash

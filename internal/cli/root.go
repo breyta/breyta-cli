@@ -183,7 +183,7 @@ func NewRootCmd() *cobra.Command {
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		mcpTokenEnvVarExplicit := flagExplicit(cmd, "token-env-var")
+		mcpTokenEnvVarExplicit := commandConsumesMCPTokenEnvCredential(cmd) && flagExplicit(cmd, "token-env-var")
 		mcpTokenEnvServiceAccountExplicit := false
 		if mcpTokenEnvVarExplicit && !apiKeyFlagExplicit && !tokenFlagExplicit {
 			tokenEnvVar, err := cmd.Flags().GetString("token-env-var")
@@ -193,6 +193,9 @@ func NewRootCmd() *cobra.Command {
 			tokenEnvVar = strings.TrimSpace(tokenEnvVar)
 			if tokenEnvVar == "" {
 				return writeErr(cmd, errors.New("--token-env-var requires an environment variable name"))
+			}
+			if err := validateMCPTokenEnvVarName(tokenEnvVar); err != nil {
+				return writeErr(cmd, err)
 			}
 			tokenEnvValue := strings.TrimSpace(os.Getenv(tokenEnvVar))
 			if tokenEnvValue == "" {
@@ -399,6 +402,10 @@ func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
 		return true
 	}
 	return commandIsFlowsLintLocalOnly(cmd)
+}
+
+func commandConsumesMCPTokenEnvCredential(cmd *cobra.Command) bool {
+	return topLevelCommandName(cmd) == "mcp" && (cmd.Name() == "stdio" || cmd.Name() == "doctor")
 }
 
 func topLevelCommandName(cmd *cobra.Command) string {

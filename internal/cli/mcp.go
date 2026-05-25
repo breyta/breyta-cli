@@ -240,6 +240,9 @@ func applyMCPTokenEnvVar(cmd *cobra.Command, app *App, tokenEnvVar string) error
 	if tokenEnvVar == "" || flagExplicit(cmd, "token") || flagExplicit(cmd, "api-key") {
 		return nil
 	}
+	if err := validateMCPTokenEnvVarName(tokenEnvVar); err != nil {
+		return err
+	}
 	value := strings.TrimSpace(os.Getenv(tokenEnvVar))
 	if value == "" {
 		return fmt.Errorf("missing %s environment variable", tokenEnvVar)
@@ -256,7 +259,15 @@ func applyMCPTokenEnvVar(cmd *cobra.Command, app *App, tokenEnvVar string) error
 
 func looksLikeServiceAccountAPIKey(value string) bool {
 	parts := strings.SplitN(strings.TrimSpace(value), "_", 3)
-	return len(parts) == 3 && parts[0] == "bsa" && strings.TrimSpace(parts[1]) != "" && strings.TrimSpace(parts[2]) != ""
+	return len(parts) == 3 && parts[0] == "bsa" && strings.HasPrefix(strings.TrimSpace(parts[1]), "sak-") && strings.TrimSpace(parts[2]) != ""
+}
+
+func validateMCPTokenEnvVarName(tokenEnvVar string) error {
+	tokenEnvVar = strings.TrimSpace(tokenEnvVar)
+	if strings.EqualFold(tokenEnvVar, "BREYTA_TOKEN") {
+		return errors.New("BREYTA_TOKEN is reserved for user login tokens; use BREYTA_MCP_TOKEN, BREYTA_API_KEY, or another service-account API key env var")
+	}
+	return nil
 }
 
 func explicitMCPWorkspaceID(cmd *cobra.Command, app *App, localWorkspaceID string) (string, error) {
@@ -1003,6 +1014,9 @@ func renderMCPClientConfig(opts mcpSetupOptions) (string, error) {
 	opts.TokenEnvVar = strings.TrimSpace(opts.TokenEnvVar)
 	if opts.TokenEnvVar == "" {
 		opts.TokenEnvVar = defaultMCPTokenEnvVar
+	}
+	if err := validateMCPTokenEnvVarName(opts.TokenEnvVar); err != nil {
+		return "", err
 	}
 	opts.APIURL = strings.TrimRight(strings.TrimSpace(opts.APIURL), "/")
 	if opts.APIURL == "" {

@@ -839,6 +839,14 @@ func TestMCPTokenEnvVarSuppliesProxyToken(t *testing.T) {
 	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BREYTA_USER_TOKEN"); err == nil {
 		t.Fatalf("expected non-service-account token env var error")
 	}
+	t.Setenv("BREYTA_FAKE_MACHINE_TOKEN", "bsa_not-service-account_secret")
+	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BREYTA_FAKE_MACHINE_TOKEN"); err == nil {
+		t.Fatalf("expected malformed service-account token env var error")
+	}
+	t.Setenv("BREYTA_TOKEN", "bsa_sak-123_reserved-name")
+	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BREYTA_TOKEN"); err == nil {
+		t.Fatalf("expected reserved BREYTA_TOKEN env var error")
+	}
 }
 
 func TestMCPTokenEnvVarDoesNotOverrideExplicitTokenFlag(t *testing.T) {
@@ -989,6 +997,65 @@ func TestMCPConfigCommandPrintsProviderSnippetWithoutNetwork(t *testing.T) {
 	}
 }
 
+func TestMCPConfigCommandDoesNotRequireTokenEnvValue(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"mcp", "config",
+		"--workspace-id", "ws-acme",
+		"--provider", "generic",
+		"--transport", "stdio",
+		"--token-env-var", "CUSTOM_BREYTA_MCP_TOKEN",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("mcp config required token env value: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "CUSTOM_BREYTA_MCP_TOKEN") {
+		t.Fatalf("custom token env var was not rendered:\n%s", stdout.String())
+	}
+}
+
+func TestMCPConfigCommandRejectsUserTokenEnvName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"mcp", "config",
+		"--workspace-id", "ws-acme",
+		"--provider", "generic",
+		"--transport", "http",
+		"--token-env-var", "BREYTA_TOKEN",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected mcp config to reject BREYTA_TOKEN")
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "reserved for user login tokens") {
+		t.Fatalf("expected reserved token env var error, got stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestMCPInitAliasPrintsProviderSnippet(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -1054,5 +1121,36 @@ func TestInitMCPCanPrintOnlyMCPConfig(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "bsa_") || strings.Contains(stderr.String(), "bsa_") {
 		t.Fatalf("secret-like value leaked\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestInitMCPRejectsUserTokenEnvName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"init",
+		"--no-skill",
+		"--no-workspace",
+		"--mcp",
+		"--mcp-workspace-id", "ws-acme",
+		"--mcp-token-env-var", "BREYTA_TOKEN",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected init --mcp to reject BREYTA_TOKEN")
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "reserved for user login tokens") {
+		t.Fatalf("expected reserved token env var error, got stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
