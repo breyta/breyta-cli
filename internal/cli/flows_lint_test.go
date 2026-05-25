@@ -620,18 +620,138 @@ func TestFlowsLintLocalOnlyAcceptsVarQuoteInFunctionCodeStrings(t *testing.T) {
 	}
 }
 
-func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *testing.T) {
+func TestFlowsLintLocalOnlyAcceptsLegacyMetadataAndSymbolicValuesInFunctionCodeStrings(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
-	flowLiteral := `{:slug :bad-function-code-with-reader-macro
+	flowLiteral := `{:slug :legacy-reader-function-code
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :helper #^String some-var
  :functions [{:id :build-plan
-              :code "(fn [input]\n  (assoc input :ok true)"}]
+              :code "(fn [input]\n  {:typed #^String (:name input)\n   :nan ##NaN\n   :input input})"}]
  :flow '(let [input (flow/input)]
           (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint returned error for valid legacy reader forms in code string: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_code_string_invalid" {
+			t.Fatalf("unexpected function_code_string_invalid diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsReaderEvalInFunctionCodeStrings(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-eval-function-code
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :build-plan
+              :code "(fn [input]\n  #=(identity input))"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_code_string_invalid" && item["severity"] == "error" {
+			return
+		}
+	}
+	t.Fatalf("expected function_code_string_invalid diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlyRejectsReaderEvalInFlowSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-eval-source
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :helper #=(identity :unsafe)
+ :flow '(let [input (flow/input)] input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "clojure_reader_eval_disabled" && item["severity"] == "error" {
+			return
+		}
+	}
+	t.Fatalf("expected clojure_reader_eval_disabled diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `#?(:clj
+   {:slug :bad-function-code-with-reader-conditional
+    :concurrency {:type :singleton :on-new-version :coexist}
+    :invocations {:default {:inputs []}}
+    :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+    :functions [{:id :build-plan
+                 :code "(fn [input]\n  (assoc input :ok true)"}]
+    :flow '(let [input (flow/input)]
+             (flow/step :function :build-plan {:ref :build-plan :input input}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -671,17 +791,17 @@ func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *tes
 func TestFlowsLintLocalOnlyBestEffortIgnoresNestedFunctionsInFlow(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
-	flowLiteral := `{:slug :fallback-nested-functions
- :concurrency {:type :singleton :on-new-version :coexist}
- :invocations {:default {:inputs []}}
- :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :helper #^String some-var
- :functions [{:id :build-plan
-              :code "(fn [input]\n  (assoc input :ok true))"}]
- :flow '(let [shadow {:functions [{:id :shadow
-                                   :code "(fn [input]\n  (assoc input :shadow true)"}]}
-              input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+	flowLiteral := `#?(:clj
+   {:slug :fallback-nested-functions
+    :concurrency {:type :singleton :on-new-version :coexist}
+    :invocations {:default {:inputs []}}
+    :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+    :functions [{:id :build-plan
+                 :code "(fn [input]\n  (assoc input :ok true))"}]
+    :flow '(let [shadow {:functions [{:id :shadow
+                                      :code "(fn [input]\n  (assoc input :shadow true)"}]}
+                 input (flow/input)]
+             (flow/step :function :build-plan {:ref :build-plan :input input}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)

@@ -147,6 +147,22 @@ func readClojureFormEnd(src string, start int) (int, error) {
 		switch src[i+1] {
 		case '\'':
 			return readClojureFormEnd(src, i+2)
+		case '^':
+			metaEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil {
+				return 0, err
+			}
+			return readClojureFormEnd(src, metaEnd)
+		case '#':
+			next := readClojureTokenEnd(src, i)
+			switch src[i:next] {
+			case "##Inf", "##-Inf", "##NaN":
+				return next, nil
+			default:
+				return 0, fmt.Errorf("unsupported symbolic value")
+			}
+		case '=':
+			return 0, fmt.Errorf("reader eval is not supported")
 		case '{':
 			return readDelimitedFormEnd(src, i+1, '}')
 		case '(':

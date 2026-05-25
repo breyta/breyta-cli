@@ -163,6 +163,7 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
 		return diagnostics
 	}
+	diagnostics = append(diagnostics, localReaderEvalDiagnostics(flowLiteral)...)
 
 	for _, key := range []string{":slug", ":concurrency", ":flow"} {
 		if !strings.Contains(flowLiteral, key) {
@@ -188,6 +189,38 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "sandbox_unbounded_range", []string{":flow"}, "Flow source calls unbounded (range), which is rejected by the runtime sandbox.", "Use a bounded range such as (range n), take from a finite collection, or derive limits from invocation inputs.", "local"))
 	}
 	return diagnostics
+}
+
+func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
+	for i := 0; i < len(flowLiteral); {
+		switch flowLiteral[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(flowLiteral, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case ';':
+			i = readCommentEnd(flowLiteral, i)
+			continue
+		}
+		if strings.HasPrefix(flowLiteral[i:], "#=") {
+			diag := lintDiagnostic(
+				"error",
+				"clojure_reader_eval_disabled",
+				[]string{":flow"},
+				"Flow source uses reader eval (#=), which is not allowed during safe Clojure reading.",
+				"Replace reader-eval forms with ordinary data or runtime code that does not execute while the source is read.",
+				"local",
+			)
+			diag["byteOffset"] = i
+			return []flowLintDiagnostic{diag}
+		}
+		i++
+	}
+	return nil
 }
 
 type functionCodeString struct {
@@ -493,17 +526,6 @@ func offsetFunctionCodeStrings(codes []functionCodeString, offset int) {
 	for i := range codes {
 		codes[i].ByteOffset += offset
 	}
-}
-
-func isClojureKeywordAt(src string, start int, keyword string) bool {
-	if start < 0 || start >= len(src) || !strings.HasPrefix(src[start:], keyword) {
-		return false
-	}
-	if start > 0 && !isClojureTokenDelimiter(src[start-1]) {
-		return false
-	}
-	next := start + len(keyword)
-	return next >= len(src) || isClojureTokenDelimiter(src[next])
 }
 
 func topLevelFlowMapStart(src string) (int, error) {
