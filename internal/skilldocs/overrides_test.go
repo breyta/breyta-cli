@@ -146,6 +146,9 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 		"## Purpose",
 		"compact router",
 		"",
+		"## Flow DSL Mental Model",
+		"source files are DSL",
+		"",
 		"## Playbook Matrix",
 		"- `playbooks/author-flows.md`",
 		"- `playbooks/debug-and-verify.md`",
@@ -153,17 +156,75 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 		"",
 		"## Default Command Budget",
 		"- compact defaults",
+		"",
+		"## Authoring Defaults",
+		"- build small",
 	}, "\n")
 	input := map[string][]byte{
 		"SKILL.md": []byte(body),
+		"playbooks/author-flows.md": []byte(strings.Join([]string{
+			"# Playbook: Author Flows",
+			"",
+			"## Default Loop",
+			"",
+			"1. Start a small session capsule.",
+		}, "\n")),
+		"playbooks/debug-and-verify.md": []byte(strings.Join([]string{
+			"# Playbook: Debug And Verify",
+			"",
+			"## Default Loop",
+			"",
+			"1. Identify target and lifecycle.",
+		}, "\n")),
+		"references/outputs-and-tables.md": []byte(strings.Join([]string{
+			"# Outputs And Tables Reference",
+			"",
+			"## Artifact Audience Review",
+			"",
+			"Inspect the artifact.",
+		}, "\n")),
+		"references/public-flows.md": []byte(strings.Join([]string{
+			"# Public Flows Reference",
+			"",
+			"## Public Flow As Reusable Tool",
+			"",
+			"When another Breyta flow, hosted agent, coding agent, or external client should",
+			"reuse a public flow, prefer the installed HTTP or MCP interface over author",
+			"draft/live endpoints.",
+		}, "\n")),
 	}
 
 	got := ApplyCLIOverrides("breyta", input)
-	if string(got["SKILL.md"]) != body {
-		t.Fatalf("expected current playbook router skill to remain unchanged, got:\n%s", string(got["SKILL.md"]))
+	if !strings.Contains(string(got["SKILL.md"]), "Use minimum sufficient evidence") {
+		t.Fatalf("expected minimum-sufficient-evidence guidance, got:\n%s", string(got["SKILL.md"]))
+	}
+	if !strings.Contains(string(got["SKILL.md"]), "write a compact workflow contract and acceptance") {
+		t.Fatalf("expected contract and acceptance matrix guidance, got:\n%s", string(got["SKILL.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "write the contract and acceptance matrix before source grows") {
+		t.Fatalf("expected authoring acceptance matrix guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "treat HTTP/MCP as consumer transports for installed callable interfaces") {
+		t.Fatalf("expected installed callable interface transport guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/debug-and-verify.md"]), "acceptance case") {
+		t.Fatalf("expected debug acceptance case guidance, got:\n%s", string(got["playbooks/debug-and-verify.md"]))
+	}
+	if !strings.Contains(string(got["references/outputs-and-tables.md"]), "## Downstream Handoff Contract") {
+		t.Fatalf("expected downstream handoff contract, got:\n%s", string(got["references/outputs-and-tables.md"]))
+	}
+	if !strings.Contains(string(got["references/public-flows.md"]), "During authoring, check public/installable flows before building from scratch") {
+		t.Fatalf("expected public reusable flow authoring guidance, got:\n%s", string(got["references/public-flows.md"]))
 	}
 	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
 		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
+	}
+
+	gotAgain := ApplyCLIOverrides("breyta", got)
+	for name, first := range got {
+		if string(gotAgain[name]) != string(first) {
+			t.Fatalf("expected override to be idempotent for %s\nfirst:\n%s\nsecond:\n%s", name, string(first), string(gotAgain[name]))
+		}
 	}
 }
 

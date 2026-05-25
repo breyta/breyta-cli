@@ -22,7 +22,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		strings.Contains(updated, "references/runtime-data-shapes.md") &&
 		strings.Contains(updated, "## Default Command Budget")
 	if currentPlaybookRouterSkill {
-		return files
+		return applyEfficientWorkflowGuidanceOverrides(files)
 	}
 
 	currentCanonicalSkill := strings.Contains(updated, "## Create/Edit Preflight") &&
@@ -195,6 +195,39 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	}
 	cloned["SKILL.md"] = []byte(updated)
 	return cloned
+}
+
+func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string][]byte {
+	working := files
+	changed := false
+	updateFile := func(name string, fn func(string) string) {
+		raw, ok := working[name]
+		if !ok || len(raw) == 0 {
+			return
+		}
+		body := string(raw)
+		next := fn(body)
+		if next == body {
+			return
+		}
+		if !changed {
+			cloned := make(map[string][]byte, len(files))
+			for k, v := range files {
+				cloned[k] = v
+			}
+			working = cloned
+			changed = true
+		}
+		working[name] = []byte(next)
+	}
+
+	updateFile("SKILL.md", ensureMinimumSufficientEvidenceCoreRule)
+	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
+	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
+	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
+	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
+	updateFile("references/public-flows.md", ensurePublicFlowReuseDuringAuthoring)
+	return working
 }
 
 const namingConventionsSection = `## Readability + Searchability Naming Conventions (Required)
@@ -542,6 +575,168 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
+
+func ensureMinimumSufficientEvidenceCoreRule(body string) string {
+	if strings.Contains(body, "Use minimum sufficient evidence") {
+		return body
+	}
+	section := strings.Join([]string{
+		"## Core Rule",
+		"",
+		"Use minimum sufficient evidence. Every docs read, template search, command,",
+		"patch, run, and artifact inspection should answer a specific contract,",
+		"implementation, or verification question. Prefer current Breyta surfaces before",
+		"building from scratch: workspace flows, approved templates, public/installable",
+		"flows with installed callable interfaces, exact field docs, focused step runs,",
+		"and resource/table readback.",
+	}, "\n")
+	if headingPos := h2LineStartOutsideFences(body, "## Flow DSL Mental Model"); headingPos >= 0 {
+		return body[:headingPos] + section + "\n\n" + body[headingPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Start Of Session"); headingPos >= 0 {
+		return body[:headingPos] + section + "\n\n" + body[headingPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + section + "\n"
+}
+
+func ensureAuthoringDefaultsContractMatrix(body string) string {
+	if strings.Contains(body, "Before meaningful edits, write a compact workflow contract and acceptance") {
+		return body
+	}
+	guidance := strings.Join([]string{
+		"- Before meaningful edits, write a compact workflow contract and acceptance",
+		"  matrix. Include trigger/interface, inputs, setup, integrations, selection or",
+		"  exclusion rules, output schema, downstream consumer, side effects, failure",
+		"  behavior, reject/keep cases, required fields, forbidden output, and what must",
+		"  never happen.",
+		"- Before source grows, choose the shortest correct path: edit/call an existing",
+		"  workspace flow, reuse an approved template, install/call a public flow through",
+		"  an installed callable interface, or build new only when reuse fails the",
+		"  contract, auth, billing, cost, quality, or output bar.",
+	}, "\n")
+	if headingPos := h2LineStartOutsideFences(body, "## Authoring Defaults"); headingPos >= 0 {
+		insertPos := headingPos + len("## Authoring Defaults")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Authoring Defaults\n\n" + guidance + "\n"
+}
+
+func ensureAuthorFlowEfficientLoop(body string) string {
+	if strings.Contains(body, "write the contract and acceptance matrix before source grows") {
+		return body
+	}
+	guidance := strings.Join([]string{
+		"Use the default loop as one efficient workflow creation method, not as a",
+		"separate fast path. Before source grows:",
+		"",
+		"- classify the work mode: new flow, existing-flow edit, duplicate/clone,",
+		"  hardening/debugging, public/installable flow, agentic flow, or side-effecting",
+		"  flow",
+		"- identify the primary consumer: human operator, another flow, HTTP caller,",
+		"  MCP caller, public app user, or internal admin",
+		"- write the contract and acceptance matrix before source grows: trigger,",
+		"  inputs, setup, integrations, output shape, downstream consumer, failure",
+		"  behavior, reject/keep cases, required fields, forbidden output, dedupe keys,",
+		"  and representative proof inputs",
+		"- choose the shortest correct path: existing workspace flow, approved",
+		"  template, public/installable callable flow, or new build",
+		"- reuse a public/installable flow only if it satisfies the contract, output",
+		"  schema, setup/auth model, billing/entitlement model, and quality bar with",
+		"  less risk than rebuilding",
+		"- prove public/installable flow reuse with",
+		"  `breyta flows installations interfaces <installation-id>` and an",
+		"  installation-scoped `breyta flows interfaces call ... --installation-id <installation-id>`",
+		"- treat HTTP/MCP as consumer transports for installed callable interfaces,",
+		"  not as an instruction to create or assume extra builder infrastructure",
+		"- patch in focused lanes: behavior first, output/schema second, verification",
+		"  or observability only when runtime evidence shows a gap",
+	}, "\n")
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Default Loop\n\n" + guidance + "\n"
+}
+
+func ensureDebugAcceptanceCaseGuidance(body string) string {
+	if strings.Contains(body, "Before patching, convert the bad run, bad output, or UI mismatch into an") {
+		return body
+	}
+	guidance := strings.Join([]string{
+		"Before patching, convert the bad run, bad output, or UI mismatch into an",
+		"acceptance case: what should be rejected or kept, which fields/counts/resource",
+		"refs/rows prove success, which stale/debug/provider/internal content must be",
+		"absent, and which target/interface/installation/input will prove the fix.",
+	}, "\n")
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Default Loop\n\n" + guidance + "\n"
+}
+
+func ensureOutputHandoffContract(body string) string {
+	if h2LineStartOutsideFences(body, "## Downstream Handoff Contract") >= 0 {
+		return body
+	}
+	section := strings.Join([]string{
+		"## Downstream Handoff Contract",
+		"",
+		"Before editing final output, identify who or what consumes it: human operator,",
+		"another flow, HTTP caller, MCP caller, CRM/table sync, or public app user.",
+		"Shape the result for that consumer instead of returning an author debug map.",
+		"",
+		"For callable/API consumers, include stable structured fields such as status,",
+		"counts, selected items, manual-review items, clean ids/URLs, dedupe keys,",
+		"resource refs, table refs, warnings, and failure reasons. Keep readable",
+		"Markdown as presentation, not the only machine-readable contract, when another",
+		"flow must consume the result.",
+		"",
+		"For GTM/operator tables, verify representative rows as the user would scan",
+		"them: useful titles, clean URLs, clear reasons, dates/freshness, dedupe keys,",
+		"source evidence, and no company/private/provider/debug leakage. Reject outputs",
+		"that are structurally valid but not useful enough for the downstream action.",
+	}, "\n")
+	if headingPos := h2LineStartOutsideFences(body, "## Artifact Audience Review"); headingPos >= 0 {
+		return body[:headingPos] + section + "\n\n" + body[headingPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + section + "\n"
+}
+
+func ensurePublicFlowReuseDuringAuthoring(body string) string {
+	if strings.Contains(body, "During authoring, check public/installable flows before building from scratch") {
+		return body
+	}
+	guidance := strings.Join([]string{
+		"During authoring, check public/installable flows before building from scratch",
+		"when the desired output may already exist as a paid or free Breyta app. Reuse is",
+		"valid only when the installed flow satisfies the contract, output schema,",
+		"setup/auth model, billing/entitlement model, quality bar, and failure behavior",
+		"with less risk than editing or building a new flow.",
+	}, "\n")
+	anchor := "reuse a public flow, prefer the installed HTTP or MCP interface over author\ndraft/live endpoints."
+	if anchorPos := strings.Index(body, anchor); anchorPos >= 0 {
+		insertPos := anchorPos + len(anchor)
+		return body[:insertPos] + "\n\n" + guidance + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Public Flow As Reusable Tool"); headingPos >= 0 {
+		insertPos := headingPos + len("## Public Flow As Reusable Tool")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Public Flow As Reusable Tool\n\n" + guidance + "\n"
+}
 
 func ensureNamingConventionsSection(body string) string {
 	if h2LineStartOutsideFences(body, "## Readability + Searchability Naming Conventions (Required)") >= 0 {
