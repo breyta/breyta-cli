@@ -264,10 +264,26 @@ func looksLikeServiceAccountAPIKey(value string) bool {
 
 func validateMCPTokenEnvVarName(tokenEnvVar string) error {
 	tokenEnvVar = strings.TrimSpace(tokenEnvVar)
+	if !validMCPTokenEnvVarName(tokenEnvVar) {
+		return fmt.Errorf("invalid MCP token env var %q (expected letters, numbers, and underscores; must not start with a number)", tokenEnvVar)
+	}
 	if strings.EqualFold(tokenEnvVar, "BREYTA_TOKEN") {
 		return errors.New("BREYTA_TOKEN is reserved for user login tokens; use BREYTA_MCP_TOKEN, BREYTA_API_KEY, or another service-account API key env var")
 	}
 	return nil
+}
+
+func validMCPTokenEnvVarName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func explicitMCPWorkspaceID(cmd *cobra.Command, app *App, localWorkspaceID string) (string, error) {

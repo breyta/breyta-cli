@@ -847,6 +847,9 @@ func TestMCPTokenEnvVarSuppliesProxyToken(t *testing.T) {
 	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BREYTA_TOKEN"); err == nil {
 		t.Fatalf("expected reserved BREYTA_TOKEN env var error")
 	}
+	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BAD-TOKEN-NAME"); err == nil {
+		t.Fatalf("expected invalid token env var name error")
+	}
 }
 
 func TestMCPTokenEnvVarDoesNotOverrideExplicitTokenFlag(t *testing.T) {
@@ -1053,6 +1056,36 @@ func TestMCPConfigCommandRejectsUserTokenEnvName(t *testing.T) {
 	combined := stdout.String() + stderr.String()
 	if !strings.Contains(combined, "reserved for user login tokens") {
 		t.Fatalf("expected reserved token env var error, got stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestMCPConfigCommandRejectsInvalidTokenEnvName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"mcp", "config",
+		"--workspace-id", "ws-acme",
+		"--provider", "generic",
+		"--transport", "stdio",
+		"--token-env-var", "BAD-TOKEN-NAME",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected mcp config to reject invalid env var name")
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "invalid MCP token env var") {
+		t.Fatalf("expected invalid env var name error, got stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
