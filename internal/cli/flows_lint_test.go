@@ -385,6 +385,201 @@ func TestFlowsLintLocalOnlyBestEffortSkipsInactiveReaderForms(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyReadsReaderConditionalFunctionsValue(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-conditional-functions
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions #?(:cljs [{:id :cljs-only
+                       :code "(fn [input]\n  (assoc input :cljs true))"}]
+               :clj [{:id :build-plan
+                      :code "(fn [input]\n  (assoc input :ok true)"}])
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		switch item["code"] {
+		case "function_code_string_invalid":
+			path, _ := item["path"].([]any)
+			if len(path) < 3 || path[1] != ":build-plan" {
+				t.Fatalf("expected active :clj function id in path, got %#v", item)
+			}
+			return
+		case "function_code_string_scan_incomplete":
+			t.Fatalf("did not expect fallback scanner warning, got %#v", item)
+		}
+	}
+	t.Fatalf("expected function_code_string_invalid diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlyBestEffortReadsReaderConditionalFunctionsValue(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `#?(:clj
+   {:slug :top-level-reader-conditional-functions
+    :concurrency {:type :singleton :on-new-version :coexist}
+    :invocations {:default {:inputs []}}
+    :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+    :functions #?(:cljs [{:id :cljs-only
+                          :code "(fn [input]\n  (assoc input :cljs true))"}]
+                  :clj [{:id :build-plan
+                         :code "(fn [input]\n  (assoc input :ok true)"}])
+    :flow '(let [input (flow/input)]
+             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	var sawFallbackWarning, sawCodeError bool
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_code_string_scan_incomplete" && item["severity"] == "warning" {
+			sawFallbackWarning = true
+		}
+		if item["code"] == "function_code_string_invalid" && item["severity"] == "error" {
+			path, _ := item["path"].([]any)
+			if len(path) < 3 || path[1] != ":build-plan" {
+				t.Fatalf("expected active :clj function id in path, got %#v", item)
+			}
+			sawCodeError = true
+		}
+	}
+	if !sawFallbackWarning || !sawCodeError {
+		t.Fatalf("expected fallback warning and code-string error, got %#v", items)
+	}
+}
+
+func TestFlowsLintLocalOnlyReadsReaderConditionalFunctionEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-conditional-function-entries
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [#?(:cljs {:id :cljs-only
+                       :code "(fn [input]\n  (assoc input :cljs true)"}
+                :clj {:id :build-plan
+                      :code "(fn [input]\n  (assoc input :ok true))"})]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should ignore inactive reader-conditional function entry: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_code_string_invalid" || item["code"] == "function_code_string_scan_incomplete" {
+			t.Fatalf("unexpected reader-conditional function diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyReportsReaderConditionalCodeValue(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-conditional-code-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :build-plan
+              :code #?(:cljs "(fn [input]\n  (assoc input :cljs true))"
+                       :clj "(fn [input]\n  (assoc input :ok true)")}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		switch item["code"] {
+		case "function_code_string_invalid":
+			path, _ := item["path"].([]any)
+			if len(path) < 3 || path[1] != ":build-plan" {
+				t.Fatalf("expected active code value path, got %#v", item)
+			}
+			return
+		case "function_code_string_scan_incomplete":
+			t.Fatalf("did not expect fallback scanner warning, got %#v", item)
+		}
+	}
+	t.Fatalf("expected function_code_string_invalid diagnostic, got %#v", items)
+}
+
 func TestFlowsLintLocalOnlyAcceptsVarQuoteInFunctionCodeStrings(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

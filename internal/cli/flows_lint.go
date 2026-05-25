@@ -302,8 +302,19 @@ func bestEffortFunctionCodeStringsAt(src string, baseOffset int) []functionCodeS
 }
 
 func bestEffortReaderConditionalFunctionCodeStrings(src string, start int, baseOffset int) ([]functionCodeString, int, bool) {
-	if !strings.HasPrefix(src[start:], "#?") {
+	formStart, formEnd, next, ok := activeReaderConditionalForm(src, start)
+	if !ok {
 		return nil, start, false
+	}
+	if formStart < 0 {
+		return nil, next, true
+	}
+	return bestEffortFunctionCodeStringsAt(src[formStart:formEnd], baseOffset+formStart), next, true
+}
+
+func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
+	if !strings.HasPrefix(src[start:], "#?") {
+		return -1, -1, start, false
 	}
 	i := start + 2
 	if i < len(src) && src[i] == '@' {
@@ -311,41 +322,43 @@ func bestEffortReaderConditionalFunctionCodeStrings(src string, start int, baseO
 	}
 	i = skipClojureWhitespaceCommaAndComments(src, i)
 	if i >= len(src) || src[i] != '(' {
-		return nil, start, false
+		return -1, -1, start, false
 	}
 	i++
-	var out []functionCodeString
+	selectedStart := -1
+	selectedEnd := -1
 	selected := false
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
 		if i >= len(src) {
-			return nil, start, false
+			return -1, -1, start, false
 		}
 		if src[i] == ')' {
-			return out, i + 1, true
+			return selectedStart, selectedEnd, i + 1, true
 		}
 		featureStart := i
 		featureEnd, err := readClojureFormEnd(src, i)
 		if err != nil || featureEnd <= featureStart {
-			return nil, start, false
+			return -1, -1, start, false
 		}
 		active := !selected && readerConditionalFeatureActive(src[featureStart:featureEnd])
 		i = skipClojureWhitespaceCommaAndComments(src, featureEnd)
 		if i >= len(src) {
-			return nil, start, false
+			return -1, -1, start, false
 		}
 		formStart := i
 		formEnd, err := readClojureFormEnd(src, i)
 		if err != nil || formEnd <= formStart {
-			return nil, start, false
+			return -1, -1, start, false
 		}
 		if active {
-			out = append(out, bestEffortFunctionCodeStringsAt(src[formStart:formEnd], baseOffset+formStart)...)
+			selectedStart = formStart
+			selectedEnd = formEnd
 			selected = true
 		}
 		i = formEnd
 	}
-	return nil, start, false
+	return -1, -1, start, false
 }
 
 func readerConditionalFeatureActive(feature string) bool {
@@ -467,6 +480,18 @@ func extractFunctionsValueCodeStrings(src string, start int) ([]functionCodeStri
 	if i >= len(src) {
 		return nil, i, fmt.Errorf("missing :functions value")
 	}
+	if strings.HasPrefix(src[i:], "#?") {
+		formStart, _, next, ok := activeReaderConditionalForm(src, i)
+		if !ok {
+			next, err := readClojureFormEnd(src, i)
+			return nil, next, err
+		}
+		if formStart < 0 {
+			return nil, next, nil
+		}
+		codes, _, err := extractFunctionsValueCodeStrings(src, formStart)
+		return codes, next, err
+	}
 	switch src[i] {
 	case '[':
 		return extractFunctionVectorCodeStrings(src, i)
@@ -490,6 +515,18 @@ func extractFunctionVectorCodeStrings(src string, start int) ([]functionCodeStri
 		if src[i] == ']' {
 			return out, i + 1, nil
 		}
+		if strings.HasPrefix(src[i:], "#?") {
+			codes, next, ok, err := extractReaderConditionalFunctionEntryCodeStrings(src, i, fmt.Sprintf("[%d]", index))
+			if ok {
+				if err != nil {
+					return out, next, err
+				}
+				out = append(out, codes...)
+				i = next
+				index++
+				continue
+			}
+		}
 		if src[i] == '{' {
 			codes, next, err := extractFunctionEntryCodeStrings(src, i, fmt.Sprintf("[%d]", index))
 			if err != nil {
@@ -510,6 +547,26 @@ func extractFunctionVectorCodeStrings(src string, start int) ([]functionCodeStri
 		index++
 	}
 	return out, i, fmt.Errorf("unterminated :functions vector")
+}
+
+func extractReaderConditionalFunctionEntryCodeStrings(src string, start int, fallbackLabel string) ([]functionCodeString, int, bool, error) {
+	formStart, _, next, ok := activeReaderConditionalForm(src, start)
+	if !ok {
+		return nil, start, false, nil
+	}
+	if formStart < 0 {
+		return nil, next, true, nil
+	}
+	switch src[formStart] {
+	case '{':
+		codes, _, err := extractFunctionEntryCodeStrings(src, formStart, fallbackLabel)
+		return codes, next, true, err
+	case '[':
+		codes, _, err := extractFunctionVectorCodeStrings(src, formStart)
+		return codes, next, true, err
+	default:
+		return nil, next, true, nil
+	}
 }
 
 func extractFunctionMapCodeStrings(src string, start int) ([]functionCodeString, int, error) {
@@ -535,6 +592,23 @@ func extractFunctionMapCodeStrings(src string, start int) ([]functionCodeString,
 		i = skipClojureWhitespaceCommaAndComments(src, keyEnd)
 		if i >= len(src) {
 			return out, i, fmt.Errorf("missing :functions map value")
+		}
+		if strings.HasPrefix(src[i:], "#?") {
+			value, valueStart, next, ok, err := readActiveReaderConditionalStringToken(src, i)
+			if err != nil {
+				return out, next, err
+			}
+			if ok {
+				if valueStart >= 0 {
+					out = append(out, functionCodeString{
+						Code:       value,
+						Path:       []string{":functions", label, ":code"},
+						ByteOffset: valueStart,
+					})
+				}
+				i = next
+				continue
+			}
 		}
 		if src[i] == '"' {
 			_, value, next, err := readClojureStringToken(src, i)
@@ -601,7 +675,23 @@ func extractFunctionEntryCodeStrings(src string, start int, fallbackLabel string
 			}
 			i = next
 		case "code":
-			if src[i] == '"' {
+			if strings.HasPrefix(src[i:], "#?") {
+				value, valueStart, next, ok, err := readActiveReaderConditionalStringToken(src, i)
+				if err != nil {
+					return local, next, err
+				}
+				if ok {
+					if valueStart >= 0 {
+						local = append(local, functionCodeString{
+							Code:       value,
+							ByteOffset: valueStart,
+						})
+					}
+					i = next
+				} else {
+					i++
+				}
+			} else if src[i] == '"' {
 				_, value, next, err := readClojureStringToken(src, i)
 				if err != nil {
 					return local, next, err
@@ -633,6 +723,24 @@ func extractFunctionEntryCodeStrings(src string, start int, fallbackLabel string
 		}
 	}
 	return local, i, fmt.Errorf("unterminated function map")
+}
+
+func readActiveReaderConditionalStringToken(src string, start int) (string, int, int, bool, error) {
+	formStart, _, next, ok := activeReaderConditionalForm(src, start)
+	if !ok {
+		return "", -1, start, false, nil
+	}
+	if formStart < 0 {
+		return "", -1, next, true, nil
+	}
+	if src[formStart] != '"' {
+		return "", -1, next, true, nil
+	}
+	_, value, _, err := readClojureStringToken(src, formStart)
+	if err != nil {
+		return "", formStart, next, true, err
+	}
+	return value, formStart, next, true, nil
 }
 
 func clojureKeywordName(token string) string {
