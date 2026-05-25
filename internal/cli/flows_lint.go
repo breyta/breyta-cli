@@ -15,6 +15,7 @@ type flowLintDiagnostic map[string]any
 
 var (
 	flowLintWorkspaceIDRe    = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
+	flowLintNilConcurrencyRe = regexp.MustCompile(`:concurrency\s+nil(?:\s|[,}\)\]])`)
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
 )
 
@@ -169,6 +170,9 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 		if !strings.Contains(flowLiteral, key) {
 			diagnostics = append(diagnostics, lintDiagnostic("error", "missing_required_field", []string{key}, "Missing required field "+key, "Add "+key+" before pushing.", "local"))
 		}
+	}
+	if flowLintNilConcurrencyRe.MatchString(flowLiteral) {
+		diagnostics = append(diagnostics, lintDiagnostic("error", "invalid_required_field", []string{":concurrency"}, ":concurrency cannot be nil.", "Use a concurrency map such as {:type :singleton :on-new-version :coexist} before pushing.", "local"))
 	}
 	if strings.Contains(flowLiteral, ":triggers") && strings.Contains(flowLiteral, ":manual") {
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "deprecated_manual_trigger", []string{":triggers"}, "Manual triggers are legacy for new flow source.", "Use :interfaces {:manual [...]} with :invocations.", "local"))

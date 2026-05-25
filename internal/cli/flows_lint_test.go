@@ -134,6 +134,48 @@ func TestFlowsLintLocalOnlyWarnsOnUnboundedRange(t *testing.T) {
 	t.Fatalf("expected sandbox_unbounded_range warning, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsNilConcurrency(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :nil-concurrency
+ :concurrency nil
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "invalid_required_field" && item["severity"] == "error" {
+			path, _ := item["path"].([]any)
+			if len(path) != 1 || path[0] != ":concurrency" {
+				t.Fatalf("expected :concurrency path, got %#v", item)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected invalid_required_field diagnostic, got %#v", items)
+}
+
 func TestFlowsLintLocalOnlyReportsFunctionCodeStringSyntaxErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

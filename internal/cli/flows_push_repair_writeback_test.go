@@ -142,7 +142,7 @@ func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "flow.clj")
-	content := "(defn f [x]\n  (+ x 1)\n"
+	content := "{:slug :bad\n :flow '(identity 1)\n"
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -164,6 +164,50 @@ func TestFlowsPush_NoWriteback_DoesNotTouchFile(t *testing.T) {
 	}
 	if string(after) != content {
 		t.Fatalf("expected file unchanged")
+	}
+}
+
+func TestFlowsPush_StopsBeforeUploadWhenDelimitersInvalidWithoutRepair(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	called := false
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		_ = method
+		_ = payload
+		called = true
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "flow.clj")
+	content := "(defn f [x]\n  (+ x 1)\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsPushCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", file})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected execute error")
+	}
+	if called {
+		t.Fatalf("expected push to stop before upload")
+	}
+	if !bytes.Contains(out.Bytes(), []byte("breyta flows paren-repair --file")) {
+		t.Fatalf("expected paren-repair hint, got:\n%s", out.String())
 	}
 }
 

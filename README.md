@@ -507,6 +507,11 @@ Preferred handler helpers:
 Raw `BREYTA_JOB_RESULT_FILE` writes remain supported for advanced handlers, but
 the normal path is to let the CLI build that file.
 
+KV `:get` step results are document wrappers. Read the payload from `:value`
+and remember that JSON object keys remain strings in runtime output, for
+example `(get-in kv-doc [:value "customer-id"])` rather than expecting a
+top-level keywordized map.
+
 Minimal handler implementation:
 
 ```bash
@@ -627,6 +632,11 @@ breyta resources table materialize-join --left-json '{"table":{"ref":"res://...o
   `--include-total-count`, or `--page-mode cursor` is provided
 - `--page-mode cursor` also requires `--sort-json`
 - the first cursor page omits `--cursor`
+
+Flow-authored `:table` query paging is deliberately static at validation time:
+set `:query {:page {:limit 25}}` or another literal positive integer. Dynamic
+forms such as `:limit (:limit input)` are rejected; choose or clamp the bound
+before the table step and pass a literal query limit to the step.
 
 CSV import onto an existing table uses the live schema to coerce `boolean`, `number`, `date`, and `timestamp` columns before write. Text and mixed columns stay string-backed unless you write native JSON values.
 

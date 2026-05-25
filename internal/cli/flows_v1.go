@@ -1161,6 +1161,15 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					}
 				}
 			}
+			if !repairDelimiters {
+				if checkErr := parenrepair.Check(flowLiteral); checkErr != nil {
+					hint := "Run: breyta flows lint --file " + file
+					if errors.Is(checkErr, parenrepair.ErrUnbalancedDelimiters) {
+						hint = "Run: breyta flows paren-repair --file " + file + " or retry push with --repair-delimiters=true"
+					}
+					return writeErr(cmd, fmt.Errorf("flow source is not readable: %w. %s", checkErr, hint))
+				}
+			}
 
 			repairWriteback := !noRepairWriteback
 			if repairWriteback && flowLiteral != orig {
@@ -1276,7 +1285,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path to a flow .clj file")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live). live is not valid for push")
-	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", true, "Attempt best-effort delimiter repair before uploading")
+	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", false, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
 	cmd.Flags().BoolVar(&includeProvenance, "provenance", false, "Include full consulted provenance candidate list in output")
