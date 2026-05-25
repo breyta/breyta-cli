@@ -251,65 +251,181 @@ func validateFunctionCodeString(code string) error {
 }
 
 func bestEffortFunctionCodeStrings(src string) []functionCodeString {
-	return bestEffortFunctionCodeStringsAt(src, 0)
+	codes, _ := bestEffortTopLevelFunctionCodeStrings(src, 0)
+	return codes
 }
 
-func bestEffortFunctionCodeStringsAt(src string, baseOffset int) []functionCodeString {
+func bestEffortTopLevelFunctionCodeStrings(src string, baseOffset int) ([]functionCodeString, bool) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	for i < len(src) {
+		switch {
+		case src[i] == '{':
+			return bestEffortFunctionCodeStringsInTopLevelMap(src, i, baseOffset), true
+		case src[i] == '^':
+			metaStart := i
+			metaEnd, err := readClojureFormEnd(src, i+1)
+			if err != nil || metaEnd <= i+1 {
+				return nil, false
+			}
+			if metaEnd <= metaStart {
+				return nil, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardStart := i
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				return nil, false
+			}
+			if discardEnd <= discardStart {
+				return nil, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		case strings.HasPrefix(src[i:], "#?"):
+			formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+			if !ok {
+				return nil, false
+			}
+			if formStart < 0 {
+				return nil, true
+			}
+			return bestEffortTopLevelFunctionCodeStrings(src[formStart:formEnd], baseOffset+formStart)
+		default:
+			return nil, false
+		}
+	}
+	return nil, true
+}
+
+func bestEffortFunctionCodeStringsInTopLevelMap(src string, start int, baseOffset int) []functionCodeString {
 	var out []functionCodeString
-	for i := 0; i < len(src); {
-		switch src[i] {
-		case '"':
-			_, _, next, err := readClojureStringToken(src, i)
-			if err != nil {
+	i := start + 1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) || src[i] == '}' {
+			return out
+		}
+
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil || keyEnd <= keyStart {
+			next := skipTopLevelMapValueBestEffort(src, i)
+			if next <= i {
 				i++
 			} else {
 				i = next
 			}
 			continue
-		case ';':
-			i = readCommentEnd(src, i)
-			continue
 		}
 
-		if strings.HasPrefix(src[i:], "#_") {
-			next, err := readClojureFormEnd(src, i+2)
-			if err == nil && next > i {
-				i = next
-				continue
-			}
+		key := clojureKeywordName(src[keyStart:keyEnd])
+		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if valueStart >= len(src) {
+			return out
 		}
-		if strings.HasPrefix(src[i:], "#?") {
-			codes, next, ok := bestEffortReaderConditionalFunctionCodeStrings(src, i, baseOffset)
-			if ok {
-				out = append(out, codes...)
-				i = next
-				continue
-			}
-		}
-		if isClojureKeywordAt(src, i, ":functions") {
-			valueStart := skipClojureWhitespaceCommaAndComments(src, i+len(":functions"))
+		if key == "functions" {
 			codes, next, err := extractFunctionsValueCodeStrings(src, valueStart)
 			offsetFunctionCodeStrings(codes, baseOffset)
 			out = append(out, codes...)
-			if err == nil && next > i {
+			if err == nil && next > valueStart {
 				i = next
-				continue
+			} else {
+				i = skipTopLevelMapValueBestEffort(src, valueStart)
+				if i <= valueStart {
+					return out
+				}
 			}
+			continue
 		}
-		i++
+
+		next, err := readClojureFormEnd(src, valueStart)
+		if err == nil && next > valueStart {
+			i = next
+			continue
+		}
+		next = skipTopLevelMapValueBestEffort(src, valueStart)
+		if next <= valueStart {
+			i = valueStart + 1
+		} else {
+			i = next
+		}
 	}
 	return out
 }
 
-func bestEffortReaderConditionalFunctionCodeStrings(src string, start int, baseOffset int) ([]functionCodeString, int, bool) {
-	formStart, formEnd, next, ok := activeReaderConditionalForm(src, start)
-	if !ok {
-		return nil, start, false
+func skipTopLevelMapValueBestEffort(src string, start int) int {
+	i := start
+	depth := 0
+	consumed := false
+	for i < len(src) {
+		if depth == 0 && consumed {
+			next := skipClojureWhitespaceCommaAndComments(src, i)
+			if next != i {
+				i = next
+				if i >= len(src) || src[i] == '}' || isProbableTopLevelMapKey(src, i) {
+					return i
+				}
+				continue
+			}
+			if src[i] == '}' || isProbableTopLevelMapKey(src, i) {
+				return i
+			}
+		}
+
+		switch src[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			consumed = true
+		case ';':
+			i = readCommentEnd(src, i)
+		case '(', '[', '{':
+			depth++
+			i++
+			consumed = true
+		case ')', ']':
+			if depth > 0 {
+				depth--
+			}
+			i++
+			consumed = true
+		case '}':
+			if depth == 0 {
+				return i
+			}
+			depth--
+			i++
+			consumed = true
+		default:
+			if isClojureWhitespaceOrComma(src[i]) {
+				i++
+				continue
+			}
+			next := readClojureTokenEnd(src, i)
+			if next <= i {
+				i++
+			} else {
+				i = next
+			}
+			consumed = true
+		}
 	}
-	if formStart < 0 {
-		return nil, next, true
+	return i
+}
+
+func isProbableTopLevelMapKey(src string, start int) bool {
+	if start < 0 || start >= len(src) || src[start] != ':' {
+		return false
 	}
-	return bestEffortFunctionCodeStringsAt(src[formStart:formEnd], baseOffset+formStart), next, true
+	if start > 0 && !isClojureTokenDelimiter(src[start-1]) && !isClojureWhitespaceOrComma(src[start-1]) {
+		return false
+	}
+	next := readClojureTokenEnd(src, start)
+	return next > start+1
 }
 
 func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {

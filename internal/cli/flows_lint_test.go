@@ -668,6 +668,58 @@ func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *tes
 	}
 }
 
+func TestFlowsLintLocalOnlyBestEffortIgnoresNestedFunctionsInFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :fallback-nested-functions
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :helper #^String some-var
+ :functions [{:id :build-plan
+              :code "(fn [input]\n  (assoc input :ok true))"}]
+ :flow '(let [shadow {:functions [{:id :shadow
+                                   :code "(fn [input]\n  (assoc input :shadow true)"}]}
+              input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should not fail on nested :functions literals in fallback mode: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	var sawFallbackWarning bool
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		switch item["code"] {
+		case "function_code_string_scan_incomplete":
+			if item["severity"] == "warning" {
+				sawFallbackWarning = true
+			}
+		case "function_code_string_invalid":
+			t.Fatalf("nested :flow :functions produced lint-blocking diagnostic: %#v", item)
+		}
+	}
+	if !sawFallbackWarning {
+		t.Fatalf("expected fallback warning, got %#v", items)
+	}
+}
+
 func TestFlowsLintLocalOnlySkipsAutomaticSkillNetwork(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
