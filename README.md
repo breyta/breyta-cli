@@ -438,6 +438,98 @@ breyta service-accounts create \
 for that workspace, but it does not make service-account management or human UI
 surfaces machine-accessible.
 
+## Workspace MCP setup for coding agents
+
+Breyta exposes one workspace MCP server per workspace:
+
+```text
+https://flows.breyta.ai/api/workspaces/<workspace-id>/mcp
+```
+
+Use direct HTTP MCP when the coding agent supports hosted Streamable HTTP MCP.
+Use the CLI stdio proxy when the agent or ACP-compatible host only supports
+stdio MCP servers. Both forms stay bound to one explicit workspace id.
+
+Create a scoped service account and key for the MCP host. For the read-only
+setup below, start with discovery, setup, run inspection, connection inventory,
+step reference, and feedback scopes:
+
+```bash
+breyta service-accounts create \
+  --name workspace-mcp-agent \
+  --scope flows.read \
+  --scope runs.read \
+  --scope resources.read \
+  --scope installations.read \
+  --scope connections.read \
+  --scope steps.read \
+  --scope feedback.send
+
+breyta service-accounts keys create <service-account-id> --name coding-agent
+```
+
+Add `flows.run` only for MCP server entries that expose the `run` toolset or
+allow `call_flow_tool`.
+
+Store the returned `apiKey` outside source control:
+
+```bash
+export BREYTA_MCP_TOKEN="<service-account-api-key>"
+```
+
+Do not point MCP configs at `BREYTA_TOKEN`; that variable is reserved for
+interactive user login tokens. Use `BREYTA_MCP_TOKEN`, `BREYTA_API_KEY`, or
+another env var that contains a service-account API key.
+
+Print a copyable stdio config for an MCP host:
+
+```bash
+breyta mcp config \
+  --workspace-id ws-acme \
+  --provider codex \
+  --transport stdio \
+  --read-only \
+  --toolsets read,setup,debug,feedback
+```
+
+`breyta mcp init` is an alias for `breyta mcp config` when a setup flow reads
+more naturally than a raw config command.
+
+Print a direct HTTP config for clients that support hosted HTTP MCP:
+
+```bash
+breyta mcp config \
+  --workspace-id ws-acme \
+  --provider codex \
+  --transport http \
+  --read-only \
+  --toolsets read,setup,debug,feedback
+```
+
+Run the stdio proxy manually when testing a generated config:
+
+```bash
+breyta mcp stdio \
+  --workspace-id ws-acme \
+  --token-env-var BREYTA_MCP_TOKEN \
+  --read-only \
+  --toolsets read,setup,feedback
+```
+
+Verify setup without invoking mutating tools:
+
+```bash
+breyta mcp doctor \
+  --workspace-id ws-acme \
+  --token-env-var BREYTA_MCP_TOKEN \
+  --read-only \
+  --toolsets read,setup,feedback
+```
+
+`breyta init --mcp --mcp-workspace-id ws-acme` can print the same setup snippet
+while creating a local agent workspace. Multi-workspace use should be modeled as
+multiple named MCP server entries, not runtime workspace switching.
+
 ## Dev utilities
 
 Analyze an old agent authoring session for command/token regressions:

@@ -183,7 +183,30 @@ func NewRootCmd() *cobra.Command {
 		// of whether a subcommand is being executed. For commands like `breyta auth login`,
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		machineCredentialExplicit := apiKeyFlagExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
+		mcpTokenEnvVarExplicit := commandConsumesMCPTokenEnvCredential(cmd) && flagExplicit(cmd, "token-env-var")
+		mcpTokenEnvServiceAccountExplicit := false
+		if mcpTokenEnvVarExplicit && !apiKeyFlagExplicit && !tokenFlagExplicit {
+			tokenEnvVar, err := cmd.Flags().GetString("token-env-var")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			tokenEnvVar = strings.TrimSpace(tokenEnvVar)
+			if tokenEnvVar == "" {
+				return writeErr(cmd, errors.New("--token-env-var requires an environment variable name"))
+			}
+			if err := validateMCPTokenEnvVarName(tokenEnvVar); err != nil {
+				return writeErr(cmd, err)
+			}
+			tokenEnvValue := strings.TrimSpace(os.Getenv(tokenEnvVar))
+			if tokenEnvValue == "" {
+				return writeErr(cmd, fmt.Errorf("missing %s environment variable", tokenEnvVar))
+			}
+			if !looksLikeServiceAccountAPIKey(tokenEnvValue) {
+				return writeErr(cmd, fmt.Errorf("%s must contain a service-account API key", tokenEnvVar))
+			}
+			mcpTokenEnvServiceAccountExplicit = true
+		}
+		machineCredentialExplicit := apiKeyFlagExplicit || mcpTokenEnvServiceAccountExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
 		if isSubcommand {
 			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
 			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
@@ -349,6 +372,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newDemandCmd(app))
 	cmd.AddCommand(newDocsCmd(app))
 	cmd.AddCommand(newFeedbackCmd(app))
+	cmd.AddCommand(newMCPCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.AddCommand(newUpgradeCmd(app))
 	cmd.AddCommand(newInternalCmd(app))
@@ -374,7 +398,26 @@ func commandShouldWarnSkillDrift(cmd *cobra.Command) bool {
 }
 
 func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
+	if topLevelCommandName(cmd) == "mcp" {
+		return true
+	}
 	return commandIsFlowsLintLocalOnly(cmd)
+}
+
+func commandConsumesMCPTokenEnvCredential(cmd *cobra.Command) bool {
+	return topLevelCommandName(cmd) == "mcp" && (cmd.Name() == "stdio" || cmd.Name() == "doctor")
+}
+
+func topLevelCommandName(cmd *cobra.Command) string {
+	if cmd == nil || cmd.Root() == nil || cmd == cmd.Root() {
+		return ""
+	}
+	root := cmd.Root()
+	top := cmd
+	for top.Parent() != nil && top.Parent() != root {
+		top = top.Parent()
+	}
+	return strings.TrimSpace(top.Name())
 }
 
 func commandIsFlowsLintLocalOnly(cmd *cobra.Command) bool {

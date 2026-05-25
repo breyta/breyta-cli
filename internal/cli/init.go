@@ -19,6 +19,14 @@ func newInitCmd(app *App) *cobra.Command {
 	var force bool
 	var noSkill bool
 	var noWorkspace bool
+	var withMCP bool
+	var mcpProvider string
+	var mcpTransport string
+	var mcpWorkspaceID string
+	var mcpName string
+	var mcpTokenEnvVar string
+	var mcpToolsets string
+	var mcpReadOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -44,7 +52,7 @@ breyta init --provider gemini
 breyta init --dir ./my-breyta-workspace --force
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if noSkill && noWorkspace {
+			if noSkill && noWorkspace && !withMCP {
 				return errors.New("nothing to do (both --no-skill and --no-workspace were set)")
 			}
 
@@ -101,6 +109,19 @@ breyta init --dir ./my-breyta-workspace --force
 			}
 
 			if noWorkspace {
+				if withMCP {
+					return writeInitMCPConfig(cmd, app, mcpSetupOptions{
+						Provider:    mcpProvider,
+						Transport:   mcpTransport,
+						ServerName:  mcpName,
+						WorkspaceID: mcpWorkspaceID,
+						TokenEnvVar: mcpTokenEnvVar,
+						Policy: mcpPolicyOptions{
+							Toolsets: mcpToolsets,
+							ReadOnly: mcpReadOnly,
+						},
+					})
+				}
 				return nil
 			}
 
@@ -167,6 +188,19 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search docs: breyta docs find \"<idea or primitive>\" --limit 5 --format json")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search approved templates: breyta flows templates search \"<problem or integration query>\" --limit 5")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
+			if withMCP {
+				return writeInitMCPConfig(cmd, app, mcpSetupOptions{
+					Provider:    mcpProvider,
+					Transport:   mcpTransport,
+					ServerName:  mcpName,
+					WorkspaceID: mcpWorkspaceID,
+					TokenEnvVar: mcpTokenEnvVar,
+					Policy: mcpPolicyOptions{
+						Toolsets: mcpToolsets,
+						ReadOnly: mcpReadOnly,
+					},
+				})
+			}
 			return nil
 		},
 	}
@@ -177,7 +211,33 @@ breyta init --dir ./my-breyta-workspace --force
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing files in the workspace directory")
 	cmd.Flags().BoolVar(&noSkill, "no-skill", false, "Skip installing the agent skill bundle")
 	cmd.Flags().BoolVar(&noWorkspace, "no-workspace", false, "Skip creating the workspace directory and files")
+	cmd.Flags().BoolVar(&withMCP, "mcp", false, "Also print workspace-bound MCP client config")
+	cmd.Flags().StringVar(&mcpProvider, "mcp-provider", "generic", "MCP config provider (generic|codex|claude|cursor|vscode|windsurf|cline|roo|continue|gemini|opencode|zed|goose|acp)")
+	cmd.Flags().StringVar(&mcpTransport, "mcp-transport", "stdio", "MCP transport to render (stdio|http)")
+	cmd.Flags().StringVar(&mcpWorkspaceID, "mcp-workspace-id", "", "Workspace id to bind the MCP server to")
+	cmd.Flags().StringVar(&mcpName, "mcp-name", defaultMCPServerName, "MCP server entry name")
+	cmd.Flags().StringVar(&mcpTokenEnvVar, "mcp-token-env-var", defaultMCPTokenEnvVar, "Environment variable containing the service-account API key")
+	cmd.Flags().StringVar(&mcpToolsets, "mcp-toolsets", "", "Comma-separated MCP toolsets to expose")
+	cmd.Flags().BoolVar(&mcpReadOnly, "mcp-read-only", false, "Expose only read-only MCP tools")
 	return cmd
+}
+
+func writeInitMCPConfig(cmd *cobra.Command, app *App, opts mcpSetupOptions) error {
+	resolvedWorkspace, err := explicitMCPWorkspaceID(cmd, app, opts.WorkspaceID)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	ensureAPIURL(app)
+	opts.WorkspaceID = resolvedWorkspace
+	opts.APIURL = app.APIURL
+	rendered, err := renderMCPClientConfig(opts)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "MCP config (%s/%s, workspace %s):\n", strings.TrimSpace(opts.Provider), strings.TrimSpace(opts.Transport), resolvedWorkspace)
+	fmt.Fprintln(cmd.OutOrStdout(), rendered)
+	return nil
 }
 
 func writeInitFile(path string, content []byte, force bool) (bool, error) {
