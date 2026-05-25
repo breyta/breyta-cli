@@ -625,7 +625,7 @@ func ensureAuthoringDefaultsContractMatrix(body string) string {
 }
 
 func ensureAuthorFlowEfficientLoop(body string) string {
-	if strings.Contains(body, "Write the contract and acceptance matrix before source grows") {
+	if strings.Contains(body, "write the contract and acceptance matrix before source grows") {
 		return body
 	}
 	guidance := strings.Join([]string{
@@ -665,7 +665,7 @@ func ensureAuthorFlowEfficientLoop(body string) string {
 }
 
 func ensureDebugAcceptanceCaseGuidance(body string) string {
-	if strings.Contains(body, "Convert the failure into an acceptance case before patching") {
+	if strings.Contains(body, "Before patching, convert the bad run, bad output, or UI mismatch into an") {
 		return body
 	}
 	guidance := strings.Join([]string{

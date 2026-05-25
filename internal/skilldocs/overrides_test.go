@@ -219,6 +219,13 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
 		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
 	}
+
+	gotAgain := ApplyCLIOverrides("breyta", got)
+	for name, first := range got {
+		if string(gotAgain[name]) != string(first) {
+			t.Fatalf("expected override to be idempotent for %s\nfirst:\n%s\nsecond:\n%s", name, string(first), string(gotAgain[name]))
+		}
+	}
 }
 
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
