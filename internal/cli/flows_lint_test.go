@@ -328,6 +328,63 @@ func TestFlowsLintLocalOnlyBestEffortIgnoresNonFunctionCodeStrings(t *testing.T)
 	}
 }
 
+func TestFlowsLintLocalOnlyBestEffortSkipsInactiveReaderForms(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `#_ {:functions [{:id :discarded
+                  :code "(fn [input]\n  (assoc input :discarded true)"}]}
+#?(:cljs
+   {:slug :inactive-reader-branch
+    :functions [{:id :cljs-only
+                 :code "(fn [input]\n  (assoc input :cljs true)"}]
+    :flow '(identity {})}
+   :clj
+   {:slug :reader-conditional-with-inactive-forms
+    :concurrency {:type :singleton :on-new-version :coexist}
+    :invocations {:default {:inputs []}}
+    :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+    :functions [{:id :build-plan
+                 :code "(fn [input]\n  (assoc input :ok true))"}]
+    :flow '(let [input (flow/input)]
+             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should not fail on inactive reader forms in fallback mode: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	var sawFallbackWarning bool
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		switch item["code"] {
+		case "function_code_string_scan_incomplete":
+			if item["severity"] == "warning" {
+				sawFallbackWarning = true
+			}
+		case "function_code_string_invalid":
+			t.Fatalf("inactive reader form produced lint-blocking diagnostic: %#v", item)
+		}
+	}
+	if !sawFallbackWarning {
+		t.Fatalf("expected fallback warning, got %#v", items)
+	}
+}
+
 func TestFlowsLintLocalOnlyAcceptsVarQuoteInFunctionCodeStrings(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

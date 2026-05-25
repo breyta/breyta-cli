@@ -251,6 +251,10 @@ func validateFunctionCodeString(code string) error {
 }
 
 func bestEffortFunctionCodeStrings(src string) []functionCodeString {
+	return bestEffortFunctionCodeStringsAt(src, 0)
+}
+
+func bestEffortFunctionCodeStringsAt(src string, baseOffset int) []functionCodeString {
 	var out []functionCodeString
 	for i := 0; i < len(src); {
 		switch src[i] {
@@ -267,9 +271,25 @@ func bestEffortFunctionCodeStrings(src string) []functionCodeString {
 			continue
 		}
 
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := readClojureFormEnd(src, i+2)
+			if err == nil && next > i {
+				i = next
+				continue
+			}
+		}
+		if strings.HasPrefix(src[i:], "#?") {
+			codes, next, ok := bestEffortReaderConditionalFunctionCodeStrings(src, i, baseOffset)
+			if ok {
+				out = append(out, codes...)
+				i = next
+				continue
+			}
+		}
 		if isClojureKeywordAt(src, i, ":functions") {
 			valueStart := skipClojureWhitespaceCommaAndComments(src, i+len(":functions"))
 			codes, next, err := extractFunctionsValueCodeStrings(src, valueStart)
+			offsetFunctionCodeStrings(codes, baseOffset)
 			out = append(out, codes...)
 			if err == nil && next > i {
 				i = next
@@ -279,6 +299,71 @@ func bestEffortFunctionCodeStrings(src string) []functionCodeString {
 		i++
 	}
 	return out
+}
+
+func bestEffortReaderConditionalFunctionCodeStrings(src string, start int, baseOffset int) ([]functionCodeString, int, bool) {
+	if !strings.HasPrefix(src[start:], "#?") {
+		return nil, start, false
+	}
+	i := start + 2
+	if i < len(src) && src[i] == '@' {
+		i++
+	}
+	i = skipClojureWhitespaceCommaAndComments(src, i)
+	if i >= len(src) || src[i] != '(' {
+		return nil, start, false
+	}
+	i++
+	var out []functionCodeString
+	selected := false
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return nil, start, false
+		}
+		if src[i] == ')' {
+			return out, i + 1, true
+		}
+		featureStart := i
+		featureEnd, err := readClojureFormEnd(src, i)
+		if err != nil || featureEnd <= featureStart {
+			return nil, start, false
+		}
+		active := !selected && readerConditionalFeatureActive(src[featureStart:featureEnd])
+		i = skipClojureWhitespaceCommaAndComments(src, featureEnd)
+		if i >= len(src) {
+			return nil, start, false
+		}
+		formStart := i
+		formEnd, err := readClojureFormEnd(src, i)
+		if err != nil || formEnd <= formStart {
+			return nil, start, false
+		}
+		if active {
+			out = append(out, bestEffortFunctionCodeStringsAt(src[formStart:formEnd], baseOffset+formStart)...)
+			selected = true
+		}
+		i = formEnd
+	}
+	return nil, start, false
+}
+
+func readerConditionalFeatureActive(feature string) bool {
+	switch strings.TrimSpace(feature) {
+	case ":clj", ":default":
+		return true
+	default:
+		return false
+	}
+}
+
+func offsetFunctionCodeStrings(codes []functionCodeString, offset int) {
+	if offset == 0 {
+		return
+	}
+	for i := range codes {
+		codes[i].ByteOffset += offset
+	}
 }
 
 func isClojureKeywordAt(src string, start int, keyword string) bool {
