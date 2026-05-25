@@ -94,12 +94,21 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 			}
 			deadline := time.Now().Add(timeout)
+			polls := 0
+			var nextTerminalFallback time.Time
 			for {
 				execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", compactRunsGetPayload(workflowID))
 				if err != nil {
 					return writeErr(cmd, err)
 				}
 				if execStatus == 404 {
+					polls++
+					if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+						nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+						if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, ""); err == nil && ok {
+							return writeAPIResult(cmd, app, finalResp, finalStatus)
+						}
+					}
 					if time.Now().After(deadline) {
 						return writeAPIResult(cmd, app, execResp, execStatus)
 					}
@@ -113,8 +122,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				execData, _ := execDataAny.(map[string]any)
 				runAny := execData["run"]
 				run, _ := runAny.(map[string]any)
-				statusStr, _ := run["status"].(string)
-				if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" || statusStr == "canceled" || statusStr == "terminated" || statusStr == "timed-out" || statusStr == "timed_out" {
+				if isTerminalRunStatus(canonicalRunStatus(run["status"])) {
 					finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, "")
 					if err != nil {
 						return writeErr(cmd, err)
@@ -124,6 +132,13 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 						finalStatus = execStatus
 					}
 					return writeAPIResult(cmd, app, finalResp, finalStatus)
+				}
+				polls++
+				if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+					nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+					if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, ""); err == nil && ok {
+						return writeAPIResult(cmd, app, finalResp, finalStatus)
+					}
 				}
 				if time.Now().After(deadline) {
 					timeoutOut := map[string]any{
