@@ -740,6 +740,49 @@ func TestFlowsLintLocalOnlyRejectsReaderEvalInFlowSource(t *testing.T) {
 	t.Fatalf("expected clojure_reader_eval_disabled diagnostic, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsReaderEvalInIncludedFlowSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includeFile := filepath.Join(tmpDir, "unsafe.edn")
+	if err := os.WriteFile(includeFile, []byte(`#=(identity :unsafe)`), 0o644); err != nil {
+		t.Fatalf("write include file: %v", err)
+	}
+	flowLiteral := `{:slug :reader-eval-source-include
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :helper #flow/include "unsafe.edn"
+ :flow '(let [input (flow/input)] input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "clojure_reader_eval_disabled" && item["severity"] == "error" {
+			return
+		}
+	}
+	t.Fatalf("expected clojure_reader_eval_disabled diagnostic, got %#v", items)
+}
+
 func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
