@@ -215,6 +215,231 @@ func TestMCPStdioProxyUsesNegotiatedProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestMCPStdioProxyUsesNegotiatedProtocolVersionFromMultiMessageSSE(t *testing.T) {
+	var requestCount int
+	var secondProtocolVersion string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch requestCount {
+		case 1:
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(`event: message
+data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"starting"}}
+
+event: message
+data: {"jsonrpc":"2.0","id":"one","result":{"protocolVersion":"2025-06-18"}}
+
+`))
+		case 2:
+			secondProtocolVersion = r.Header.Get("MCP-Protocol-Version")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In: strings.NewReader(
+			`{"jsonrpc":"2.0","id":"one","method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n" +
+				`{"jsonrpc":"2.0","id":"two","method":"tools/list"}` + "\n"),
+		Out: &stdout,
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	if secondProtocolVersion != "2025-06-18" {
+		t.Fatalf("second request did not use streamed negotiated MCP protocol version: %q\nstdout=%s", secondProtocolVersion, stdout.String())
+	}
+}
+
+func TestMCPStdioProxyMirrorsAnnotatedToolArgumentsToHTTPHeaders(t *testing.T) {
+	var requestCount int
+	var seenHeaders http.Header
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch requestCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name": "search_flows",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"workspace_id": map[string]any{"type": "string", "x-mcp-header": "Workspace-Id"},
+							"priority":     map[string]any{"type": "boolean", "x-mcp-header": "Priority"},
+							"page":         map[string]any{"type": "number", "x-mcp-header": "Page"},
+							"external_id":  map[string]any{"type": "integer", "x-mcp-header": "External-Id"},
+							"query":        map[string]any{"type": "string"},
+						},
+					},
+				}, {
+					"name": "bad_tool",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"bad": map[string]any{"type": "string", "x-mcp-header": "Bad Header"},
+						},
+					},
+				}}},
+			})
+		case 2:
+			seenHeaders = r.Header.Clone()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In: strings.NewReader(
+			`{"jsonrpc":"2.0","id":"tools","method":"tools/list"}` + "\n" +
+				`{"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"search_flows","arguments":{"workspace_id":" ws-acme","priority":true,"page":42,"external_id":9007199254740993,"query":"ignored","bad":"ignored"}}}` + "\n"),
+		Out: &stdout,
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	toolsMessage := mcpJSONRPCMessageByID([]byte(stdout.String()), "tools")
+	if toolsMessage == nil {
+		t.Fatalf("missing tools/list response: %s", stdout.String())
+	}
+	tools := sliceAny(mapStringAny(toolsMessage["result"])["tools"])
+	if len(tools) != 1 || firstNonBlankString(mapStringAny(tools[0])["name"]) != "search_flows" {
+		t.Fatalf("invalid x-mcp-header tool was not filtered from tools/list: %#v", tools)
+	}
+	if seenHeaders.Get("Mcp-Name") != "search_flows" {
+		t.Fatalf("unexpected tool name header: %q", seenHeaders.Get("Mcp-Name"))
+	}
+	if seenHeaders.Get("Mcp-Param-Workspace-Id") != "=?base64?IHdzLWFjbWU=?=" {
+		t.Fatalf("workspace header was not base64 encoded: %q", seenHeaders.Get("Mcp-Param-Workspace-Id"))
+	}
+	if seenHeaders.Get("Mcp-Param-Priority") != "true" {
+		t.Fatalf("priority header was not mirrored: %q", seenHeaders.Get("Mcp-Param-Priority"))
+	}
+	if seenHeaders.Get("Mcp-Param-Page") != "42" {
+		t.Fatalf("page header was not mirrored: %q", seenHeaders.Get("Mcp-Param-Page"))
+	}
+	if seenHeaders.Get("Mcp-Param-External-Id") != "9007199254740993" {
+		t.Fatalf("large integer header lost precision: %q", seenHeaders.Get("Mcp-Param-External-Id"))
+	}
+	if seenHeaders.Get("Mcp-Param-Query") != "" {
+		t.Fatalf("unannotated argument was mirrored: %#v", seenHeaders.Values("Mcp-Param-Query"))
+	}
+	if seenHeaders.Get("Mcp-Param-Bad Header") != "" {
+		t.Fatalf("invalid annotated header name was mirrored")
+	}
+}
+
+func TestMCPStdioProxyRefreshesAnnotatedHeaderRegistry(t *testing.T) {
+	var requestCount int
+	var firstCallHeaders http.Header
+	var secondCallHeaders http.Header
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch requestCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name": "search_flows",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"workspace_id": map[string]any{"type": "string", "x-mcp-header": "Workspace-Id"},
+						},
+					},
+				}}},
+			})
+		case 2:
+			firstCallHeaders = r.Header.Clone()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		case 3:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name": "search_flows",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"workspace_id": map[string]any{"type": "string"},
+						},
+					},
+				}}},
+			})
+		case 4:
+			secondCallHeaders = r.Header.Clone()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      body["id"],
+				"result":  map[string]any{"ok": true},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runMCPStdioProxy(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "secret-api-key",
+		In: strings.NewReader(
+			`{"jsonrpc":"2.0","id":"tools-one","method":"tools/list"}` + "\n" +
+				`{"jsonrpc":"2.0","id":"call-one","method":"tools/call","params":{"name":"search_flows","arguments":{"workspace_id":"ws-acme"}}}` + "\n" +
+				`{"jsonrpc":"2.0","id":"tools-two","method":"tools/list"}` + "\n" +
+				`{"jsonrpc":"2.0","id":"call-two","method":"tools/call","params":{"name":"search_flows","arguments":{"workspace_id":"ws-acme"}}}` + "\n"),
+		Out: &stdout,
+		Err: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("runMCPStdioProxy: %v", err)
+	}
+	if firstCallHeaders.Get("Mcp-Param-Workspace-Id") != "ws-acme" {
+		t.Fatalf("first call did not mirror annotated header: %#v", firstCallHeaders)
+	}
+	if secondCallHeaders.Get("Mcp-Param-Workspace-Id") != "" {
+		t.Fatalf("fresh tools/list did not clear stale annotated header mapping: %#v", secondCallHeaders)
+	}
+}
+
 func TestMCPStdioProxyDecodesCRLFSSEEvents(t *testing.T) {
 	got, err := decodeMCPSSEData([]byte("event: message\r\ndata: {\"one\":true}\r\n\r\nevent: message\r\ndata: {\"two\":true}\r\n\r\n"))
 	if err != nil {
@@ -343,6 +568,28 @@ func TestMCPDoctorRedactsUpstreamErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "[redacted] is not allowed") {
 		t.Fatalf("doctor error was not sanitized: %v", err)
+	}
+}
+
+func TestMCPDoctorRedactsMalformedSuccessResponses(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("unexpected doctor-key body"))
+	}))
+	defer srv.Close()
+
+	result, err := runMCPDoctor(context.Background(), mcpProxyOptions{
+		WorkspaceID: "ws-acme",
+		APIURL:      srv.URL,
+		Token:       "doctor-key",
+	})
+	if err == nil {
+		t.Fatalf("expected doctor failure")
+	}
+	if strings.Contains(firstNonBlankString(result["response"]), "doctor-key") {
+		t.Fatalf("doctor response leaked token: %#v", result)
+	}
+	if !strings.Contains(firstNonBlankString(result["response"]), "[redacted]") {
+		t.Fatalf("doctor response was not redacted: %#v", result)
 	}
 }
 
@@ -499,11 +746,14 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 				sawInitializeCapabilities = true
 			}
 			w.Header().Set("Mcp-Session-Id", "doctor-session-123")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      body["id"],
-				"result":  map[string]any{"protocolVersion": "2025-11-25", "serverInfo": map[string]any{"name": "breyta-workspace-mcp"}},
-			})
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(`event: message
+data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"initializing"}}
+
+event: message
+data: {"jsonrpc":"2.0","id":"breyta-mcp-doctor-init","result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"breyta-workspace-mcp"}}}
+
+`))
 		case "notifications/initialized":
 			initializedSessionID = r.Header.Get("Mcp-Session-Id")
 			initializedProtocolVersion = r.Header.Get("MCP-Protocol-Version")
@@ -511,11 +761,14 @@ func TestMCPDoctorChecksInitializeAndToolsList(t *testing.T) {
 		case "tools/list":
 			toolsListSessionID = r.Header.Get("Mcp-Session-Id")
 			toolsListProtocolVersion = r.Header.Get("MCP-Protocol-Version")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      body["id"],
-				"result":  map[string]any{"tools": []map[string]any{{"name": "search_flows"}, {"name": "send_feedback"}}},
-			})
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(`event: message
+data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"listing tools"}}
+
+event: message
+data: {"jsonrpc":"2.0","id":"breyta-mcp-doctor-tools","result":{"tools":[{"name":"search_flows"},{"name":"send_feedback"}]}}
+
+`))
 		default:
 			t.Fatalf("unexpected method: %s", method)
 		}

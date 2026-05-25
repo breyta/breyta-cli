@@ -55,8 +55,9 @@ type mcpSetupOptions struct {
 }
 
 type mcpHTTPSession struct {
-	SessionID       string
-	ProtocolVersion string
+	SessionID        string
+	ProtocolVersion  string
+	ToolParamHeaders map[string]map[string]string
 }
 
 func newMCPCmd(app *App) *cobra.Command {
@@ -351,8 +352,10 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 		msg := sanitizedMCPUpstreamMessage(initResp, opts.Token, fmt.Sprintf("HTTP %d", status))
 		return map[string]any{"stage": "initialize", "status": status}, fmt.Errorf("initialize failed: %s", msg)
 	}
-	initMap := map[string]any{}
-	_ = json.Unmarshal(initResp, &initMap)
+	initMap := mcpJSONRPCMessageByID(initResp, "breyta-mcp-doctor-init")
+	if initMap == nil {
+		return map[string]any{"stage": "initialize", "response": sanitizeMCPError(string(bytes.TrimSpace(initResp)), opts.Token)}, errors.New("initialize failed: missing JSON-RPC response")
+	}
 	if errMap := mapStringAny(initMap["error"]); errMap != nil {
 		msg := sanitizeMCPError(firstNonBlankString(errMap["message"]), opts.Token)
 		return map[string]any{"stage": "initialize", "response": redactMCPValueWithSecrets(initMap, opts.Token)}, fmt.Errorf("initialize failed: %s", msg)
@@ -377,8 +380,10 @@ func runMCPDoctor(ctx context.Context, opts mcpProxyOptions) (map[string]any, er
 		msg := sanitizedMCPUpstreamMessage(toolsResp, opts.Token, fmt.Sprintf("HTTP %d", status))
 		return map[string]any{"stage": "tools/list", "status": status}, fmt.Errorf("tools/list failed: %s", msg)
 	}
-	toolsMap := map[string]any{}
-	_ = json.Unmarshal(toolsResp, &toolsMap)
+	toolsMap := mcpJSONRPCMessageByID(toolsResp, "breyta-mcp-doctor-tools")
+	if toolsMap == nil {
+		return map[string]any{"stage": "tools/list", "response": sanitizeMCPError(string(bytes.TrimSpace(toolsResp)), opts.Token)}, errors.New("tools/list failed: missing JSON-RPC response")
+	}
 	if errMap := mapStringAny(toolsMap["error"]); errMap != nil {
 		msg := sanitizeMCPError(firstNonBlankString(errMap["message"]), opts.Token)
 		return map[string]any{"stage": "tools/list", "response": redactMCPValueWithSecrets(toolsMap, opts.Token)}, fmt.Errorf("tools/list failed: %s", msg)
@@ -456,6 +461,11 @@ func postWorkspaceMCP(ctx context.Context, opts mcpProxyOptions, session *mcpHTT
 		return nil, resp.StatusCode, err
 	}
 	if session != nil && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		if mcpRequestMethod(body) == "tools/list" {
+			var toolParamHeaders map[string]map[string]string
+			respBody, toolParamHeaders = mcpFilterToolsListHeaderParams(respBody)
+			session.rememberToolParamHeaders(toolParamHeaders, mcpRequestCursor(body) == "")
+		}
 		if protocolVersion := mcpProtocolVersionFromResponse(respBody); protocolVersion != "" {
 			session.ProtocolVersion = protocolVersion
 		}
@@ -516,8 +526,8 @@ func decodeMCPSSEData(body []byte) ([]byte, error) {
 }
 
 func mcpStandardHTTPHeaders(body []byte, session *mcpHTTPSession) map[string]string {
-	var message map[string]any
-	if err := json.Unmarshal(body, &message); err != nil {
+	message, err := decodeMCPJSONMap(body)
+	if err != nil {
 		return nil
 	}
 	params := mapStringAny(message["params"])
@@ -552,16 +562,258 @@ func mcpStandardHTTPHeaders(body []byte, session *mcpHTTPSession) map[string]str
 	if name != "" {
 		headers["Mcp-Name"] = mcpHeaderValue(name)
 	}
+	if method == "tools/call" && session != nil && name != "" {
+		arguments := mapStringAny(params["arguments"])
+		for paramName, headerName := range session.ToolParamHeaders[name] {
+			value, ok := arguments[paramName]
+			if !ok {
+				continue
+			}
+			headerValue, ok := mcpParamHeaderValue(value)
+			if !ok {
+				continue
+			}
+			headers["Mcp-Param-"+headerName] = headerValue
+		}
+	}
 	return headers
 }
 
 func mcpProtocolVersionFromResponse(body []byte) string {
-	var message map[string]any
-	if err := json.Unmarshal(bytes.TrimSpace(body), &message); err != nil {
+	for _, message := range mcpJSONRPCMessages(body) {
+		result := mapStringAny(message["result"])
+		if protocolVersion := firstNonBlankString(result["protocolVersion"], mapStringAny(result["serverInfo"])["protocolVersion"]); protocolVersion != "" {
+			return protocolVersion
+		}
+	}
+	return ""
+}
+
+func mcpRequestMethod(body []byte) string {
+	message, err := decodeMCPJSONMap(body)
+	if err != nil {
 		return ""
 	}
-	result := mapStringAny(message["result"])
-	return firstNonBlankString(result["protocolVersion"], mapStringAny(result["serverInfo"])["protocolVersion"])
+	return firstNonBlankString(message["method"])
+}
+
+func mcpRequestCursor(body []byte) string {
+	message, err := decodeMCPJSONMap(body)
+	if err != nil {
+		return ""
+	}
+	return firstNonBlankString(mapStringAny(message["params"])["cursor"])
+}
+
+func decodeMCPJSONMap(body []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(body)))
+	decoder.UseNumber()
+	var message map[string]any
+	if err := decoder.Decode(&message); err != nil {
+		return nil, err
+	}
+	return message, nil
+}
+
+func mcpJSONRPCMessages(body []byte) []map[string]any {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var messages []map[string]any
+	for {
+		var message map[string]any
+		if err := decoder.Decode(&message); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil
+		}
+		messages = append(messages, message)
+	}
+	return messages
+}
+
+func mcpJSONRPCMessageByID(body []byte, id string) map[string]any {
+	for _, message := range mcpJSONRPCMessages(body) {
+		if firstNonBlankString(message["id"]) == id {
+			return message
+		}
+	}
+	return nil
+}
+
+func mcpFilterToolsListHeaderParams(body []byte) ([]byte, map[string]map[string]string) {
+	messages := mcpJSONRPCMessages(body)
+	if len(messages) == 0 {
+		return body, nil
+	}
+	toolParamHeaders := map[string]map[string]string{}
+	changed := false
+	encoded := make([][]byte, 0, len(messages))
+	for _, message := range messages {
+		result := mapStringAny(message["result"])
+		rawTools, hasTools := result["tools"]
+		tools := sliceAny(rawTools)
+		if hasTools && tools != nil {
+			filtered := make([]any, 0, len(tools))
+			for _, rawTool := range tools {
+				tool := mapStringAny(rawTool)
+				if tool == nil {
+					filtered = append(filtered, rawTool)
+					continue
+				}
+				headers, valid := mcpToolParamHeaders(tool)
+				if !valid {
+					changed = true
+					continue
+				}
+				if toolName := firstNonBlankString(tool["name"]); toolName != "" && len(headers) > 0 {
+					toolParamHeaders[toolName] = headers
+				}
+				filtered = append(filtered, rawTool)
+			}
+			if len(filtered) != len(tools) {
+				result["tools"] = filtered
+			}
+		}
+		b, err := json.Marshal(message)
+		if err != nil {
+			return body, toolParamHeaders
+		}
+		encoded = append(encoded, b)
+	}
+	if !changed {
+		return body, toolParamHeaders
+	}
+	return bytes.Join(encoded, []byte("\n")), toolParamHeaders
+}
+
+func mcpToolParamHeaders(tool map[string]any) (map[string]string, bool) {
+	headers := map[string]string{}
+	seenHeaders := map[string]struct{}{}
+	for paramName, rawProp := range mapStringAny(mapStringAny(tool["inputSchema"])["properties"]) {
+		prop := mapStringAny(rawProp)
+		rawHeaderName, ok := prop["x-mcp-header"]
+		if !ok {
+			continue
+		}
+		headerName, ok := rawHeaderName.(string)
+		if !ok || !validMCPParamHeaderName(headerName) || !mcpHeaderParamPrimitiveType(prop["type"]) {
+			return nil, false
+		}
+		headerKey := strings.ToLower(headerName)
+		if _, exists := seenHeaders[headerKey]; exists {
+			return nil, false
+		}
+		seenHeaders[headerKey] = struct{}{}
+		headers[paramName] = headerName
+	}
+	return headers, true
+}
+
+func (session *mcpHTTPSession) rememberToolParamHeaders(toolParamHeaders map[string]map[string]string, replace bool) {
+	if session == nil {
+		return
+	}
+	if replace {
+		session.ToolParamHeaders = map[string]map[string]string{}
+	}
+	if len(toolParamHeaders) == 0 {
+		return
+	}
+	if session.ToolParamHeaders == nil {
+		session.ToolParamHeaders = map[string]map[string]string{}
+	}
+	for toolName, headers := range toolParamHeaders {
+		session.ToolParamHeaders[toolName] = headers
+	}
+}
+
+func validMCPParamHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r == '!' || r == '#' || r == '$' || r == '%' || r == '&' || r == '\'' || r == '*' || r == '+' || r == '-' || r == '.' || r == '^' || r == '_' || r == '`' || r == '|' || r == '~' ||
+			(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func mcpHeaderParamPrimitiveType(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return v == "string" || v == "number" || v == "integer" || v == "boolean"
+	case []any:
+		hasPrimitive := false
+		for _, item := range v {
+			itemType := firstNonBlankString(item)
+			if itemType == "null" {
+				continue
+			}
+			if itemType != "string" && itemType != "number" && itemType != "integer" && itemType != "boolean" {
+				return false
+			}
+			hasPrimitive = true
+		}
+		return hasPrimitive
+	default:
+		return false
+	}
+}
+
+func mcpParamHeaderValue(value any) (string, bool) {
+	var s string
+	switch v := value.(type) {
+	case nil:
+		return "", false
+	case string:
+		s = v
+	case bool:
+		s = strconv.FormatBool(v)
+	case json.Number:
+		s = v.String()
+	case float64:
+		s = strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		s = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case int:
+		s = strconv.Itoa(v)
+	case int64:
+		s = strconv.FormatInt(v, 10)
+	case int32:
+		s = strconv.FormatInt(int64(v), 10)
+	case uint:
+		s = strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		s = strconv.FormatUint(v, 10)
+	case uint32:
+		s = strconv.FormatUint(uint64(v), 10)
+	default:
+		return "", false
+	}
+	if mcpHeaderValueNeedsBase64(s) {
+		return "=?base64?" + base64.StdEncoding.EncodeToString([]byte(s)) + "?=", true
+	}
+	return s, true
+}
+
+func mcpHeaderValueNeedsBase64(value string) bool {
+	if strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") || strings.HasPrefix(value, "\t") || strings.HasSuffix(value, "\t") {
+		return true
+	}
+	for _, r := range value {
+		if r < 0x20 || r > 0x7e {
+			return true
+		}
+	}
+	return false
 }
 
 func mcpHeaderValue(value string) string {
@@ -624,7 +876,9 @@ func jsonRPCIDFromBytes(raw []byte) (any, bool) {
 		return nil, false
 	}
 	var id any
-	if err := json.Unmarshal(rawID, &id); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(rawID))
+	decoder.UseNumber()
+	if err := decoder.Decode(&id); err != nil {
 		return nil, true
 	}
 	return id, true
