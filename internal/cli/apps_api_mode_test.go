@@ -312,6 +312,97 @@ func TestRunsStart_SendsProfileID(t *testing.T) {
 	}
 }
 
+func TestRunsStart_WaitForwardsInstallationIDToPollAndFinalHydration(t *testing.T) {
+	var runsGetPayloads []map[string]any
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "runs.start":
+			if args["profileId"] != "prof-2" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId":     "wf-runs-start-linked",
+					"installationId": "prof-2",
+					"status":         "running",
+				},
+			})
+		case "runs.get":
+			runsGetPayloads = append(runsGetPayloads, args)
+			if args["workflowId"] != "wf-runs-start-linked" || args["installationId"] != "prof-2" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing linked run lookup fields"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId":     "wf-runs-start-linked",
+							"installationId": "prof-2",
+							"status":         "completed",
+							"steps":          []any{},
+						},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":     "wf-runs-start-linked",
+						"installationId": "prof-2",
+						"status":         "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--installation-id", "prof-2",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("runs start --wait failed: %v\n%s", err, stdout)
+	}
+	if len(runsGetPayloads) != 2 {
+		t.Fatalf("expected compact poll and final hydration calls, got %d", len(runsGetPayloads))
+	}
+	if runsGetPayloads[0]["includeSteps"] != false || runsGetPayloads[0]["includeResult"] != false {
+		t.Fatalf("expected compact poll payload, got %#v", runsGetPayloads[0])
+	}
+	if runsGetPayloads[1]["includeSteps"] != true || runsGetPayloads[1]["includeResult"] != false {
+		t.Fatalf("expected final hydration payload, got %#v", runsGetPayloads[1])
+	}
+}
+
 func TestRunsStart_SendsInvocation(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -4325,6 +4416,261 @@ func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_WaitFallsBackToFullRunSnapshotWhenCompactPollLags(t *testing.T) {
+	var compactPolls int
+	var fullHydrations int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-compact-lag",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["workflowId"] != "wf-compact-lag" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				fullHydrations++
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId":  "wf-compact-lag",
+							"status":      "completed",
+							"currentStep": "build-report",
+							"steps":       []map[string]any{{"stepId": "build-report", "status": "completed"}},
+						},
+					},
+				})
+				return
+			}
+			compactPolls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":  "wf-compact-lag",
+						"status":      "running",
+						"currentStep": "apify-poll-wait",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run --wait failed: %v\n%s", err, stdout)
+	}
+	if compactPolls < 2 {
+		t.Fatalf("expected compact polling before fallback, got %d", compactPolls)
+	}
+	if fullHydrations != 1 {
+		t.Fatalf("expected one full run fallback, got %d", fullHydrations)
+	}
+	if !strings.Contains(stdout, `"status":"completed"`) || !strings.Contains(stdout, `"currentStep":"build-report"`) {
+		t.Fatalf("expected terminal full snapshot in wait output, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRun_WaitFallsBackToTerminalEventsWhenRunSnapshotsLag(t *testing.T) {
+	var eventsCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-event-lag",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["workflowId"] != "wf-event-lag" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":  "wf-event-lag",
+						"status":      "running",
+						"currentStep": "apify-poll-wait",
+					},
+				},
+			})
+		case "runs.events":
+			eventsCalls++
+			if args["workflowId"] != "wf-event-lag" || args["limit"] != float64(500) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected events args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-event-lag",
+					"items": []map[string]any{
+						{"type": "step_completed", "stepId": "build-report", "status": "completed", "at": "2026-05-23T10:01:23Z"},
+						{"type": "run_completed", "status": "completed", "at": "2026-05-23T10:01:24Z"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run --wait failed: %v\n%s", err, stdout)
+	}
+	if eventsCalls != 1 {
+		t.Fatalf("expected one terminal events fallback, got %d", eventsCalls)
+	}
+	if !strings.Contains(stdout, `"status":"completed"`) ||
+		!strings.Contains(stdout, `"currentStep":"build-report"`) ||
+		!strings.Contains(stdout, `"terminalEventReconciled":true`) {
+		t.Fatalf("expected terminal event reconciliation in wait output, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRun_WaitFallsBackToTerminalEventsWhenRunGet404s(t *testing.T) {
+	var compactPolls int
+	var finalHydrations int
+	var eventsCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-404-terminal",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["workflowId"] != "wf-404-terminal" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				finalHydrations++
+			} else {
+				compactPolls++
+			}
+			w.WriteHeader(404)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "not_found", "message": "Run not found"},
+			})
+		case "runs.events":
+			eventsCalls++
+			if args["workflowId"] != "wf-404-terminal" || args["limit"] != float64(500) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected events args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-404-terminal",
+					"items": []map[string]any{
+						{"type": "step_completed", "stepId": "build-report", "status": "completed", "at": "2026-05-23T10:01:23Z"},
+						{"type": "run_completed", "status": "completed", "at": "2026-05-23T10:01:24Z"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "flow-release",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run --wait failed: %v\n%s", err, stdout)
+	}
+	if compactPolls < 2 || finalHydrations != 1 || eventsCalls != 1 {
+		t.Fatalf("expected 404 fallback after compact polls, got compact=%d final=%d events=%d", compactPolls, finalHydrations, eventsCalls)
+	}
+	if !strings.Contains(stdout, `"status":"completed"`) ||
+		!strings.Contains(stdout, `"currentStep":"build-report"`) ||
+		!strings.Contains(stdout, `"terminalEventReconciled":true`) {
+		t.Fatalf("expected terminal event reconciliation after 404s, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -4695,6 +5041,88 @@ func TestRunsInspect_CompactsServerRunPayloadInAPIMode(t *testing.T) {
 	meta, _ := envelope["meta"].(map[string]any)
 	if meta["outputView"] != "compact" || meta["compactInspect"] != true {
 		t.Fatalf("expected compact inspect metadata, got %#v", meta)
+	}
+}
+
+func TestRunsInspect_ReconcilesTerminalEventsWhenRunSnapshotLags(t *testing.T) {
+	var runsGetCalls int
+	var eventsCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-inspect-lag" || args["includeSteps"] != true || args["includeResult"] != false {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected runs.get args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":  "wf-inspect-lag",
+						"flowSlug":    "apify-google-maps-scraper",
+						"status":      "running",
+						"currentStep": "apify-poll-wait",
+						"steps":       []map[string]any{{"stepId": "apify-poll-wait", "status": "running"}},
+					},
+				},
+			})
+		case "runs.events":
+			eventsCalls++
+			if args["workflowId"] != "wf-inspect-lag" || args["limit"] != float64(500) {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected runs.events args"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-inspect-lag",
+					"items": []map[string]any{
+						{"type": "step_completed", "stepId": "build-report", "status": "completed", "at": "2026-05-23T10:01:23Z"},
+						{"type": "run_completed", "status": "completed", "at": "2026-05-23T10:01:24Z"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "inspect", "wf-inspect-lag",
+	)
+	if err != nil {
+		t.Fatalf("runs inspect failed: %v\n%s", err, stdout)
+	}
+	if runsGetCalls != 1 || eventsCalls != 1 {
+		t.Fatalf("expected one runs.get and one runs.events call, got get=%d events=%d", runsGetCalls, eventsCalls)
+	}
+	if !strings.Contains(stdout, `"status":"completed"`) ||
+		!strings.Contains(stdout, `"currentStep":"build-report"`) ||
+		!strings.Contains(stdout, `"terminalEventReconciled":true`) ||
+		!strings.Contains(stdout, `"stepSnapshotMayLag":true`) ||
+		!strings.Contains(stdout, `"staleStatus":"running"`) {
+		t.Fatalf("expected inspect output reconciled from terminal event, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, `"currentStep":"apify-poll-wait"`) {
+		t.Fatalf("expected stale currentStep to be replaced, got:\n%s", stdout)
 	}
 }
 

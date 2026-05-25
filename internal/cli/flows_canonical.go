@@ -157,6 +157,31 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	}
 	installationID := installationIDFromRunData(data)
 	deadline := time.Now().Add(timeout)
+	polls := 0
+	var nextTerminalFallback time.Time
+	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
+		trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
+			"product":     "flows",
+			"channel":     "cli",
+			"api_host":    apiHostname(app.APIURL),
+			"flow_slug":   flowSlug,
+			"command":     strings.TrimSpace(command),
+			"workflow_id": workflowID,
+			"run_status":  finalRunStatus,
+			"wait":        true,
+			"reconciled":  true,
+		})
+		if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+			return writeErr(cmd, err)
+		}
+		if runStatusFailedForExit(finalRunStatus) {
+			return guidedCLIErrorForCommand(cmd, "flow run finished with status "+finalRunStatus, []string{
+				"Inspect failed steps: breyta runs inspect " + workflowID,
+				"List resources: breyta resources workflow list " + workflowID,
+			})
+		}
+		return nil
+	}
 	for {
 		payload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
@@ -167,6 +192,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			return writeErr(cmd, err)
 		}
 		if execStatus == 404 {
+			polls++
+			if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+				nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
+				}
+			}
 			if time.Now().After(deadline) {
 				if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
 					return writeErr(cmd, err)
@@ -185,9 +217,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 
 		execData, _ := execResp["data"].(map[string]any)
 		run, _ := execData["run"].(map[string]any)
-		statusStr, _ := run["status"].(string)
-		s := strings.ToLower(strings.TrimSpace(statusStr))
-		if s == "completed" || s == "failed" || s == "cancelled" || s == "canceled" || s == "terminated" || s == "timed-out" || s == "timed_out" {
+		s := canonicalRunStatus(run["status"])
+		if isTerminalRunStatus(s) {
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 				"product":     "flows",
 				"channel":     "cli",
@@ -216,6 +247,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				})
 			}
 			return nil
+		}
+		polls++
+		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+			nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
+			}
 		}
 
 		if time.Now().After(deadline) {

@@ -491,16 +491,30 @@ Use runs start only when integrating with older scripts.
 				if strings.TrimSpace(workflowID) == "" {
 					return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 				}
+				waitInstallationID := installationIDFromRunData(data)
 
 				deadline := time.Now().Add(timeout)
+				polls := 0
+				var nextTerminalFallback time.Time
 				for {
-					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", compactRunsGetPayload(workflowID))
+					pollPayload := compactRunsGetPayload(workflowID)
+					if waitInstallationID != "" {
+						pollPayload["installationId"] = waitInstallationID
+					}
+					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", pollPayload)
 					if err != nil {
 						return writeErr(cmd, err)
 					}
 					// The execution store may lag slightly after runs.start returns.
 					// Treat a transient 404 as "not visible yet" and retry until timeout.
 					if execStatus == 404 {
+						polls++
+						if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+							nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+							if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+								return writeAPIResult(cmd, app, finalResp, finalStatus)
+							}
+						}
 						if time.Now().After(deadline) {
 							return writeAPIResult(cmd, app, execResp, execStatus)
 						}
@@ -514,10 +528,10 @@ Use runs start only when integrating with older scripts.
 					execData, _ := execDataAny.(map[string]any)
 					runAny := execData["run"]
 					run, _ := runAny.(map[string]any)
-					statusStr, _ := run["status"].(string)
+					statusStr := canonicalRunStatus(run["status"])
 
-					if statusStr == "completed" || statusStr == "failed" || statusStr == "cancelled" || statusStr == "canceled" || statusStr == "terminated" || statusStr == "timed-out" || statusStr == "timed_out" {
-						finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, "")
+					if isTerminalRunStatus(statusStr) {
+						finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, waitInstallationID)
 						if err != nil {
 							return writeErr(cmd, err)
 						}
@@ -526,6 +540,13 @@ Use runs start only when integrating with older scripts.
 							finalStatus = execStatus
 						}
 						return writeAPIResult(cmd, app, finalResp, finalStatus)
+					}
+					polls++
+					if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
+						nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
+						if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+							return writeAPIResult(cmd, app, finalResp, finalStatus)
+						}
 					}
 					if time.Now().After(deadline) {
 						// Important UX: still return the workflowId so callers can continue
@@ -701,6 +722,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 			}
 			if status < 400 && isOK(out) {
 				compactRunInspectOutput(out, args[0])
+				reconcileRunResponseWithTerminalEvents(apiClient(app), out, strings.TrimSpace(args[0]), installationID)
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
