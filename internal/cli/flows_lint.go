@@ -170,6 +170,9 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 			diagnostics = append(diagnostics, lintDiagnostic("error", "missing_required_field", []string{key}, "Missing required field "+key, "Add "+key+" before pushing.", "local"))
 		}
 	}
+	if topLevelConcurrencyValueIsNil(flowLiteral) {
+		diagnostics = append(diagnostics, lintDiagnostic("error", "invalid_required_field", []string{":concurrency"}, ":concurrency cannot be nil.", "Use a concurrency map such as {:type :singleton :on-new-version :coexist} before pushing.", "local"))
+	}
 	if strings.Contains(flowLiteral, ":triggers") && strings.Contains(flowLiteral, ":manual") {
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "deprecated_manual_trigger", []string{":triggers"}, "Manual triggers are legacy for new flow source.", "Use :interfaces {:manual [...]} with :invocations.", "local"))
 	}
@@ -221,6 +224,96 @@ func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
 		i++
 	}
 	return nil
+}
+
+func topLevelConcurrencyValueIsNil(src string) bool {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	for i < len(src) {
+		switch {
+		case src[i] == '{':
+			return topLevelMapValueIsNil(src, i, "concurrency")
+		case src[i] == '^':
+			metaEnd, err := readClojureFormEnd(src, i+1)
+			if err != nil || metaEnd <= i+1 {
+				return false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				return false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		case strings.HasPrefix(src[i:], "#?"):
+			formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+			if !ok || formStart < 0 {
+				return false
+			}
+			return topLevelConcurrencyValueIsNil(src[formStart:formEnd])
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func topLevelMapValueIsNil(src string, start int, targetKey string) bool {
+	i := start + 1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) || src[i] == '}' {
+			return false
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil || keyEnd <= keyStart {
+			return false
+		}
+		key := clojureKeywordName(src[keyStart:keyEnd])
+		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if valueStart >= len(src) {
+			return false
+		}
+		if key == targetKey {
+			return clojureFormIsNil(src, valueStart)
+		}
+		valueEnd, err := readClojureFormEnd(src, valueStart)
+		if err != nil || valueEnd <= valueStart {
+			return false
+		}
+		i = valueEnd
+	}
+	return false
+}
+
+func clojureFormIsNil(src string, start int) bool {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) {
+		return false
+	}
+	if strings.HasPrefix(src[i:], "#?") {
+		formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+		if !ok || formStart < 0 {
+			return false
+		}
+		return clojureFormIsNil(src[formStart:formEnd], 0)
+	}
+	if src[i] == '^' {
+		metaEnd, err := readClojureFormEnd(src, i+1)
+		if err != nil || metaEnd <= i+1 {
+			return false
+		}
+		return clojureFormIsNil(src, metaEnd)
+	}
+	if strings.HasPrefix(src[i:], "#_") {
+		discardEnd, err := readClojureFormEnd(src, i+2)
+		if err != nil || discardEnd <= i+2 {
+			return false
+		}
+		return clojureFormIsNil(src, discardEnd)
+	}
+	end := readClojureTokenEnd(src, i)
+	return end > i && src[i:end] == "nil"
 }
 
 type functionCodeString struct {
