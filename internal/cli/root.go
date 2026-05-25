@@ -184,7 +184,26 @@ func NewRootCmd() *cobra.Command {
 		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
 		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
 		mcpTokenEnvVarExplicit := flagExplicit(cmd, "token-env-var")
-		machineCredentialExplicit := apiKeyFlagExplicit || mcpTokenEnvVarExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
+		mcpTokenEnvServiceAccountExplicit := false
+		if mcpTokenEnvVarExplicit && !apiKeyFlagExplicit && !tokenFlagExplicit {
+			tokenEnvVar, err := cmd.Flags().GetString("token-env-var")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			tokenEnvVar = strings.TrimSpace(tokenEnvVar)
+			if tokenEnvVar == "" {
+				return writeErr(cmd, errors.New("--token-env-var requires an environment variable name"))
+			}
+			tokenEnvValue := strings.TrimSpace(os.Getenv(tokenEnvVar))
+			if tokenEnvValue == "" {
+				return writeErr(cmd, fmt.Errorf("missing %s environment variable", tokenEnvVar))
+			}
+			if !looksLikeServiceAccountAPIKey(tokenEnvValue) {
+				return writeErr(cmd, fmt.Errorf("%s must contain a service-account API key", tokenEnvVar))
+			}
+			mcpTokenEnvServiceAccountExplicit = true
+		}
+		machineCredentialExplicit := apiKeyFlagExplicit || mcpTokenEnvServiceAccountExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
 		if isSubcommand {
 			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
 			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {

@@ -244,11 +244,19 @@ func applyMCPTokenEnvVar(cmd *cobra.Command, app *App, tokenEnvVar string) error
 	if value == "" {
 		return fmt.Errorf("missing %s environment variable", tokenEnvVar)
 	}
+	if !looksLikeServiceAccountAPIKey(value) {
+		return fmt.Errorf("%s must contain a service-account API key", tokenEnvVar)
+	}
 	app.Token = value
 	app.APIKey = value
 	app.TokenExplicit = true
 	app.APIKeyExplicit = true
 	return nil
+}
+
+func looksLikeServiceAccountAPIKey(value string) bool {
+	parts := strings.SplitN(strings.TrimSpace(value), "_", 3)
+	return len(parts) == 3 && parts[0] == "bsa" && strings.TrimSpace(parts[1]) != "" && strings.TrimSpace(parts[2]) != ""
 }
 
 func explicitMCPWorkspaceID(cmd *cobra.Command, app *App, localWorkspaceID string) (string, error) {

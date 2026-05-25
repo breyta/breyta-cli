@@ -824,16 +824,20 @@ func TestMCPWorkspaceBindingMustBeExplicit(t *testing.T) {
 }
 
 func TestMCPTokenEnvVarSuppliesProxyToken(t *testing.T) {
-	t.Setenv("BREYTA_MCP_TOKEN", "env-secret-key")
+	t.Setenv("BREYTA_MCP_TOKEN", "bsa_sak-123_env-secret-key")
 	app := &App{Token: "ambient-cli-token"}
 	if err := applyMCPTokenEnvVar(NewRootCmd(), app, "BREYTA_MCP_TOKEN"); err != nil {
 		t.Fatalf("applyMCPTokenEnvVar: %v", err)
 	}
-	if app.Token != "env-secret-key" || !app.TokenExplicit || !app.APIKeyExplicit {
+	if app.Token != "bsa_sak-123_env-secret-key" || !app.TokenExplicit || !app.APIKeyExplicit {
 		t.Fatalf("token env var did not populate explicit app token: %#v", app)
 	}
 	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "MISSING_BREYTA_TOKEN"); err == nil {
 		t.Fatalf("expected missing env var error")
+	}
+	t.Setenv("BREYTA_USER_TOKEN", "user-token")
+	if err := applyMCPTokenEnvVar(NewRootCmd(), &App{}, "BREYTA_USER_TOKEN"); err == nil {
+		t.Fatalf("expected non-service-account token env var error")
 	}
 }
 
@@ -854,7 +858,7 @@ func TestMCPTokenEnvVarDoesNotOverrideExplicitTokenFlag(t *testing.T) {
 
 func TestMCPStdioCommandTokenEnvVarOverridesAmbientToken(t *testing.T) {
 	t.Setenv("BREYTA_TOKEN", "ambient-user-token")
-	t.Setenv("BREYTA_MCP_TOKEN", "service-account-token")
+	t.Setenv("BREYTA_MCP_TOKEN", "bsa_sak-123_service-account-token")
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
@@ -884,11 +888,55 @@ func TestMCPStdioCommandTokenEnvVarOverridesAmbientToken(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("mcp stdio failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	if seenAuth != "Bearer service-account-token" {
+	if seenAuth != "Bearer bsa_sak-123_service-account-token" {
 		t.Fatalf("expected token-env-var auth, got %q", seenAuth)
 	}
-	if strings.Contains(stdout.String(), "service-account-token") || strings.Contains(stderr.String(), "service-account-token") {
+	if strings.Contains(stdout.String(), "bsa_sak-123_service-account-token") || strings.Contains(stderr.String(), "bsa_sak-123_service-account-token") {
 		t.Fatalf("secret leaked\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestMCPStdioCommandRejectsUserTokenEnvVarForAPIOverride(t *testing.T) {
+	t.Setenv("BREYTA_TOKEN", "ambient-user-token")
+	t.Setenv("BREYTA_MCP_TOKEN", "ambient-user-token")
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	called := false
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "one",
+			"result":  map[string]any{"ok": true},
+		})
+	}))
+	defer srv.Close()
+
+	cmd := NewRootCmd()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetIn(strings.NewReader(`{"jsonrpc":"2.0","id":"one","method":"ping"}` + "\n"))
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"--api", srv.URL,
+		"mcp", "stdio",
+		"--workspace-id", "ws-acme",
+		"--token-env-var", "BREYTA_MCP_TOKEN",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected mcp stdio to reject a non-service-account token env var")
+	}
+	if called {
+		t.Fatalf("upstream API was called despite invalid token env var")
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "service-account API key") {
+		t.Fatalf("expected service-account API key error, got stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if strings.Contains(combined, "ambient-user-token") {
+		t.Fatalf("secret leaked in error output: %s", combined)
 	}
 }
 
