@@ -142,6 +142,7 @@ values from credentials. The output is intended for the normal authoring loop:
   breyta flows import n8n workflow.json --slug imported-flow
   breyta flows push --file ./tmp/flows/imported-flow.clj
   breyta flows configure check imported-flow
+  breyta flows run imported-flow --target draft --invocation default --input '{}' --wait
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -158,7 +159,7 @@ values from credentials. The output is intended for the normal authoring loop:
 				"validation":   result.Validation,
 				"pushCommand":  fmt.Sprintf("breyta flows push --file %s", shellQuotePath(result.OutputPath)),
 				"checkCommand": fmt.Sprintf("breyta flows configure check %s", result.Slug),
-				"runCommand":   fmt.Sprintf("breyta flows run %s --input '{}' --wait", result.Slug),
+				"runCommand":   fmt.Sprintf("breyta flows run %s --target draft --invocation default --input '{}' --wait", result.Slug),
 			}
 			if serverValidate {
 				serverResult, err := validateImportedN8NFlowOnServer(app, result, deployKey)
