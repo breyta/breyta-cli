@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,6 +51,7 @@ func TestConvertN8NWorkflow_HTTPAndCode(t *testing.T) {
 	assertContains(t, result.EDN, `:query {"limit" "10"}`)
 	assertContains(t, result.EDN, `:headers {"Accept" "application/json"}`)
 	assertContains(t, result.EDN, ":interfaces {:manual")
+	assertNotContains(t, result.EDN, ":triggers")
 	assertContains(t, result.EDN, ":invocations {:default {:inputs []}}")
 	assertContains(t, result.EDN, ":ref :transform-users-fn")
 	assertContains(t, result.EDN, ":flow (quote")
@@ -650,6 +650,9 @@ func TestFlowsImportN8NCommand_WritesEnvelopeAndFile(t *testing.T) {
 	if got, _ := data["pushCommand"].(string); !strings.Contains(got, "breyta flows push --file") {
 		t.Fatalf("unexpected push command: %q", got)
 	}
+	if got, _ := data["runCommand"].(string); got != "breyta flows run imported --target draft --invocation default --input '{}' --wait" {
+		t.Fatalf("unexpected run command: %q", got)
+	}
 	if _, ok := data["conversionDoc"]; ok {
 		t.Fatalf("conversionDoc should not point at a missing local guide: %#v", data["conversionDoc"])
 	}
@@ -766,8 +769,8 @@ func TestImportN8NWorkflow_RealPublicTemplateFixtures(t *testing.T) {
 
 	for _, fixture := range fixtures {
 		fixture := fixture
-		t.Run(path.Base(fixture), func(t *testing.T) {
-			slug := "fixture-" + strings.TrimSuffix(path.Base(fixture), ".json")
+		t.Run(filepath.Base(fixture), func(t *testing.T) {
+			slug := "fixture-" + strings.TrimSuffix(filepath.Base(fixture), ".json")
 			result, err := importN8NWorkflowFile(fixture, slug, filepath.Join(t.TempDir(), slug+".clj"))
 			if err != nil {
 				t.Fatalf("import fixture: %v", err)
@@ -780,6 +783,7 @@ func TestImportN8NWorkflow_RealPublicTemplateFixtures(t *testing.T) {
 			}
 			assertContains(t, result.EDN, ":flow (quote")
 			assertContains(t, result.EDN, ":interfaces {:manual")
+			assertNotContains(t, result.EDN, ":triggers")
 		})
 	}
 }
@@ -931,5 +935,12 @@ func assertContains(t *testing.T, text, want string) {
 	t.Helper()
 	if !strings.Contains(text, want) {
 		t.Fatalf("expected output to contain %q\n--- output ---\n%s", want, text)
+	}
+}
+
+func assertNotContains(t *testing.T, text, unwanted string) {
+	t.Helper()
+	if strings.Contains(text, unwanted) {
+		t.Fatalf("expected output not to contain %q\n--- output ---\n%s", unwanted, text)
 	}
 }
