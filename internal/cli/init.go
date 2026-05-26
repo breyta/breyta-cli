@@ -133,14 +133,14 @@ breyta init --dir ./my-breyta-workspace --force
 			if err != nil {
 				return err
 			}
-			if err := os.MkdirAll(absDir, 0o755); err != nil {
+			if err := makePublicDir(absDir); err != nil {
 				return err
 			}
 
-			if err := os.MkdirAll(filepath.Join(absDir, "flows"), 0o755); err != nil {
+			if err := makePublicDir(filepath.Join(absDir, "flows")); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Join(absDir, "tmp", "flows"), 0o755); err != nil {
+			if err := makePublicDir(filepath.Join(absDir, "tmp", "flows")); err != nil {
 				return err
 			}
 
@@ -250,10 +250,10 @@ func writeInitFile(path string, content []byte, force bool) (bool, error) {
 			return false, nil
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := makePublicDir(filepath.Dir(path)); err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(path, content, 0o644)
+	return true, writePublicFile(path, content)
 }
 
 const initGitignore = `

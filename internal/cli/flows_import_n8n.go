@@ -246,7 +246,7 @@ func apiEnvelopeError(command string, status int, envelope map[string]any) error
 }
 
 func importN8NWorkflowFile(path, slug, outPath string) (*n8nImportResult, error) {
-	b, err := os.ReadFile(path)
+	b, err := readExplicitFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -867,10 +867,6 @@ func translateSimpleN8NExpressionWithRefs(value string, nodeRefs map[string]stri
 	return translateN8NInnerExpressionWithRefs(expr, nodeRefs)
 }
 
-func translateN8NInnerExpression(expr string) (string, bool) {
-	return translateN8NInnerExpressionWithRefs(expr, nil)
-}
-
 func translateN8NInnerExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	expr = strings.TrimSpace(expr)
 	jsonRoot := n8nJSONRootRef(nodeRefs)
@@ -915,10 +911,6 @@ func translateN8NInnerExpressionWithRefs(expr string, nodeRefs map[string]string
 	return "", false
 }
 
-func translateN8NPathExpression(expr string) (string, bool) {
-	return translateN8NPathExpressionWithRefs(expr, nil)
-}
-
 func translateN8NPathExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	root, path, ok := parseN8NPathExpression(expr)
 	if !ok {
@@ -946,10 +938,6 @@ func n8nJSONRootRef(nodeRefs map[string]string) string {
 		}
 	}
 	return "input"
-}
-
-func translateN8NIncrementExpression(expr string) (string, bool) {
-	return translateN8NIncrementExpressionWithRefs(expr, nil)
 }
 
 func translateN8NIncrementExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
@@ -982,9 +970,7 @@ func parseN8NPathExpression(expr string) (string, []string, bool) {
 	default:
 		return "", nil, false
 	}
-	if strings.HasPrefix(expr, ".json") {
-		expr = strings.TrimPrefix(expr, ".json")
-	}
+	expr = strings.TrimPrefix(expr, ".json")
 	parts := make([]string, 0)
 	for expr != "" {
 		switch {
@@ -1151,10 +1137,6 @@ func translateN8NHandlebarsPath(expr string, nodeRefs map[string]string) (string
 	return strings.Join(out, "."), true
 }
 
-func translateN8NTernaryExpression(expr string) (string, bool) {
-	return translateN8NTernaryExpressionWithRefs(expr, nil)
-}
-
 func translateN8NTernaryExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	q := strings.Index(expr, "?")
 	colon := strings.LastIndex(expr, ":")
@@ -1176,10 +1158,6 @@ func translateN8NTernaryExpressionWithRefs(expr string, nodeRefs map[string]stri
 	return "(if " + condition + " " + yes + " " + no + ")", true
 }
 
-func translateN8NBinaryExpression(expr string) (string, bool) {
-	return translateN8NBinaryExpressionWithRefs(expr, nil)
-}
-
 func translateN8NBinaryExpressionWithRefs(expr string, nodeRefs map[string]string) (string, bool) {
 	for _, op := range []string{" + ", " - ", " * ", " / "} {
 		if idx := strings.Index(expr, op); idx > 0 {
@@ -1192,10 +1170,6 @@ func translateN8NBinaryExpressionWithRefs(expr string, nodeRefs map[string]strin
 		}
 	}
 	return "", false
-}
-
-func translateN8NOperand(raw string) (string, bool) {
-	return translateN8NOperandWithRefs(raw, nil)
 }
 
 func translateN8NOperandWithRefs(raw string, nodeRefs map[string]string) (string, bool) {
@@ -1931,22 +1905,6 @@ func renderStringMap(values map[string]string) string {
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		parts = append(parts, ednQuote(key)+" "+ednQuote(values[key]))
-	}
-	return "{" + strings.Join(parts, " ") + "}"
-}
-
-func renderAnyStringMap(values map[string]any) string {
-	if len(values) == 0 {
-		return "{}"
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, ednQuote(key)+" "+ednQuote(fmt.Sprint(values[key])))
 	}
 	return "{" + strings.Join(parts, " ") + "}"
 }

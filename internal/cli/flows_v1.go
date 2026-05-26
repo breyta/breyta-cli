@@ -400,7 +400,7 @@ By default this command is a dry run; pass --write to update files in place.
 			parinferRunner := parinfer.Runner{BinaryPath: parinferPath}
 
 			for _, path := range allFiles {
-				b, err := os.ReadFile(path)
+				b, err := readExplicitFile(path)
 				if err != nil {
 					return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
 				}
@@ -487,7 +487,7 @@ func newFlowsParenCheckCmd(app *App) *cobra.Command {
 			if path == "" {
 				return writeErr(cmd, errors.New("missing file path (use --file <path> or pass a positional file)"))
 			}
-			b, err := os.ReadFile(path)
+			b, err := readExplicitFile(path)
 			if err != nil {
 				return writeFailure(cmd, app, "read_failed", err, "Check the path and permissions.", map[string]any{"path": path})
 			}
@@ -503,7 +503,7 @@ func newFlowsParenCheckCmd(app *App) *cobra.Command {
 
 func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := makePublicDir(dir); err != nil {
 		return err
 	}
 
@@ -1079,10 +1079,10 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("missing data.flowLiteral in response"))
 			}
 
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			if err := makePublicDir(filepath.Dir(path)); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := os.WriteFile(path, []byte(flowLiteral+"\n"), 0o644); err != nil {
+			if err := writePublicFile(path, []byte(flowLiteral+"\n")); err != nil {
 				return writeErr(cmd, err)
 			}
 			_ = recordConsultedFlow(provenanceSourceRef{
@@ -1136,7 +1136,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(file) == "" {
 				return writeErr(cmd, errors.New("missing --file"))
 			}
-			b, err := os.ReadFile(file)
+			b, err := readExplicitFile(file)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1873,128 +1873,6 @@ func newFlowsStepsShowCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newFlowsStepsSetCmd(app *App) *cobra.Command {
-	var (
-		stepType     string
-		title        string
-		inputSchema  string
-		outputSchema string
-		definition   string
-	)
-	cmd := &cobra.Command{
-		Use:   "set <flow-slug> <step-id>",
-		Short: "Create or update a step",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			st, store, err := appStore(app)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			ws, err := getWorkspace(st, app.WorkspaceID)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			f := ws.Flows[args[0]]
-			if f == nil {
-				return writeErr(cmd, errors.New("flow not found"))
-			}
-			if stepType == "" {
-				stepType = "function"
-			}
-			if title == "" {
-				title = args[1]
-			}
-			s := state.FlowStep{ID: args[1], Type: stepType, Title: title, InputSchema: inputSchema, OutputSchema: outputSchema, Definition: definition}
-			upsertStep(f, s)
-			f.Spine = buildSpine(f)
-			f.UpdatedAt = time.Now().UTC()
-			ws.UpdatedAt = f.UpdatedAt
-			if err := store.Save(st); err != nil {
-				return writeErr(cmd, err)
-			}
-			return writeData(cmd, app, nil, map[string]any{"flow": f})
-		},
-	}
-	cmd.Flags().StringVar(&stepType, "type", "", "Step type (http|function|code|wait|notify|llm)")
-	cmd.Flags().StringVar(&title, "title", "", "Step title")
-	cmd.Flags().StringVar(&inputSchema, "input-schema", "", "Input schema")
-	cmd.Flags().StringVar(&outputSchema, "output-schema", "", "Output schema")
-	cmd.Flags().StringVar(&definition, "definition", "", "Definition")
-	return cmd
-}
-
-func newFlowsStepsDeleteCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "delete <flow-slug> <step-id>",
-		Short: "Delete a step",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			st, store, err := appStore(app)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			ws, err := getWorkspace(st, app.WorkspaceID)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			f := ws.Flows[args[0]]
-			if f == nil {
-				return writeErr(cmd, errors.New("flow not found"))
-			}
-			if !deleteStep(f, args[1]) {
-				return writeErr(cmd, errors.New("step not found"))
-			}
-			f.Spine = buildSpine(f)
-			f.UpdatedAt = time.Now().UTC()
-			ws.UpdatedAt = f.UpdatedAt
-			if err := store.Save(st); err != nil {
-				return writeErr(cmd, err)
-			}
-			return writeData(cmd, app, nil, map[string]any{"deleted": true, "flowSlug": f.Slug, "stepId": args[1]})
-		},
-	}
-	return cmd
-}
-
-func newFlowsStepsMoveCmd(app *App) *cobra.Command {
-	var before, after string
-	cmd := &cobra.Command{
-		Use:   "move <flow-slug> <step-id>",
-		Short: "Move a step",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if before == "" && after == "" {
-				return writeErr(cmd, errors.New("missing --before or --after"))
-			}
-			st, store, err := appStore(app)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			ws, err := getWorkspace(st, app.WorkspaceID)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			f := ws.Flows[args[0]]
-			if f == nil {
-				return writeErr(cmd, errors.New("flow not found"))
-			}
-			if err := moveStep(f, args[1], before, after); err != nil {
-				return writeErr(cmd, err)
-			}
-			f.Spine = buildSpine(f)
-			f.UpdatedAt = time.Now().UTC()
-			ws.UpdatedAt = f.UpdatedAt
-			if err := store.Save(st); err != nil {
-				return writeErr(cmd, err)
-			}
-			return writeData(cmd, app, nil, map[string]any{"flow": f})
-		},
-	}
-	cmd.Flags().StringVar(&before, "before", "", "Move step before this step-id")
-	cmd.Flags().StringVar(&after, "after", "", "Move step after this step-id")
-	return cmd
-}
-
 // --- Versions ----------------------------------------------------------------
 
 func newFlowsVersionsListCmd(app *App) *cobra.Command {
@@ -2475,74 +2353,6 @@ func findStep(f *state.Flow, id string) (state.FlowStep, bool) {
 		}
 	}
 	return state.FlowStep{}, false
-}
-
-func upsertStep(f *state.Flow, s state.FlowStep) {
-	for i := range f.Steps {
-		if f.Steps[i].ID == s.ID {
-			f.Steps[i] = s
-			return
-		}
-	}
-	f.Steps = append(f.Steps, s)
-}
-
-func deleteStep(f *state.Flow, id string) bool {
-	for i := range f.Steps {
-		if f.Steps[i].ID == id {
-			f.Steps = append(f.Steps[:i], f.Steps[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
-func moveStep(f *state.Flow, stepID, before, after string) error {
-	if before != "" && after != "" {
-		return errors.New("cannot set both --before and --after")
-	}
-	idx := -1
-	var step state.FlowStep
-	for i := range f.Steps {
-		if f.Steps[i].ID == stepID {
-			idx = i
-			step = f.Steps[i]
-			break
-		}
-	}
-	if idx == -1 {
-		return errors.New("step not found")
-	}
-	// remove
-	f.Steps = append(f.Steps[:idx], f.Steps[idx+1:]...)
-
-	ref := before
-	insertAfter := false
-	if after != "" {
-		ref = after
-		insertAfter = true
-	}
-	pos := -1
-	for i := range f.Steps {
-		if f.Steps[i].ID == ref {
-			pos = i
-			break
-		}
-	}
-	if pos == -1 {
-		return errors.New("reference step not found")
-	}
-	if insertAfter {
-		pos++
-	}
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > len(f.Steps) {
-		pos = len(f.Steps)
-	}
-	f.Steps = append(f.Steps[:pos], append([]state.FlowStep{step}, f.Steps[pos:]...)...)
-	return nil
 }
 
 func maxVersion(f *state.Flow) int {

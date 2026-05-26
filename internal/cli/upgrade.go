@@ -24,10 +24,24 @@ var runUpgradeCommand = func(ctx context.Context, argv []string, out io.Writer, 
 	if len(argv) == 0 {
 		return errors.New("missing upgrade command")
 	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if err := validateUpgradeCommand(argv); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- argv is restricted to known Breyta upgrade commands. nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 	return cmd.Run()
+}
+
+func validateUpgradeCommand(argv []string) error {
+	switch {
+	case len(argv) == 3 && argv[0] == "brew" && argv[1] == "upgrade" && argv[2] == "breyta":
+		return nil
+	case len(argv) == 3 && argv[0] == "go" && argv[1] == "install" && argv[2] == updatecheck.GoInstallPackage:
+		return nil
+	default:
+		return fmt.Errorf("unsupported upgrade command: %s", strings.Join(argv, " "))
+	}
 }
 
 var syncInstalledSkills = func(ctx context.Context, apiURL, token string) (skillsync.SyncResult, error) {

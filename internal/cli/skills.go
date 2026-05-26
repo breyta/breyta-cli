@@ -40,7 +40,7 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 				return err
 			}
 
-			providers := []skills.Provider{}
+			var providers []skills.Provider
 			if strings.EqualFold(provider, "all") {
 				providers = skillsync.AllProviders()
 			} else {

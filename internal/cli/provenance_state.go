@@ -160,7 +160,7 @@ func loadConsultedFlowRefsFromStart(start string) ([]provenanceSourceRef, error)
 	if err != nil || !found {
 		return nil, err
 	}
-	b, err := os.ReadFile(path)
+	b, err := readExplicitFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

@@ -352,7 +352,7 @@ func readAndExpandFlowInclude(path, rootDir string, stack []string, cache map[st
 			return "", fmt.Errorf("flow source include cycle: %s", strings.Join(chain, " -> "))
 		}
 	}
-	b, err := os.ReadFile(absPath)
+	b, err := readExplicitFile(absPath)
 	if err != nil {
 		return "", fmt.Errorf("read flow source include %q: %w", absPath, err)
 	}

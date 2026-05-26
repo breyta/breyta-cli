@@ -32,12 +32,17 @@ func FindParinferRust() string {
 }
 
 func resolveExecutablePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = filepath.Clean(path)
 	candidates := []string{path}
 	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(path), ".exe") {
 		candidates = append([]string{path + ".exe"}, candidates...)
 	}
 	for _, c := range candidates {
-		if st, err := os.Stat(c); err == nil && !st.IsDir() {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() { // #nosec G703 -- candidate is a local executable path from user config, install dir, or PATH lookup.
 			return c
 		}
 	}

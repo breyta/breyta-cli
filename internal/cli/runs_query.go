@@ -36,7 +36,7 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 	for _, token := range strings.Fields(query) {
 		parts := strings.SplitN(token, ":", 2)
 		if len(parts) != 2 {
-			return runsListFilters{}, fmt.Errorf("invalid runs query token %q; use status:, flow:, installation:, or version:", token)
+			return runsListFilters{}, fmt.Errorf("invalid runs query token %q; use status:, flow:, installation:, or version", token)
 		}
 		field := strings.ToLower(strings.TrimSpace(parts[0]))
 		value := strings.TrimSpace(parts[1])
@@ -72,7 +72,7 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 			filters.Version = parsed
 			filters.HasVersion = true
 		default:
-			return runsListFilters{}, fmt.Errorf("unsupported runs query token %q; use status:, flow:, installation:, or version:", token)
+			return runsListFilters{}, fmt.Errorf("unsupported runs query token %q; use status:, flow:, installation:, or version", token)
 		}
 	}
 	return filters, nil

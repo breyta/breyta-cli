@@ -23,11 +23,15 @@ func DefaultPath() (string, error) {
 }
 
 func EnsureParentDir(path string) error {
-	return os.MkdirAll(filepath.Dir(path), 0o755)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o700) // #nosec G302 -- mock state directory must be owner-only searchable.
 }
 
 func Load(path string) (*State, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- mock state path is resolved from Breyta config or explicit operator configuration.
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +60,10 @@ func SaveAtomic(path string, s *State) error {
 	b = append(b, '\n')
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

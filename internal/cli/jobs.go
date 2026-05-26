@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -600,7 +599,7 @@ func parseJSONSource(raw string, filePath string, label string) (any, error) {
 		return nil, fmt.Errorf("use either --%s or --%s-file, not both", label, label)
 	}
 	if trimmedPath != "" {
-		bytes, err := os.ReadFile(trimmedPath)
+		bytes, err := readExplicitFile(trimmedPath)
 		if err != nil {
 			return nil, fmt.Errorf("read %s file: %w", label, err)
 		}

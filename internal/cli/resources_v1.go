@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -113,7 +112,7 @@ func parseKeyAssignments(values []string) (map[string]any, error) {
 }
 
 func readCSVFile(path string) (string, error) {
-	bytes, err := os.ReadFile(path)
+	bytes, err := readExplicitFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -1249,7 +1248,7 @@ func newResourcesTableExportCmd(app *App) *cobra.Command {
 				_, err = io.WriteString(cmd.OutOrStdout(), csvText)
 				return err
 			}
-			if err := os.WriteFile(outPath, []byte(csvText), 0o644); err != nil {
+			if err := writePublicFile(outPath, []byte(csvText)); err != nil {
 				return writeErr(cmd, err)
 			}
 			return writeOut(cmd, app, map[string]any{

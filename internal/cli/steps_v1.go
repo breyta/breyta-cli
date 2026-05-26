@@ -401,7 +401,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			md := strings.TrimSpace(markdown)
 			if strings.TrimSpace(filePath) != "" {
-				b, err := os.ReadFile(strings.TrimSpace(filePath))
+				b, err := readExplicitFile(strings.TrimSpace(filePath))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
 				}
@@ -746,7 +746,7 @@ Examples:
 
 			paramsRaw := strings.TrimSpace(paramsJSON)
 			if strings.TrimSpace(paramsFile) != "" {
-				b, err := os.ReadFile(strings.TrimSpace(paramsFile))
+				b, err := readExplicitFile(strings.TrimSpace(paramsFile))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
 				}
@@ -884,7 +884,7 @@ Examples:
 
 			paramsRaw := strings.TrimSpace(paramsJSON)
 			if strings.TrimSpace(paramsFile) != "" {
-				b, err := os.ReadFile(strings.TrimSpace(paramsFile))
+				b, err := readExplicitFile(strings.TrimSpace(paramsFile))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
 				}

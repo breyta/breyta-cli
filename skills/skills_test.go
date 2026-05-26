@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -80,6 +81,53 @@ func TestInstallBreytaSkillFiles_LeavesDuplicateNamedSkillUntouched(t *testing.T
 	}
 	if len(duplicates) != 1 || duplicates[0].File != duplicatePath {
 		t.Fatalf("expected duplicate path %q, got %#v", duplicatePath, duplicates)
+	}
+}
+
+func TestInstallBreytaSkillFiles_TightensExistingManagedPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are not portable on windows")
+	}
+	home := t.TempDir()
+	target, err := Target(home, ProviderCodex)
+	if err != nil {
+		t.Fatalf("target: %v", err)
+	}
+	refPath := filepath.Join(target.Dir, "references", "reference-index.md")
+	if err := os.MkdirAll(filepath.Dir(refPath), 0o755); err != nil {
+		t.Fatalf("mkdir refs: %v", err)
+	}
+	if err := os.WriteFile(target.File, []byte("old skill\n"), 0o644); err != nil {
+		t.Fatalf("seed skill: %v", err)
+	}
+	if err := os.WriteFile(refPath, []byte("old ref\n"), 0o644); err != nil {
+		t.Fatalf("seed ref: %v", err)
+	}
+
+	if _, err := InstallBreytaSkillFiles(home, ProviderCodex, map[string][]byte{
+		"SKILL.md":                      []byte("new skill\n"),
+		"references/reference-index.md": []byte("new ref\n"),
+	}); err != nil {
+		t.Fatalf("install files: %v", err)
+	}
+
+	for _, path := range []string{target.Dir, filepath.Dir(refPath)} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat dir %s: %v", path, err)
+		}
+		if got := info.Mode().Perm(); got != skillDirMode {
+			t.Fatalf("expected dir %s perms %o, got %o", path, skillDirMode, got)
+		}
+	}
+	for _, path := range []string{target.File, refPath} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat file %s: %v", path, err)
+		}
+		if got := info.Mode().Perm(); got != skillFileMode {
+			t.Fatalf("expected file %s perms %o, got %o", path, skillFileMode, got)
+		}
 	}
 }
 

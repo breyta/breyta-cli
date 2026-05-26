@@ -585,15 +585,6 @@ across workspaces without embedding refresh tokens directly in flow activation f
 	return cmd
 }
 
-// Ensure any accidental debug output does not leak sensitive values in JSON mode.
-// This is a no-op unless someone sets BREYTA_AUTH_DEBUG=1 while developing.
-func maybeAuthDebug(v any) {
-	if os.Getenv("BREYTA_AUTH_DEBUG") != "1" {
-		return
-	}
-	_ = json.NewEncoder(io.Discard).Encode(v)
-}
-
 func parseExpiresInSeconds(v string) (int64, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -667,7 +658,10 @@ func browserLogin(ctx context.Context, apiBaseURL string, out io.Writer) (browse
 	errCh := make(chan error, 1)
 
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Get("state") != state {

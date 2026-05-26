@@ -19,7 +19,8 @@ import (
 
 const (
 	defaultPostHogHost = "https://eu.i.posthog.com"
-	defaultPostHogKey  = "phc_IWzuX5ONKdDwYVJX1zgXdUDcuBU8DIFGDIe5WywISiT"
+	// PostHog project API keys are public ingest identifiers, not auth credentials.
+	defaultPostHogKey = "phc_IWzuX5ONKdDwYVJX1zgXdUDcuBU8DIFGDIe5WywISiT"
 )
 
 type posthogCapturePayload struct {

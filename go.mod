@@ -1,6 +1,6 @@
 module github.com/breyta/breyta-cli
 
-go 1.23.6
+go 1.25.10
 
 require (
 	github.com/mattn/go-isatty v0.0.20
@@ -11,5 +11,5 @@ require (
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 )

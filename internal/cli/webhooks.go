@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/breyta/breyta-cli/internal/format"
 	"github.com/spf13/cobra"
@@ -317,7 +316,7 @@ func buildWebhookPayload(jsonPayload string, jsonFile string, formFields []strin
 	}
 
 	if jsonFile != "" {
-		body, err := os.ReadFile(jsonFile)
+		body, err := readExplicitFile(jsonFile)
 		if err != nil {
 			return webhookPayload{}, fmt.Errorf("read json-file: %w", err)
 		}
@@ -329,7 +328,7 @@ func buildWebhookPayload(jsonPayload string, jsonFile string, formFields []strin
 	}
 
 	if rawFile != "" {
-		body, err := os.ReadFile(rawFile)
+		body, err := readExplicitFile(rawFile)
 		if err != nil {
 			return webhookPayload{}, fmt.Errorf("read raw-file: %w", err)
 		}
@@ -491,7 +490,7 @@ func buildMultipartBody(formMap map[string]any, files []webhookFilePart) ([]byte
 	}
 
 	for _, part := range files {
-		body, err := os.ReadFile(part.Path)
+		body, err := readExplicitFile(part.Path)
 		if err != nil {
 			return nil, "", nil, fmt.Errorf("read %s: %w", part.Path, err)
 		}
@@ -764,7 +763,7 @@ func parseTimestampMs(raw string) (int64, error) {
 }
 
 func readECDSAPrivateKey(path string) (*ecdsa.PrivateKey, error) {
-	data, err := os.ReadFile(path)
+	data, err := readExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read private key: %w", err)
 	}
@@ -787,7 +786,7 @@ func readECDSAPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 }
 
 func readECDSAPublicKey(path string) (*ecdsa.PublicKey, error) {
-	data, err := os.ReadFile(path)
+	data, err := readExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read public key: %w", err)
 	}
@@ -806,30 +805,12 @@ func readECDSAPublicKey(path string) (*ecdsa.PublicKey, error) {
 	return key, nil
 }
 
-func buildValidateOnlyPreview(fullURL string, headers map[string]string, query url.Values, body []byte) map[string]any {
-	preview := map[string]any{
-		"method":  http.MethodPost,
-		"url":     fullURL,
-		"headers": headers,
-	}
-	if len(query) > 0 {
-		preview["query"] = query
-	}
-	if utf8.Valid(body) {
-		preview["body"] = string(body)
-	} else {
-		preview["body_base64"] = base64.StdEncoding.EncodeToString(body)
-	}
-	preview["body_bytes"] = len(body)
-	return map[string]any{"data": preview}
-}
-
 func writeResponseFile(path string, data any, pretty bool) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil
 	}
-	file, err := os.Create(path)
+	file, err := createExplicitFile(path)
 	if err != nil {
 		return err
 	}
