@@ -100,7 +100,7 @@ func saveCache(c cacheFile) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), cacheDirMode); err != nil {
+	if err := makeCacheDir(filepath.Dir(p)); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
@@ -108,10 +108,24 @@ func saveCache(c cacheFile) error {
 		return err
 	}
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, cacheFileMode); err != nil {
+	if err := writeCacheFile(tmp, b); err != nil {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+func makeCacheDir(path string) error {
+	if err := os.MkdirAll(path, cacheDirMode); err != nil {
+		return err
+	}
+	return os.Chmod(path, cacheDirMode)
+}
+
+func writeCacheFile(path string, content []byte) error {
+	if err := os.WriteFile(path, content, cacheFileMode); err != nil { // #nosec G304,G703 -- path is resolved under cache dir or provider skill target.
+		return err
+	}
+	return os.Chmod(path, cacheFileMode)
 }
 
 func saveCacheMutation(mutate func(*cacheFile)) error {
@@ -247,7 +261,7 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 			continue
 		} else if backedUp {
 			// Best-effort rollback: restore the original file contents if install fails.
-			_ = os.WriteFile(t.File, backup, cacheFileMode)
+			_ = writeCacheFile(t.File, backup)
 			if firstErr == nil {
 				firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
 			}
@@ -517,6 +531,6 @@ func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {
 	ts := time.Now().UTC().Format("20060102T150405Z")
 	backup := path + ".bak-" + ts
 	// Best-effort: keep a copy for manual rollback.
-	_ = os.WriteFile(backup, b, cacheFileMode) // #nosec G703 -- backup path is derived from the installed skill target path.
+	_ = writeCacheFile(backup, b) // #nosec G703 -- backup path is derived from the installed skill target path.
 	return b, true
 }

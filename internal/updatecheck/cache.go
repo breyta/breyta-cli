@@ -49,7 +49,11 @@ func saveCache(c Cache) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil { // #nosec G302 -- update cache directory must be owner-only searchable.
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
@@ -58,6 +62,9 @@ func saveCache(c Cache) error {
 	}
 	tmp := p + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, p)
