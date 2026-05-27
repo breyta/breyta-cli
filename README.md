@@ -155,7 +155,7 @@ instead of `--target`:
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
 
-To verify one existing flow step without running downstream steps:
+To verify one existing flow step without running other flow steps:
 
 ```bash
 breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait

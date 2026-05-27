@@ -440,7 +440,7 @@ func newFlowsRunStepCmd(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run-step <flow-slug> <step-id>",
-		Short: "Run one named flow step without downstream steps",
+		Short: "Run one named flow step without other flow steps",
 		Long: strings.TrimSpace(`
 Run one step from a selected flow target/profile using the normal flow runtime
 bindings, templates, and run output surfaces. Non-selected flow steps are not
