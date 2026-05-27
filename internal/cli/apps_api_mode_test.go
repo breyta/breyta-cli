@@ -3217,6 +3217,80 @@ func TestFlowsRunStep_WaitPollsRun(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_ProfileIDDefaultsLiveTarget(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run_step" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" ||
+			args["stepId"] != "draft-platform-posts" ||
+			args["target"] != "live" ||
+			args["profileId"] != "prof-123" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profile run-step payload"}})
+			return
+		}
+		if _, ok := args["installationId"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "profile-id alias should not add installationId"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-step-profile", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "flow-release", "draft-platform-posts",
+		"--profile-id", "prof-123",
+	)
+	if err != nil {
+		t.Fatalf("flows run-step --profile-id failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRunStep_RejectsConflictingProfileAliases(t *testing.T) {
+	called := false
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(500)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "server should not be called"}})
+	}))
+	defer srv.Close()
+
+	_, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "flow-release", "draft-platform-posts",
+		"--installation-id", "prof-a",
+		"--profile-id", "prof-b",
+	)
+	if err == nil {
+		t.Fatal("expected conflicting profile aliases to fail")
+	}
+	if called {
+		t.Fatal("server was called despite conflicting profile aliases")
+	}
+}
+
 func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
