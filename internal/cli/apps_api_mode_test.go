@@ -3049,6 +3049,174 @@ func TestFlowsRun_SendsInvocation(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_UsesCanonicalCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run_step" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		input, _ := args["input"].(map[string]any)
+		if args["flowSlug"] != "ai-social-publisher" ||
+			args["stepId"] != "draft-platform-posts" ||
+			args["target"] != "live" ||
+			args["version"] != float64(33) ||
+			args["invocation"] != "manual-test" ||
+			input["topic"] != "launch" ||
+			input["count"] != float64(2) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing run-step payload"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-step-1", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--target", "live",
+		"--version", "33",
+		"--invocation", "manual-test",
+		"--input", `{"topic":"launch","count":2}`,
+	)
+	if err != nil {
+		t.Fatalf("flows run-step failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRunStep_WaitPollsRun(t *testing.T) {
+	var flowsRunStepCalls int
+	var runsGetCalls int
+	var finalHydrationCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run_step":
+			flowsRunStepCalls++
+			if args["flowSlug"] != "ai-social-publisher" ||
+				args["stepId"] != "draft-platform-posts" ||
+				args["target"] != "live" ||
+				args["installationId"] != "prof-consumer" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing run-step wait payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId":     "wf-step-wait",
+					"installationId": "prof-consumer",
+					"status":         "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-step-wait" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["installationId"] != "prof-consumer" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				finalHydrationCalls++
+				if args["includeResult"] != false {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "final wait hydration should skip result"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId":     "wf-step-wait",
+							"installationId": "prof-consumer",
+							"status":         "completed",
+							"steps":          []map[string]any{{"stepId": "draft-platform-posts", "status": "completed"}},
+						},
+					},
+				})
+				return
+			}
+			if args["includeSteps"] != false || args["includeResult"] != false {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "wait polling should request compact runs.get"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":     "wf-step-wait",
+						"installationId": "prof-consumer",
+						"status":         "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-consumer",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--installation-id", "prof-consumer",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run-step --wait failed: %v\n%s", err, stdout)
+	}
+	if flowsRunStepCalls != 1 {
+		t.Fatalf("expected 1 flows.run_step call, got %d", flowsRunStepCalls)
+	}
+	if runsGetCalls < 1 {
+		t.Fatalf("expected at least 1 runs.get poll, got %d", runsGetCalls)
+	}
+	if finalHydrationCalls != 1 {
+		t.Fatalf("expected one terminal wait hydration call, got %d", finalHydrationCalls)
+	}
+	if !strings.Contains(stdout, "wf-step-wait") {
+		t.Fatalf("expected output to include workflow id, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"stepId":"draft-platform-posts"`) {
+		t.Fatalf("expected wait output to include selected step summary, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

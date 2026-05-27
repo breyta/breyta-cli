@@ -259,6 +259,7 @@ Quick commands:
 - breyta flows promote <slug> --version <n>
 - breyta flows show <slug> --target live
 - breyta flows run <slug> --target live --wait
+- breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait
 - breyta flows run <slug> --wait
 
 Flow file format (minimal):
@@ -332,6 +333,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsReleaseCmd(app))
 	cmd.AddCommand(newFlowsPromoteCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
+	cmd.AddCommand(newFlowsRunStepCmd(app))
 	cmd.AddCommand(newFlowsMetricsCmd(app))
 	cmd.AddCommand(newFlowsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))

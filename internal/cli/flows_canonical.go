@@ -427,6 +427,106 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	return cmd
 }
 
+func newFlowsRunStepCmd(app *App) *cobra.Command {
+	var installationID string
+	var profileID string
+	var target string
+	var version int
+	var invocation string
+	var inputJSON string
+	var wait bool
+	var timeout time.Duration
+	var poll time.Duration
+
+	cmd := &cobra.Command{
+		Use:   "run-step <flow-slug> <step-id>",
+		Short: "Run one named flow step without downstream steps",
+		Long: strings.TrimSpace(`
+Run one step from a selected flow target/profile using the normal flow runtime
+bindings, templates, and run output surfaces. Non-selected flow steps are not
+executed, and the run stops immediately after the selected step completes.
+
+Default:
+- breyta flows run-step <flow-slug> <step-id> [--input '{...}'] [--wait]
+
+Advanced targeting:
+- --target draft|live : select workspace draft/live when not using --installation-id
+- --installation-id <id> : run under a specific live installation/profile
+- --profile-id <id> : alias for selecting a specific profile
+- --version <n> : force a specific release version
+- --invocation <id> : validate input against a named invocation contract
+		`),
+		Example: strings.TrimSpace(`
+breyta flows run-step ai-social-publisher draft-platform-posts --target live --input '{"topic":"launch"}' --wait
+breyta flows run-step order-ingest normalize-order --target draft --input '{"orderId":"ord_123"}' --wait
+breyta flows run-step report-builder summarize --installation-id prof_123 --input '{"range":"last_week"}' --wait
+		`),
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "flows run-step requires --api/BREYTA_API_URL")
+			}
+			installationID = strings.TrimSpace(installationID)
+			profileID = strings.TrimSpace(profileID)
+			if installationID != "" && profileID != "" && installationID != profileID {
+				return writeErr(cmd, fmt.Errorf("--installation-id and --profile-id refer to the same run profile; provide only one"))
+			}
+			resolvedTarget := ""
+			if cmd.Flags().Changed("target") {
+				var err error
+				resolvedTarget, err = normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			} else if installationID != "" || profileID != "" {
+				resolvedTarget = "live"
+			} else {
+				resolvedTarget = "draft"
+			}
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			if resolvedTarget != "" {
+				payload["target"] = resolvedTarget
+			}
+			if installationID != "" {
+				payload["installationId"] = installationID
+			}
+			if profileID != "" {
+				payload["profileId"] = profileID
+			}
+			if version > 0 {
+				payload["version"] = version
+			}
+			invocation = strings.TrimSpace(invocation)
+			if invocation != "" {
+				payload["invocation"] = invocation
+			}
+			if strings.TrimSpace(inputJSON) != "" {
+				m, err := parseJSONObjectFlag(inputJSON)
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+				}
+				payload["input"] = m
+			}
+			return doRunCommandWithOptionalWait(cmd, app, "flows.run_step", payload, wait, timeout, poll)
+		},
+	}
+
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: run under a specific profile id")
+	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
+	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
+	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
+	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
+	return cmd
+}
+
 func newFlowsReleaseCmd(app *App) *cobra.Command {
 	var skipPromoteInstallations bool
 	var version string

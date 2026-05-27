@@ -155,6 +155,12 @@ instead of `--target`:
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
 
+To verify one existing flow step without running downstream steps:
+
+```bash
+breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait
+```
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
