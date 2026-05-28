@@ -225,6 +225,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta flows lint --file ./flows/<slug>.clj`") {
 		t.Fatalf("unexpected readme content (missing flow lint guidance): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`--timeout <duration>` when server lint needs a longer bound") {
+		t.Fatalf("unexpected readme content (missing lint timeout guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "Do not call a public/end-user flow \"ready for UI\" from draft CLI proof alone") {
 		t.Fatalf("unexpected readme content (missing ready-for-UI guardrail): %s", string(readme))
 	}

@@ -54,6 +54,10 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "## Workflow quality contract (Required)") {
 		t.Fatalf("expected workflow quality contract in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "`breyta flows lint --file ./flows/<slug>.clj` before push") ||
+		!strings.Contains(body, "`--timeout <duration>` when server lint needs a longer bound") {
+		t.Fatalf("expected lint timeout guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "Do not run `breyta connections test --all`") && !strings.Contains(body, "not `breyta connections test --all`") {
 		t.Fatalf("expected targeted connection test guidance in override, got:\n%s", body)
 	}
@@ -204,6 +208,10 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "write the contract and acceptance matrix before source grows") {
 		t.Fatalf("expected authoring acceptance matrix guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "`breyta flows lint --file ./flows/<slug>.clj` before push") ||
+		!strings.Contains(string(got["playbooks/author-flows.md"]), "`--timeout <duration>` when server lint needs a longer bound") {
+		t.Fatalf("expected authoring lint timeout guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "treat HTTP/MCP as consumer transports for installed callable interfaces") {
 		t.Fatalf("expected installed callable interface transport guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
@@ -268,6 +276,10 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	}
 	if !strings.Contains(body, "normal bounded inspection path for agents") {
 		t.Fatalf("expected bounded resource-read guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "`breyta flows lint --file ./flows/<slug>.clj` before push") ||
+		!strings.Contains(body, "`--timeout <duration>` when server lint needs a longer bound") {
+		t.Fatalf("expected lint timeout guidance in canonical skill, got:\n%s", body)
 	}
 	if !strings.Contains(body, "Do not put full report bodies in table cells such as `report_markdown`") {
 		t.Fatalf("expected large table-cell hygiene guidance, got:\n%s", body)

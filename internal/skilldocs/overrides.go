@@ -160,6 +160,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	}
 	updated = ensureN8NImportGuidance(updated)
 	updated = ensurePaidAppMarketplaceSection(updated)
+	updated = ensureLintBeforePushGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -185,6 +186,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
 	updated = ensureN8NImportGuidance(updated)
+	updated = ensureLintBeforePushGuidance(updated)
 	if updated == original {
 		return files
 	}
@@ -224,6 +226,7 @@ func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string
 	updateFile("SKILL.md", ensureMinimumSufficientEvidenceCoreRule)
 	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
 	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
+	updateFile("playbooks/author-flows.md", ensureLintBeforePushGuidance)
 	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
 	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
 	updateFile("references/public-flows.md", ensurePublicFlowReuseDuringAuthoring)
@@ -539,6 +542,7 @@ runtime semantics.
   - ` + "`breyta docs find \"\\\"draft bindings\\\"\"`" + `
   - ` + "`breyta docs find \"\\\"tool permissions\\\"\"`" + `
 - search command paths for operator behavior
+  - ` + "`breyta docs find \"source:cli flows lint\"`" + `
   - ` + "`breyta docs find \"source:cli flows configure check\"`" + `
   - ` + "`breyta docs find \"source:cli connections test\"`" + `
 - search API/runtime docs when CLI docs are too thin
@@ -575,6 +579,8 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 - when editing existing flows, keep legacy models/APIs only if compatibility, cost, or evaluation history is intentional. Otherwise propose upgrading to the current verified provider/API choice`
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
+
+const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
 func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 	if strings.Contains(body, "Use minimum sufficient evidence") {
@@ -622,6 +628,33 @@ func ensureAuthoringDefaultsContractMatrix(body string) string {
 		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
 	}
 	return strings.TrimRight(body, "\n") + "\n\n## Authoring Defaults\n\n" + guidance + "\n"
+}
+
+func ensureLintBeforePushGuidance(body string) string {
+	if strings.Contains(body, "server lint needs a longer bound") {
+		return body
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
+		insertPos := headingPos + len("## Create/Edit Preflight")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + lintBeforePushGuidance + "\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + lintBeforePushGuidance + "\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Solution surfaces first (Required before editing)"); headingPos >= 0 {
+		insertPos := nextH2LineStartOutsideFences(body, headingPos+len("## Solution surfaces first (Required before editing)"))
+		if insertPos >= 0 {
+			return body[:insertPos] + "## Draft lint before push\n\n" + lintBeforePushGuidance + "\n\n" + body[insertPos:]
+		}
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Draft lint before push\n\n" + lintBeforePushGuidance + "\n"
 }
 
 func ensureAuthorFlowEfficientLoop(body string) string {

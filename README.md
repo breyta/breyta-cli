@@ -130,10 +130,15 @@ Pull a flow into a local workspace, edit it, push it back to draft, and run it:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj
+breyta flows lint --file ./flows/<slug>.clj
 breyta flows push --file ./flows/<slug>.clj
 breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
+
+`flows lint` is local-first. Use `--local-only` for offline checks, `--server`
+for canonical non-mutating server lint, and `--timeout <duration>` when server
+lint needs more than the default 30-second bound.
 
 For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
 first; do not hand-write the initial EDN conversion unless the importer is
