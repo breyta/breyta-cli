@@ -3217,6 +3217,59 @@ func TestFlowsRunStep_WaitPollsRun(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_WaitDoesNotPollAfterStartFailureEnvelope(t *testing.T) {
+	var runsGetCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "Invalid step id",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			w.WriteHeader(500)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "runs.get should not be called"}})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--wait",
+	)
+	if err == nil {
+		t.Fatalf("expected failed run-step start envelope to exit nonzero\nstdout=%s", stdout)
+	}
+	if runsGetCalls != 0 {
+		t.Fatalf("expected no runs.get polling after failed start envelope, got %d calls", runsGetCalls)
+	}
+	if !strings.Contains(stdout, "Invalid step id") {
+		t.Fatalf("expected server-provided error to be printed, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "missing data.workflowId") {
+		t.Fatalf("expected original server error instead of workflow-id polling error, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

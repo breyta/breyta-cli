@@ -168,7 +168,7 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 			"wait":      wait,
 		})
 	}
-	if !wait || status >= 400 {
+	if !wait || !startOK {
 		if err := writeAPIResult(cmd, app, startResp, status); err != nil {
 			return writeErr(cmd, err)
 		}
