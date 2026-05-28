@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -131,6 +132,11 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any) s
 			return ""
 		}
 		parts = []string{"breyta", "flows", "run-step", flowSlug, stepID}
+		if retryFlags, ok := runStepRetryInputFlags(payload); ok {
+			parts = append(parts, retryFlags...)
+		} else {
+			return ""
+		}
 	default:
 		parts = []string{"breyta", "flows", "run", flowSlug}
 	}
@@ -146,6 +152,23 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any) s
 	}
 	parts = append(parts, "--wait", "--timeout", "2m")
 	return strings.Join(parts, " ")
+}
+
+func runStepRetryInputFlags(payload map[string]any) ([]string, bool) {
+	var parts []string
+	if invocation := argString(payload, "invocation", "invocationId", "invocation-id"); invocation != "" {
+		parts = append(parts, "--invocation", invocation)
+	}
+	input, hasInput := payload["input"]
+	if !hasInput || input == nil {
+		return parts, true
+	}
+	b, err := json.Marshal(input)
+	if err != nil {
+		return nil, false
+	}
+	parts = append(parts, "--input", shellSingleQuote(string(b)))
+	return parts, true
 }
 
 func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration) error {

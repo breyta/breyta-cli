@@ -3326,6 +3326,62 @@ func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_WaitTimeoutPreservesInputInRetryHint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-step-slow-input",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step-slow-input",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--target", "live",
+		"--invocation", "manual-test",
+		"--input", `{"count":2,"topic":"launch"}`,
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 2m") {
+		t.Fatalf("expected run-step retry command to preserve invocation and input, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRunStep_ProfileIDDefaultsLiveTarget(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
