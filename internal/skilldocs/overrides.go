@@ -582,6 +582,24 @@ const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flow
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
+func hasLintTimeoutGuidance(body string) bool {
+	search := body
+	for {
+		idx := strings.Index(search, "flows lint")
+		if idx < 0 {
+			return false
+		}
+		window := search[idx:]
+		if len(window) > 500 {
+			window = window[:500]
+		}
+		if strings.Contains(window, "--timeout <duration>") {
+			return true
+		}
+		search = search[idx+len("flows lint"):]
+	}
+}
+
 func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 	if strings.Contains(body, "Use minimum sufficient evidence") {
 		return body
@@ -631,7 +649,7 @@ func ensureAuthoringDefaultsContractMatrix(body string) string {
 }
 
 func ensureLintBeforePushGuidance(body string) string {
-	if strings.Contains(body, "server lint needs a longer bound") {
+	if hasLintTimeoutGuidance(body) {
 		return body
 	}
 	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {

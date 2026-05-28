@@ -136,9 +136,9 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
-`flows lint` is local-first. Use `--local-only` for offline checks, `--server`
-for canonical non-mutating server lint, and `--timeout <duration>` when server
-lint needs more than the default 30-second bound.
+Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
+`--local-only` for offline checks, `--server` when canonical pre-push checks
+matter, and `--timeout <duration>` when server lint needs a longer bound.
 
 For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
 first; do not hand-write the initial EDN conversion unless the importer is

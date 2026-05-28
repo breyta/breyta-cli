@@ -236,6 +236,43 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	}
 }
 
+func TestApplyCLIOverrides_BreytaPlaybookRouterSkillKeepsExistingLintTimeoutGuidance(t *testing.T) {
+	body := strings.Join([]string{
+		"## Purpose",
+		"compact router",
+		"",
+		"## Flow DSL Mental Model",
+		"source files are DSL",
+		"",
+		"## Playbook Matrix",
+		"- `playbooks/author-flows.md`",
+		"- `playbooks/debug-and-verify.md`",
+		"- `references/runtime-data-shapes.md`",
+		"",
+		"## Default Command Budget",
+		"- compact defaults",
+	}, "\n")
+	input := map[string][]byte{
+		"SKILL.md": []byte(body),
+		"playbooks/author-flows.md": []byte(strings.Join([]string{
+			"# Playbook: Author Flows",
+			"",
+			"## Default Loop",
+			"",
+			"- Run `breyta flows lint --file ./flows/<slug>.clj` before push when editing a local source file. Use `--local-only` for fast offline checks or `--server` when canonical pre-push checks are required; add `--timeout <duration>` when server lint needs more than the default 30 seconds.",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body = string(got["playbooks/author-flows.md"])
+	if strings.Count(body, "breyta flows lint --file") != 1 {
+		t.Fatalf("expected existing lint timeout guidance to remain singular, got:\n%s", body)
+	}
+	if strings.Contains(body, "server lint needs a longer bound") {
+		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
@@ -295,6 +332,36 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	}
 	if string(got["references/public-flows.md"]) != "# Public Flows\n" {
 		t.Fatalf("expected reference file preserved")
+	}
+}
+
+func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingLintTimeoutGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Reference Loading Matrix",
+			"- creating/editing: `references/authoring-loop.md`",
+			"",
+			"## Create/Edit Preflight",
+			"- Run `breyta flows lint --file ./flows/<slug>.clj` before push when editing a local source file. Use `--local-only` for fast offline checks or `--server` when canonical pre-push checks are required; add `--timeout <duration>` when server lint needs more than the default 30 seconds.",
+			"",
+			"## Public Approval Gate",
+			"- end-user landing page approval",
+			"",
+			"## Provider/API Freshness And Model Selection",
+			"- check current official provider docs/API references",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Count(body, "breyta flows lint --file") != 1 {
+		t.Fatalf("expected existing lint timeout guidance to remain singular, got:\n%s", body)
+	}
+	if strings.Contains(body, "server lint needs a longer bound") {
+		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
 	}
 }
 
