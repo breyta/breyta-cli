@@ -118,6 +118,36 @@ func commandWorkspaceID(out map[string]any) string {
 	return ""
 }
 
+func waitRetryCommand(command string, flowSlug string, payload map[string]any) string {
+	flowSlug = strings.TrimSpace(flowSlug)
+	if flowSlug == "" {
+		return ""
+	}
+	var parts []string
+	switch command {
+	case "flows.run_step":
+		stepID := argString(payload, "stepId", "step-id")
+		if stepID == "" {
+			return ""
+		}
+		parts = []string{"breyta", "flows", "run-step", flowSlug, stepID}
+	default:
+		parts = []string{"breyta", "flows", "run", flowSlug}
+	}
+	if installationID := argString(payload, "installationId", "installation-id"); installationID != "" {
+		parts = append(parts, "--installation-id", installationID)
+	} else if profileID := argString(payload, "profileId", "profile-id"); profileID != "" {
+		parts = append(parts, "--profile-id", profileID)
+	} else if target := argString(payload, "target"); target != "" {
+		parts = append(parts, "--target", target)
+	}
+	if version := asInt(payload["version"]); version > 0 {
+		parts = append(parts, "--version", strconv.Itoa(version))
+	}
+	parts = append(parts, "--wait", "--timeout", "2m")
+	return strings.Join(parts, " ")
+}
+
 func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration) error {
 	client := apiClient(app)
 	startResp, status, err := client.DoCommand(context.Background(), command, payload)
@@ -145,10 +175,10 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		return nil
 	}
 
-	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll)
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, payload, timeout, poll)
 }
 
-func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration) error {
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, payload map[string]any, timeout time.Duration, poll time.Duration) error {
 	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
@@ -183,11 +213,11 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	for {
-		payload := compactRunsGetPayload(workflowID)
+		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
-			payload["installationId"] = installationID
+			runsGetPayload["installationId"] = installationID
 		}
-		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", payload)
+		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", runsGetPayload)
 		if err != nil {
 			return writeErr(cmd, err)
 		}
@@ -275,8 +305,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"breyta runs show " + workflowID + " --include-steps",
 				"breyta resources workflow list " + workflowID,
 			}
-			if flowSlug != "" {
-				nextCommands = append(nextCommands, "breyta flows run "+flowSlug+" --wait --timeout 2m")
+			if retryCommand := waitRetryCommand(command, flowSlug, payload); retryCommand != "" {
+				nextCommands = append(nextCommands, retryCommand)
 			}
 			timeoutOut := map[string]any{
 				"ok": false,
@@ -445,6 +475,7 @@ func newFlowsRunStepCmd(app *App) *cobra.Command {
 Run one step from a selected flow target/profile using the normal flow runtime
 bindings, templates, and run output surfaces. Non-selected flow steps are not
 executed, and the run stops immediately after the selected step completes.
+This author/debug command requires workspace creator or admin permissions.
 
 Default:
 - breyta flows run-step <flow-slug> <step-id> [--input '{...}'] [--wait]
@@ -468,7 +499,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 			}
 			installationID = strings.TrimSpace(installationID)
 			profileID = strings.TrimSpace(profileID)
-			if installationID != "" && profileID != "" && installationID != profileID {
+			if installationID != "" && profileID != "" {
 				return writeErr(cmd, fmt.Errorf("--installation-id and --profile-id refer to the same run profile; provide only one"))
 			}
 			resolvedTarget := ""

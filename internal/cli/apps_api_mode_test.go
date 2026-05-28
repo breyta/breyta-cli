@@ -3217,6 +3217,62 @@ func TestFlowsRunStep_WaitPollsRun(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-step-slow",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step-slow",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 2m") {
+		t.Fatalf("expected run-step longer-timeout next command, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 2m") {
+		t.Fatalf("did not expect unsafe whole-flow retry hint, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRunStep_ProfileIDDefaultsLiveTarget(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -3266,28 +3322,39 @@ func TestFlowsRunStep_ProfileIDDefaultsLiveTarget(t *testing.T) {
 }
 
 func TestFlowsRunStep_RejectsConflictingProfileAliases(t *testing.T) {
-	called := false
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(500)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "server should not be called"}})
-	}))
-	defer srv.Close()
+	for _, tc := range []struct {
+		name           string
+		installationID string
+		profileID      string
+	}{
+		{name: "different values", installationID: "prof-a", profileID: "prof-b"},
+		{name: "duplicate value", installationID: "prof-a", profileID: "prof-a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(500)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "server should not be called"}})
+			}))
+			defer srv.Close()
 
-	_, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "run-step", "flow-release", "draft-platform-posts",
-		"--installation-id", "prof-a",
-		"--profile-id", "prof-b",
-	)
-	if err == nil {
-		t.Fatal("expected conflicting profile aliases to fail")
-	}
-	if called {
-		t.Fatal("server was called despite conflicting profile aliases")
+			_, _, err := runCLIArgs(t,
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", srv.URL,
+				"--token", "user-dev",
+				"flows", "run-step", "flow-release", "draft-platform-posts",
+				"--installation-id", tc.installationID,
+				"--profile-id", tc.profileID,
+			)
+			if err == nil {
+				t.Fatal("expected conflicting profile aliases to fail")
+			}
+			if called {
+				t.Fatal("server was called despite conflicting profile aliases")
+			}
+		})
 	}
 }
 
@@ -4973,7 +5040,7 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 	if strings.Contains(stdout, "resultPreview") {
 		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run flow-slow --wait --timeout 2m") {
+	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 2m") {
 		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
 	}
 }
