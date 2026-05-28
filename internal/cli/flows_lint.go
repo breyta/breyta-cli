@@ -42,6 +42,7 @@ Use ` + "`flows validate <slug>`" + ` after push to validate stored draft/live s
 		Example: strings.TrimSpace(`
 breyta flows lint --file ./flows/order-ingest.clj
 breyta flows lint --file ./flows/order-ingest.clj --server
+breyta flows lint --file ./flows/order-ingest.clj --server --timeout 2m
 breyta flows lint --file ./flows/order-ingest.clj --local-only
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
