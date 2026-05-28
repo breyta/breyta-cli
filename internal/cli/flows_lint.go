@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/breyta/breyta-cli/internal/clojure/parenrepair"
 	"github.com/spf13/cobra"
@@ -17,10 +19,13 @@ var (
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
 )
 
+const defaultFlowLintServerTimeout = 30 * time.Second
+
 func newFlowsLintCmd(app *App) *cobra.Command {
 	var file string
 	var server bool
 	var localOnly bool
+	var serverTimeout time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "lint",
@@ -45,6 +50,9 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 			}
 			if server && localOnly {
 				return writeErr(cmd, errors.New("--server cannot be combined with --local-only"))
+			}
+			if serverTimeout <= 0 {
+				return writeErr(cmd, errors.New("--timeout must be > 0"))
 			}
 			b, err := readExplicitFile(file)
 			if err != nil {
@@ -89,8 +97,9 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 
 			flowSlug := ""
 			if serverCanRun {
-				out, status, err := runAPICommand(app, "flows.lint", map[string]any{"flowLiteral": expandedLiteral})
+				out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, "flows.lint", map[string]any{"flowLiteral": expandedLiteral}, serverTimeout)
 				if err != nil {
+					err = flowLintServerError(err, serverTimeout)
 					if serverRequested {
 						return writeErr(cmd, err)
 					}
@@ -132,7 +141,15 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 	cmd.Flags().StringVar(&file, "file", "", "Path to local .clj flow source")
 	cmd.Flags().BoolVar(&server, "server", false, "Require canonical server lint after local lint")
 	cmd.Flags().BoolVar(&localOnly, "local-only", false, "Run only local lint checks; never call the API")
+	cmd.Flags().DurationVar(&serverTimeout, "timeout", defaultFlowLintServerTimeout, "Server lint request timeout")
 	return cmd
+}
+
+func flowLintServerError(err error, timeout time.Duration) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("flows lint server timed out after %s; rerun with --local-only or increase --timeout", timeout)
+	}
+	return err
 }
 
 func lintDiagnostic(severity string, code string, path []string, message string, hint string, stage string) flowLintDiagnostic {

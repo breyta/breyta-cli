@@ -1167,6 +1167,50 @@ func TestFlowsLintServerSendsCandidateLiteral(t *testing.T) {
 	}
 }
 
+func TestFlowsLintServerTimeoutBoundsRequiredServerLint(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :linted-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--server", "--timeout", "20ms"})
+
+	start := time.Now()
+	err := cmd.Execute()
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("expected server lint timeout")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("expected timeout to bound lint quickly, elapsed=%s", elapsed)
+	}
+	if !strings.Contains(out.String(), "flows lint server timed out after 20ms") {
+		t.Fatalf("expected actionable timeout error, got %q", out.String())
+	}
+}
+
 func TestFlowsLintOptionalServerFailureKeepsLocalResult(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
