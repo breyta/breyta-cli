@@ -417,7 +417,7 @@ Advanced ideas:
 - Keep editable flow source files in ` + "`./flows/`" + `
 - Iterate in draft: pull, edit, lint, push, configure check, run or validate, then diff against live
 - When a provider/model or primitive change only needs one existing step, use ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + ` to avoid triggering downstream flow side effects.
-- Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks and ` + "`--server`" + ` when canonical pre-push checks matter
+- Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for editable source.
 - ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
