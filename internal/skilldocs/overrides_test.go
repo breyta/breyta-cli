@@ -218,6 +218,9 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "inside authored Breyta wrapper flows, call installed public children with") {
 		t.Fatalf("expected wrapper flow child composition guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "`data.runReadiness` for billing/trial blocks") {
+		t.Fatalf("expected installed public app readiness guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
 	if !strings.Contains(string(got["playbooks/debug-and-verify.md"]), "acceptance case") {
 		t.Fatalf("expected debug acceptance case guidance, got:\n%s", string(got["playbooks/debug-and-verify.md"]))
 	}
@@ -229,6 +232,9 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	}
 	if !strings.Contains(string(got["references/public-flows.md"]), "not as the default internal\nwrapper-flow composition path") {
 		t.Fatalf("expected internal wrapper-flow composition guidance, got:\n%s", string(got["references/public-flows.md"]))
+	}
+	if !strings.Contains(string(got["references/public-flows.md"]), "`data.runReadiness` for billing/trial blocks") {
+		t.Fatalf("expected public app readiness guidance, got:\n%s", string(got["references/public-flows.md"]))
 	}
 	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
 		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
