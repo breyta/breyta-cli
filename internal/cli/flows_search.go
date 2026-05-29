@@ -481,9 +481,71 @@ for source/content search.
 	}
 	cmd.AddCommand(newFlowsTemplatesSearchCmd(app))
 	cmd.AddCommand(newFlowsTemplatesGrepCmd(app))
+	cmd.AddCommand(newFlowsTemplatesDuplicateCmd(app))
 	examples := newFlowsExamplesCmd(app)
 	examples.Short = "Extract primitive examples from approved templates"
 	cmd.AddCommand(examples)
+	return cmd
+}
+
+func newFlowsTemplatesDuplicateCmd(app *App) *cobra.Command {
+	var targetSlug string
+	var name string
+	var description string
+	var catalogScope string
+	var outFormat string
+	var replace bool
+
+	cmd := &cobra.Command{
+		Use:     "duplicate <template-slug>",
+		Aliases: []string{"copy", "import"},
+		Short:   "Duplicate an approved template into this workspace",
+		Long: strings.TrimSpace(`
+Duplicate an approved reusable template into the current workspace as a workspace-owned
+draft. Use this before custom authoring when a template closely matches the requested
+outcome: copy the known-good base, prove one green draft run, then make narrow edits.
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows templates duplicate requires API mode"))
+			}
+			if err := validateJSONOnlyFormat(outFormat, "flows templates duplicate"); err != nil {
+				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(app.WorkspaceID) == "" {
+				return writeErr(cmd, errors.New("flows templates duplicate requires --workspace or BREYTA_WORKSPACE"))
+			}
+			effectiveScope, err := searchScopeValue(catalogScope)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			payload := map[string]any{
+				"templateSlug": strings.TrimSpace(args[0]),
+				"scope":        effectiveScope,
+			}
+			if strings.TrimSpace(targetSlug) != "" {
+				payload["targetSlug"] = strings.TrimSpace(targetSlug)
+			}
+			if strings.TrimSpace(name) != "" {
+				payload["name"] = strings.TrimSpace(name)
+			}
+			if strings.TrimSpace(description) != "" {
+				payload["description"] = strings.TrimSpace(description)
+			}
+			if replace {
+				payload["replace"] = true
+			}
+			return dispatchFlowAPICommand(cmd, app, "flows.templates.duplicate", payload, false)
+		},
+	}
+
+	cmd.Flags().StringVar(&targetSlug, "slug", "", "Target workspace flow slug; defaults to <template-slug>-copy")
+	cmd.Flags().StringVar(&name, "name", "", "Override copied flow name")
+	cmd.Flags().StringVar(&description, "description", "", "Override copied flow description")
+	cmd.Flags().StringVar(&catalogScope, "catalog-scope", "all", "Template catalog scope: all|workspace")
+	cmd.Flags().BoolVar(&replace, "replace", false, "Replace the existing target draft when --slug already exists")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	return cmd
 }
 

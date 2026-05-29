@@ -50,6 +50,7 @@ breyta flows grep "<literal config or tool name>" --or "<variant>" --limit 5
 breyta flows workspace examples step <type> "<integration or problem query>" --limit 3
 breyta docs find "<idea or primitive>"
 breyta flows templates search "<problem or integration query>" --limit 5
+breyta flows templates duplicate "<template-slug>"
 breyta flows templates grep "<literal config or tool name>" --limit 5
 breyta flows examples step <type> "<problem or integration query>" --limit 3
 ```
@@ -62,10 +63,13 @@ before docs/example search. Keep reuse primitive-first: use
 `breyta flows workspace examples step <type> "<query>"` for local private
 snippets, then `breyta flows examples step <type> "<query>"` for approved
 snippets. Use `breyta flows templates search/grep` for approved reusable
-templates. Inspect a full template only for architecture-level reuse, public
-install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear
-snippet dependencies, or copying overall flow structure. `breyta flows list` is
-for inventory, slug checks, or explicit user requests, not pattern discovery.
+templates. If an approved template closely matches the desired outcome, copy it
+first with `breyta flows templates duplicate <template-slug>`, prove one green
+draft run, then make narrow edits. Inspect a full template only for
+architecture-level reuse, public install patterns, multi-flow orchestration,
+fanout/child-flow behavior, unclear snippet dependencies, or copying overall
+flow structure. `breyta flows list` is for inventory, slug checks, or explicit
+user requests, not pattern discovery.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,

@@ -187,6 +187,7 @@ breyta init --dir ./my-breyta-workspace --force
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search workspace source/config literals: breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search docs: breyta docs find \"<idea or primitive>\" --limit 5 --format json")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Search approved templates: breyta flows templates search \"<problem or integration query>\" --limit 5")
+			fmt.Fprintln(cmd.OutOrStdout(), "- Duplicate close approved templates first: breyta flows templates duplicate <template-slug>")
 			fmt.Fprintln(cmd.OutOrStdout(), "- Stop after idea exploration unless you intentionally want to continue now")
 			if withMCP {
 				return writeInitMCPConfig(cmd, app, mcpSetupOptions{
@@ -373,6 +374,7 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
    - ` + "`breyta docs find \"<idea or primitive>\" --limit 5 --format json`" + `
    - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
+   - if an approved template closely matches the requested outcome, ` + "`breyta flows templates duplicate <template-slug>`" + ` first, prove one green draft, then make narrow edits
    - ` + "`breyta resources search \"<existing data>\" --limit 5`" + ` when prior reports, uploads, or run outputs may be reused
 7. Keep reuse primitive-first:
    - use matching primitive snippets and referenced dependencies when available
@@ -402,6 +404,7 @@ Advanced ideas:
   - existing flow: inspect it with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
   - ` + "`breyta docs find \"<chosen idea or primitive>\" --limit 5 --format json`" + `
   - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
+  - approved template copy-first: when a hit closely matches, run ` + "`breyta flows templates duplicate <template-slug>`" + `, prove the copied draft, then edit
   - existing data lookup: use ` + "`breyta resources search \"<query>\" --limit 5`" + ` and ` + "`breyta resources read <resource-uri> --limit 5`" + ` for one selected resource
   - use primitive snippets and referenced dependencies before a full template
   - inspect one full template only when architecture-level reuse is needed
