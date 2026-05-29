@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultFlowRunWaitTimeout = 5 * time.Minute
+
 func asInt(v any) int {
 	switch t := v.(type) {
 	case int:
@@ -150,7 +152,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any) s
 	if version := asInt(payload["version"]); version > 0 {
 		parts = append(parts, "--version", strconv.Itoa(version))
 	}
-	parts = append(parts, "--wait", "--timeout", "2m")
+	parts = append(parts, "--wait", "--timeout", "5m")
 	return strings.Join(parts, " ")
 }
 
@@ -475,7 +477,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
@@ -576,7 +578,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }

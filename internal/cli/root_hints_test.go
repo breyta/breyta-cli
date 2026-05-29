@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDocsHintForCommand(t *testing.T) {
@@ -264,6 +265,41 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	}
 	if !strings.Contains(help, "--interface-id") {
 		t.Fatalf("flows run help missing interface selector guidance:\n%s", help)
+	}
+}
+
+func TestFlowRunWaitTimeoutDefaultsToFiveMinutes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "flows run", args: []string{"flows", "run"}},
+		{name: "flows run-step", args: []string{"flows", "run-step"}},
+		{name: "flows interfaces call", args: []string{"flows", "interfaces", "call"}},
+		{name: "runs start", args: []string{"runs", "start"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := NewRootCmd()
+			cmd, _, err := root.Find(tc.args)
+			if err != nil {
+				t.Fatalf("find %s: %v", tc.name, err)
+			}
+			flag := cmd.Flags().Lookup("timeout")
+			if flag == nil {
+				t.Fatalf("%s missing timeout flag", tc.name)
+			}
+			got, err := time.ParseDuration(flag.DefValue)
+			if err != nil {
+				t.Fatalf("%s timeout default is not a duration: %q", tc.name, flag.DefValue)
+			}
+			if got != defaultFlowRunWaitTimeout {
+				t.Fatalf("%s timeout default = %s, want %s", tc.name, got, defaultFlowRunWaitTimeout)
+			}
+		})
 	}
 }
 

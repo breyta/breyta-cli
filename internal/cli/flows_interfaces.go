@@ -285,7 +285,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Installation id to call")
 	cmd.Flags().StringVar(&inputJSON, "input", "{}", "JSON object input for the interface invocation")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }

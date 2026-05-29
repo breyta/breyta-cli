@@ -601,7 +601,7 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Named invocation input contract (API mode only)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout (API mode only)")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout (API mode only)")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
 	must(cmd.MarkFlagRequired("flow"))
 	cmd.Hidden = true
