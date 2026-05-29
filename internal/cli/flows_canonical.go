@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -118,6 +119,58 @@ func commandWorkspaceID(out map[string]any) string {
 	return ""
 }
 
+func waitRetryCommand(command string, flowSlug string, payload map[string]any) string {
+	flowSlug = strings.TrimSpace(flowSlug)
+	if flowSlug == "" {
+		return ""
+	}
+	var parts []string
+	switch command {
+	case "flows.run_step":
+		stepID := argString(payload, "stepId", "step-id")
+		if stepID == "" {
+			return ""
+		}
+		parts = []string{"breyta", "flows", "run-step", flowSlug, stepID}
+		if retryFlags, ok := runStepRetryInputFlags(payload); ok {
+			parts = append(parts, retryFlags...)
+		} else {
+			return ""
+		}
+	default:
+		parts = []string{"breyta", "flows", "run", flowSlug}
+	}
+	if installationID := argString(payload, "installationId", "installation-id"); installationID != "" {
+		parts = append(parts, "--installation-id", installationID)
+	} else if profileID := argString(payload, "profileId", "profile-id"); profileID != "" {
+		parts = append(parts, "--profile-id", profileID)
+	} else if target := argString(payload, "target"); target != "" {
+		parts = append(parts, "--target", target)
+	}
+	if version := asInt(payload["version"]); version > 0 {
+		parts = append(parts, "--version", strconv.Itoa(version))
+	}
+	parts = append(parts, "--wait", "--timeout", "2m")
+	return strings.Join(parts, " ")
+}
+
+func runStepRetryInputFlags(payload map[string]any) ([]string, bool) {
+	var parts []string
+	if invocation := argString(payload, "invocation", "invocationId", "invocation-id"); invocation != "" {
+		parts = append(parts, "--invocation", invocation)
+	}
+	input, hasInput := payload["input"]
+	if !hasInput || input == nil {
+		return parts, true
+	}
+	b, err := json.Marshal(input)
+	if err != nil {
+		return nil, false
+	}
+	parts = append(parts, "--input", shellSingleQuote(string(b)))
+	return parts, true
+}
+
 func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration) error {
 	client := apiClient(app)
 	startResp, status, err := client.DoCommand(context.Background(), command, payload)
@@ -138,17 +191,17 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 			"wait":      wait,
 		})
 	}
-	if !wait || status >= 400 {
+	if !wait || !startOK {
 		if err := writeAPIResult(cmd, app, startResp, status); err != nil {
 			return writeErr(cmd, err)
 		}
 		return nil
 	}
 
-	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll)
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, payload, timeout, poll)
 }
 
-func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration) error {
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, payload map[string]any, timeout time.Duration, poll time.Duration) error {
 	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
@@ -183,11 +236,11 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	for {
-		payload := compactRunsGetPayload(workflowID)
+		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
-			payload["installationId"] = installationID
+			runsGetPayload["installationId"] = installationID
 		}
-		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", payload)
+		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", runsGetPayload)
 		if err != nil {
 			return writeErr(cmd, err)
 		}
@@ -275,8 +328,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"breyta runs show " + workflowID + " --include-steps",
 				"breyta resources workflow list " + workflowID,
 			}
-			if flowSlug != "" {
-				nextCommands = append(nextCommands, "breyta flows run "+flowSlug+" --wait --timeout 2m")
+			if retryCommand := waitRetryCommand(command, flowSlug, payload); retryCommand != "" {
+				nextCommands = append(nextCommands, retryCommand)
 			}
 			timeoutOut := map[string]any{
 				"ok": false,
@@ -420,6 +473,107 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&interfaceID, "interface", "", "Alias for --interface-id")
 	cmd.Flags().StringVar(&triggerID, "trigger-id", "", "Compatibility: legacy manual trigger id")
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
+	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
+	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
+	return cmd
+}
+
+func newFlowsRunStepCmd(app *App) *cobra.Command {
+	var installationID string
+	var profileID string
+	var target string
+	var version int
+	var invocation string
+	var inputJSON string
+	var wait bool
+	var timeout time.Duration
+	var poll time.Duration
+
+	cmd := &cobra.Command{
+		Use:   "run-step <flow-slug> <step-id>",
+		Short: "Run one named flow step without other flow steps",
+		Long: strings.TrimSpace(`
+Run one step from a selected flow target/profile using the normal flow runtime
+bindings, templates, and run output surfaces. Non-selected flow steps are not
+executed, and the run stops immediately after the selected step completes.
+This author/debug command requires workspace creator or admin permissions.
+
+Default:
+- breyta flows run-step <flow-slug> <step-id> [--input '{...}'] [--wait]
+
+Advanced targeting:
+- --target draft|live : select workspace draft/live when not using --installation-id
+- --installation-id <id> : run under a specific live installation/profile
+- --profile-id <id> : alias for selecting a specific profile
+- --version <n> : force a specific release version
+- --invocation <id> : validate input against a named invocation contract
+		`),
+		Example: strings.TrimSpace(`
+breyta flows run-step ai-social-publisher draft-platform-posts --target live --input '{"topic":"launch"}' --wait
+breyta flows run-step order-ingest normalize-order --target draft --input '{"orderId":"ord_123"}' --wait
+breyta flows run-step report-builder summarize --installation-id prof_123 --input '{"range":"last_week"}' --wait
+		`),
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "flows run-step requires --api/BREYTA_API_URL")
+			}
+			installationID = strings.TrimSpace(installationID)
+			profileID = strings.TrimSpace(profileID)
+			if installationID != "" && profileID != "" {
+				return writeErr(cmd, fmt.Errorf("--installation-id and --profile-id refer to the same run profile; provide only one"))
+			}
+			resolvedTarget := ""
+			if cmd.Flags().Changed("target") {
+				var err error
+				resolvedTarget, err = normalizeInstallTarget(target)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+			} else if installationID != "" || profileID != "" {
+				resolvedTarget = "live"
+			} else {
+				resolvedTarget = "draft"
+			}
+			payload := map[string]any{
+				"flowSlug": args[0],
+				"stepId":   args[1],
+			}
+			if resolvedTarget != "" {
+				payload["target"] = resolvedTarget
+			}
+			if installationID != "" {
+				payload["installationId"] = installationID
+			}
+			if profileID != "" {
+				payload["profileId"] = profileID
+			}
+			if version > 0 {
+				payload["version"] = version
+			}
+			invocation = strings.TrimSpace(invocation)
+			if invocation != "" {
+				payload["invocation"] = invocation
+			}
+			if strings.TrimSpace(inputJSON) != "" {
+				m, err := parseJSONObjectFlag(inputJSON)
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+				}
+				payload["input"] = m
+			}
+			return doRunCommandWithOptionalWait(cmd, app, "flows.run_step", payload, wait, timeout, poll)
+		},
+	}
+
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: run under a specific profile id")
+	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
+	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
+	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")

@@ -118,6 +118,45 @@ func TestTrackCommandTelemetry_EmitsMappedEvent(t *testing.T) {
 	}
 }
 
+func TestTrackCommandTelemetry_MapsRunStep(t *testing.T) {
+	t.Setenv("BREYTA_POSTHOG_ENABLED", "")
+	t.Setenv("BREYTA_POSTHOG_DISABLED", "")
+
+	orig := posthogCaptureFn
+	t.Cleanup(func() { posthogCaptureFn = orig })
+
+	captured := make(chan posthogCapturePayload, 1)
+	posthogCaptureFn = func(_ context.Context, payload posthogCapturePayload) error {
+		captured <- payload
+		return nil
+	}
+
+	app := &App{
+		APIURL: "https://flows.breyta.ai",
+		Token:  jwtForTelemetry("user@example.com", "uid-123", "User Example"),
+	}
+	trackCommandTelemetry(app, "flows.run_step", map[string]any{
+		"flowSlug":       "ai-social-publisher",
+		"stepId":         "draft-platform-posts",
+		"installationId": "prof-123",
+	}, 200, true)
+
+	select {
+	case payload := <-captured:
+		if payload.Event != "cli_run_started" {
+			t.Fatalf("unexpected event: %q", payload.Event)
+		}
+		if got, _ := payload.Properties["command"].(string); got != "flows.run_step" {
+			t.Fatalf("unexpected command property: %q", got)
+		}
+		if got, _ := payload.Properties["installation_id"].(string); got != "prof-123" {
+			t.Fatalf("unexpected installation_id: %q", got)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected telemetry capture to be called")
+	}
+}
+
 func TestTrackCommandTelemetry_SkipsUnmappedCommand(t *testing.T) {
 	t.Setenv("BREYTA_POSTHOG_ENABLED", "")
 	t.Setenv("BREYTA_POSTHOG_DISABLED", "")

@@ -162,6 +162,29 @@ func TestRequireAPI_StillRequiresTokenForNonLoopbackAPI(t *testing.T) {
 	}
 }
 
+func TestRunFailureShouldUseDraftBindingsIncludesRunStep(t *testing.T) {
+	out := map[string]any{
+		"ok": false,
+		"error": map[string]any{
+			"code": "profile_bindings_incomplete",
+		},
+	}
+	if !runFailureShouldUseDraftBindings("flows.run_step", map[string]any{
+		"flowSlug": "draft-flow",
+		"stepId":   "draft-platform-posts",
+		"target":   "draft",
+	}, out) {
+		t.Fatal("expected draft run-step binding failures to use draft binding guidance")
+	}
+	if runFailureShouldUseDraftBindings("flows.run_step", map[string]any{
+		"flowSlug":  "live-flow",
+		"stepId":    "draft-platform-posts",
+		"profileId": "prof-live",
+	}, out) {
+		t.Fatal("did not expect profile-targeted run-step failures to use draft binding guidance")
+	}
+}
+
 func TestPublicAppWebURL_UsesActiveAPIEnvironment(t *testing.T) {
 	cases := []struct {
 		name string

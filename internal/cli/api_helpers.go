@@ -641,7 +641,7 @@ func runFailureShouldUseDraftBindings(command string, args map[string]any, out m
 	case "runs.start":
 		source, _ := args["source"].(string)
 		return strings.EqualFold(strings.TrimSpace(source), "draft")
-	case "flows.run":
+	case "flows.run", "flows.run_step":
 		if _, ok := args["profileId"]; ok {
 			return false
 		}
@@ -692,7 +692,7 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
-	case "runs.start", "flows.run":
+	case "runs.start", "flows.run", "flows.run_step":
 		if status >= 400 || !isOK(out) {
 			if runFailureIsMissingFlow(out) {
 				addMissingFlowAuthoringHint(out, slug)

@@ -160,6 +160,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	}
 	updated = ensureN8NImportGuidance(updated)
 	updated = ensurePaidAppMarketplaceSection(updated)
+	updated = ensureFocusedStepRunGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
@@ -186,6 +187,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
 	updated = ensureN8NImportGuidance(updated)
+	updated = ensureFocusedStepRunGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
 	if updated == original {
 		return files
@@ -224,8 +226,10 @@ func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string
 	}
 
 	updateFile("SKILL.md", ensureMinimumSufficientEvidenceCoreRule)
+	updateFile("SKILL.md", ensureFocusedStepRunGuidance)
 	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
 	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
+	updateFile("playbooks/author-flows.md", ensureFocusedStepRunGuidance)
 	updateFile("playbooks/author-flows.md", ensureLintBeforePushGuidance)
 	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
 	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
@@ -580,6 +584,8 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
 
+const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
 func hasLintTimeoutGuidance(body string) bool {
@@ -621,6 +627,35 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 		return body[:headingPos] + section + "\n\n" + body[headingPos:]
 	}
 	return strings.TrimRight(body, "\n") + "\n\n" + section + "\n"
+}
+
+func ensureFocusedStepRunGuidance(body string) string {
+	if strings.Contains(body, "breyta flows run-step <slug> <step-id>") {
+		return body
+	}
+	guidance := focusedStepRunProofBullet
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
+		insertPos := headingPos + len("## Create/Edit Preflight")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Core Rule"); headingPos >= 0 {
+		insertPos := headingPos + len("## Core Rule")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Focused step proof\n\n" + guidance + "\n"
 }
 
 func ensureAuthoringDefaultsContractMatrix(body string) string {

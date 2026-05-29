@@ -3049,6 +3049,424 @@ func TestFlowsRun_SendsInvocation(t *testing.T) {
 	}
 }
 
+func TestFlowsRunStep_UsesCanonicalCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run_step" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		input, _ := args["input"].(map[string]any)
+		if args["flowSlug"] != "ai-social-publisher" ||
+			args["stepId"] != "draft-platform-posts" ||
+			args["target"] != "live" ||
+			args["version"] != float64(33) ||
+			args["invocation"] != "manual-test" ||
+			input["topic"] != "launch" ||
+			input["count"] != float64(2) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing run-step payload"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-step-1", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--target", "live",
+		"--version", "33",
+		"--invocation", "manual-test",
+		"--input", `{"topic":"launch","count":2}`,
+	)
+	if err != nil {
+		t.Fatalf("flows run-step failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRunStep_WaitPollsRun(t *testing.T) {
+	var flowsRunStepCalls int
+	var runsGetCalls int
+	var finalHydrationCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run_step":
+			flowsRunStepCalls++
+			if args["flowSlug"] != "ai-social-publisher" ||
+				args["stepId"] != "draft-platform-posts" ||
+				args["target"] != "live" ||
+				args["installationId"] != "prof-consumer" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing run-step wait payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId":     "wf-step-wait",
+					"installationId": "prof-consumer",
+					"status":         "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-step-wait" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected workflowId"}})
+				return
+			}
+			if args["installationId"] != "prof-consumer" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+				return
+			}
+			if args["includeSteps"] == true {
+				finalHydrationCalls++
+				if args["includeResult"] != false {
+					w.WriteHeader(400)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "final wait hydration should skip result"}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId":     "wf-step-wait",
+							"installationId": "prof-consumer",
+							"status":         "completed",
+							"steps":          []map[string]any{{"stepId": "draft-platform-posts", "status": "completed"}},
+						},
+					},
+				})
+				return
+			}
+			if args["includeSteps"] != false || args["includeResult"] != false {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "wait polling should request compact runs.get"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId":     "wf-step-wait",
+						"installationId": "prof-consumer",
+						"status":         "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-consumer",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--installation-id", "prof-consumer",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	if err != nil {
+		t.Fatalf("flows run-step --wait failed: %v\n%s", err, stdout)
+	}
+	if flowsRunStepCalls != 1 {
+		t.Fatalf("expected 1 flows.run_step call, got %d", flowsRunStepCalls)
+	}
+	if runsGetCalls < 1 {
+		t.Fatalf("expected at least 1 runs.get poll, got %d", runsGetCalls)
+	}
+	if finalHydrationCalls != 1 {
+		t.Fatalf("expected one terminal wait hydration call, got %d", finalHydrationCalls)
+	}
+	if !strings.Contains(stdout, "wf-step-wait") {
+		t.Fatalf("expected output to include workflow id, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"stepId":"draft-platform-posts"`) {
+		t.Fatalf("expected wait output to include selected step summary, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRunStep_WaitDoesNotPollAfterStartFailureEnvelope(t *testing.T) {
+	var runsGetCalls int
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "Invalid step id",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			w.WriteHeader(500)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "runs.get should not be called"}})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--wait",
+	)
+	if err == nil {
+		t.Fatalf("expected failed run-step start envelope to exit nonzero\nstdout=%s", stdout)
+	}
+	if runsGetCalls != 0 {
+		t.Fatalf("expected no runs.get polling after failed start envelope, got %d calls", runsGetCalls)
+	}
+	if !strings.Contains(stdout, "Invalid step id") {
+		t.Fatalf("expected server-provided error to be printed, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "missing data.workflowId") {
+		t.Fatalf("expected original server error instead of workflow-id polling error, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-step-slow",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step-slow",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 2m") {
+		t.Fatalf("expected run-step longer-timeout next command, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 2m") {
+		t.Fatalf("did not expect unsafe whole-flow retry hint, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRunStep_WaitTimeoutPreservesInputInRetryHint(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "flows.run_step":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-step-slow-input",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-step-slow-input",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "ai-social-publisher", "draft-platform-posts",
+		"--target", "live",
+		"--invocation", "manual-test",
+		"--input", `{"count":2,"topic":"launch"}`,
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 2m") {
+		t.Fatalf("expected run-step retry command to preserve invocation and input, got:\n%s", stdout)
+	}
+}
+
+func TestFlowsRunStep_ProfileIDDefaultsLiveTarget(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run_step" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" ||
+			args["stepId"] != "draft-platform-posts" ||
+			args["target"] != "live" ||
+			args["profileId"] != "prof-123" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profile run-step payload"}})
+			return
+		}
+		if _, ok := args["installationId"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "profile-id alias should not add installationId"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-step-profile", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "flow-release", "draft-platform-posts",
+		"--profile-id", "prof-123",
+	)
+	if err != nil {
+		t.Fatalf("flows run-step --profile-id failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRunStep_RejectsConflictingProfileAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		installationID string
+		profileID      string
+	}{
+		{name: "different values", installationID: "prof-a", profileID: "prof-b"},
+		{name: "duplicate value", installationID: "prof-a", profileID: "prof-a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(500)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "server should not be called"}})
+			}))
+			defer srv.Close()
+
+			_, _, err := runCLIArgs(t,
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", srv.URL,
+				"--token", "user-dev",
+				"flows", "run-step", "flow-release", "draft-platform-posts",
+				"--installation-id", tc.installationID,
+				"--profile-id", tc.profileID,
+			)
+			if err == nil {
+				t.Fatal("expected conflicting profile aliases to fail")
+			}
+			if called {
+				t.Fatal("server was called despite conflicting profile aliases")
+			}
+		})
+	}
+}
+
 func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -4731,7 +5149,7 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 	if strings.Contains(stdout, "resultPreview") {
 		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run flow-slow --wait --timeout 2m") {
+	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 2m") {
 		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
 	}
 }

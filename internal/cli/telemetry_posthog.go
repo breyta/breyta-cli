@@ -50,6 +50,7 @@ var commandTelemetryEvents = map[string]string{
 	"flows.installations.set_enabled": "cli_installation_toggled",
 	"runs.start":                      "cli_run_started",
 	"flows.run":                       "cli_run_started",
+	"flows.run_step":                  "cli_run_started",
 }
 
 func trackAuthLoginTelemetry(app *App, source, token string, uid any) {
