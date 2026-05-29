@@ -54,7 +54,7 @@ func compactTemplateSearchEnvelope(out map[string]any) {
 	}
 	meta["outputView"] = "compact"
 	if _, exists := meta["hint"]; !exists {
-		meta["hint"] = "Flow search results are compact. Use --full, or --full --raw-definition where supported, for source."
+		meta["hint"] = "Flow search results are compact. Duplicate close approved templates first; use --full, or --full --raw-definition where supported, for source."
 	}
 }
 
@@ -234,6 +234,8 @@ func addFlowSearchHitRefs(hit map[string]any) {
 		hit["nextCommand"] = "breyta flows show " + shellSingleQuote(slug)
 	default:
 		hit["nextCommand"] = "breyta flows templates search " + shellSingleQuote(slug) + " --full"
+		hit["inspectCommand"] = "breyta flows templates search " + shellSingleQuote(slug) + " --full"
+		hit["duplicateCommand"] = "breyta flows templates duplicate " + shellSingleQuote(slug)
 	}
 }
 

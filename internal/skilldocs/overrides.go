@@ -335,6 +335,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - inspect private primitive snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
   - search docs snippets for the problem, primitive, and integration
   - search approved templates with ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
+  - if an approved template closely matches the requested outcome, duplicate it first with ` + "`breyta flows templates duplicate <template-slug>`" + `, prove one green draft, then make narrow edits
 - for existing flows:
   - inspect the current flow first with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
   - search docs and approved templates before changing structure
@@ -344,6 +345,7 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - inspect matching private workspace snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + ` when available
   - inspect matching primitive snippets with ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` when available
   - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
+  - when copying overall flow structure, prefer ` + "`breyta flows templates duplicate <template-slug>`" + ` over raw-definition copy/paste
   - inspect one full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
 - if no useful approved template exists, say so explicitly and continue from docs
 - command budget:

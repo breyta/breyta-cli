@@ -414,11 +414,78 @@ func TestFlowsTemplatesSearch_CompactsDefaultOutput(t *testing.T) {
 	if hit["hitRef"] != "template:template-agent" || hit["nextCommand"] != "breyta flows templates search 'template-agent' --full" {
 		t.Fatalf("expected compact hit ref and next command, got %#v", hit)
 	}
+	if hit["duplicateCommand"] != "breyta flows templates duplicate 'template-agent'" {
+		t.Fatalf("expected duplicate command, got %#v", hit["duplicateCommand"])
+	}
+	if hit["inspectCommand"] != "breyta flows templates search 'template-agent' --full" {
+		t.Fatalf("expected inspect command, got %#v", hit["inspectCommand"])
+	}
 	if surfaces, _ := hit["matchedSurfaces"].([]any); len(surfaces) != 2 {
 		t.Fatalf("expected matched surfaces to survive compaction, got %#v", hit["matchedSurfaces"])
 	}
 	if previews, _ := hit["matchPreviews"].([]any); len(previews) != 1 {
 		t.Fatalf("expected match previews to survive compaction, got %#v", hit["matchPreviews"])
+	}
+}
+
+func TestFlowsTemplatesDuplicate_BuildsPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesDuplicateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"ad-creative-studio-2", "--slug", "ad-creative-studio-copy", "--name", "Ad Creative Studio Copy", "--description", "Draft copy", "--catalog-scope", "workspace", "--replace"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	if gotMethod != "flows.templates.duplicate" {
+		t.Fatalf("expected method flows.templates.duplicate, got %q", gotMethod)
+	}
+	if gotPayload["templateSlug"] != "ad-creative-studio-2" {
+		t.Fatalf("expected templateSlug, got %#v", gotPayload)
+	}
+	if gotPayload["targetSlug"] != "ad-creative-studio-copy" || gotPayload["name"] != "Ad Creative Studio Copy" || gotPayload["description"] != "Draft copy" {
+		t.Fatalf("unexpected duplicate payload: %#v", gotPayload)
+	}
+	if gotPayload["scope"] != "workspace" || gotPayload["replace"] != true {
+		t.Fatalf("unexpected duplicate scope/replace: %#v", gotPayload)
+	}
+}
+
+func TestFlowsTemplatesDuplicate_RequiresWorkspace(t *testing.T) {
+	app := &App{APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsTemplatesDuplicateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"ad-creative-studio-2"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "requires --workspace or BREYTA_WORKSPACE") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
