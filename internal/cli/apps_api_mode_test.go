@@ -3318,10 +3318,10 @@ func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 2m") {
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 5m") {
 		t.Fatalf("expected run-step longer-timeout next command, got:\n%s", stdout)
 	}
-	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 2m") {
+	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 5m") {
 		t.Fatalf("did not expect unsafe whole-flow retry hint, got:\n%s", stdout)
 	}
 }
@@ -3377,7 +3377,7 @@ func TestFlowsRunStep_WaitTimeoutPreservesInputInRetryHint(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 2m") {
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 5m") {
 		t.Fatalf("expected run-step retry command to preserve invocation and input, got:\n%s", stdout)
 	}
 }
@@ -5149,7 +5149,7 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 	if strings.Contains(stdout, "resultPreview") {
 		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 2m") {
+	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 5m") {
 		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
 	}
 }
