@@ -676,8 +676,29 @@ func ensureLintBeforePushGuidance(body string) string {
 }
 
 func ensureAuthorFlowEfficientLoop(body string) string {
-	if strings.Contains(body, "write the contract and acceptance matrix before source grows") {
+	readinessBullet := strings.Join([]string{
+		"- before wrapper smoke tests around paid public apps, inspect",
+		"  `breyta flows installations get <installation-id>` and check",
+		"  `data.runReadiness` for billing/trial blocks",
+	}, "\n")
+	wrapperFlowBullet := strings.Join([]string{
+		"- inside authored Breyta wrapper flows, call installed public children with",
+		"  `flow/call-flow` plus `:installation-id`; reserve installed HTTP/MCP",
+		"  interfaces for external clients and MCP-capable agents",
+	}, "\n")
+	if strings.Contains(body, readinessBullet) && strings.Contains(body, wrapperFlowBullet) {
 		return body
+	}
+	transportBullet := "- treat HTTP/MCP as consumer transports for installed callable interfaces,"
+	if transportPos := strings.Index(body, transportBullet); transportPos >= 0 {
+		missing := make([]string, 0, 2)
+		if !strings.Contains(body, readinessBullet) {
+			missing = append(missing, readinessBullet)
+		}
+		if !strings.Contains(body, wrapperFlowBullet) {
+			missing = append(missing, wrapperFlowBullet)
+		}
+		return body[:transportPos] + strings.Join(missing, "\n") + "\n" + body[transportPos:]
 	}
 	guidance := strings.Join([]string{
 		"Use the default loop as one efficient workflow creation method, not as a",
@@ -700,6 +721,8 @@ func ensureAuthorFlowEfficientLoop(body string) string {
 		"- prove public/installable flow reuse with",
 		"  `breyta flows installations interfaces <installation-id>` and an",
 		"  installation-scoped `breyta flows interfaces call ... --installation-id <installation-id>`",
+		readinessBullet,
+		wrapperFlowBullet,
 		"- treat HTTP/MCP as consumer transports for installed callable interfaces,",
 		"  not as an instruction to create or assume extra builder infrastructure",
 		"- patch in focused lanes: behavior first, output/schema second, verification",
@@ -764,8 +787,30 @@ func ensureOutputHandoffContract(body string) string {
 }
 
 func ensurePublicFlowReuseDuringAuthoring(body string) string {
-	if strings.Contains(body, "During authoring, check public/installable flows before building from scratch") {
+	readinessGuidance := strings.Join([]string{
+		"Before wrapper smoke tests around paid public apps, inspect",
+		"`breyta flows installations get <installation-id>` and check",
+		"`data.runReadiness` for billing/trial blocks.",
+	}, "\n")
+	internalCompositionGuidance := strings.Join([]string{
+		"Inside authored Breyta wrapper flows, call the installed public flow with",
+		"`flow/call-flow` and `:installation-id`. Use installed HTTP/MCP interfaces",
+		"for external clients and MCP-capable agents, not as the default internal",
+		"wrapper-flow composition path.",
+	}, "\n")
+	if strings.Contains(body, readinessGuidance) && strings.Contains(body, internalCompositionGuidance) {
 		return body
+	}
+	missingGuidance := make([]string, 0, 2)
+	if !strings.Contains(body, readinessGuidance) {
+		missingGuidance = append(missingGuidance, readinessGuidance)
+	}
+	if !strings.Contains(body, internalCompositionGuidance) {
+		missingGuidance = append(missingGuidance, internalCompositionGuidance)
+	}
+	missingBlock := strings.Join(missingGuidance, "\n\n")
+	if existingPos := strings.Index(body, "During authoring, check public/installable flows before building from scratch"); existingPos >= 0 {
+		return strings.TrimRight(body, "\n") + "\n\n" + missingBlock + "\n"
 	}
 	guidance := strings.Join([]string{
 		"During authoring, check public/installable flows before building from scratch",
@@ -773,6 +818,10 @@ func ensurePublicFlowReuseDuringAuthoring(body string) string {
 		"valid only when the installed flow satisfies the contract, output schema,",
 		"setup/auth model, billing/entitlement model, quality bar, and failure behavior",
 		"with less risk than editing or building a new flow.",
+		"",
+		readinessGuidance,
+		"",
+		internalCompositionGuidance,
 	}, "\n")
 	anchor := "reuse a public flow, prefer the installed HTTP or MCP interface over author\ndraft/live endpoints."
 	if anchorPos := strings.Index(body, anchor); anchorPos >= 0 {
