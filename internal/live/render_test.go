@@ -1178,11 +1178,59 @@ func TestRenderSnapshotRendersUnstartedSkeletonRowsGray(t *testing.T) {
 		}},
 	}, RenderOptions{Now: now, Frame: 2, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
 
-	if !strings.Contains(out, "\x1b[90m ○s Prepare\x1b[0m") {
+	if !strings.Contains(out, "\x1b[90m ○ s Prepare\x1b[0m") {
 		t.Fatalf("expected unstarted planned row to be rendered fully gray\n---\n%q", out)
 	}
 	if strings.Contains(out, "\x1b[36m○") {
 		t.Fatalf("expected unstarted planned status glyph not to use pending cyan\n---\n%q", out)
+	}
+}
+
+func TestFormatActivityRowsSeparateStatusAndTypeGlyphs(t *testing.T) {
+	now := time.Date(2026, 5, 31, 18, 40, 0, 0, time.UTC)
+	started := now.Add(-1 * time.Second)
+
+	line := formatActivityLine(Activity{
+		ActivityID:   "collect-fanout",
+		ActivityKind: "step",
+		ActivityType: "function",
+		ActivityName: "collect-fanout",
+		StepID:       "collect-fanout",
+		Status:       "running",
+		Active:       true,
+		StartedAt:    &started,
+	}, "", RenderOptions{Now: now, Frame: 0, Color: false})
+
+	if !strings.Contains(line, "⠋ ƒ collect-fanout") {
+		t.Fatalf("expected a space between spinner and type glyph, got %q", line)
+	}
+	if strings.Contains(line, "⠋ƒ") {
+		t.Fatalf("expected spinner and type glyph not to be adjacent, got %q", line)
+	}
+}
+
+func TestFormatResourceRowsReserveStatusGlyphSlot(t *testing.T) {
+	prefix := "      "
+	resourceLine := formatResourceLine(Activity{
+		ActivityID:    "child-2-artifact",
+		ActivityKind:  "resource",
+		ActivityType:  "blob",
+		ResourceKind:  "blob",
+		ResourceLabel: "child-2-artifact.md",
+		ContentType:   "text/markdown",
+		Status:        "completed",
+	}, prefix, RenderOptions{Color: false})
+	stepLine := formatActivityLine(Activity{
+		ActivityID:   "child-work",
+		ActivityKind: "step",
+		ActivityType: "function",
+		ActivityName: "child-work",
+		StepID:       "child-work",
+		Status:       "completed",
+	}, prefix, RenderOptions{Color: false})
+
+	if got, want := strings.Index(resourceLine, "▣"), strings.Index(stepLine, "ƒ"); got != want {
+		t.Fatalf("expected resource and step type glyphs to align, resource=%q step=%q", resourceLine, stepLine)
 	}
 }
 

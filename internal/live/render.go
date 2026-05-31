@@ -1518,7 +1518,7 @@ func formatResourceLine(activity Activity, prefix string, opts RenderOptions) st
 	if isFlowErrorResource(activity) {
 		label = color(label, colorForStatus("failed"), lineOpts.Color)
 	}
-	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, lineOpts.Color), label)
+	line := fmt.Sprintf("%s  %s %s", prefix, resourceKindMark(activity, lineOpts.Color), label)
 	if details := resourceDetailText(activity); details != "" {
 		line += " " + dim(details, lineOpts.Color)
 	}
@@ -2956,9 +2956,9 @@ func coloredGlyph(status string, active bool, frame int, enabled bool) string {
 func coloredActivityGlyphSlot(status string, active bool, frame int, enabled bool) string {
 	value := coloredGlyph(status, active, frame, enabled)
 	if value == "" {
-		return " "
+		return "  "
 	}
-	return value
+	return value + " "
 }
 
 func failedActivityStatusText(status string) string {

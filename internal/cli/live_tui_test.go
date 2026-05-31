@@ -718,9 +718,42 @@ func TestLiveTUISelectionStopsBeforeMetadata(t *testing.T) {
 }
 
 func TestLiveTUISelectionSkipsCompactLoadingAndTypeMarkers(t *testing.T) {
-	got := highlightTUILabelText("  ⠋\x1b[1;36mƒ\x1b[0m live-render-child [b1]")
-	if !strings.Contains(got, "⠋\x1b[1;36mƒ\x1b[0m \x1b[48;5;236mlive-render-child\x1b[49m [b1]") {
+	got := highlightTUILabelText("  ⠋ \x1b[1;36mƒ\x1b[0m live-render-child [b1]")
+	if !strings.Contains(got, "⠋ \x1b[1;36mƒ\x1b[0m \x1b[48;5;236mlive-render-child\x1b[49m [b1]") {
 		t.Fatalf("expected compact loading/type marker to stay outside the highlight, got %q", got)
+	}
+}
+
+func TestLiveTUIResourceSiblingDoesNotBecomeExpandable(t *testing.T) {
+	nodes := buildLiveTreeNodes(live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "run:child", Text: "    ƒ live-render-child [b2]"},
+		{Key: "step:loop", Text: "      s loop-page-3"},
+		{Key: "resource:artifact", Text: "      ▣ child-2-artifact.md 84B text/markdown"},
+		{Key: "step:child-work", Text: "      ƒ child-work 236ms"},
+		{Key: "resource:flow-result", Text: "      ▣ flow result"},
+	}})
+
+	resourceIdx := -1
+	workIdx := -1
+	childIdx := -1
+	for i, node := range nodes {
+		switch node.Key {
+		case "run:child":
+			childIdx = i
+		case "resource:artifact":
+			resourceIdx = i
+		case "step:child-work":
+			workIdx = i
+		}
+	}
+	if resourceIdx < 0 || workIdx < 0 || childIdx < 0 {
+		t.Fatalf("expected test nodes to be present: %#v", nodes)
+	}
+	if nodes[resourceIdx].Expandable {
+		t.Fatalf("expected resource sibling not to become expandable: %#v", nodes[resourceIdx])
+	}
+	if nodes[workIdx].Parent != childIdx {
+		t.Fatalf("expected child-work to remain a sibling under child run, got parent=%d childIdx=%d nodes=%#v", nodes[workIdx].Parent, childIdx, nodes)
 	}
 }
 
