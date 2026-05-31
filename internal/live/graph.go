@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -42,7 +43,7 @@ func (s Snapshot) WithFlowGraph(doc FlowGraphDocument) Snapshot {
 }
 
 func (s Snapshot) WithGraphSkeleton(now time.Time) Snapshot {
-	if len(s.FlowGraphs) == 0 || len(s.Runs) == 0 {
+	if len(s.Runs) == 0 {
 		return s
 	}
 	out := s
@@ -53,12 +54,17 @@ func (s Snapshot) WithGraphSkeleton(now time.Time) Snapshot {
 			runsByWorkflow[workflowID] = run
 		}
 	}
-	for _, doc := range s.FlowGraphs {
-		run, ok := runsByWorkflow[strings.TrimSpace(doc.WorkflowID)]
-		if !ok {
-			continue
+	if len(s.FlowGraphs) > 0 {
+		for _, doc := range s.FlowGraphs {
+			run, ok := runsByWorkflow[strings.TrimSpace(doc.WorkflowID)]
+			if !ok {
+				continue
+			}
+			out.Nodes = mergeGraphSkeletonNodes(out.Nodes, run, doc.Graph, now)
 		}
-		out.Nodes = mergeGraphSkeletonNodes(out.Nodes, run, doc.Graph, now)
+	}
+	for _, run := range out.Runs {
+		out.Nodes = mergeRunResultResource(out.Nodes, run, now)
 	}
 	return out
 }
@@ -226,6 +232,126 @@ func plannedPersistResourceActivity(run RunState, graphNode FlowGraphNode, paren
 		GraphOrder:       graphSortOrder(graphNode.Order) + 1,
 		GraphScopeID:     strings.TrimSpace(graphNode.ScopeID),
 	}
+}
+
+func mergeRunResultResource(activities []Activity, run RunState, now time.Time) []Activity {
+	if !shouldModelRunResultResource(run) || hasRunResultResource(activities, run) {
+		return activities
+	}
+	status := runStatus(run)
+	terminal := !runHasActiveWork(run) && isTerminalStatus(status)
+	updatedAt := run.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = now
+	}
+	if run.CompletedAt != nil && !run.CompletedAt.IsZero() {
+		updatedAt = *run.CompletedAt
+	}
+	activities = append(activities, runResultResourceActivity(run, status, terminal, updatedAt))
+	return activities
+}
+
+func shouldModelRunResultResource(run RunState) bool {
+	if strings.TrimSpace(run.WorkflowID) == "" {
+		return false
+	}
+	if strings.TrimSpace(run.AgentID) != "" {
+		return false
+	}
+	entrypoint := strings.ToLower(strings.TrimSpace(run.EntrypointType))
+	return entrypoint != "agent" && entrypoint != "tool" && entrypoint != "mcp"
+}
+
+func hasRunResultResource(activities []Activity, run RunState) bool {
+	for _, activity := range activities {
+		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if isRunResultResourceForRun(activity, run) {
+			return true
+		}
+	}
+	return false
+}
+
+func runResultResourceActivity(run RunState, status string, terminal bool, updatedAt time.Time) Activity {
+	workflowID := strings.TrimSpace(run.WorkflowID)
+	resourceStatus := "pending"
+	resourceLabel := "run result"
+	resourceURI := ""
+	resourceID := runResultResourceParentID(workflowID) + ":result"
+	planned := true
+	if terminal {
+		resourceStatus = "completed"
+		planned = false
+		kind := "flow-output"
+		resourceLabel = "flow output"
+		if isProblemStatus(status) {
+			kind = "flow-error"
+			resourceLabel = "flow error"
+		}
+		resourceURI = runResultResourceURI(run, kind)
+		resourceID = firstNonBlank(resourceURI, runResultResourceParentID(workflowID)+":"+kind)
+	}
+	return Activity{
+		WorkspaceID:      run.WorkspaceID,
+		WorkflowID:       workflowID,
+		RootWorkflowID:   firstNonBlank(run.RootWorkflowID, workflowID),
+		ActivityID:       resourceID,
+		ParentActivityID: runResultResourceParentID(workflowID),
+		ActivityKind:     "resource",
+		ActivityType:     "run-result",
+		ActivityName:     resourceLabel,
+		Status:           resourceStatus,
+		Active:           false,
+		ResourceURI:      resourceURI,
+		ResourceKind:     "run-result",
+		ResourceLabel:    resourceLabel,
+		UpdatedAt:        updatedAt,
+		Planned:          planned,
+		GraphOrder:       1 << 29,
+	}
+}
+
+func runResultResourceParentID(workflowID string) string {
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID == "" {
+		return ""
+	}
+	return "run:" + workflowID
+}
+
+func runResultResourceURI(run RunState, kind string) string {
+	workspaceID := strings.TrimSpace(run.WorkspaceID)
+	workflowID := strings.TrimSpace(run.WorkflowID)
+	kind = strings.TrimSpace(kind)
+	if workspaceID == "" || workflowID == "" || kind == "" {
+		return ""
+	}
+	return fmt.Sprintf("res://v1/ws/%s/result/run/%s/%s", workspaceID, workflowID, kind)
+}
+
+func isRunResultResourceForRun(activity Activity, run RunState) bool {
+	workflowID := strings.TrimSpace(run.WorkflowID)
+	if workflowID == "" || strings.TrimSpace(activity.WorkflowID) != workflowID {
+		return false
+	}
+	parentID := strings.TrimSpace(activity.ParentActivityID)
+	if parentID == runResultResourceParentID(workflowID) || parentID == workflowID {
+		return true
+	}
+	return runResultResourceURIMatches(activity.ResourceURI, workflowID) ||
+		runResultResourceURIMatches(activity.ActivityID, workflowID)
+}
+
+func runResultResourceURIMatches(value string, workflowID string) bool {
+	value = strings.TrimSpace(value)
+	workflowID = strings.TrimSpace(workflowID)
+	if value == "" || workflowID == "" {
+		return false
+	}
+	return strings.Contains(value, "/result/run/"+workflowID+"/flow-output") ||
+		strings.Contains(value, "/result/run/"+workflowID+"/flow-error")
 }
 
 func graphSortOrder(order int) int {

@@ -182,6 +182,7 @@ func renderRunNode(b *strings.Builder, node RunNode, prefix string, last bool, o
 
 	selectedChildren := selectedChildRuns(node.Children, run.CurrentStepID, opts)
 	visibleNodes := selectedActivities(node, selectedChildren, opts)
+	runResources := resourcesForRun(node.Activities, run)
 	resourcesByParent := groupResourcesByVisibleParent(node.Activities, visibleNodes)
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
 	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
@@ -262,6 +263,9 @@ func renderRunNode(b *strings.Builder, node RunNode, prefix string, last bool, o
 	for i, child := range remainingChildren {
 		renderRunNode(b, child, childPrefix, i == len(remainingChildren)-1, opts, false, rootFlowSlug)
 	}
+	for _, resource := range runResources {
+		renderResource(b, resource, activityPrefix, opts)
+	}
 }
 
 func nonResourceActivities(activities []Activity) []Activity {
@@ -340,6 +344,20 @@ func resourcesForActivity(resourcesByParent map[string][]Activity, activity Acti
 		}
 	}
 	return resources
+}
+
+func resourcesForRun(activities []Activity, run RunState) []Activity {
+	resources := make([]Activity, 0)
+	for _, activity := range activities {
+		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if !isRunResultResourceForRun(activity, run) {
+			continue
+		}
+		resources = append(resources, activity)
+	}
+	return sortActivitiesByTime(dedupeResourceActivities(resources))
 }
 
 func groupToolsByVisibleParent(activities []Activity, visible []Activity) map[string][]Activity {
@@ -1743,6 +1761,9 @@ func ensureResourceParentSteps(selected []Activity, node RunNode) []Activity {
 		}
 		parentID := strings.TrimSpace(activity.ParentActivityID)
 		if parentID == "" {
+			continue
+		}
+		if isRunResultResourceForRun(activity, node.Run) {
 			continue
 		}
 		key := node.Run.WorkflowID + "\x00" + parentID

@@ -184,6 +184,7 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 
 	selectedChildren := selectedChildRuns(node.Children, run.CurrentStepID, opts)
 	visibleNodes := selectedActivities(node, selectedChildren, opts)
+	runResources := resourcesForRun(node.Activities, run)
 	resourcesByParent := groupResourcesByVisibleParent(node.Activities, visibleNodes)
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
 	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
@@ -263,6 +264,9 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 
 	for i, child := range remainingChildren {
 		collectRunNode(frame, child, childPrefix, i == len(remainingChildren)-1, opts, false, rootFlowSlug)
+	}
+	for _, resource := range runResources {
+		collectResource(frame, resource, activityPrefix, opts)
 	}
 }
 

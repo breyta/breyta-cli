@@ -172,7 +172,8 @@ func TestRenderSnapshotShowsResourcesAndSummaryStrip(t *testing.T) {
 	for _, want := range []string{
 		"▣ report.md 42.0KB text/markdown",
 		"▣ findings 7 rows",
-		"2 steps executed, 2 resources (▣ 2)",
+		"▣ flow output",
+		"2 steps executed, 3 resources (▣ 3)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q\n---\n%s", want, out)
@@ -670,6 +671,117 @@ func TestRenderSnapshotShowsPlannedPersistResourceFromGraph(t *testing.T) {
 	}
 }
 
+func TestRenderSnapshotShowsPlannedRunResultResource(t *testing.T) {
+	now := time.Date(2026, 5, 31, 15, 10, 0, 0, time.UTC)
+
+	snapshot := Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "running",
+			Active:         true,
+			UpdatedAt:      now,
+		}},
+	}
+	frame := CollectDisplayFrame(snapshot, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+	line := displayLineContaining(t, frame, "▣ run result run-result")
+
+	if !line.Planned {
+		t.Fatalf("expected run result placeholder to be marked planned\nline=%#v", line)
+	}
+	colored := RenderSnapshot(snapshot, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
+	if !strings.Contains(colored, "\x1b[90m") || !strings.Contains(colored, "run result") {
+		t.Fatalf("expected planned run result placeholder to render gray\n---\n%q", colored)
+	}
+}
+
+func TestRenderSnapshotShowsTerminalRunResultResource(t *testing.T) {
+	now := time.Date(2026, 5, 31, 15, 12, 0, 0, time.UTC)
+	started := now.Add(-2 * time.Second)
+	completed := now.Add(-500 * time.Millisecond)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:        "ws-acme",
+			WorkflowID:         "wf-root",
+			RootWorkflowID:     "wf-root",
+			FlowSlug:           "live-render-parent",
+			Status:             "completed",
+			StepsCompleted:     1,
+			StepsExecutedTotal: 1,
+			StartedAt:          &started,
+			CompletedAt:        &completed,
+			UpdatedAt:          completed,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "prepare", ActivityKind: "step", ActivityType: "function", ActivityName: "prepare", StepID: "prepare", Status: "completed", StartedAt: &started, CompletedAt: &completed, UpdatedAt: completed},
+		},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	if !strings.Contains(out, "▣ flow output") {
+		t.Fatalf("expected completed flow to end with flow output resource\n---\n%s", out)
+	}
+	if !strings.Contains(out, "1 step executed, 1 resource (▣ 1)") {
+		t.Fatalf("expected synthetic run output to count as one resource\n---\n%s", out)
+	}
+}
+
+func TestRenderSnapshotUsesBackendRunResultResource(t *testing.T) {
+	now := time.Date(2026, 5, 31, 15, 13, 0, 0, time.UTC)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:        "ws-acme",
+			WorkflowID:         "wf-root",
+			RootWorkflowID:     "wf-root",
+			FlowSlug:           "live-render-parent",
+			Status:             "completed",
+			StepsCompleted:     1,
+			StepsExecutedTotal: 1,
+			UpdatedAt:          now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ActivityKind: "resource", ActivityType: "run-result", ActivityName: "flow-output.json", Status: "completed", ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ResourceKind: "run-result", ResourceLabel: "flow-output.json", ContentType: "application/json", UpdatedAt: now},
+		},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	if strings.Count(out, "flow-output.json") != 1 {
+		t.Fatalf("expected backend run result resource to suppress synthetic duplicate\n---\n%s", out)
+	}
+	if strings.Contains(out, "▣ flow output") {
+		t.Fatalf("expected synthetic flow output row not to be rendered when backend resource exists\n---\n%s", out)
+	}
+	if !strings.Contains(out, "1 step executed, 1 resource (▣ 1)") {
+		t.Fatalf("expected backend run result to count once\n---\n%s", out)
+	}
+}
+
+func TestRenderSnapshotSkipsRunResultResourceForAgentRun(t *testing.T) {
+	now := time.Date(2026, 5, 31, 15, 14, 0, 0, time.UTC)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-agent",
+			RootWorkflowID: "wf-agent",
+			Status:         "completed",
+			EntrypointType: "agent",
+			AgentID:        "mock/researcher",
+			UpdatedAt:      now,
+		}},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-agent", FullTree: true})
+
+	if strings.Contains(out, "run result") || strings.Contains(out, "flow output") {
+		t.Fatalf("expected agent run not to synthesize a flow result resource\n---\n%s", out)
+	}
+}
+
 func TestRenderSnapshotReplacesPlannedPersistResourceWithRuntimeResource(t *testing.T) {
 	now := time.Date(2026, 5, 31, 14, 55, 0, 0, time.UTC)
 	started := now.Add(-500 * time.Millisecond)
@@ -737,8 +849,8 @@ func TestRenderSnapshotDeduplicatesResourcesByURI(t *testing.T) {
 	if strings.Count(out, "agent-subagent-tools-local-run-repo") != 1 {
 		t.Fatalf("expected one resource row for duplicate resource URI\n---\n%s", out)
 	}
-	if strings.Count(out, "▣ 1") != 1 {
-		t.Fatalf("expected summary to count duplicate resource URI once\n---\n%s", out)
+	if strings.Count(out, "▣ 2") != 1 {
+		t.Fatalf("expected summary to count duplicate resource URI once plus run output\n---\n%s", out)
 	}
 }
 
@@ -1002,8 +1114,8 @@ func TestRenderSnapshotSummaryStripUsesAccentsWhenColored(t *testing.T) {
 	for _, want := range []string{
 		"\x1b[32m28\x1b[0m steps executed",
 		"\x1b[31m1 failed step\x1b[0m",
-		"\x1b[36m1\x1b[0m resource",
-		"(\x1b[36m▣\x1b[0m \x1b[36m1\x1b[0m)",
+		"\x1b[36m2\x1b[0m resources",
+		"(\x1b[36m▣\x1b[0m \x1b[36m2\x1b[0m)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected accented summary to contain %q\n---\n%q", want, out)
