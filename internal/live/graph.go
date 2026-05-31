@@ -277,7 +277,7 @@ func hasRunResultResource(activities []Activity, run RunState) bool {
 func runResultResourceActivity(run RunState, status string, terminal bool, updatedAt time.Time) Activity {
 	workflowID := strings.TrimSpace(run.WorkflowID)
 	resourceStatus := "pending"
-	resourceLabel := "run result"
+	resourceLabel := "flow result"
 	resourceURI := ""
 	resourceID := runResultResourceParentID(workflowID) + ":result"
 	planned := true
@@ -285,7 +285,6 @@ func runResultResourceActivity(run RunState, status string, terminal bool, updat
 		resourceStatus = "completed"
 		planned = false
 		kind := "flow-output"
-		resourceLabel = "flow output"
 		if isProblemStatus(status) {
 			kind = "flow-error"
 			resourceLabel = "flow error"

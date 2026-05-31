@@ -2675,6 +2675,12 @@ func resourceText(activity Activity) string {
 }
 
 func resourceLabelText(activity Activity) string {
+	if isFlowErrorResource(activity) {
+		return "flow error"
+	}
+	if isRunResultResourceActivity(activity) {
+		return "flow result"
+	}
 	label := firstNonBlank(activity.ResourceLabel, activity.ActivityName, resourceNameFromURI(activity.ResourceURI), activity.ActivityID, "resource")
 	return shortLabel(label, 36)
 }
@@ -2712,9 +2718,18 @@ func isFlowErrorResource(activity Activity) bool {
 	return strings.Contains(text, "flow error") || strings.Contains(text, "flow-error")
 }
 
+func isRunResultResourceActivity(activity Activity) bool {
+	if strings.EqualFold(strings.TrimSpace(activity.ResourceKind), "run-result") ||
+		strings.EqualFold(strings.TrimSpace(activity.ActivityType), "run-result") {
+		return true
+	}
+	return runResultResourceURIMatches(activity.ResourceURI, activity.WorkflowID) ||
+		runResultResourceURIMatches(activity.ActivityID, activity.WorkflowID)
+}
+
 func resourceDetailText(activity Activity) string {
 	parts := []string{}
-	if activity.Planned {
+	if activity.Planned && !isRunResultResourceActivity(activity) {
 		parts = append(parts, resourceKindText(activity))
 	}
 	if activity.RowCount != nil && *activity.RowCount > 0 {

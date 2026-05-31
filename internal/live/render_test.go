@@ -172,7 +172,7 @@ func TestRenderSnapshotShowsResourcesAndSummaryStrip(t *testing.T) {
 	for _, want := range []string{
 		"▣ report.md 42.0KB text/markdown",
 		"▣ findings 7 rows",
-		"▣ flow output",
+		"▣ flow result",
 		"2 steps executed, 3 resources (▣ 3)",
 	} {
 		if !strings.Contains(out, want) {
@@ -688,15 +688,18 @@ func TestRenderSnapshotShowsPlannedRunResultResource(t *testing.T) {
 		}},
 	}
 	frame := CollectDisplayFrame(snapshot, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
-	line := displayLineContaining(t, frame, "▣ run result run-result")
+	line := displayLineContaining(t, frame, "▣ flow result")
 
 	if !line.Planned {
-		t.Fatalf("expected run result placeholder to be marked planned\nline=%#v", line)
+		t.Fatalf("expected flow result placeholder to be marked planned\nline=%#v", line)
+	}
+	if strings.Contains(line.Text, "run-result") {
+		t.Fatalf("expected planned flow result placeholder not to repeat run-result detail\nline=%#v", line)
 	}
 	colored := RenderSnapshot(snapshot, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
-	coloredLine := renderedLineContaining(t, colored, "run result")
+	coloredLine := renderedLineContaining(t, colored, "flow result")
 	if !strings.Contains(coloredLine, "\x1b[90m") || strings.Contains(coloredLine, "\x1b[36m") {
-		t.Fatalf("expected planned run result placeholder to render gray\n---\n%q", colored)
+		t.Fatalf("expected planned flow result placeholder to render gray\n---\n%q", colored)
 	}
 }
 
@@ -724,8 +727,8 @@ func TestRenderSnapshotShowsTerminalRunResultResource(t *testing.T) {
 		},
 	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
 
-	if !strings.Contains(out, "▣ flow output") {
-		t.Fatalf("expected completed flow to end with flow output resource\n---\n%s", out)
+	if !strings.Contains(out, "▣ flow result") {
+		t.Fatalf("expected completed flow to end with flow result resource\n---\n%s", out)
 	}
 	if !strings.Contains(out, "1 step executed, 1 resource (▣ 1)") {
 		t.Fatalf("expected synthetic run output to count as one resource\n---\n%s", out)
@@ -748,18 +751,15 @@ func TestRenderSnapshotUsesBackendRunResultResource(t *testing.T) {
 			UpdatedAt:          now,
 		}},
 		Nodes: []Activity{
-			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ActivityKind: "resource", ActivityType: "run-result", ActivityName: "flow-output.json", Status: "completed", ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ResourceKind: "run-result", ResourceLabel: "flow-output.json", ContentType: "application/json", UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ActivityKind: "resource", ActivityType: "run-result", ActivityName: "flow result", Status: "completed", ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/flow-output", ResourceKind: "run-result", ResourceLabel: "flow result", ContentType: "application/json", UpdatedAt: now},
 		},
 	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
 
-	if strings.Count(out, "flow-output.json") != 1 {
-		t.Fatalf("expected backend run result resource to suppress synthetic duplicate\n---\n%s", out)
-	}
-	if strings.Contains(out, "▣ flow output") {
-		t.Fatalf("expected synthetic flow output row not to be rendered when backend resource exists\n---\n%s", out)
+	if strings.Count(out, "▣ flow result") != 1 {
+		t.Fatalf("expected backend flow result resource to suppress synthetic duplicate\n---\n%s", out)
 	}
 	if !strings.Contains(out, "1 step executed, 1 resource (▣ 1)") {
-		t.Fatalf("expected backend run result to count once\n---\n%s", out)
+		t.Fatalf("expected backend flow result to count once\n---\n%s", out)
 	}
 }
 
@@ -805,7 +805,7 @@ func TestRenderSnapshotSkipsRunResultResourceForAgentRun(t *testing.T) {
 		}},
 	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-agent", FullTree: true})
 
-	if strings.Contains(out, "run result") || strings.Contains(out, "flow output") {
+	if strings.Contains(out, "flow result") || strings.Contains(out, "flow error") {
 		t.Fatalf("expected agent run not to synthesize a flow result resource\n---\n%s", out)
 	}
 }
