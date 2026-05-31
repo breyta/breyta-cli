@@ -211,17 +211,25 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
 			}
-			if time.Now().After(deadline) {
-				if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
-					return writeErr(cmd, err)
-				}
-				return nil
-			}
 			if liveRenderer != nil {
 				liveRenderer.Update(cmd.Context(), false)
 				if liveRenderer.StopRequested() {
 					return writeErr(cmd, errors.New("live wait cancelled"))
 				}
+			}
+			if time.Now().After(deadline) {
+				if liveRenderer != nil && liveRenderer.ActiveWait() {
+					deadline = time.Now().Add(timeout)
+					sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+					if liveRenderer.StopRequested() {
+						return writeErr(cmd, errors.New("live wait cancelled"))
+					}
+					continue
+				}
+				if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
 			}
 			sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
 			if liveRenderer != nil && liveRenderer.StopRequested() {
@@ -287,7 +295,22 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			}
 		}
 
+		if liveRenderer != nil {
+			liveRenderer.Update(cmd.Context(), false)
+			if liveRenderer.StopRequested() {
+				return writeErr(cmd, errors.New("live wait cancelled"))
+			}
+		}
+
 		if time.Now().After(deadline) {
+			if liveRenderer != nil && liveRenderer.ActiveWait() {
+				deadline = time.Now().Add(timeout)
+				sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+				if liveRenderer.StopRequested() {
+					return writeErr(cmd, errors.New("live wait cancelled"))
+				}
+				continue
+			}
 			trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
 				"product":     "flows",
 				"channel":     "cli",
@@ -334,12 +357,6 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				return writeErr(cmd, err)
 			}
 			return nil
-		}
-		if liveRenderer != nil {
-			liveRenderer.Update(cmd.Context(), false)
-			if liveRenderer.StopRequested() {
-				return writeErr(cmd, errors.New("live wait cancelled"))
-			}
 		}
 		sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
 		if liveRenderer != nil && liveRenderer.StopRequested() {

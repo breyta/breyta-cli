@@ -411,6 +411,86 @@ func TestLiveTUIFooterShowsOpenForOpenableResource(t *testing.T) {
 	}
 }
 
+func TestLiveTUIFooterShowsActiveWaitActions(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 180
+	model.height = 8
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:approval", Text: "  ○ Await approval [wait-for-approval]"},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{
+		frame: frame,
+		at:    time.Now(),
+		waitAction: liveTUIWaitAction{
+			Active: true,
+			WaitID: "wait-1",
+			StepID: "wait-for-approval",
+			Title:  "Await approval",
+			Actions: []string{
+				"approve",
+				"reject",
+			},
+		},
+	})
+	model = updated.(liveTUIModel)
+
+	plain := stripTUIANSI(model.View())
+	for _, want := range []string{"wait Await approval", "a approve", "r reject"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected footer to contain %q\n%s", want, plain)
+		}
+	}
+}
+
+func TestLiveTUIApproveWaitActionCallsResolver(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 180
+	model.height = 8
+	var gotWait liveTUIWaitAction
+	gotAction := ""
+	model.resolveWaitAction = func(wait liveTUIWaitAction, action string) error {
+		gotWait = wait
+		gotAction = action
+		return nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:approval", Text: "  ○ Await approval [wait-for-approval]"},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{
+		frame: frame,
+		at:    time.Now(),
+		waitAction: liveTUIWaitAction{
+			Active:  true,
+			WaitID:  "wait-1",
+			StepID:  "wait-for-approval",
+			Actions: []string{"approve", "reject"},
+		},
+	})
+	model = updated.(liveTUIModel)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected approve key to return wait resolver command")
+	}
+	msg := cmd()
+	resolved, ok := msg.(liveTUIWaitResolvedMsg)
+	if !ok {
+		t.Fatalf("expected wait resolved message, got %#v", msg)
+	}
+	if resolved.err != nil {
+		t.Fatalf("unexpected resolver error: %v", resolved.err)
+	}
+	if gotWait.WaitID != "wait-1" || gotAction != "approve" {
+		t.Fatalf("unexpected resolver call: wait=%#v action=%q", gotWait, gotAction)
+	}
+	if model.waitActionPending != "approve" {
+		t.Fatalf("expected pending approve state, got %q", model.waitActionPending)
+	}
+}
+
 func TestLiveTUIEnterOpensSelectedResourceURL(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 160

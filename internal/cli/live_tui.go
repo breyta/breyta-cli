@@ -23,9 +23,11 @@ type liveTUIRunner struct {
 	stopped bool
 }
 
-func newLiveTUIRunner(out io.Writer) *liveTUIRunner {
+func newLiveTUIRunner(out io.Writer, resolver func(liveTUIWaitAction, string) error) *liveTUIRunner {
 	runner := &liveTUIRunner{done: make(chan error, 1)}
-	program := tea.NewProgram(newLiveTUIModel(), tea.WithAltScreen(), tea.WithOutput(out))
+	model := newLiveTUIModel()
+	model.resolveWaitAction = resolver
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(out))
 	runner.program = program
 	go func() {
 		_, err := program.Run()
@@ -39,11 +41,11 @@ func newLiveTUIRunner(out io.Writer) *liveTUIRunner {
 	return runner
 }
 
-func (r *liveTUIRunner) SendFrame(frame live.DisplayFrame) {
+func (r *liveTUIRunner) SendFrame(frame live.DisplayFrame, waitAction liveTUIWaitAction) {
 	if r == nil || r.program == nil {
 		return
 	}
-	r.program.Send(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	r.program.Send(liveTUIFrameMsg{frame: frame, waitAction: waitAction, at: time.Now()})
 }
 
 func (r *liveTUIRunner) Close() {
@@ -70,13 +72,20 @@ func (r *liveTUIRunner) StopRequested() bool {
 }
 
 type liveTUIFrameMsg struct {
-	frame live.DisplayFrame
-	at    time.Time
+	frame      live.DisplayFrame
+	waitAction liveTUIWaitAction
+	at         time.Time
 }
 
 type liveTUIOpenURLMsg struct {
 	url string
 	err error
+}
+
+type liveTUIWaitResolvedMsg struct {
+	waitID string
+	action string
+	err    error
 }
 
 type liveTreeNode struct {
@@ -101,6 +110,11 @@ type liveTUIModel struct {
 	height    int
 	updatedAt time.Time
 	openURL   func(string) error
+
+	waitAction        liveTUIWaitAction
+	waitActionPending string
+	waitActionMessage string
+	resolveWaitAction func(liveTUIWaitAction, string) error
 }
 
 func newLiveTUIModel() liveTUIModel {
@@ -154,6 +168,14 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			m.expandCursor()
+		case "a":
+			if cmd := m.startWaitAction("approve"); cmd != nil {
+				return m, cmd
+			}
+		case "r":
+			if cmd := m.startWaitAction("reject"); cmd != nil {
+				return m, cmd
+			}
 		case "left":
 			m.collapseCursorOrMoveParent()
 		case " ":
@@ -161,9 +183,20 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case liveTUIFrameMsg:
 		m.updatedAt = msg.at
+		m.setWaitAction(msg.waitAction)
 		m.setFrame(msg.frame)
 	case liveTUIOpenURLMsg:
 		_ = msg
+	case liveTUIWaitResolvedMsg:
+		m.waitActionPending = ""
+		if msg.err != nil {
+			m.waitActionMessage = msg.err.Error()
+			break
+		}
+		m.waitActionMessage = msg.action + " sent"
+		if strings.TrimSpace(msg.waitID) != "" && msg.waitID == m.waitAction.WaitID {
+			m.waitAction = liveTUIWaitAction{}
+		}
 	}
 	return m, nil
 }
@@ -239,6 +272,20 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 	m.cursor = nearestSelectableIndex(visible, m.cursor, 0)
 	m.cursorKey = cursorKeyAt(visible, m.cursor)
 	m.ensureCursorVisible()
+}
+
+func (m *liveTUIModel) setWaitAction(wait liveTUIWaitAction) {
+	if !wait.Active {
+		m.waitAction = liveTUIWaitAction{}
+		m.waitActionPending = ""
+		m.waitActionMessage = ""
+		return
+	}
+	if wait.WaitID != m.waitAction.WaitID {
+		m.waitActionPending = ""
+		m.waitActionMessage = ""
+	}
+	m.waitAction = wait
 }
 
 func buildLiveTreeNodes(frame live.DisplayFrame) []liveTreeNode {
@@ -573,6 +620,20 @@ func (m liveTUIModel) openCursorWebURL() tea.Cmd {
 	}
 }
 
+func (m *liveTUIModel) startWaitAction(action string) tea.Cmd {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if !m.waitAction.Active || !m.waitAction.Can(action) || m.waitActionPending != "" || m.resolveWaitAction == nil {
+		return nil
+	}
+	wait := m.waitAction
+	resolver := m.resolveWaitAction
+	m.waitActionPending = action
+	m.waitActionMessage = ""
+	return func() tea.Msg {
+		return liveTUIWaitResolvedMsg{waitID: wait.WaitID, action: action, err: resolver(wait, action)}
+	}
+}
+
 func (m liveTUIModel) cursorWebURL(visible []liveTreeNode) string {
 	if m.cursor < 0 || m.cursor >= len(visible) || !isSelectableLiveNode(visible[m.cursor]) {
 		return ""
@@ -810,6 +871,20 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 	if m.cursorWebURL(visible) != "" {
 		parts = append(parts, footerCommand("enter", "open"))
 	}
+	if m.waitAction.Active {
+		parts = append(parts, footerWaitLabel(m.waitAction.Label()))
+		if m.waitAction.Can("approve") {
+			parts = append(parts, footerCommand("a", "approve"))
+		}
+		if m.waitAction.Can("reject") {
+			parts = append(parts, footerCommand("r", "reject"))
+		}
+	}
+	if m.waitActionPending != "" {
+		parts = append(parts, styleTUIFg(m.waitActionPending+"...", "220"))
+	} else if strings.TrimSpace(m.waitActionMessage) != "" {
+		parts = append(parts, styleTUIFg(m.waitActionMessage, "248"))
+	}
 	parts = append(parts,
 		footerCommand("q/ctrl+c", "exit"),
 		footerPosition(cursor, total),
@@ -845,6 +920,14 @@ func footerKey(value string) string {
 
 func footerPosition(cursor int, total int) string {
 	return styleTUIFg(fmt.Sprintf("%d", cursor), "121") + styleTUIFg("/", "244") + styleTUIFg(fmt.Sprintf("%d", total), "121")
+}
+
+func footerWaitLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "wait"
+	}
+	return styleTUIFg("wait", "220") + " " + styleTUIFg(label, "248")
 }
 
 func footerDivider() string {

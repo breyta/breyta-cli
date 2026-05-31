@@ -41,19 +41,22 @@ type liveWaitRenderer struct {
 	streamRunning    bool
 	graphsByWorkflow map[string]live.FlowGraphDocument
 
-	lastSnapshot           *live.Snapshot
-	lastDisplayKey         string
-	lastRenderedDisplayKey string
-	lastRenderAt           time.Time
-	lastRenderedText       string
-	displayedLines         int
-	tui                    *liveTUIRunner
-	frame                  int
-	warnedUnavailable      bool
-	interactive            bool
-	color                  bool
-	out                    io.Writer
-	diagnostics            *liveDiagnostics
+	lastSnapshot              *live.Snapshot
+	lastDisplayKey            string
+	lastRenderedDisplayKey    string
+	lastRenderAt              time.Time
+	lastRenderedText          string
+	lastRenderedWaitActionKey string
+	displayedLines            int
+	tui                       *liveTUIRunner
+	frame                     int
+	warnedUnavailable         bool
+	interactive               bool
+	color                     bool
+	out                       io.Writer
+	diagnostics               *liveDiagnostics
+	waitAction                liveTUIWaitAction
+	nextWaitActionAt          time.Time
 }
 
 const liveRenderFrameInterval = time.Second / 60
@@ -116,6 +119,7 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 	if r.lastSnapshot == nil {
 		return
 	}
+	r.refreshWaitAction(ctx, now, final)
 	if !r.shouldRender(now, final) {
 		return
 	}
@@ -348,7 +352,8 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 
 	frame := enrichLiveDisplayFrameWebLinks(r.app, live.CollectDisplayFrame(snapshot, opts))
 	text := strings.TrimSuffix(live.RenderDisplayFrame(frame), "\n")
-	if text == r.lastRenderedText {
+	waitActionKey := liveTUIWaitActionKey(r.waitAction)
+	if text == r.lastRenderedText && waitActionKey == r.lastRenderedWaitActionKey {
 		r.lastRenderedDisplayKey = displayKey
 		return
 	}
@@ -359,6 +364,7 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 	r.lastRenderAt = now
 	r.lastDisplayKey = displayKey
 	r.lastRenderedDisplayKey = displayKey
+	r.lastRenderedWaitActionKey = waitActionKey
 }
 
 func (r *liveWaitRenderer) logDiagnostic(diagnostic live.RenderDiagnostic) {
@@ -443,9 +449,9 @@ func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string)
 	}
 	if r.interactive {
 		if r.tui == nil {
-			r.tui = newLiveTUIRunner(r.out)
+			r.tui = newLiveTUIRunner(r.out, r.resolveTUIWaitAction)
 		}
-		r.tui.SendFrame(frame)
+		r.tui.SendFrame(frame, r.waitAction)
 		return
 	}
 	if r.displayedLines > 0 {
