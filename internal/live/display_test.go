@@ -92,6 +92,76 @@ func TestCollectDisplayFrameKeepsCompletedStepsInTreeOrder(t *testing.T) {
 	}
 }
 
+func TestCollectDisplayFrameCarriesResourceRunContext(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
+	done := now.Add(-2 * time.Second)
+	resourceURI := "res://v1/ws/ws-acme/result/run/wf-root/step/persist-report/output"
+
+	frame := CollectDisplayFrame(Snapshot{
+		Workspace: WorkspaceSummary{
+			WorkspaceID: "ws-acme",
+			UpdatedAt:   now,
+		},
+		Runs: []RunState{
+			{
+				WorkspaceID:    "ws-acme",
+				WorkflowID:     "wf-root",
+				RootWorkflowID: "wf-root",
+				FlowSlug:       "live-render-parent",
+				Status:         "completed",
+				UpdatedAt:      now,
+				CompletedAt:    &now,
+			},
+		},
+		Nodes: []Activity{
+			{
+				WorkspaceID:  "ws-acme",
+				WorkflowID:   "wf-root",
+				ActivityKind: "step",
+				ActivityType: "function",
+				ActivityName: "persist-report",
+				StepID:       "persist-report",
+				Status:       "completed",
+				CompletedAt:  &done,
+				UpdatedAt:    done,
+			},
+			{
+				WorkspaceID:      "ws-acme",
+				WorkflowID:       "wf-root",
+				ActivityID:       "resource:persist-report",
+				ParentActivityID: "persist-report",
+				ActivityKind:     "resource",
+				ActivityType:     "blob",
+				ActivityName:     "report.md",
+				Status:           "completed",
+				ResourceURI:      resourceURI,
+				ResourceKind:     "blob",
+				ResourceLabel:    "report.md",
+				ContentType:      "text/markdown",
+				CompletedAt:      &done,
+				UpdatedAt:        done,
+			},
+		},
+	}, RenderOptions{Now: now, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	var resource DisplayLine
+	for _, line := range frame.Lines {
+		if line.ResourceURI == resourceURI {
+			resource = line
+			break
+		}
+	}
+	if resource.ResourceURI != resourceURI {
+		t.Fatalf("expected resource URI metadata, got %q", resource.ResourceURI)
+	}
+	if resource.WorkspaceID != "ws-acme" || resource.WorkflowID != "wf-root" || resource.FlowSlug != "live-render-parent" || resource.ResourceKind != "blob" {
+		t.Fatalf("unexpected resource context: %#v", resource)
+	}
+	if resource.WebURL != "" {
+		t.Fatalf("expected live package not to derive CLI web URL, got %q", resource.WebURL)
+	}
+}
+
 func TestFitDisplayFrameForLiveTruncatesToTerminalHeight(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
 	started := now.Add(-10 * time.Second)

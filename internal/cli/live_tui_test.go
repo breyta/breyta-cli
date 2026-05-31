@@ -387,6 +387,107 @@ func TestLiveTUIFooterShowsCommandMenuAndQQuits(t *testing.T) {
 	}
 }
 
+func TestLiveTUIFooterShowsOpenForOpenableResource(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 6
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:persist", Text: "  ƒ Persist run report [persist-run-report]"},
+		{
+			Key:         "resource:wf-root:report",
+			Text:        "    ▣ output resource blob text/markdown",
+			ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/step/persist-run-report/output",
+			WebURL:      "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=demo&output=fullscreen",
+		},
+		{Key: "summary", Text: "1 step executed, 1 resource"},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+
+	plain := stripTUIANSI(model.View())
+	if !strings.Contains(plain, "enter open") {
+		t.Fatalf("expected open command for selected resource row\n%s", plain)
+	}
+}
+
+func TestLiveTUIEnterOpensSelectedResourceURL(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 8
+	opened := ""
+	model.openURL = func(value string) error {
+		opened = value
+		return nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:persist", Text: "  ƒ Persist run report [persist-run-report]"},
+		{
+			Key:    "resource:wf-root:report",
+			Text:   "    ▣ output resource blob text/markdown",
+			WebURL: "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=demo&output=fullscreen",
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if model.cursorKey != "resource:wf-root:report" {
+		t.Fatalf("expected sticky bottom to select resource row, got %q", model.cursorKey)
+	}
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected enter on resource row to return an open command")
+	}
+	msg := cmd()
+	if _, ok := msg.(liveTUIOpenURLMsg); !ok {
+		t.Fatalf("expected open URL message, got %#v", msg)
+	}
+	if opened != "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=demo&output=fullscreen" {
+		t.Fatalf("unexpected opened URL: %q", opened)
+	}
+}
+
+func TestEnrichLiveDisplayFrameWebLinksAddsArtifactURLs(t *testing.T) {
+	app := &App{WorkspaceID: "ws-acme", APIURL: "http://localhost:30546", DevMode: true}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{
+			Key:         "resource:wf-root:persist",
+			Text:        "  ▣ output resource blob text/markdown",
+			WorkflowID:  "wf-root",
+			FlowSlug:    "live-render-parent",
+			ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/step/persist-run-report/output",
+		},
+		{
+			Key:         "resource:wf-root:result",
+			Text:        "  ▣ run result",
+			WorkflowID:  "wf-root",
+			FlowSlug:    "live-render-parent",
+			ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/flow-output",
+		},
+		{
+			Key:         "resource:wf-root:planned",
+			Text:        "  ▣ output resource blob text/markdown",
+			WorkflowID:  "wf-root",
+			FlowSlug:    "live-render-parent",
+			ResourceURI: "res://v1/ws/ws-acme/result/run/wf-root/step/future/output",
+			WebURL:      "http://localhost:30546/should-not-open",
+			Planned:     true,
+		},
+	}}
+
+	got := enrichLiveDisplayFrameWebLinks(app, frame)
+	if got.Lines[0].WebURL != "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=res%3A%2F%2Fv1%2Fws%2Fws-acme%2Fresult%2Frun%2Fwf-root%2Fstep%2Fpersist-run-report%2Foutput&output=fullscreen" {
+		t.Fatalf("unexpected artifact URL: %q", got.Lines[0].WebURL)
+	}
+	if got.Lines[1].WebURL != "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root/output" {
+		t.Fatalf("unexpected flow output URL: %q", got.Lines[1].WebURL)
+	}
+	if got.Lines[2].WebURL != "" {
+		t.Fatalf("expected planned resource row not to be openable, got %q", got.Lines[2].WebURL)
+	}
+}
+
 func TestLiveTUIInlineMarkersAvoidExtraTreeColumn(t *testing.T) {
 	model := newLiveTUIModel()
 	parent := liveTreeNode{Key: "parent", Text: "  ✓ @researcher [b0]", Expandable: true}

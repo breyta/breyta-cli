@@ -346,7 +346,7 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 	r.frame++
 	displayKey := displayFrameKey(snapshot, r.workflowID)
 
-	frame := live.CollectDisplayFrame(snapshot, opts)
+	frame := enrichLiveDisplayFrameWebLinks(r.app, live.CollectDisplayFrame(snapshot, opts))
 	text := strings.TrimSuffix(live.RenderDisplayFrame(frame), "\n")
 	if text == r.lastRenderedText {
 		r.lastRenderedDisplayKey = displayKey

@@ -11,9 +11,15 @@ var displayANSIRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 // DisplayLine is one rendered row in the live terminal tree.
 type DisplayLine struct {
-	Key     string
-	Text    string
-	Planned bool
+	Key          string
+	Text         string
+	Planned      bool
+	WorkspaceID  string
+	WorkflowID   string
+	FlowSlug     string
+	ResourceURI  string
+	ResourceKind string
+	WebURL       string
 	// Live marks rows that change between frames (spinners, durations, active scopes).
 	Live bool
 }
@@ -203,13 +209,13 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		isLastActivity := i == len(visibleNodes)-1 && len(remainingChildren) == 0 && !renderedCurrentFallback
 		if isStructuralFanoutWrapper(displayActivity) {
 			for _, tool := range activityTools {
-				collectActivityBranch(frame, tool, activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, tool, activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, nested := range activityNested {
-				collectActivityBranch(frame, nested, activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, nested, activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, resource := range activityResources {
-				collectResource(frame, resource, activityPrefix, opts)
+				collectResource(frame, resource, activityPrefix, opts, run)
 			}
 			for childIdx, child := range activityChildren {
 				collectRunNode(frame, child, activityPrefix, childIdx == len(activityChildren)-1, opts, false, rootFlowSlug)
@@ -218,13 +224,13 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		}
 		if shouldElideAgentFanoutEntrypoint(node, displayActivity, activityTools, activityResources, activityChildren) {
 			for _, tool := range activityTools {
-				collectActivityBranch(frame, suppressRedundantAgentLabel(node, tool), activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, suppressRedundantAgentLabel(node, tool), activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, nested := range activityNested {
-				collectActivityBranch(frame, nested, activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, nested, activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, resource := range activityResources {
-				collectResource(frame, suppressRedundantAgentLabel(node, resource), activityPrefix, opts)
+				collectResource(frame, suppressRedundantAgentLabel(node, resource), activityPrefix, opts, run)
 			}
 			for childIdx, child := range activityChildren {
 				collectRunNode(frame, child, activityPrefix, childIdx == len(activityChildren)-1, opts, false, rootFlowSlug)
@@ -233,13 +239,13 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		}
 		if shouldInlineActivityContainer(displayActivity, run, activityResources, activityTools, activityChildren) {
 			for _, tool := range activityTools {
-				collectActivityBranch(frame, tool, activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, tool, activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, nested := range activityNested {
-				collectActivityBranch(frame, nested, activityPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+				collectActivityBranch(frame, nested, activityPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 			}
 			for _, resource := range activityResources {
-				collectResource(frame, resource, activityPrefix, opts)
+				collectResource(frame, resource, activityPrefix, opts, run)
 			}
 			for childIdx, child := range activityChildren {
 				collectRunNode(frame, child, activityPrefix, childIdx == len(activityChildren)-1, opts, false, rootFlowSlug)
@@ -249,13 +255,13 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		collectActivity(frame, displayActivity, activityPrefix, opts)
 		activityChildPrefix := branchChildPrefix(activityPrefix, isLastActivity)
 		for _, tool := range activityTools {
-			collectActivityBranch(frame, suppressRedundantAgentLabel(node, tool), activityChildPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+			collectActivityBranch(frame, suppressRedundantAgentLabel(node, tool), activityChildPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, nested := range activityNested {
-			collectActivityBranch(frame, nested, activityChildPrefix, opts, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+			collectActivityBranch(frame, nested, activityChildPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, resource := range activityResources {
-			collectResource(frame, suppressRedundantAgentLabel(node, resource), activityChildPrefix, opts)
+			collectResource(frame, suppressRedundantAgentLabel(node, resource), activityChildPrefix, opts, run)
 		}
 		for childIdx, child := range activityChildren {
 			collectRunNode(frame, child, activityChildPrefix, childIdx == len(activityChildren)-1, opts, false, rootFlowSlug)
@@ -266,7 +272,7 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		collectRunNode(frame, child, childPrefix, i == len(remainingChildren)-1, opts, false, rootFlowSlug)
 	}
 	for _, resource := range runResources {
-		collectResource(frame, resource, activityPrefix, opts)
+		collectResource(frame, resource, activityPrefix, opts, run)
 	}
 }
 
@@ -279,13 +285,18 @@ func collectActivity(frame *DisplayFrame, activity Activity, prefix string, opts
 	}, activityLineLive(activity))
 }
 
-func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions) {
+func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, run RunState) {
 	line := formatResourceLine(activity, prefix, opts)
 	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" + firstNonBlank(activity.ActivityID, activity.ResourceURI, activity.ResourceLabel)
 	frame.add(DisplayLine{
-		Key:     key,
-		Text:    line,
-		Planned: isUnstartedPlannedActivity(activity),
+		Key:          key,
+		Text:         line,
+		Planned:      isUnstartedPlannedActivity(activity),
+		WorkspaceID:  firstNonBlank(activity.WorkspaceID, run.WorkspaceID),
+		WorkflowID:   firstNonBlank(activity.WorkflowID, run.WorkflowID),
+		FlowSlug:     strings.TrimSpace(run.FlowSlug),
+		ResourceURI:  strings.TrimSpace(activity.ResourceURI),
+		ResourceKind: strings.TrimSpace(activity.ResourceKind),
 	}, activityLineLive(activity))
 }
 

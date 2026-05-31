@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/breyta/breyta-cli/internal/browseropen"
 	"github.com/breyta/breyta-cli/internal/live"
 )
 
@@ -73,9 +74,15 @@ type liveTUIFrameMsg struct {
 	at    time.Time
 }
 
+type liveTUIOpenURLMsg struct {
+	url string
+	err error
+}
+
 type liveTreeNode struct {
 	Key        string
 	Text       string
+	WebURL     string
 	Depth      int
 	Parent     int
 	Expandable bool
@@ -93,6 +100,7 @@ type liveTUIModel struct {
 	width     int
 	height    int
 	updatedAt time.Time
+	openURL   func(string) error
 }
 
 func newLiveTUIModel() liveTUIModel {
@@ -101,6 +109,7 @@ func newLiveTUIModel() liveTUIModel {
 		stickEnd:  true,
 		width:     80,
 		height:    24,
+		openURL:   browseropen.Open,
 	}
 }
 
@@ -138,7 +147,12 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgdown":
 			m.moveCursor(m.pageSize())
 			m.updateStickEnd()
-		case "right", "enter":
+		case "right":
+			m.expandCursor()
+		case "enter":
+			if cmd := m.openCursorWebURL(); cmd != nil {
+				return m, cmd
+			}
 			m.expandCursor()
 		case "left":
 			m.collapseCursorOrMoveParent()
@@ -148,6 +162,8 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case liveTUIFrameMsg:
 		m.updatedAt = msg.at
 		m.setFrame(msg.frame)
+	case liveTUIOpenURLMsg:
+		_ = msg
 	}
 	return m, nil
 }
@@ -238,9 +254,14 @@ func buildLiveTreeNodes(frame live.DisplayFrame) []liveTreeNode {
 		if key == "" {
 			key = fmt.Sprintf("line:%d", len(nodes))
 		}
+		webURL := strings.TrimSpace(line.WebURL)
+		if line.Planned {
+			webURL = ""
+		}
 		node := liveTreeNode{
 			Key:     key,
 			Text:    line.Text,
+			WebURL:  webURL,
 			Depth:   depth,
 			Parent:  parent,
 			Planned: line.Planned,
@@ -538,6 +559,27 @@ func (m *liveTUIModel) expandCursor() {
 	delete(m.collapsed, visible[m.cursor].Key)
 }
 
+func (m liveTUIModel) openCursorWebURL() tea.Cmd {
+	url := m.cursorWebURL(m.visibleNodes())
+	if url == "" {
+		return nil
+	}
+	openURL := m.openURL
+	if openURL == nil {
+		openURL = browseropen.Open
+	}
+	return func() tea.Msg {
+		return liveTUIOpenURLMsg{url: url, err: openURL(url)}
+	}
+}
+
+func (m liveTUIModel) cursorWebURL(visible []liveTreeNode) string {
+	if m.cursor < 0 || m.cursor >= len(visible) || !isSelectableLiveNode(visible[m.cursor]) {
+		return ""
+	}
+	return strings.TrimSpace(visible[m.cursor].WebURL)
+}
+
 func (m *liveTUIModel) collapseCursorOrMoveParent() {
 	visible := m.visibleNodes()
 	if m.cursor < 0 || m.cursor >= len(visible) || !isSelectableLiveNode(visible[m.cursor]) {
@@ -764,9 +806,14 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 		footerCommand("←→", "fold"),
 		footerCommand("space", "toggle"),
 		footerKey("pgup/pgdn"),
+	}
+	if m.cursorWebURL(visible) != "" {
+		parts = append(parts, footerCommand("enter", "open"))
+	}
+	parts = append(parts,
 		footerCommand("q/ctrl+c", "exit"),
 		footerPosition(cursor, total),
-	}
+	)
 	return strings.Join(parts, footerDivider())
 }
 

@@ -1441,7 +1441,7 @@ func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, 
 	}
 }
 
-func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, nestedByParent map[string][]Activity, resourcesByParent map[string][]Activity, toolsByParent map[string][]Activity, childrenByStep map[string][]RunNode, rootFlowSlug string) {
+func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, run RunState, nestedByParent map[string][]Activity, resourcesByParent map[string][]Activity, toolsByParent map[string][]Activity, childrenByStep map[string][]RunNode, rootFlowSlug string) {
 	children := childrenForStep(childrenByStep, activity)
 	nestedActivities := nestedActivitiesForActivity(nestedByParent, activity)
 	displayActivity := activityWithNestedActivityDuration(activity, nestedActivities)
@@ -1449,18 +1449,18 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 	activityTools := toolsForActivity(toolsByParent, displayActivity)
 	activityResources := resourcesForActivity(resourcesByParent, displayActivity)
 	if replacement, ok := semanticFanoutReplacementForTool(displayActivity, nestedActivities, activityResources, activityTools); ok {
-		collectActivityBranch(frame, replacement, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+		collectActivityBranch(frame, replacement, prefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		return
 	}
 	if isStructuralFanoutWrapper(displayActivity) {
 		for _, tool := range activityTools {
-			collectActivityBranch(frame, tool, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+			collectActivityBranch(frame, tool, prefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, nested := range nestedActivities {
-			collectActivityBranch(frame, nested, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+			collectActivityBranch(frame, nested, prefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, resource := range activityResources {
-			collectResource(frame, resource, prefix, opts)
+			collectResource(frame, resource, prefix, opts, run)
 		}
 		for childIdx, child := range children {
 			collectRunNode(frame, child, prefix, childIdx == len(children)-1, opts, false, rootFlowSlug)
@@ -1470,13 +1470,13 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 	collectActivity(frame, displayActivity, prefix, opts)
 	childPrefix := branchChildPrefix(prefix, false)
 	for _, tool := range activityTools {
-		collectActivityBranch(frame, tool, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+		collectActivityBranch(frame, tool, childPrefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, nested := range nestedActivities {
-		collectActivityBranch(frame, nested, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+		collectActivityBranch(frame, nested, childPrefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, resource := range activityResources {
-		collectResource(frame, resource, childPrefix, opts)
+		collectResource(frame, resource, childPrefix, opts, run)
 	}
 	for childIdx, child := range children {
 		collectRunNode(frame, child, childPrefix, childIdx == len(children)-1, opts, false, rootFlowSlug)
