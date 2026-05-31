@@ -663,7 +663,7 @@ func isTUIStatusToken(text string) bool {
 
 func isTUITypeMarkerToken(text string, idx int, total int) bool {
 	switch text {
-	case "ƒ", "◉", "⚙", "✣", "↻", "▣":
+	case "ƒ", "◉", "⚙", "✣", "↻", "◇", "▣":
 		return true
 	}
 	return total > idx+1 && len([]rune(text)) == 1

@@ -449,6 +449,13 @@ func TestLiveTUISelectionHighlightsLabelAfterColoredTypeMarker(t *testing.T) {
 	}
 }
 
+func TestLiveTUISelectionHighlightsBranchLabelAfterBranchMarker(t *testing.T) {
+	got := highlightTUILabelText("  ◇ Case id branch 1.4s")
+	if !strings.Contains(got, "◇ \x1b[48;5;236mCase id branch\x1b[49m 1.4s") {
+		t.Fatalf("expected only branch label text to be highlighted after branch marker, got %q", got)
+	}
+}
+
 func TestLiveTUISelectionStopsBeforeMetadata(t *testing.T) {
 	got := highlightTUILabelText("  ✗ \x1b[1;36mƒ\x1b[0m live-render-child [b1] failed")
 	if !strings.Contains(got, "ƒ\x1b[0m \x1b[48;5;236mlive-render-child\x1b[49m [b1] failed") {

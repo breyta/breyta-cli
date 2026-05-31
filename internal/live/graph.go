@@ -96,6 +96,10 @@ func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGrap
 		}
 		if graphNode, ok := graphByStep[stepID]; ok {
 			activity.GraphOrder = graphSortOrder(graphNode.Order)
+			if strings.TrimSpace(activity.ParentActivityID) == "" {
+				activity.ParentActivityID = strings.TrimSpace(graphNode.ParentID)
+			}
+			activity.GraphScopeID = strings.TrimSpace(graphNode.ScopeID)
 			present[stepID] = true
 		}
 	}
@@ -157,6 +161,7 @@ func plannedGraphActivity(run RunState, graphNode FlowGraphNode, updatedAt time.
 		UpdatedAt:        updatedAt,
 		Planned:          true,
 		GraphOrder:       graphSortOrder(graphNode.Order),
+		GraphScopeID:     strings.TrimSpace(graphNode.ScopeID),
 	}
 }
 

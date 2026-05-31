@@ -102,6 +102,7 @@ type Activity struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 	Planned          bool       `json:"-"`
 	GraphOrder       int        `json:"-"`
+	GraphScopeID     string     `json:"-"`
 }
 
 type FlowGraphDocument struct {

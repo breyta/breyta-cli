@@ -186,18 +186,19 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 	visibleNodes := selectedActivities(node, selectedChildren, opts)
 	resourcesByParent := groupResourcesByVisibleParent(node.Activities, visibleNodes)
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
-	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes)
+	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
 	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent)
-	plannedActivitiesByParent, plannedActivityKeys := groupPlannedActivitiesByVisibleParent(visibleNodes, childrenByStep)
-	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, plannedActivitiesByParent)
-	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, plannedActivityKeys)
+	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, opts)
+	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, graphActivitiesByParent)
+	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, graphActivityKeys)
 	visibleNodes = filterNestedActivitiesFromTopLevel(visibleNodes, nestedActivityKeys)
 	for i, activity := range visibleNodes {
 		activityChildren := childrenForStep(childrenByStep, activity)
-		displayActivity := activityWithFanoutChildDuration(activity, activityChildren)
 		activityResources := resourcesForActivity(resourcesByParent, activity)
 		activityTools := toolsForActivity(toolsByParent, activity)
 		activityNested := nestedActivitiesForActivity(nestedActivitiesByParent, activity)
+		displayActivity := activityWithNestedActivityDuration(activity, activityNested)
+		displayActivity = activityWithFanoutChildDuration(displayActivity, activityChildren)
 		isLastActivity := i == len(visibleNodes)-1 && len(remainingChildren) == 0 && !renderedCurrentFallback
 		if isStructuralFanoutWrapper(displayActivity) {
 			for _, tool := range activityTools {

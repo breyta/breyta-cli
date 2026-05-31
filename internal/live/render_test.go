@@ -17,6 +17,15 @@ func leadingSpaces(value string) int {
 	return count
 }
 
+func hasDiagnostic(diagnostics []RenderDiagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRenderSnapshotShowsRunTreeActivitiesDurationsAndFanout(t *testing.T) {
 	now := time.Date(2026, 5, 29, 12, 0, 10, 0, time.UTC)
 	started := now.Add(-8 * time.Second)
@@ -390,6 +399,69 @@ func TestRenderSnapshotOrdersRuntimeOnlyStepAfterPlannedGraphParent(t *testing.T
 	}
 }
 
+func TestRenderSnapshotHydratesDecidedBranchAndSuppressesUntakenPath(t *testing.T) {
+	now := time.Date(2026, 5, 31, 13, 28, 0, 0, time.UTC)
+	branchStarted := now.Add(-2 * time.Second)
+	branchDone := now.Add(-500 * time.Millisecond)
+	var diagnostics []RenderDiagnostic
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 1, UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "running",
+			Active:         true,
+			CurrentStepID:  "research-agent",
+			StepsRunning:   1,
+			StepsStarted:   2,
+			StepsCompleted: 1,
+			LastEventAt:    branchDone,
+			StartedAt:      &branchStarted,
+			UpdatedAt:      now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "case-id-present", ActivityKind: "step", ActivityType: "sleep", ActivityName: "case-id-present", StepID: "case-id-present", Status: "completed", StartedAt: &branchStarted, CompletedAt: &branchDone, UpdatedAt: branchDone},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "research-agent", ActivityKind: "step", ActivityType: "mock/researcher", ActivityName: "research-agent", StepID: "research-agent", Status: "running", Active: true, StartedAt: &branchDone, UpdatedAt: now},
+		},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "live-render-parent",
+			Version:    1,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:live-render-parent", Nodes: []FlowGraphNode{
+				{ID: "flow:live-render-parent", Kind: "flow", Label: "live-render-parent", Order: 1},
+				{ID: "branch:case-id-branch", Kind: "branch", Label: "Case id branch", StepID: "case-id-branch", BranchType: "if", ParentID: "flow:live-render-parent", Order: 2},
+				{ID: "step:case-id-present", Kind: "step", Label: "Case id present", StepID: "case-id-present", StepType: "sleep", ParentID: "branch:case-id-branch", ScopeID: "branch:case-id-branch:scope:0", Order: 3},
+				{ID: "step:case-id-missing", Kind: "step", Label: "Case id missing", StepID: "case-id-missing", StepType: "sleep", ParentID: "branch:case-id-branch", ScopeID: "branch:case-id-branch:scope:1", Order: 4},
+				{ID: "step:research-agent", Kind: "step", Label: "Research agent", StepID: "research-agent", StepType: "mock/researcher", ParentID: "flow:live-render-parent", Order: 5},
+			}},
+		}},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true, Diagnostics: func(diagnostic RenderDiagnostic) {
+		diagnostics = append(diagnostics, diagnostic)
+	}})
+
+	branchIdx := strings.Index(out, "◇ Case id branch")
+	presentIdx := strings.Index(out, "case-id-present")
+	researchIdx := strings.Index(out, "research-agent")
+	if branchIdx < 0 || presentIdx < 0 || researchIdx < 0 {
+		t.Fatalf("expected decided branch, chosen step, and following runtime step\n---\n%s", out)
+	}
+	if !(branchIdx < presentIdx && presentIdx < researchIdx) {
+		t.Fatalf("expected chosen branch step nested before following runtime step\n---\n%s", out)
+	}
+	if strings.Contains(out, "○ ◇ Case id branch") {
+		t.Fatalf("expected branch container to be hydrated, not planned gray/pending\n---\n%s", out)
+	}
+	if strings.Contains(out, "Case id missing") || strings.Contains(out, "case-id-missing") {
+		t.Fatalf("expected untaken planned branch path to be suppressed\n---\n%s", out)
+	}
+	if !hasDiagnostic(diagnostics, "live.render.suppress_untaken_branch") {
+		t.Fatalf("expected untaken branch suppression diagnostic, got %#v", diagnostics)
+	}
+}
+
 func TestRenderSnapshotSuppressesGenericRuntimeFanoutRows(t *testing.T) {
 	now := time.Date(2026, 5, 31, 13, 30, 0, 0, time.UTC)
 	agentStarted := now.Add(-12 * time.Second)
@@ -413,7 +485,7 @@ func TestRenderSnapshotSuppressesGenericRuntimeFanoutRows(t *testing.T) {
 		Nodes: []Activity{
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "agent-internal-fanout", ActivityKind: "step", ActivityType: "mock/fanout-manager", ActivityName: "agent-internal-fanout", StepID: "agent-internal-fanout", Status: "completed", StartedAt: &agentStarted, CompletedAt: &toolStarted, UpdatedAt: toolStarted},
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "tool:call-agent-fanout", ParentActivityID: "agent-internal-fanout", ActivityKind: "tool_call", ActivityType: "mock_spawn_agent_fanout", ActivityName: "mock_spawn_agent_fanout", ToolCallID: "call-agent-fanout", Status: "completed", StartedAt: &toolStarted, CompletedAt: &fanoutStarted, UpdatedAt: fanoutStarted},
-			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "fanout", ActivityKind: "fanout", ActivityName: "fanout", Status: "completed", StartedAt: &fanoutStarted, CompletedAt: &now, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "fanout", ParentActivityID: "call-agent-fanout", ActivityKind: "fanout", ActivityName: "fanout", Status: "completed", StartedAt: &fanoutStarted, CompletedAt: &now, UpdatedAt: now},
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "spawn-children", ActivityKind: "step", ActivityType: "fanout", ActivityName: "spawn-children", StepID: "spawn-children", Status: "running", Active: true, StartedAt: &spawnStarted, UpdatedAt: now},
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b0", RootWorkflowID: "wf-root", ActivityID: "agent-branch-0", ActivityKind: "step", ActivityType: "mock/researcher", ActivityName: "agent-branch-0", StepID: "agent-branch-0", Status: "completed", AgentID: "researcher", StartedAt: &fanoutStarted, CompletedAt: &now, UpdatedAt: now},
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b1", RootWorkflowID: "wf-root", ActivityID: "agent-branch-1", ActivityKind: "step", ActivityType: "mock/auditor", ActivityName: "agent-branch-1", StepID: "agent-branch-1", Status: "completed", AgentID: "auditor", StartedAt: &fanoutStarted, CompletedAt: &now, UpdatedAt: now},
@@ -447,10 +519,11 @@ func TestRenderSnapshotSuppressesGenericRuntimeFanoutRows(t *testing.T) {
 	}
 }
 
-func TestRenderSnapshotSuppressesGenericFanoutWithNonCanonicalActivityID(t *testing.T) {
+func TestRenderSnapshotSuppressesUnanchoredGenericFanoutWithDiagnostics(t *testing.T) {
 	now := time.Date(2026, 5, 31, 13, 32, 0, 0, time.UTC)
 	started := now.Add(-2 * time.Second)
 	branchZero := 0
+	var diagnostics []RenderDiagnostic
 
 	out := RenderSnapshot(Snapshot{
 		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 2, ActiveChildRunCount: 1, UpdatedAt: now},
@@ -468,13 +541,19 @@ func TestRenderSnapshotSuppressesGenericFanoutWithNonCanonicalActivityID(t *test
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "runtime-fanout-wrapper", ActivityKind: "step", ActivityType: "fanout", ActivityName: "fanout", Status: "completed", StartedAt: &started, CompletedAt: &now, UpdatedAt: now},
 			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b0", RootWorkflowID: "wf-root", ActivityID: "agent-branch-0", ActivityKind: "step", ActivityType: "mock/researcher", ActivityName: "agent-branch-0", StepID: "agent-branch-0", Status: "running", Active: true, AgentID: "researcher", StartedAt: &started, UpdatedAt: now},
 		},
-	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true, Diagnostics: func(diagnostic RenderDiagnostic) {
+		diagnostics = append(diagnostics, diagnostic)
+	}})
 
 	if strings.Contains(out, "✣ fanout") {
 		t.Fatalf("expected generic fanout wrapper row to be suppressed\n---\n%s", out)
 	}
-	if !strings.Contains(out, "◉ researcher [b0]") {
-		t.Fatalf("expected children attached to generic fanout parent step to remain visible\n---\n%s", out)
+	if strings.Contains(out, "◉ researcher [b0]") {
+		t.Fatalf("expected child run with only generic fanout parent to be suppressed\n---\n%s", out)
+	}
+	if !hasDiagnostic(diagnostics, "live.render.suppress_unanchored_generic_fanout") ||
+		!hasDiagnostic(diagnostics, "live.render.suppress_unanchored_generic_fanout_child") {
+		t.Fatalf("expected generic fanout suppression diagnostics, got %#v", diagnostics)
 	}
 }
 

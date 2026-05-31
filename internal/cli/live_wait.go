@@ -2,12 +2,15 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/breyta/breyta-cli/internal/live"
@@ -50,6 +53,7 @@ type liveWaitRenderer struct {
 	interactive            bool
 	color                  bool
 	out                    io.Writer
+	diagnostics            *liveDiagnostics
 }
 
 const liveRenderFrameInterval = time.Second / 60
@@ -72,6 +76,7 @@ func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, 
 		color:            color,
 		out:              out,
 		graphsByWorkflow: map[string]live.FlowGraphDocument{},
+		diagnostics:      newLiveDiagnostics(out, interactive),
 	}
 }
 
@@ -130,6 +135,10 @@ func (r *liveWaitRenderer) Close() {
 		r.tui = nil
 	} else if r.displayedLines > 0 {
 		_, _ = fmt.Fprintln(r.out)
+	}
+	if r.diagnostics != nil {
+		r.diagnostics.Close()
+		r.diagnostics = nil
 	}
 }
 
@@ -332,6 +341,7 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 		Color:           r.color,
 		FocusWorkflowID: r.workflowID,
 		FullTree:        true,
+		Diagnostics:     r.logDiagnostic,
 	}
 	r.frame++
 	displayKey := displayFrameKey(snapshot, r.workflowID)
@@ -349,6 +359,82 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 	r.lastRenderAt = now
 	r.lastDisplayKey = displayKey
 	r.lastRenderedDisplayKey = displayKey
+}
+
+func (r *liveWaitRenderer) logDiagnostic(diagnostic live.RenderDiagnostic) {
+	if r == nil || r.diagnostics == nil {
+		return
+	}
+	r.diagnostics.Log(diagnostic)
+}
+
+type liveDiagnostics struct {
+	mu     sync.Mutex
+	w      io.Writer
+	closer io.Closer
+	seen   map[string]bool
+}
+
+func newLiveDiagnostics(out io.Writer, interactive bool) *liveDiagnostics {
+	value := strings.TrimSpace(os.Getenv("BREYTA_LIVE_DEBUG"))
+	if value == "" {
+		return nil
+	}
+	target := strings.ToLower(value)
+	if target == "0" || target == "false" || target == "off" || target == "no" {
+		return nil
+	}
+	var w io.Writer
+	var closer io.Closer
+	if (target == "1" || target == "true" || target == "on" || target == "stderr") && !interactive {
+		w = out
+	} else {
+		path := value
+		if target == "1" || target == "true" || target == "on" || target == "stderr" {
+			path = filepath.Join(os.TempDir(), "breyta-live-debug.log")
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return nil
+		}
+		w = f
+		closer = f
+	}
+	return &liveDiagnostics{w: w, closer: closer, seen: map[string]bool{}}
+}
+
+func (d *liveDiagnostics) Log(diagnostic live.RenderDiagnostic) {
+	if d == nil || d.w == nil || strings.TrimSpace(diagnostic.Code) == "" {
+		return
+	}
+	key := strings.Join([]string{
+		diagnostic.Code,
+		diagnostic.WorkflowID,
+		diagnostic.ActivityID,
+		diagnostic.StepID,
+		diagnostic.ParentRef,
+		diagnostic.ScopeID,
+	}, "\x00")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.seen[key] {
+		return
+	}
+	d.seen[key] = true
+	entry := map[string]any{
+		"ts":         time.Now().Format(time.RFC3339Nano),
+		"component":  "breyta-cli/live-render",
+		"diagnostic": diagnostic,
+	}
+	_ = json.NewEncoder(d.w).Encode(entry)
+}
+
+func (d *liveDiagnostics) Close() {
+	if d == nil || d.closer == nil {
+		return
+	}
+	_ = d.closer.Close()
+	d.closer = nil
 }
 
 func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string) {

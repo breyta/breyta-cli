@@ -22,6 +22,9 @@ type RenderOptions struct {
 	// Step/tool deduplication still runs so nested tools stay attached to the
 	// visible step row instead of splitting across duplicate status entries.
 	FullTree bool
+	// Diagnostics receives suppressed graph/runtime anomalies when callers opt in
+	// to live renderer debugging.
+	Diagnostics func(RenderDiagnostic)
 }
 
 type DetailMode string
@@ -30,6 +33,23 @@ const (
 	DetailModeDetailed DetailMode = ""
 	DetailModePublic   DetailMode = "public"
 )
+
+type RenderDiagnostic struct {
+	Code       string `json:"code"`
+	Message    string `json:"message,omitempty"`
+	WorkflowID string `json:"workflowId,omitempty"`
+	ActivityID string `json:"activityId,omitempty"`
+	StepID     string `json:"stepId,omitempty"`
+	ParentRef  string `json:"parentRef,omitempty"`
+	ScopeID    string `json:"scopeId,omitempty"`
+}
+
+func (opts RenderOptions) diagnose(diagnostic RenderDiagnostic) {
+	if opts.Diagnostics == nil || strings.TrimSpace(diagnostic.Code) == "" {
+		return
+	}
+	opts.Diagnostics(diagnostic)
+}
 
 func RenderSnapshot(snapshot Snapshot, opts RenderOptions) string {
 	if opts.Now.IsZero() {
@@ -164,18 +184,19 @@ func renderRunNode(b *strings.Builder, node RunNode, prefix string, last bool, o
 	visibleNodes := selectedActivities(node, selectedChildren, opts)
 	resourcesByParent := groupResourcesByVisibleParent(node.Activities, visibleNodes)
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
-	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes)
+	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
 	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent)
-	plannedActivitiesByParent, plannedActivityKeys := groupPlannedActivitiesByVisibleParent(visibleNodes, childrenByStep)
-	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, plannedActivitiesByParent)
-	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, plannedActivityKeys)
+	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, opts)
+	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, graphActivitiesByParent)
+	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, graphActivityKeys)
 	visibleNodes = filterNestedActivitiesFromTopLevel(visibleNodes, nestedActivityKeys)
 	for i, activity := range visibleNodes {
 		activityChildren := childrenForStep(childrenByStep, activity)
-		displayActivity := activityWithFanoutChildDuration(activity, activityChildren)
 		activityResources := resourcesForActivity(resourcesByParent, activity)
 		activityTools := toolsForActivity(toolsByParent, activity)
 		activityNested := nestedActivitiesForActivity(nestedActivitiesByParent, activity)
+		displayActivity := activityWithNestedActivityDuration(activity, activityNested)
+		displayActivity = activityWithFanoutChildDuration(displayActivity, activityChildren)
 		isLastActivity := i == len(visibleNodes)-1 && len(remainingChildren) == 0 && !renderedCurrentFallback
 		if isStructuralFanoutWrapper(displayActivity) {
 			for _, tool := range activityTools {
@@ -482,11 +503,12 @@ func filterNestedActivitiesFromTopLevel(activities []Activity, nestedKeys map[st
 	return out
 }
 
-func groupPlannedActivitiesByVisibleParent(visible []Activity, childrenByStep map[string][]RunNode) (map[string][]Activity, map[string]bool) {
+func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[string][]RunNode, opts RenderOptions) (map[string][]Activity, map[string]bool) {
 	grouped := map[string][]Activity{}
 	nestedKeys := map[string]bool{}
+	takenBranchScopes := takenBranchScopesByParent(visible)
 	for _, activity := range visible {
-		if !activity.Planned {
+		if !isGraphNestedActivity(activity) {
 			continue
 		}
 		parentRef := strings.TrimSpace(activity.ParentActivityID)
@@ -503,6 +525,22 @@ func groupPlannedActivitiesByVisibleParent(visible []Activity, childrenByStep ma
 			if key := activityIdentityKey(activity); key != "" {
 				nestedKeys[key] = true
 			}
+			if activity.Planned && isBranchActivity(parent) {
+				parentKey := activityIdentityKey(parent)
+				takenScope := takenBranchScopes[parentKey]
+				if takenScope != "" && strings.TrimSpace(activity.GraphScopeID) != "" && strings.TrimSpace(activity.GraphScopeID) != takenScope {
+					opts.diagnose(RenderDiagnostic{
+						Code:       "live.render.suppress_untaken_branch",
+						Message:    "suppressed planned graph branch child after a sibling branch had runtime evidence",
+						WorkflowID: strings.TrimSpace(activity.WorkflowID),
+						ActivityID: strings.TrimSpace(activity.ActivityID),
+						StepID:     strings.TrimSpace(activity.StepID),
+						ParentRef:  parentRef,
+						ScopeID:    strings.TrimSpace(activity.GraphScopeID),
+					})
+					break
+				}
+			}
 			if len(childrenForStep(childrenByStep, parent)) > 0 {
 				break
 			}
@@ -514,6 +552,42 @@ func groupPlannedActivitiesByVisibleParent(visible []Activity, childrenByStep ma
 		grouped[parentID] = sortActivitiesByTime(dedupeActivities(grouped[parentID]))
 	}
 	return grouped, nestedKeys
+}
+
+func isGraphNestedActivity(activity Activity) bool {
+	if strings.TrimSpace(activity.ParentActivityID) == "" || strings.HasPrefix(strings.TrimSpace(activity.ParentActivityID), "flow:") {
+		return false
+	}
+	if activity.Planned {
+		return true
+	}
+	return strings.TrimSpace(activity.GraphScopeID) != ""
+}
+
+func takenBranchScopesByParent(visible []Activity) map[string]string {
+	taken := map[string]string{}
+	for _, activity := range visible {
+		if activity.Planned || strings.TrimSpace(activity.GraphScopeID) == "" {
+			continue
+		}
+		if !activity.Active && !activityHasRecordedExecution(activity) {
+			continue
+		}
+		parentRef := strings.TrimSpace(activity.ParentActivityID)
+		if parentRef == "" {
+			continue
+		}
+		for _, parent := range visible {
+			if !isBranchActivity(parent) || !activityMatchesParentRef(parent, parentRef) {
+				continue
+			}
+			if key := activityIdentityKey(parent); key != "" {
+				taken[key] = strings.TrimSpace(activity.GraphScopeID)
+			}
+			break
+		}
+	}
+	return taken
 }
 
 func mergeActivityGroups(left map[string][]Activity, right map[string][]Activity) map[string][]Activity {
@@ -729,7 +803,7 @@ func isAgentFanoutRelation(relation RunRelation) bool {
 	return kind == "agent_fanout" || kind == "agent" || kind == "subagent"
 }
 
-func groupChildrenByVisibleStep(children []RunNode, activities []Activity) (map[string][]RunNode, []RunNode) {
+func groupChildrenByVisibleStep(children []RunNode, activities []Activity, opts RenderOptions) (map[string][]RunNode, []RunNode) {
 	visibleSteps := map[string]bool{}
 	for _, activity := range activities {
 		if stepID := strings.TrimSpace(activity.StepID); stepID != "" {
@@ -739,12 +813,27 @@ func groupChildrenByVisibleStep(children []RunNode, activities []Activity) (map[
 			visibleSteps[activityID] = true
 		}
 	}
+	hasFanoutFallback := hasNamedFanoutFallbackActivity(activities)
 	grouped := map[string][]RunNode{}
 	remaining := make([]RunNode, 0, len(children))
 	for _, child := range children {
 		parentStepID := ""
 		if child.Relation != nil {
 			parentStepID = strings.TrimSpace(child.Relation.ParentStepID)
+		}
+		if parentStepID == "fanout" && hasFanoutFallback {
+			grouped[parentStepID] = append(grouped[parentStepID], child)
+			continue
+		}
+		if parentStepID == "fanout" && !visibleSteps[parentStepID] {
+			opts.diagnose(RenderDiagnostic{
+				Code:       "live.render.suppress_unanchored_generic_fanout_child",
+				Message:    "suppressed child run whose only parent was the generic runtime fanout placeholder",
+				WorkflowID: strings.TrimSpace(child.Run.WorkflowID),
+				StepID:     parentStepID,
+				ParentRef:  parentStepID,
+			})
+			continue
 		}
 		if parentStepID != "" && visibleSteps[parentStepID] {
 			grouped[parentStepID] = append(grouped[parentStepID], child)
@@ -765,6 +854,15 @@ func childrenForStep(childrenByStep map[string][]RunNode, activity Activity) []R
 		}
 	}
 	return childrenByStep[strings.TrimSpace(activity.ActivityID)]
+}
+
+func hasNamedFanoutFallbackActivity(activities []Activity) bool {
+	for _, activity := range activities {
+		if isFanoutActivity(activity) && !isGenericFanoutActivity(activity) && isNestedFanoutActivity(activity) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasNamedFanoutForParent(activities []Activity, parentRef string) bool {
@@ -801,6 +899,75 @@ func isNestedFanoutActivity(activity Activity) bool {
 	return isFanoutActivity(activity) && strings.TrimSpace(activity.ParentActivityID) != ""
 }
 
+func activityWithNestedActivityDuration(activity Activity, nested []Activity) Activity {
+	if len(nested) == 0 || !isGraphContainerActivity(activity) {
+		return activity
+	}
+	var start *time.Time
+	var end time.Time
+	active := false
+	failed := false
+	seenRuntime := false
+	for _, child := range nested {
+		if child.Planned && !child.Active && !activityHasRecordedExecution(child) {
+			continue
+		}
+		seenRuntime = true
+		status := normalizeStatus(child.Status, child.Active)
+		if child.Active || status == "running" || status == "syncing" {
+			active = true
+		}
+		if isProblemStatus(status) {
+			failed = true
+		}
+		if child.StartedAt != nil && !child.StartedAt.IsZero() {
+			if start == nil || child.StartedAt.Before(*start) {
+				start = child.StartedAt
+			}
+		}
+		for _, candidate := range []*time.Time{child.CompletedAt, &child.UpdatedAt} {
+			if candidate != nil && !candidate.IsZero() && candidate.After(end) {
+				end = *candidate
+			}
+		}
+	}
+	if !seenRuntime {
+		return activity
+	}
+	activity.Planned = false
+	if start != nil {
+		activity.StartedAt = start
+	}
+	if active {
+		activity.Active = true
+		activity.Status = "running"
+		activity.CompletedAt = nil
+		return activity
+	}
+	activity.Active = false
+	if failed {
+		activity.Status = "failed"
+	} else {
+		activity.Status = "completed"
+	}
+	if !end.IsZero() {
+		activity.CompletedAt = &end
+	}
+	return activity
+}
+
+func isGraphContainerActivity(activity Activity) bool {
+	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
+	if kind == "branch" || kind == "loop" || kind == "fanout" {
+		return true
+	}
+	if kind != "step" {
+		return false
+	}
+	typ := strings.ToLower(strings.TrimSpace(activity.ActivityType))
+	return typ == "branch" || typ == "loop" || typ == "fanout"
+}
+
 func activityWithFanoutChildDuration(activity Activity, children []RunNode) Activity {
 	if len(children) == 0 || !isFanoutActivity(activity) {
 		return activity
@@ -831,10 +998,17 @@ func activityWithFanoutChildDuration(activity Activity, children []RunNode) Acti
 	if start == nil {
 		return activity
 	}
+	activity.Planned = false
 	activity.StartedAt = start
 	if active || end.IsZero() {
+		activity.Active = true
+		activity.Status = "running"
 		activity.CompletedAt = nil
 		return activity
+	}
+	activity.Active = false
+	if normalizeStatus(activity.Status, false) == "pending" || normalizeStatus(activity.Status, false) == "waiting" || strings.TrimSpace(activity.Status) == "" {
+		activity.Status = "completed"
 	}
 	activity.CompletedAt = &end
 	return activity
@@ -855,6 +1029,14 @@ func runEndCandidates(node RunNode) []time.Time {
 func isFanoutActivity(activity Activity) bool {
 	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
 	return kind == "fanout" || (kind == "step" && strings.EqualFold(strings.TrimSpace(activity.ActivityType), "fanout"))
+}
+
+func isBranchActivity(activity Activity) bool {
+	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
+	if kind == "branch" {
+		return true
+	}
+	return kind == "step" && strings.EqualFold(strings.TrimSpace(activity.ActivityType), "branch")
 }
 
 func ensureToolParentSteps(selected []Activity, all []Activity, workflowID string) []Activity {
@@ -1039,12 +1221,14 @@ func renderActivity(b *strings.Builder, activity Activity, prefix string, _ bool
 
 func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, opts RenderOptions, nestedByParent map[string][]Activity, resourcesByParent map[string][]Activity, toolsByParent map[string][]Activity, childrenByStep map[string][]RunNode, rootFlowSlug string) {
 	children := childrenForStep(childrenByStep, activity)
-	displayActivity := activityWithFanoutChildDuration(activity, children)
+	nestedActivities := nestedActivitiesForActivity(nestedByParent, activity)
+	displayActivity := activityWithNestedActivityDuration(activity, nestedActivities)
+	displayActivity = activityWithFanoutChildDuration(displayActivity, children)
 	if isStructuralFanoutWrapper(displayActivity) {
 		for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
 			renderActivityBranch(b, tool, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
-		for _, nested := range nestedActivitiesForActivity(nestedByParent, displayActivity) {
+		for _, nested := range nestedActivities {
 			renderActivityBranch(b, nested, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
@@ -1060,7 +1244,7 @@ func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, 
 	for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
 		renderActivityBranch(b, tool, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
-	for _, nested := range nestedActivitiesForActivity(nestedByParent, displayActivity) {
+	for _, nested := range nestedActivities {
 		renderActivityBranch(b, nested, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
@@ -1073,12 +1257,14 @@ func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, 
 
 func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, nestedByParent map[string][]Activity, resourcesByParent map[string][]Activity, toolsByParent map[string][]Activity, childrenByStep map[string][]RunNode, rootFlowSlug string) {
 	children := childrenForStep(childrenByStep, activity)
-	displayActivity := activityWithFanoutChildDuration(activity, children)
+	nestedActivities := nestedActivitiesForActivity(nestedByParent, activity)
+	displayActivity := activityWithNestedActivityDuration(activity, nestedActivities)
+	displayActivity = activityWithFanoutChildDuration(displayActivity, children)
 	if isStructuralFanoutWrapper(displayActivity) {
 		for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
 			collectActivityBranch(frame, tool, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
-		for _, nested := range nestedActivitiesForActivity(nestedByParent, displayActivity) {
+		for _, nested := range nestedActivities {
 			collectActivityBranch(frame, nested, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
@@ -1094,7 +1280,7 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 	for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
 		collectActivityBranch(frame, tool, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
-	for _, nested := range nestedActivitiesForActivity(nestedByParent, displayActivity) {
+	for _, nested := range nestedActivities {
 		collectActivityBranch(frame, nested, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
@@ -1218,6 +1404,7 @@ func selectedActivities(node RunNode, children []RunNode, opts RenderOptions) []
 	selected = ensureParentStepActivities(selected, node, children)
 	selected = ensureToolParentSteps(selected, node.Activities, node.Run.WorkflowID)
 	selected = ensureResourceParentSteps(selected, node)
+	selected = suppressUnanchoredGenericFanoutWrappers(selected, opts)
 	selected = sortActivitiesByTime(selected)
 	selected = filterNestedToolActivities(selected, node.Activities)
 	selected = collapseLoopIterationScope(selected, node.Run)
@@ -1258,6 +1445,26 @@ func selectedActivities(node RunNode, children []RunNode, opts RenderOptions) []
 		trimmed = trimmed[len(trimmed)-max:]
 	}
 	return trimmed
+}
+
+func suppressUnanchoredGenericFanoutWrappers(activities []Activity, opts RenderOptions) []Activity {
+	out := make([]Activity, 0, len(activities))
+	for _, activity := range activities {
+		if isGenericFanoutActivity(activity) &&
+			strings.TrimSpace(activity.ParentActivityID) == "" &&
+			strings.TrimSpace(activity.ParentStepID) == "" {
+			opts.diagnose(RenderDiagnostic{
+				Code:       "live.render.suppress_unanchored_generic_fanout",
+				Message:    "suppressed generic runtime fanout placeholder without a semantic/tool parent",
+				WorkflowID: strings.TrimSpace(activity.WorkflowID),
+				ActivityID: strings.TrimSpace(activity.ActivityID),
+				StepID:     strings.TrimSpace(activity.StepID),
+			})
+			continue
+		}
+		out = append(out, activity)
+	}
+	return out
 }
 
 func shouldRenderActivity(activity Activity, currentStepID string, resourceParents map[string]bool, childParentSteps map[string]bool) bool {
