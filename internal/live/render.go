@@ -1537,7 +1537,7 @@ func renderResource(b *strings.Builder, activity Activity, prefix string, opts R
 func isStepLikeActivity(activity Activity) bool {
 	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
 	switch kind {
-	case "step", "tool_call", "mcp_tool_call", "loop", "fanout", "child_flow", "mcp_session":
+	case "step", "tool_call", "mcp_tool_call", "branch", "loop", "fanout", "child_flow", "mcp_session":
 		return true
 	default:
 		return false
@@ -1634,6 +1634,7 @@ func selectedActivities(node RunNode, children []RunNode, opts RenderOptions) []
 	selected = ensureToolParentSteps(selected, node.Activities, node.Run.WorkflowID)
 	selected = ensureResourceParentSteps(selected, node)
 	selected = suppressUnanchoredGenericFanoutWrappers(selected, opts)
+	selected = suppressPlannedUntakenScopeActivities(selected, opts)
 	selected = sortActivitiesByTime(selected)
 	selected = filterNestedToolActivities(selected, node.Activities)
 	selected = collapseLoopIterationScope(selected, node.Run)
@@ -1694,6 +1695,55 @@ func suppressUnanchoredGenericFanoutWrappers(activities []Activity, opts RenderO
 		out = append(out, activity)
 	}
 	return out
+}
+
+func suppressPlannedUntakenScopeActivities(activities []Activity, opts RenderOptions) []Activity {
+	takenByOwner := map[string]string{}
+	for _, activity := range activities {
+		if activity.Planned || strings.TrimSpace(activity.GraphScopeID) == "" {
+			continue
+		}
+		if !activity.Active && !activityHasRecordedExecution(activity) {
+			continue
+		}
+		owner := graphScopeOwner(activity.GraphScopeID)
+		if owner == "" {
+			continue
+		}
+		takenByOwner[owner] = strings.TrimSpace(activity.GraphScopeID)
+	}
+	if len(takenByOwner) == 0 {
+		return activities
+	}
+	out := make([]Activity, 0, len(activities))
+	for _, activity := range activities {
+		scopeID := strings.TrimSpace(activity.GraphScopeID)
+		owner := graphScopeOwner(scopeID)
+		if activity.Planned && owner != "" && takenByOwner[owner] != "" && takenByOwner[owner] != scopeID {
+			opts.diagnose(RenderDiagnostic{
+				Code:       "live.render.suppress_untaken_scope",
+				Message:    "suppressed planned graph activity in untaken branch scope",
+				WorkflowID: strings.TrimSpace(activity.WorkflowID),
+				ActivityID: strings.TrimSpace(activity.ActivityID),
+				StepID:     strings.TrimSpace(activity.StepID),
+				ScopeID:    scopeID,
+			})
+			continue
+		}
+		out = append(out, activity)
+	}
+	return out
+}
+
+func graphScopeOwner(scopeID string) string {
+	scopeID = strings.TrimSpace(scopeID)
+	if scopeID == "" {
+		return ""
+	}
+	if idx := strings.Index(scopeID, ":scope:"); idx > 0 {
+		return scopeID[:idx]
+	}
+	return ""
 }
 
 func shouldRenderActivity(activity Activity, currentStepID string, resourceParents map[string]bool, childParentSteps map[string]bool) bool {

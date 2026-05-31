@@ -70,7 +70,7 @@ func (s Snapshot) WithGraphSkeleton(now time.Time) Snapshot {
 }
 
 func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGraph, now time.Time) []Activity {
-	graphByStep := map[string]FlowGraphNode{}
+	graphByRef := map[string]FlowGraphNode{}
 	graphNodes := make([]FlowGraphNode, 0, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		kind := strings.ToLower(strings.TrimSpace(node.Kind))
@@ -78,12 +78,11 @@ func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGrap
 			continue
 		}
 		graphNodes = append(graphNodes, node)
-		if kind == "step" {
-			stepID := strings.TrimSpace(node.StepID)
-			if stepID == "" {
+		for _, ref := range []string{strings.TrimSpace(node.ID), strings.TrimSpace(node.StepID)} {
+			if ref == "" {
 				continue
 			}
-			graphByStep[stepID] = node
+			graphByRef[ref] = node
 		}
 	}
 	if len(graphNodes) == 0 {
@@ -96,17 +95,17 @@ func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGrap
 		if strings.TrimSpace(activity.WorkflowID) != strings.TrimSpace(run.WorkflowID) {
 			continue
 		}
-		stepID := strings.TrimSpace(activity.StepID)
-		if stepID == "" {
-			continue
-		}
-		if graphNode, ok := graphByStep[stepID]; ok {
+		if graphNode, ok := graphNodeForActivity(graphByRef, *activity); ok {
 			activity.GraphOrder = graphSortOrder(graphNode.Order)
 			if strings.TrimSpace(activity.ParentActivityID) == "" {
 				activity.ParentActivityID = strings.TrimSpace(graphNode.ParentID)
 			}
 			activity.GraphScopeID = strings.TrimSpace(graphNode.ScopeID)
-			present[stepID] = true
+			for _, ref := range []string{strings.TrimSpace(graphNode.ID), strings.TrimSpace(graphNode.StepID)} {
+				if ref != "" {
+					present[ref] = true
+				}
+			}
 		}
 	}
 	if !runHasActiveWork(run) && isTerminalStatus(runStatus(run)) {
@@ -118,14 +117,39 @@ func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGrap
 		updatedAt = now
 	}
 	for _, graphNode := range graphNodes {
-		stepID := strings.TrimSpace(graphNode.StepID)
-		if stepID != "" && present[stepID] {
+		if graphNodePresent(present, graphNode) {
 			continue
 		}
 		activities = append(activities, plannedGraphActivity(run, graphNode, updatedAt))
 	}
 	activities = mergePlannedPersistResources(activities, run, graphNodes, updatedAt)
 	return assignRuntimeOnlyGraphOrder(activities, run)
+}
+
+func graphNodeForActivity(graphByRef map[string]FlowGraphNode, activity Activity) (FlowGraphNode, bool) {
+	for _, ref := range []string{strings.TrimSpace(activity.StepID), strings.TrimSpace(activity.ActivityID)} {
+		if ref == "" {
+			continue
+		}
+		if node, ok := graphByRef[ref]; ok {
+			return node, true
+		}
+		if idx := strings.LastIndexAny(ref, ":/"); idx >= 0 && idx+1 < len(ref) {
+			if node, ok := graphByRef[ref[idx+1:]]; ok {
+				return node, true
+			}
+		}
+	}
+	return FlowGraphNode{}, false
+}
+
+func graphNodePresent(present map[string]bool, graphNode FlowGraphNode) bool {
+	for _, ref := range []string{strings.TrimSpace(graphNode.ID), strings.TrimSpace(graphNode.StepID)} {
+		if ref != "" && present[ref] {
+			return true
+		}
+	}
+	return false
 }
 
 func mergePlannedPersistResources(activities []Activity, run RunState, graphNodes []FlowGraphNode, updatedAt time.Time) []Activity {

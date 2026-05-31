@@ -458,8 +458,71 @@ func TestRenderSnapshotHydratesDecidedBranchAndSuppressesUntakenPath(t *testing.
 	if strings.Contains(out, "Case id missing") || strings.Contains(out, "case-id-missing") {
 		t.Fatalf("expected untaken planned branch path to be suppressed\n---\n%s", out)
 	}
-	if !hasDiagnostic(diagnostics, "live.render.suppress_untaken_branch") {
+	if !hasDiagnostic(diagnostics, "live.render.suppress_untaken_branch") && !hasDiagnostic(diagnostics, "live.render.suppress_untaken_scope") {
 		t.Fatalf("expected untaken branch suppression diagnostic, got %#v", diagnostics)
+	}
+}
+
+func TestRenderSnapshotHydratesRuntimeBranchAndSuppressesUntakenNestedScope(t *testing.T) {
+	now := time.Date(2026, 5, 31, 18, 20, 0, 0, time.UTC)
+	branchStarted := now.Add(-2 * time.Second)
+	normalStarted := now.Add(-1500 * time.Millisecond)
+	normalDone := now.Add(-200 * time.Millisecond)
+	var diagnostics []RenderDiagnostic
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 1, UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "running",
+			Active:         true,
+			CurrentStepID:  "approval-gate",
+			StepsRunning:   1,
+			StartedAt:      &branchStarted,
+			UpdatedAt:      now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "branch:priority-branch", ActivityKind: "branch", ActivityType: "if", ActivityName: "Priority branch", StepID: "priority-branch", Status: "completed", StartedAt: &branchStarted, CompletedAt: &normalDone, UpdatedAt: normalDone},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "priority-normal", ParentActivityID: "branch:priority-branch", ActivityKind: "step", ActivityType: "sleep", ActivityName: "priority-normal", StepID: "priority-normal", Status: "completed", StartedAt: &normalStarted, CompletedAt: &normalDone, UpdatedAt: normalDone},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "approval-gate", ActivityKind: "step", ActivityType: "wait", ActivityName: "Approval gate", StepID: "approval-gate", Status: "running", Active: true, StartedAt: &normalDone, UpdatedAt: now},
+		},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "live-render-parent",
+			Version:    4,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:live-render-parent", Nodes: []FlowGraphNode{
+				{ID: "flow:live-render-parent", Kind: "flow", Label: "live-render-parent", Order: 1},
+				{ID: "branch:priority-branch", Kind: "branch", Label: "Priority branch", StepID: "priority-branch", BranchType: "if", ParentID: "flow:live-render-parent", Order: 2},
+				{ID: "step:priority-high", Kind: "step", Label: "Priority high", StepID: "priority-high", StepType: "sleep", ParentID: "branch:priority-branch", ScopeID: "branch:priority-branch:scope:0", Order: 3},
+				{ID: "branch:escalation", Kind: "branch", Label: "Escalation branch", StepID: "escalation", BranchType: "if", ParentID: "flow:live-render-parent", ScopeID: "branch:priority-branch:scope:0", Order: 4},
+				{ID: "step:priority-normal", Kind: "step", Label: "Priority normal", StepID: "priority-normal", StepType: "sleep", ParentID: "branch:priority-branch", ScopeID: "branch:priority-branch:scope:1", Order: 5},
+				{ID: "step:approval-gate", Kind: "step", Label: "Approval gate", StepID: "approval-gate", StepType: "wait", ParentID: "flow:live-render-parent", Order: 6},
+			}},
+		}},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true, Diagnostics: func(diagnostic RenderDiagnostic) {
+		diagnostics = append(diagnostics, diagnostic)
+	}})
+
+	if count := strings.Count(out, "◇ Priority branch"); count != 1 {
+		t.Fatalf("expected one hydrated priority branch row, got %d\n---\n%s", count, out)
+	}
+	priorityIdx := strings.Index(out, "◇ Priority branch")
+	normalIdx := strings.Index(out, "priority-normal")
+	waitIdx := strings.Index(out, "Approval gate")
+	if priorityIdx < 0 || normalIdx < 0 || waitIdx < 0 {
+		t.Fatalf("expected priority branch, chosen normal step, and wait step\n---\n%s", out)
+	}
+	if !(priorityIdx < normalIdx && normalIdx < waitIdx) {
+		t.Fatalf("expected chosen branch step nested before following wait step\n---\n%s", out)
+	}
+	if strings.Contains(out, "Escalation branch") || strings.Contains(out, "priority-high") {
+		t.Fatalf("expected untaken high-priority nested scope to be suppressed\n---\n%s", out)
+	}
+	if !hasDiagnostic(diagnostics, "live.render.suppress_untaken_scope") {
+		t.Fatalf("expected untaken scope suppression diagnostic, got %#v", diagnostics)
 	}
 }
 

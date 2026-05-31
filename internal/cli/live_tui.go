@@ -346,17 +346,27 @@ func prepareLiveTUIFrame(frame live.DisplayFrame) (string, live.DisplayFrame) {
 		}
 		lines = append(lines, line)
 	}
-	lines = removeDuplicateTUIRootFlowLine(lines)
+	lines = removeDuplicateTUIRootFlowLine(lines, header)
 	return header, live.DisplayFrame{Lines: lines}
 }
 
-func removeDuplicateTUIRootFlowLine(lines []live.DisplayLine) []live.DisplayLine {
-	if len(lines) == 0 || !isTUIRootFlowLine(lines[0]) {
+func removeDuplicateTUIRootFlowLine(lines []live.DisplayLine, header string) []live.DisplayLine {
+	rootIdx := -1
+	for i, line := range lines {
+		if isTUIRootFlowLine(line, header, i == 0) {
+			rootIdx = i
+			break
+		}
+	}
+	if rootIdx < 0 {
 		return lines
 	}
-	rootDepth := displayLineDepth(lines[0].Text)
+	rootDepth := displayLineDepth(lines[rootIdx].Text)
 	out := make([]live.DisplayLine, 0, len(lines)-1)
-	for _, line := range lines[1:] {
+	for i, line := range lines {
+		if i == rootIdx {
+			continue
+		}
 		if displayLineDepth(line.Text) > rootDepth {
 			line.Text = trimLeadingTUISpaces(line.Text, 1)
 		}
@@ -365,14 +375,17 @@ func removeDuplicateTUIRootFlowLine(lines []live.DisplayLine) []live.DisplayLine
 	return out
 }
 
-func isTUIRootFlowLine(line live.DisplayLine) bool {
+func isTUIRootFlowLine(line live.DisplayLine, header string, firstBodyLine bool) bool {
 	if !strings.HasPrefix(strings.TrimSpace(line.Key), "run:") {
 		return false
 	}
 	fields := strings.Fields(stripTUIANSI(line.Text))
 	for i, field := range fields {
-		if field == "f" {
-			return true
+		if field == "f" || field == "ƒ" {
+			if firstBodyLine {
+				return true
+			}
+			return i+1 < len(fields) && strings.Contains(stripTUIANSI(header), fields[i+1])
 		}
 		if i >= 1 {
 			break
@@ -1082,11 +1095,10 @@ func fitTUILine(value string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	line := truncateTUIRunes(value, width)
-	if pad := width - tuiDisplayWidth(line); pad > 0 {
-		line += strings.Repeat(" ", pad)
+	if width <= 1 {
+		return "\x1b[K"
 	}
-	return line
+	return truncateTUIRunes(value, width-1) + "\x1b[K"
 }
 
 func truncateTUIRunes(value string, width int) string {

@@ -270,6 +270,29 @@ func TestLiveTUIHeaderSticksAndRootFlowLineIsFlattened(t *testing.T) {
 	}
 }
 
+func TestLiveTUIPrepareFrameFlattensRootRunLineAfterLeakedSkeletonRows(t *testing.T) {
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "ƒ wf-root ws-acme"},
+		{Key: "activity:wf-root:orphan-branch", Text: "    ○◇ Escalation branch", Planned: true},
+		{Key: "run:wf-root", Text: " ⠙ ƒ wf-root ws-acme"},
+		{Key: "activity:wf-root:priority", Text: "  ⠙◇ Priority branch"},
+		{Key: "activity:wf-root:normal", Text: "    s priority-normal"},
+	}}
+
+	header, got := prepareLiveTUIFrame(frame)
+	if header != "ƒ wf-root ws-acme" {
+		t.Fatalf("unexpected header %q", header)
+	}
+	for _, line := range got.Lines {
+		if strings.TrimSpace(line.Key) == "run:wf-root" || strings.Contains(line.Text, "⠙ ƒ wf-root") {
+			t.Fatalf("expected duplicate root run line to be removed: %#v", got.Lines)
+		}
+	}
+	if len(got.Lines) == 0 || strings.HasPrefix(got.Lines[0].Text, "    ") {
+		t.Fatalf("expected body rows to be flattened with the removed root line: %#v", got.Lines)
+	}
+}
+
 func TestLiveTUIHeaderSeparatorAppearsOnlyAfterScroll(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 80
@@ -664,8 +687,11 @@ func tuiRuneIndex(value string, needle string) int {
 func assertLiveTUIViewLinesFitWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for i, line := range strings.Split(view, "\n") {
-		if got := tuiDisplayWidth(line); got != width {
-			t.Fatalf("view line %d display width=%d, want %d\n%q\n%s", i, got, width, line, view)
+		if got := tuiDisplayWidth(line); got >= width {
+			t.Fatalf("view line %d display width=%d, want less than %d to avoid terminal autowrap\n%q\n%s", i, got, width, line, view)
+		}
+		if !strings.HasSuffix(line, "\x1b[K") {
+			t.Fatalf("view line %d does not clear to end of line\n%q\n%s", i, line, view)
 		}
 	}
 }
