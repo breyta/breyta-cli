@@ -717,7 +717,10 @@ func isGraphNestedActivity(activity Activity) bool {
 	if activity.Planned {
 		return true
 	}
-	return strings.TrimSpace(activity.GraphScopeID) != ""
+	if strings.TrimSpace(activity.GraphScopeID) != "" {
+		return true
+	}
+	return activityHasRecordedExecution(activity)
 }
 
 func runtimeParentSupplantsPlannedGraphChildren(parent Activity) bool {
@@ -1537,7 +1540,7 @@ func renderResource(b *strings.Builder, activity Activity, prefix string, opts R
 func isStepLikeActivity(activity Activity) bool {
 	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
 	switch kind {
-	case "step", "tool_call", "mcp_tool_call", "branch", "loop", "fanout", "child_flow", "mcp_session":
+	case "step", "activity", "tool_call", "mcp_tool_call", "branch", "loop", "fanout", "child_flow", "mcp_session":
 		return true
 	default:
 		return false
@@ -2537,6 +2540,8 @@ func activityTypeMarkLabel(activity Activity) string {
 	switch kind {
 	case "step":
 		return stepTypeMarkLabel(activity)
+	case "activity":
+		return stepTypeMarkLabel(activity)
 	case "tool_call":
 		return "tool"
 	case "mcp_tool_call":
@@ -2683,7 +2688,7 @@ func activityTypeColor(stepType string) string {
 
 func activityKindColor(activity Activity) string {
 	kind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
-	if kind == "step" {
+	if kind == "step" || kind == "activity" {
 		switch strings.ToLower(strings.TrimSpace(activity.ActivityType)) {
 		case "fanout":
 			return activityTypeColor("fanout")

@@ -654,6 +654,65 @@ func TestRenderSnapshotDoesNotSuppressNamedFanoutStepLabeledFanout(t *testing.T)
 	}
 }
 
+func TestRenderSnapshotNestsLegacyFanoutItemActivities(t *testing.T) {
+	now := time.Date(2026, 5, 31, 19, 10, 0, 0, time.UTC)
+	started := now.Add(-2 * time.Second)
+	itemStarted := now.Add(-1500 * time.Millisecond)
+	itemDone := now.Add(-1200 * time.Millisecond)
+	failedDone := now.Add(-900 * time.Millisecond)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:        "ws-acme",
+			WorkflowID:         "wf-root",
+			RootWorkflowID:     "wf-root",
+			FlowSlug:           "live-render-parent",
+			Status:             "completed",
+			StepsCompleted:     1,
+			StepsExecutedTotal: 1,
+			UpdatedAt:          now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "legacy-step-fanout", ActivityKind: "step", ActivityType: "fanout", ActivityName: "Legacy function fanout", StepID: "legacy-step-fanout", Status: "completed", StartedAt: &started, CompletedAt: &failedDone, UpdatedAt: failedDone},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "legacy-step-fanout:item:0", ParentActivityID: "legacy-step-fanout", ActivityKind: "activity", ActivityType: "function", ActivityName: "Legacy normalize", Status: "completed", StartedAt: &itemStarted, CompletedAt: &itemDone, UpdatedAt: itemDone},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "legacy-step-fanout:item:1", ParentActivityID: "legacy-step-fanout", ActivityKind: "activity", ActivityType: "function", ActivityName: "Legacy expected failure", Status: "failed", StartedAt: &itemDone, CompletedAt: &failedDone, UpdatedAt: failedDone},
+		},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	parentLine := ""
+	childLine := ""
+	failedLine := ""
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(line, "Legacy function fanout"):
+			parentLine = line
+		case strings.Contains(line, "Legacy normalize"):
+			childLine = line
+		case strings.Contains(line, "Legacy expected failure"):
+			failedLine = line
+		}
+	}
+	if parentLine == "" || childLine == "" || failedLine == "" {
+		t.Fatalf("expected legacy fanout parent and item activity rows\n---\n%s", out)
+	}
+	if !strings.Contains(childLine, "ƒ Legacy normalize") {
+		t.Fatalf("expected legacy function item to use function marker, got %q\n---\n%s", childLine, out)
+	}
+	if strings.Contains(childLine, "legacy-step-fanout:item") {
+		t.Fatalf("expected realtime item activity row not to expose internal activity id, got %q", childLine)
+	}
+	if !strings.Contains(failedLine, "failed") {
+		t.Fatalf("expected failed legacy item to show failed status text, got %q", failedLine)
+	}
+	if leadingSpaces(childLine) <= leadingSpaces(parentLine) || leadingSpaces(failedLine) <= leadingSpaces(parentLine) {
+		t.Fatalf("expected legacy fanout items to be indented under parent\nparent=%q\nchild=%q\nfailed=%q\n---\n%s", parentLine, childLine, failedLine, out)
+	}
+	if strings.Count(out, "Legacy normalize") != 1 || strings.Count(out, "Legacy expected failure") != 1 {
+		t.Fatalf("expected legacy fanout items to render once as nested rows\n---\n%s", out)
+	}
+}
+
 func TestRenderSnapshotShowsOrphanPersistedResource(t *testing.T) {
 	now := time.Date(2026, 5, 31, 13, 40, 0, 0, time.UTC)
 	size := int64(226)
