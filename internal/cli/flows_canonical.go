@@ -118,7 +118,7 @@ func commandWorkspaceID(out map[string]any) string {
 	return ""
 }
 
-func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration) error {
+func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration, liveOutput bool) error {
 	client := apiClient(app)
 	startResp, status, err := client.DoCommand(context.Background(), command, payload)
 	if err != nil {
@@ -145,10 +145,10 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		return nil
 	}
 
-	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll)
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, timeout, poll, liveOutput)
 }
 
-func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration) error {
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, timeout time.Duration, poll time.Duration, liveOutput bool) error {
 	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
@@ -156,6 +156,12 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
+	var liveRenderer *liveWaitRenderer
+	if liveOutput {
+		liveRenderer = newLiveWaitRenderer(cmd, app, client, workflowID)
+		defer liveRenderer.Close()
+		liveRenderer.Update(cmd.Context(), false)
+	}
 	deadline := time.Now().Add(timeout)
 	polls := 0
 	var nextTerminalFallback time.Time
@@ -171,8 +177,10 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"wait":        true,
 			"reconciled":  true,
 		})
-		if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
-			return writeErr(cmd, err)
+		if !liveRenderer.shouldSuppressFinalResult(finalResp, finalStatus) {
+			if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+				return writeErr(cmd, err)
+			}
 		}
 		if runStatusFailedForExit(finalRunStatus) {
 			return guidedCLIErrorForCommand(cmd, "flow run finished with status "+finalRunStatus, []string{
@@ -196,6 +204,10 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 				nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+					if liveRenderer != nil {
+						liveRenderer.Update(cmd.Context(), true)
+						liveRenderer.WaitForExit(cmd.Context())
+					}
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
 			}
@@ -205,7 +217,16 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				}
 				return nil
 			}
-			time.Sleep(poll)
+			if liveRenderer != nil {
+				liveRenderer.Update(cmd.Context(), false)
+				if liveRenderer.StopRequested() {
+					return writeErr(cmd, errors.New("live wait cancelled"))
+				}
+			}
+			sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+			if liveRenderer != nil && liveRenderer.StopRequested() {
+				return writeErr(cmd, errors.New("live wait cancelled"))
+			}
 			continue
 		}
 		if execStatus >= 400 {
@@ -233,12 +254,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if liveRenderer != nil {
+				liveRenderer.Update(cmd.Context(), true)
+				liveRenderer.WaitForExit(cmd.Context())
+			}
 			if finalStatus >= 400 {
 				finalResp = execResp
 				finalStatus = execStatus
 			}
-			if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
-				return writeErr(cmd, err)
+			if !liveRenderer.shouldSuppressFinalResult(finalResp, finalStatus) {
+				if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+					return writeErr(cmd, err)
+				}
 			}
 			if runStatusFailedForExit(s) {
 				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
@@ -252,6 +279,10 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 			nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+				if liveRenderer != nil {
+					liveRenderer.Update(cmd.Context(), true)
+					liveRenderer.WaitForExit(cmd.Context())
+				}
 				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 			}
 		}
@@ -304,7 +335,16 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			}
 			return nil
 		}
-		time.Sleep(poll)
+		if liveRenderer != nil {
+			liveRenderer.Update(cmd.Context(), false)
+			if liveRenderer.StopRequested() {
+				return writeErr(cmd, errors.New("live wait cancelled"))
+			}
+		}
+		sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+		if liveRenderer != nil && liveRenderer.StopRequested() {
+			return writeErr(cmd, errors.New("live wait cancelled"))
+		}
 	}
 }
 
@@ -326,6 +366,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var triggerID string
 	var inputJSON string
 	var wait bool
+	var live bool
 	var timeout time.Duration
 	var poll time.Duration
 
@@ -407,7 +448,10 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 				}
 				payload["input"] = m
 			}
-			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll)
+			if live {
+				wait = true
+			}
+			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll, live)
 		},
 	}
 
@@ -422,6 +466,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
+	cmd.Flags().BoolVar(&live, "live", false, "Render a live full-tree terminal UI while waiting")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
