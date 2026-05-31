@@ -1514,7 +1514,11 @@ func formatResourceLine(activity Activity, prefix string, opts RenderOptions) st
 	if planned {
 		lineOpts.Color = false
 	}
-	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, lineOpts.Color), resourceLabelText(activity))
+	label := resourceLabelText(activity)
+	if isFlowErrorResource(activity) {
+		label = color(label, colorForStatus("failed"), lineOpts.Color)
+	}
+	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, lineOpts.Color), label)
 	if details := resourceDetailText(activity); details != "" {
 		line += " " + dim(details, lineOpts.Color)
 	}
@@ -2680,7 +2684,7 @@ func resourceKindText(activity Activity) string {
 }
 
 func resourceKindMark(activity Activity, enabled bool) string {
-	return resourceKindMarkForKind(resourceKindText(activity), enabled)
+	return typeMark(resourceKindMarkLabel(resourceKindText(activity)), resourceMarkColor(activity), enabled)
 }
 
 func resourceKindMarkForKind(kind string, enabled bool) string {
@@ -2689,6 +2693,23 @@ func resourceKindMarkForKind(kind string, enabled bool) string {
 
 func resourceKindMarkLabel(kind string) string {
 	return "resource"
+}
+
+func resourceMarkColor(activity Activity) string {
+	if isFlowErrorResource(activity) {
+		return colorForStatus("failed")
+	}
+	return activityTypeColor("resource")
+}
+
+func isFlowErrorResource(activity Activity) bool {
+	text := strings.ToLower(strings.Join(compactParts(
+		activity.ResourceLabel,
+		activity.ActivityName,
+		activity.ResourceURI,
+		activity.ActivityID,
+	), " "))
+	return strings.Contains(text, "flow error") || strings.Contains(text, "flow-error")
 }
 
 func resourceDetailText(activity Activity) string {

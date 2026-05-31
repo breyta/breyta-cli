@@ -763,6 +763,32 @@ func TestRenderSnapshotUsesBackendRunResultResource(t *testing.T) {
 	}
 }
 
+func TestRenderSnapshotColorsFlowErrorResourceAsProblem(t *testing.T) {
+	now := time.Date(2026, 5, 31, 15, 13, 30, 0, time.UTC)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:        "ws-acme",
+			WorkflowID:         "wf-root",
+			RootWorkflowID:     "wf-root",
+			FlowSlug:           "live-render-parent",
+			Status:             "failed",
+			StepsFailed:        1,
+			StepsExecutedTotal: 1,
+			UpdatedAt:          now,
+		}},
+	}, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
+
+	line := renderedLineContaining(t, out, "flow error")
+	if !strings.Contains(line, "\x1b[31m▣") || !strings.Contains(line, "\x1b[31mflow error") {
+		t.Fatalf("expected flow error resource marker and label to render red\nline=%q\n---\n%s", line, out)
+	}
+	if strings.Contains(line, "\x1b[36m") {
+		t.Fatalf("expected flow error resource not to use normal resource cyan\nline=%q\n---\n%s", line, out)
+	}
+}
+
 func TestRenderSnapshotSkipsRunResultResourceForAgentRun(t *testing.T) {
 	now := time.Date(2026, 5, 31, 15, 14, 0, 0, time.UTC)
 
