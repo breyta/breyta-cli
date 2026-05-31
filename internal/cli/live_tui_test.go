@@ -457,9 +457,16 @@ func TestLiveTUISelectionHighlightsBranchLabelAfterBranchMarker(t *testing.T) {
 }
 
 func TestLiveTUISelectionStopsBeforeMetadata(t *testing.T) {
-	got := highlightTUILabelText("  ✗ \x1b[1;36mƒ\x1b[0m live-render-child [b1] failed")
+	got := highlightTUILabelText("  \x1b[1;36mƒ\x1b[0m live-render-child [b1] failed")
 	if !strings.Contains(got, "ƒ\x1b[0m \x1b[48;5;236mlive-render-child\x1b[49m [b1] failed") {
 		t.Fatalf("expected highlight to stop before branch and status metadata, got %q", got)
+	}
+}
+
+func TestLiveTUISelectionSkipsCompactLoadingAndTypeMarkers(t *testing.T) {
+	got := highlightTUILabelText("  ⠋\x1b[1;36mƒ\x1b[0m live-render-child [b1]")
+	if !strings.Contains(got, "⠋\x1b[1;36mƒ\x1b[0m \x1b[48;5;236mlive-render-child\x1b[49m [b1]") {
+		t.Fatalf("expected compact loading/type marker to stay outside the highlight, got %q", got)
 	}
 }
 

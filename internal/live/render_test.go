@@ -700,6 +700,18 @@ func TestRenderSnapshotHidesFutureSkeletonAfterTerminalRun(t *testing.T) {
 	if !strings.Contains(out, "Collect") {
 		t.Fatalf("expected executed failed row to remain\n---\n%s", out)
 	}
+	for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if !strings.Contains(line, "Collect") {
+			continue
+		}
+		if strings.Contains(line, "✗") {
+			t.Fatalf("expected failed activity row not to use a failure glyph, got %q\n---\n%s", line, out)
+		}
+		if !strings.HasSuffix(line, "failed") {
+			t.Fatalf("expected failed activity row to end with failed status, got %q\n---\n%s", line, out)
+		}
+		break
+	}
 	if strings.Contains(out, "Persist run report") || strings.Contains(out, "persist-run-report") {
 		t.Fatalf("expected unexecuted future skeleton row to be hidden after terminal run\n---\n%s", out)
 	}
@@ -830,7 +842,7 @@ func TestRenderSnapshotRendersUnstartedSkeletonRowsGray(t *testing.T) {
 		}},
 	}, RenderOptions{Now: now, Frame: 2, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
 
-	if !strings.Contains(out, "\x1b[90m ○ s Prepare\x1b[0m") {
+	if !strings.Contains(out, "\x1b[90m ○s Prepare\x1b[0m") {
 		t.Fatalf("expected unstarted planned row to be rendered fully gray\n---\n%q", out)
 	}
 	if strings.Contains(out, "\x1b[36m○") {
@@ -1483,22 +1495,23 @@ func TestCollectDisplayFrameNestsPackagedFanoutUnderAgentTool(t *testing.T) {
 	out := RenderDisplayFrame(frame)
 
 	agentLine := displayLineContaining(t, frame, "◉ agent-internal-fanout")
-	toolLine := displayLineContaining(t, frame, "⚙ mock_spawn_agent_fanout")
 	fanoutLine := displayLineContaining(t, frame, "✣ spawn-subagents")
 	branchLine := displayLineContaining(t, frame, "◉ researcher [b0]")
 	agentIndent := displayIndent(agentLine.Text)
-	toolIndent := displayIndent(toolLine.Text)
 	fanoutIndent := displayIndent(fanoutLine.Text)
 	branchIndent := displayIndent(branchLine.Text)
 	if strings.Contains(out, "✣ fanout") {
 		t.Fatalf("expected generic packaged fanout wrapper to be hidden\n---\n%s", out)
 	}
-	if toolIndent <= agentIndent || fanoutIndent <= toolIndent || branchIndent <= fanoutIndent {
-		t.Fatalf("expected packaged fanout to nest under agent tool\nagent=%q\ntool=%q\nfanout=%q\nbranch=%q\n---\n%s", agentLine.Text, toolLine.Text, fanoutLine.Text, branchLine.Text, out)
+	if strings.Contains(out, "mock_spawn_agent_fanout") {
+		t.Fatalf("expected semantic packaged fanout to replace transport tool row\n---\n%s", out)
 	}
-	if strings.Index(out, toolLine.Text) > strings.Index(out, fanoutLine.Text) ||
+	if fanoutIndent <= agentIndent || branchIndent <= fanoutIndent {
+		t.Fatalf("expected packaged fanout to nest under agent step\nagent=%q\nfanout=%q\nbranch=%q\n---\n%s", agentLine.Text, fanoutLine.Text, branchLine.Text, out)
+	}
+	if strings.Index(out, agentLine.Text) > strings.Index(out, fanoutLine.Text) ||
 		strings.Index(out, fanoutLine.Text) > strings.Index(out, branchLine.Text) {
-		t.Fatalf("expected tool, fanout, branch order\n---\n%s", out)
+		t.Fatalf("expected agent, fanout, branch order\n---\n%s", out)
 	}
 }
 

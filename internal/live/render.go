@@ -186,7 +186,7 @@ func renderRunNode(b *strings.Builder, node RunNode, prefix string, last bool, o
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
 	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
 	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent)
-	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, opts)
+	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, nestedActivityKeys, opts)
 	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, graphActivitiesByParent)
 	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, graphActivityKeys)
 	visibleNodes = filterNestedActivitiesFromTopLevel(visibleNodes, nestedActivityKeys)
@@ -503,12 +503,16 @@ func filterNestedActivitiesFromTopLevel(activities []Activity, nestedKeys map[st
 	return out
 }
 
-func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[string][]RunNode, opts RenderOptions) (map[string][]Activity, map[string]bool) {
+func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[string][]RunNode, alreadyNested map[string]bool, opts RenderOptions) (map[string][]Activity, map[string]bool) {
 	grouped := map[string][]Activity{}
 	nestedKeys := map[string]bool{}
 	takenBranchScopes := takenBranchScopesByParent(visible)
 	for _, activity := range visible {
 		if !isGraphNestedActivity(activity) {
+			continue
+		}
+		activityKey := activityIdentityKey(activity)
+		if activityKey != "" && alreadyNested[activityKey] {
 			continue
 		}
 		parentRef := strings.TrimSpace(activity.ParentActivityID)
@@ -522,13 +526,13 @@ func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[
 			if !activityMatchesParentRef(parent, parentRef) {
 				continue
 			}
-			if key := activityIdentityKey(activity); key != "" {
-				nestedKeys[key] = true
-			}
 			if activity.Planned && isBranchActivity(parent) {
 				parentKey := activityIdentityKey(parent)
 				takenScope := takenBranchScopes[parentKey]
 				if takenScope != "" && strings.TrimSpace(activity.GraphScopeID) != "" && strings.TrimSpace(activity.GraphScopeID) != takenScope {
+					if activityKey != "" {
+						nestedKeys[activityKey] = true
+					}
 					opts.diagnose(RenderDiagnostic{
 						Code:       "live.render.suppress_untaken_branch",
 						Message:    "suppressed planned graph branch child after a sibling branch had runtime evidence",
@@ -543,6 +547,9 @@ func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[
 			}
 			if len(childrenForStep(childrenByStep, parent)) > 0 {
 				break
+			}
+			if activityKey != "" {
+				nestedKeys[activityKey] = true
 			}
 			registerGroupedActivity(grouped, parent, activity)
 			break
@@ -1180,7 +1187,7 @@ func formatActivityLine(activity Activity, prefix string, opts RenderOptions) st
 	if planned {
 		lineOpts.Color = false
 	}
-	line := fmt.Sprintf("%s%s %s", prefix, coloredGlyph(status, activity.Active, opts.Frame, lineOpts.Color), activityTextStyled(activity, lineOpts))
+	line := fmt.Sprintf("%s%s%s", prefix, coloredActivityGlyphSlot(status, activity.Active, opts.Frame, lineOpts.Color), activityTextStyled(activity, lineOpts))
 	if duration := activityDuration(activity, opts.Now); duration != "" {
 		line += " " + dim(duration, lineOpts.Color)
 	}
@@ -1192,6 +1199,9 @@ func formatActivityLine(activity Activity, prefix string, opts RenderOptions) st
 	}
 	if progress := activityProgress(activity); progress != "" {
 		line += " " + dim(progress, lineOpts.Color)
+	}
+	if statusText := failedActivityStatusText(status); statusText != "" {
+		line += " " + statusBadge(statusText, lineOpts.Color)
 	}
 	if planned {
 		line = gray(line, opts.Color)
@@ -1211,7 +1221,7 @@ func isUnstartedPlannedActivity(activity Activity) bool {
 }
 
 func formatCurrentStepFallbackLine(current string, prefix string, opts RenderOptions) string {
-	return fmt.Sprintf("%s%s %s", prefix, coloredGlyph("running", true, opts.Frame, opts.Color), dim(current, opts.Color))
+	return fmt.Sprintf("%s%s%s", prefix, coloredActivityGlyphSlot("running", true, opts.Frame, opts.Color), dim(current, opts.Color))
 }
 
 func renderActivity(b *strings.Builder, activity Activity, prefix string, _ bool, opts RenderOptions) {
@@ -1224,14 +1234,20 @@ func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, 
 	nestedActivities := nestedActivitiesForActivity(nestedByParent, activity)
 	displayActivity := activityWithNestedActivityDuration(activity, nestedActivities)
 	displayActivity = activityWithFanoutChildDuration(displayActivity, children)
+	activityTools := toolsForActivity(toolsByParent, displayActivity)
+	activityResources := resourcesForActivity(resourcesByParent, displayActivity)
+	if replacement, ok := semanticFanoutReplacementForTool(displayActivity, nestedActivities, activityResources, activityTools); ok {
+		renderActivityBranch(b, replacement, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+		return
+	}
 	if isStructuralFanoutWrapper(displayActivity) {
-		for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
+		for _, tool := range activityTools {
 			renderActivityBranch(b, tool, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, nested := range nestedActivities {
 			renderActivityBranch(b, nested, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
-		for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
+		for _, resource := range activityResources {
 			renderResource(b, resource, prefix, opts)
 		}
 		for childIdx, child := range children {
@@ -1241,13 +1257,13 @@ func renderActivityBranch(b *strings.Builder, activity Activity, prefix string, 
 	}
 	renderActivity(b, displayActivity, prefix, false, opts)
 	childPrefix := branchChildPrefix(prefix, false)
-	for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
+	for _, tool := range activityTools {
 		renderActivityBranch(b, tool, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, nested := range nestedActivities {
 		renderActivityBranch(b, nested, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
-	for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
+	for _, resource := range activityResources {
 		renderResource(b, resource, childPrefix, opts)
 	}
 	for childIdx, child := range children {
@@ -1260,14 +1276,20 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 	nestedActivities := nestedActivitiesForActivity(nestedByParent, activity)
 	displayActivity := activityWithNestedActivityDuration(activity, nestedActivities)
 	displayActivity = activityWithFanoutChildDuration(displayActivity, children)
+	activityTools := toolsForActivity(toolsByParent, displayActivity)
+	activityResources := resourcesForActivity(resourcesByParent, displayActivity)
+	if replacement, ok := semanticFanoutReplacementForTool(displayActivity, nestedActivities, activityResources, activityTools); ok {
+		collectActivityBranch(frame, replacement, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
+		return
+	}
 	if isStructuralFanoutWrapper(displayActivity) {
-		for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
+		for _, tool := range activityTools {
 			collectActivityBranch(frame, tool, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
 		for _, nested := range nestedActivities {
 			collectActivityBranch(frame, nested, prefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 		}
-		for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
+		for _, resource := range activityResources {
 			collectResource(frame, resource, prefix, opts)
 		}
 		for childIdx, child := range children {
@@ -1277,18 +1299,38 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 	}
 	collectActivity(frame, displayActivity, prefix, opts)
 	childPrefix := branchChildPrefix(prefix, false)
-	for _, tool := range toolsForActivity(toolsByParent, displayActivity) {
+	for _, tool := range activityTools {
 		collectActivityBranch(frame, tool, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
 	for _, nested := range nestedActivities {
 		collectActivityBranch(frame, nested, childPrefix, opts, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
 	}
-	for _, resource := range resourcesForActivity(resourcesByParent, displayActivity) {
+	for _, resource := range activityResources {
 		collectResource(frame, resource, childPrefix, opts)
 	}
 	for childIdx, child := range children {
 		collectRunNode(frame, child, childPrefix, childIdx == len(children)-1, opts, false, rootFlowSlug)
 	}
+}
+
+func semanticFanoutReplacementForTool(activity Activity, nested []Activity, resources []Activity, tools []Activity) (Activity, bool) {
+	if !isToolActivity(activity) || len(resources) > 0 || len(tools) > 0 {
+		return Activity{}, false
+	}
+	var replacement Activity
+	for _, child := range nested {
+		if isStructuralFanoutWrapper(child) {
+			continue
+		}
+		if !isNestedFanoutActivity(child) {
+			return Activity{}, false
+		}
+		if activityIdentityKey(replacement) != "" {
+			return Activity{}, false
+		}
+		replacement = child
+	}
+	return replacement, activityIdentityKey(replacement) != ""
 }
 
 func renderCurrentStepFallback(b *strings.Builder, current string, prefix string, opts RenderOptions) {
@@ -2615,9 +2657,9 @@ func glyph(status string, active bool, frame int) string {
 	case "completed", "succeeded", "success":
 		return ""
 	case "failed", "error":
-		return "✗"
+		return ""
 	case "cancelled", "canceled":
-		return "■"
+		return ""
 	case "waiting", "pending":
 		return "○"
 	default:
@@ -2631,6 +2673,23 @@ func coloredGlyph(status string, active bool, frame int, enabled bool) string {
 		return ""
 	}
 	return color(value, colorForStatus(normalizeStatus(status, active)), enabled)
+}
+
+func coloredActivityGlyphSlot(status string, active bool, frame int, enabled bool) string {
+	value := coloredGlyph(status, active, frame, enabled)
+	if value == "" {
+		return " "
+	}
+	return value
+}
+
+func failedActivityStatusText(status string) string {
+	switch status {
+	case "failed", "error":
+		return "failed"
+	default:
+		return ""
+	}
 }
 
 func statusBadge(status string, enabled bool) string {

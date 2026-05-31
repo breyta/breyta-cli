@@ -188,7 +188,7 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
 	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
 	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent)
-	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, opts)
+	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, nestedActivityKeys, opts)
 	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, graphActivitiesByParent)
 	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, graphActivityKeys)
 	visibleNodes = filterNestedActivitiesFromTopLevel(visibleNodes, nestedActivityKeys)

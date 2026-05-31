@@ -640,7 +640,7 @@ func tuiTextTokens(value string) []tuiTextToken {
 func tuiLabelTokenStart(tokens []tuiTextToken) int {
 	for i, token := range tokens {
 		text := strings.TrimSpace(token.text)
-		if text == "" || isTUIFoldMarkerToken(text) || isTUIStatusToken(text) || isTUITypeMarkerToken(text, i, len(tokens)) {
+		if text == "" || isTUIFoldMarkerToken(text) || isTUIStatusToken(text) || isTUICombinedStatusTypeMarkerToken(text) || isTUITypeMarkerToken(text, i, len(tokens)) {
 			continue
 		}
 		return i
@@ -659,6 +659,14 @@ func isTUIStatusToken(text string) bool {
 	default:
 		return false
 	}
+}
+
+func isTUICombinedStatusTypeMarkerToken(text string) bool {
+	runes := []rune(text)
+	if len(runes) != 2 {
+		return false
+	}
+	return isTUIStatusToken(string(runes[0])) && isTUITypeMarkerToken(string(runes[1]), 0, 2)
 }
 
 func isTUITypeMarkerToken(text string, idx int, total int) bool {
