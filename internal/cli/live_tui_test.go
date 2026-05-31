@@ -411,6 +411,44 @@ func TestLiveTUIFooterShowsOpenForOpenableResource(t *testing.T) {
 	}
 }
 
+func TestLiveTUIViewClearsFooterRowsWhenFooterChanges(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 92
+	model.height = 6
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:prepare", Text: "  s Prepare run [prepare-run]"},
+		{Key: "activity:wf-root:persist", Text: "  ƒ Persist run report [persist-run-report]"},
+		{
+			Key:    "resource:wf-root:report",
+			Text:   "    ▣ live-render-case-run-report.md 282B text/markdown",
+			WebURL: "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=demo&output=fullscreen",
+		},
+		{Key: "summary", Text: "3 steps executed, 1 resource"},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+
+	openFooterView := model.View()
+	assertLiveTUIViewLinesFitWidth(t, openFooterView, model.width)
+	openPlain := stripTUIANSI(openFooterView)
+	if strings.Count(openPlain, "↑↓/jk move") != 1 || !strings.Contains(openPlain, "enter open") {
+		t.Fatalf("expected exactly one open-capable footer\n%s", openPlain)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	model = updated.(liveTUIModel)
+	closedFooterView := model.View()
+	assertLiveTUIViewLinesFitWidth(t, closedFooterView, model.width)
+	closedPlain := stripTUIANSI(closedFooterView)
+	if strings.Count(closedPlain, "↑↓/jk move") != 1 {
+		t.Fatalf("expected footer to appear once after changing selection\n%s", closedPlain)
+	}
+	if strings.Contains(closedPlain, "enter open") {
+		t.Fatalf("did not expect stale open command after changing selection\n%s", closedPlain)
+	}
+}
+
 func TestLiveTUIFooterShowsActiveWaitActions(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 180
@@ -621,6 +659,15 @@ func tuiRuneIndex(value string, needle string) int {
 		return -1
 	}
 	return len([]rune(value[:idx]))
+}
+
+func assertLiveTUIViewLinesFitWidth(t *testing.T, view string, width int) {
+	t.Helper()
+	for i, line := range strings.Split(view, "\n") {
+		if got := tuiDisplayWidth(line); got != width {
+			t.Fatalf("view line %d display width=%d, want %d\n%q\n%s", i, got, width, line, view)
+		}
+	}
 }
 
 func TestLiveTUISelectionHighlightsLabelAfterColoredTypeMarker(t *testing.T) {

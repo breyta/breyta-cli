@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/breyta/breyta-cli/internal/browseropen"
 	"github.com/breyta/breyta-cli/internal/live"
@@ -230,7 +231,7 @@ func (m liveTUIModel) View() string {
 		lines = append(lines, m.footer(visible))
 	}
 	for i, line := range lines {
-		lines[i] = truncateTUIRunes(line, m.width)
+		lines[i] = fitTUILine(line, m.width)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1077,6 +1078,17 @@ func hasPlannedAfter(nodes []liveTreeNode, idx int) bool {
 	return false
 }
 
+func fitTUILine(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	line := truncateTUIRunes(value, width)
+	if pad := width - tuiDisplayWidth(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return line
+}
+
 func truncateTUIRunes(value string, width int) string {
 	if width <= 0 {
 		return ""
@@ -1096,12 +1108,16 @@ func truncateTUIRunes(value string, width int) string {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(value[i:])
-		if visible >= width-1 {
+		runeWidth := runewidth.RuneWidth(r)
+		if runeWidth < 0 {
+			runeWidth = 0
+		}
+		if visible+runeWidth > width-1 {
 			truncated = true
 			break
 		}
 		b.WriteRune(r)
-		visible++
+		visible += runeWidth
 		i += size
 	}
 	if !truncated {
@@ -1112,6 +1128,23 @@ func truncateTUIRunes(value string, width int) string {
 		b.WriteString("\x1b[0m")
 	}
 	return b.String()
+}
+
+func tuiDisplayWidth(value string) int {
+	width := 0
+	for i := 0; i < len(value); {
+		if end, ok := tuiANSIEscapeEnd(value, i); ok {
+			i = end
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(value[i:])
+		runeWidth := runewidth.RuneWidth(r)
+		if runeWidth > 0 {
+			width += runeWidth
+		}
+		i += size
+	}
+	return width
 }
 
 func tuiANSIEscapeEnd(value string, start int) (int, bool) {
