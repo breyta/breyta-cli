@@ -630,6 +630,85 @@ func TestRenderSnapshotShowsOrphanPersistedResource(t *testing.T) {
 	}
 }
 
+func TestRenderSnapshotShowsPlannedPersistResourceFromGraph(t *testing.T) {
+	now := time.Date(2026, 5, 31, 14, 50, 0, 0, time.UTC)
+
+	snapshot := Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "running",
+			Active:         true,
+			UpdatedAt:      now,
+		}},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "live-render-parent",
+			Version:    1,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:live-render-parent", Nodes: []FlowGraphNode{
+				{ID: "flow:live-render-parent", Kind: "flow", Label: "live-render-parent", Order: 1},
+				{ID: "step:persist-run-report", Kind: "step", Label: "Persist run report", StepID: "persist-run-report", StepType: "function", ParentID: "flow:live-render-parent", Order: 2, HasPersist: true, PersistKind: "blob", PersistMIME: "text/markdown"},
+			}},
+		}},
+	}
+	frame := CollectDisplayFrame(snapshot, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+	out := RenderDisplayFrame(frame)
+	resourceLine := displayLineContaining(t, frame, "▣ output resource blob text/markdown")
+
+	if !strings.Contains(out, "ƒ Persist run report [persist-run-report]") {
+		t.Fatalf("expected planned persisted step row\n---\n%s", out)
+	}
+	if !resourceLine.Planned {
+		t.Fatalf("expected planned resource display line to be marked planned\nline=%#v\n---\n%s", resourceLine, out)
+	}
+	colored := RenderSnapshot(snapshot, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
+	if !strings.Contains(colored, "\x1b[90m") || !strings.Contains(colored, "output resource") {
+		t.Fatalf("expected planned resource placeholder to render gray\n---\n%q", colored)
+	}
+}
+
+func TestRenderSnapshotReplacesPlannedPersistResourceWithRuntimeResource(t *testing.T) {
+	now := time.Date(2026, 5, 31, 14, 55, 0, 0, time.UTC)
+	started := now.Add(-500 * time.Millisecond)
+	size := int64(216)
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "running",
+			Active:         true,
+			UpdatedAt:      now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "persist-run-report", ActivityKind: "step", ActivityType: "function", ActivityName: "persist-run-report", StepID: "persist-run-report", Status: "running", Active: true, StartedAt: &started, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "resource-event-1", ParentActivityID: "persist-run-report", ActivityKind: "resource", ActivityType: "blob", ActivityName: "live-render-case-run-report.md", Status: "completed", ResourceURI: "res://v1/ws/ws-acme/result/blob/live-render-case-run-report.md", ResourceKind: "blob", ResourceLabel: "live-render-case-run-report.md", ContentType: "text/markdown", SizeBytes: &size, UpdatedAt: now},
+		},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "live-render-parent",
+			Version:    1,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:live-render-parent", Nodes: []FlowGraphNode{
+				{ID: "flow:live-render-parent", Kind: "flow", Label: "live-render-parent", Order: 1},
+				{ID: "step:persist-run-report", Kind: "step", Label: "Persist run report", StepID: "persist-run-report", StepType: "function", ParentID: "flow:live-render-parent", Order: 2, HasPersist: true, PersistKind: "blob", PersistMIME: "text/markdown"},
+			}},
+		}},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	if strings.Contains(out, "output resource") {
+		t.Fatalf("expected runtime resource to replace planned resource placeholder\n---\n%s", out)
+	}
+	if !strings.Contains(out, "▣ live-render-case-run-report.md 216B text/markdown") {
+		t.Fatalf("expected real persisted resource row\n---\n%s", out)
+	}
+}
+
 func TestRenderSnapshotDeduplicatesResourcesByURI(t *testing.T) {
 	now := time.Date(2026, 5, 31, 13, 45, 0, 0, time.UTC)
 	started := now.Add(-1 * time.Second)

@@ -280,10 +280,14 @@ func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts
 	if details := resourceDetailText(activity); details != "" {
 		line += " " + dim(details, opts.Color)
 	}
+	if isUnstartedPlannedActivity(activity) {
+		line = gray(line, opts.Color)
+	}
 	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" + firstNonBlank(activity.ActivityID, activity.ResourceURI, activity.ResourceLabel)
 	frame.add(DisplayLine{
-		Key:  key,
-		Text: line,
+		Key:     key,
+		Text:    line,
+		Planned: isUnstartedPlannedActivity(activity),
 	}, activityLineLive(activity))
 }
 

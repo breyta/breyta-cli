@@ -144,6 +144,10 @@ type FlowGraphNode struct {
 	LoopType      string         `json:"loopType,omitempty"`
 	BranchType    string         `json:"branchType,omitempty"`
 	MaxIterations *int           `json:"maxIterations,omitempty"`
+	HasPersist    bool           `json:"hasPersist,omitempty"`
+	PersistKind   string         `json:"persistKind,omitempty"`
+	PersistType   string         `json:"persistType,omitempty"`
+	PersistMIME   string         `json:"persistContentType,omitempty"`
 }
 
 type FlowGraphEdge struct {

@@ -1495,6 +1495,9 @@ func renderResource(b *strings.Builder, activity Activity, prefix string, opts R
 	if details := resourceDetailText(activity); details != "" {
 		line += " " + dim(details, opts.Color)
 	}
+	if isUnstartedPlannedActivity(activity) {
+		line = gray(line, opts.Color)
+	}
 	b.WriteString(line)
 	b.WriteByte('\n')
 }
@@ -1878,6 +1881,9 @@ func runSummaryStrip(snapshot Snapshot, opts RenderOptions) string {
 	seenResources := map[string]bool{}
 	for _, activity := range snapshot.Nodes {
 		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if activity.Planned {
 			continue
 		}
 		if normalizeStatus(activity.Status, activity.Active) == "failed" {
@@ -2656,6 +2662,9 @@ func resourceKindMarkLabel(kind string) string {
 
 func resourceDetailText(activity Activity) string {
 	parts := []string{}
+	if activity.Planned {
+		parts = append(parts, resourceKindText(activity))
+	}
 	if activity.RowCount != nil && *activity.RowCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d rows", *activity.RowCount))
 	}

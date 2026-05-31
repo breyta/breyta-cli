@@ -118,7 +118,47 @@ func mergeGraphSkeletonNodes(activities []Activity, run RunState, graph FlowGrap
 		}
 		activities = append(activities, plannedGraphActivity(run, graphNode, updatedAt))
 	}
+	activities = mergePlannedPersistResources(activities, run, graphNodes, updatedAt)
 	return assignRuntimeOnlyGraphOrder(activities, run)
+}
+
+func mergePlannedPersistResources(activities []Activity, run RunState, graphNodes []FlowGraphNode, updatedAt time.Time) []Activity {
+	if len(graphNodes) == 0 {
+		return activities
+	}
+	actualResourceParents := map[string]bool{}
+	plannedResourceIDs := map[string]bool{}
+	for _, activity := range activities {
+		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if activity.Planned {
+			if id := strings.TrimSpace(activity.ActivityID); id != "" {
+				plannedResourceIDs[id] = true
+			}
+			continue
+		}
+		if parentID := strings.TrimSpace(activity.ParentActivityID); parentID != "" {
+			actualResourceParents[parentID] = true
+			actualResourceParents[strings.TrimPrefix(parentID, "step:")] = true
+		}
+	}
+	for _, graphNode := range graphNodes {
+		if !graphNode.HasPersist {
+			continue
+		}
+		parentID := firstNonBlank(strings.TrimSpace(graphNode.StepID), strings.TrimSpace(graphNode.ID))
+		if parentID == "" || actualResourceParents[parentID] || actualResourceParents[strings.TrimSpace(graphNode.ID)] {
+			continue
+		}
+		resource := plannedPersistResourceActivity(run, graphNode, parentID, updatedAt)
+		if plannedResourceIDs[resource.ActivityID] {
+			continue
+		}
+		plannedResourceIDs[resource.ActivityID] = true
+		activities = append(activities, resource)
+	}
+	return activities
 }
 
 func plannedGraphActivity(run RunState, graphNode FlowGraphNode, updatedAt time.Time) Activity {
@@ -161,6 +201,29 @@ func plannedGraphActivity(run RunState, graphNode FlowGraphNode, updatedAt time.
 		UpdatedAt:        updatedAt,
 		Planned:          true,
 		GraphOrder:       graphSortOrder(graphNode.Order),
+		GraphScopeID:     strings.TrimSpace(graphNode.ScopeID),
+	}
+}
+
+func plannedPersistResourceActivity(run RunState, graphNode FlowGraphNode, parentID string, updatedAt time.Time) Activity {
+	resourceKind := firstNonBlank(strings.TrimSpace(graphNode.PersistKind), strings.TrimSpace(graphNode.PersistType), "resource")
+	return Activity{
+		WorkspaceID:      run.WorkspaceID,
+		WorkflowID:       run.WorkflowID,
+		RootWorkflowID:   firstNonBlank(run.RootWorkflowID, run.WorkflowID),
+		ActivityID:       firstNonBlank(strings.TrimSpace(graphNode.ID), parentID) + ":resource",
+		ParentActivityID: parentID,
+		ActivityKind:     "resource",
+		ActivityType:     resourceKind,
+		ActivityName:     "output resource",
+		Status:           "pending",
+		Active:           false,
+		ResourceKind:     resourceKind,
+		ResourceLabel:    "output resource",
+		ContentType:      strings.TrimSpace(graphNode.PersistMIME),
+		UpdatedAt:        updatedAt,
+		Planned:          true,
+		GraphOrder:       graphSortOrder(graphNode.Order) + 1,
 		GraphScopeID:     strings.TrimSpace(graphNode.ScopeID),
 	}
 }
