@@ -280,13 +280,7 @@ func collectActivity(frame *DisplayFrame, activity Activity, prefix string, opts
 }
 
 func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions) {
-	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, opts.Color), resourceLabelText(activity))
-	if details := resourceDetailText(activity); details != "" {
-		line += " " + dim(details, opts.Color)
-	}
-	if isUnstartedPlannedActivity(activity) {
-		line = gray(line, opts.Color)
-	}
+	line := formatResourceLine(activity, prefix, opts)
 	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" + firstNonBlank(activity.ActivityID, activity.ResourceURI, activity.ResourceLabel)
 	frame.add(DisplayLine{
 		Key:     key,

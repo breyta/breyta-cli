@@ -1508,14 +1508,24 @@ func renderCurrentStepFallback(b *strings.Builder, current string, prefix string
 	b.WriteByte('\n')
 }
 
-func renderResource(b *strings.Builder, activity Activity, prefix string, opts RenderOptions) {
-	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, opts.Color), resourceLabelText(activity))
-	if details := resourceDetailText(activity); details != "" {
-		line += " " + dim(details, opts.Color)
+func formatResourceLine(activity Activity, prefix string, opts RenderOptions) string {
+	lineOpts := opts
+	planned := isUnstartedPlannedActivity(activity)
+	if planned {
+		lineOpts.Color = false
 	}
-	if isUnstartedPlannedActivity(activity) {
+	line := fmt.Sprintf("%s%s %s", prefix, resourceKindMark(activity, lineOpts.Color), resourceLabelText(activity))
+	if details := resourceDetailText(activity); details != "" {
+		line += " " + dim(details, lineOpts.Color)
+	}
+	if planned {
 		line = gray(line, opts.Color)
 	}
+	return line
+}
+
+func renderResource(b *strings.Builder, activity Activity, prefix string, opts RenderOptions) {
+	line := formatResourceLine(activity, prefix, opts)
 	b.WriteString(line)
 	b.WriteByte('\n')
 }

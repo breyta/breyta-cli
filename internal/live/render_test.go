@@ -666,7 +666,8 @@ func TestRenderSnapshotShowsPlannedPersistResourceFromGraph(t *testing.T) {
 		t.Fatalf("expected planned resource display line to be marked planned\nline=%#v\n---\n%s", resourceLine, out)
 	}
 	colored := RenderSnapshot(snapshot, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
-	if !strings.Contains(colored, "\x1b[90m") || !strings.Contains(colored, "output resource") {
+	coloredLine := renderedLineContaining(t, colored, "output resource")
+	if !strings.Contains(coloredLine, "\x1b[90m") || strings.Contains(coloredLine, "\x1b[36m") {
 		t.Fatalf("expected planned resource placeholder to render gray\n---\n%q", colored)
 	}
 }
@@ -693,7 +694,8 @@ func TestRenderSnapshotShowsPlannedRunResultResource(t *testing.T) {
 		t.Fatalf("expected run result placeholder to be marked planned\nline=%#v", line)
 	}
 	colored := RenderSnapshot(snapshot, RenderOptions{Now: now, Frame: 0, Color: true, FocusWorkflowID: "wf-root", FullTree: true})
-	if !strings.Contains(colored, "\x1b[90m") || !strings.Contains(colored, "run result") {
+	coloredLine := renderedLineContaining(t, colored, "run result")
+	if !strings.Contains(coloredLine, "\x1b[90m") || strings.Contains(coloredLine, "\x1b[36m") {
 		t.Fatalf("expected planned run result placeholder to render gray\n---\n%q", colored)
 	}
 }
@@ -1867,6 +1869,17 @@ func displayLineContaining(t *testing.T, frame DisplayFrame, needle string) Disp
 	}
 	t.Fatalf("expected display frame to contain %q\n---\n%s", needle, RenderDisplayFrame(frame))
 	return DisplayLine{}
+}
+
+func renderedLineContaining(t *testing.T, rendered string, needle string) string {
+	t.Helper()
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	t.Fatalf("expected rendered output to contain %q\n---\n%s", needle, rendered)
+	return ""
 }
 
 func displayIndent(text string) int {
