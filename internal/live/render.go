@@ -487,6 +487,8 @@ func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[
 			continue
 		}
 		if inferredTool, ok := inferredSemanticFanoutToolParent(visible, renderedTools, activity); ok {
+			inferredActivity := activity
+			inferredActivity.ParentActivityID = strings.TrimSpace(inferredTool.ActivityID)
 			opts.diagnose(RenderDiagnostic{
 				Code:       "live.render.infer_tool_fanout_parent",
 				Message:    "inferred semantic runtime fanout parent from adjacent fanout tool call",
@@ -495,8 +497,8 @@ func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[
 				StepID:     strings.TrimSpace(activity.StepID),
 				ParentRef:  strings.TrimSpace(inferredTool.ActivityID),
 			})
-			registerGroupedActivity(grouped, inferredTool, activity)
-			if key := activityIdentityKey(activity); key != "" {
+			registerGroupedActivity(grouped, inferredTool, inferredActivity)
+			if key := activityIdentityKey(inferredActivity); key != "" {
 				nestedKeys[key] = true
 			}
 		}
@@ -667,6 +669,10 @@ func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[
 					break
 				}
 			}
+			if activity.Planned && runtimeParentSupplantsPlannedGraphChildren(parent) {
+				suppressPlannedGraphChild(nestedKeys, opts, activity, parentRef)
+				break
+			}
 			if len(childrenForStep(childrenByStep, parent)) > 0 {
 				if activity.Planned {
 					suppressPlannedGraphChild(nestedKeys, opts, activity, parentRef)
@@ -694,6 +700,13 @@ func isGraphNestedActivity(activity Activity) bool {
 		return true
 	}
 	return strings.TrimSpace(activity.GraphScopeID) != ""
+}
+
+func runtimeParentSupplantsPlannedGraphChildren(parent Activity) bool {
+	if parent.Planned || (!parent.Active && !activityHasRecordedExecution(parent)) {
+		return false
+	}
+	return isFanoutActivity(parent)
 }
 
 func takenBranchScopesByParent(visible []Activity) map[string]string {
@@ -992,7 +1005,14 @@ func runtimeFanoutCanUseGenericChildren(activity Activity) bool {
 	if activity.Planned || !activityHasRecordedExecution(activity) {
 		return false
 	}
-	return isNestedFanoutActivity(activity) || isGenericFanoutActivity(activity)
+	if isGenericFanoutActivity(activity) {
+		return true
+	}
+	parentRef := strings.TrimSpace(activity.ParentActivityID)
+	if parentRef == "" || strings.HasPrefix(parentRef, "flow:") {
+		return false
+	}
+	return isNestedFanoutActivity(activity)
 }
 
 func hasNamedFanoutFallbackActivity(activities []Activity) bool {

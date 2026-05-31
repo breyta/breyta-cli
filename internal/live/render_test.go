@@ -1631,6 +1631,42 @@ func TestCollectDisplayFrameInfersPackagedFanoutParentFromToolWhenGraphParentIsR
 	}
 }
 
+func TestRenderSnapshotDoesNotAttachGenericFanoutChildrenToRootFanout(t *testing.T) {
+	now := time.Date(2026, 5, 31, 14, 25, 0, 0, time.UTC)
+	internalFanoutStarted := now.Add(-1500 * time.Millisecond)
+	childFanoutStarted := now.Add(-100 * time.Millisecond)
+	branchZero := 0
+	branchOne := 1
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 3, ActiveChildRunCount: 2, UpdatedAt: now},
+		Runs: []RunState{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", FlowSlug: "live-render-parent", Status: "running", Active: true, CurrentStepID: "spawn-children", CurrentStepType: "fanout", UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b0", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "fanout", FlowSlug: "live-render-parent", Status: "running", Active: true, AgentID: "researcher", FanoutBranchIndex: &branchZero, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b1", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "fanout", FlowSlug: "live-render-parent", Status: "running", Active: true, AgentID: "auditor", FanoutBranchIndex: &branchOne, UpdatedAt: now},
+		},
+		Relations: []RunRelation{
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-agent-b0", ParentStepID: "fanout", RelationKind: "agent_fanout", FlowSlug: "live-render-parent", AgentID: "researcher", FanoutBranchIndex: &branchZero, Active: true, Status: "running", CreatedAt: internalFanoutStarted, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-agent-b1", ParentStepID: "fanout", RelationKind: "agent_fanout", FlowSlug: "live-render-parent", AgentID: "auditor", FanoutBranchIndex: &branchOne, Active: true, Status: "running", CreatedAt: internalFanoutStarted, UpdatedAt: now},
+		},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "spawn-subagents", ParentActivityID: "agent-internal-fanout/call-agent-fanout", ActivityKind: "step", ActivityType: "fanout", ActivityName: "spawn-subagents", StepID: "spawn-subagents", Status: "completed", StartedAt: &internalFanoutStarted, CompletedAt: &childFanoutStarted, UpdatedAt: childFanoutStarted},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "spawn-children", ParentActivityID: "flow:live-render-parent", ActivityKind: "step", ActivityType: "fanout", ActivityName: "spawn-children", StepID: "spawn-children", Status: "running", Active: true, StartedAt: &childFanoutStarted, UpdatedAt: now},
+		},
+	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	spawnChildrenIdx := strings.Index(out, "✣ spawn-children")
+	if spawnChildrenIdx < 0 {
+		t.Fatalf("expected root child-flow fanout row\n---\n%s", out)
+	}
+	if strings.Count(out, "researcher [b0]") != 1 || strings.Count(out, "auditor [b1]") != 1 {
+		t.Fatalf("expected generic agent branches to render only once under the internal fanout\n---\n%s", out)
+	}
+	if branchIdx := strings.LastIndex(out, "researcher [b0]"); branchIdx > spawnChildrenIdx {
+		t.Fatalf("expected root fanout not to borrow generic agent branches\n---\n%s", out)
+	}
+}
+
 func displayLineContaining(t *testing.T, frame DisplayFrame, needle string) DisplayLine {
 	t.Helper()
 	for _, line := range frame.Lines {
