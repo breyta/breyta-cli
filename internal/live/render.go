@@ -185,7 +185,7 @@ func renderRunNode(b *strings.Builder, node RunNode, prefix string, last bool, o
 	resourcesByParent := groupResourcesByVisibleParent(node.Activities, visibleNodes)
 	toolsByParent := groupToolsByVisibleParent(node.Activities, visibleNodes)
 	childrenByStep, remainingChildren := groupChildrenByVisibleStep(selectedChildren, visibleNodes, opts)
-	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent)
+	nestedActivitiesByParent, nestedActivityKeys := groupNestedActivitiesByRenderedTools(visibleNodes, toolsByParent, opts)
 	graphActivitiesByParent, graphActivityKeys := groupGraphActivitiesByVisibleParent(visibleNodes, childrenByStep, nestedActivityKeys, opts)
 	nestedActivitiesByParent = mergeActivityGroups(nestedActivitiesByParent, graphActivitiesByParent)
 	nestedActivityKeys = mergeActivityKeySets(nestedActivityKeys, graphActivityKeys)
@@ -428,7 +428,7 @@ func childActivitiesForParent(byParent map[string][]Activity, activity Activity)
 	return children
 }
 
-func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[string][]Activity) (map[string][]Activity, map[string]bool) {
+func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[string][]Activity, opts RenderOptions) (map[string][]Activity, map[string]bool) {
 	renderedTools := make([]Activity, 0)
 	seenTools := map[string]bool{}
 	for _, tools := range toolsByParent {
@@ -452,9 +452,7 @@ func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[
 			continue
 		}
 		parentRef := toolParentRef(activity)
-		if parentRef == "" {
-			continue
-		}
+		nested := false
 		if isStructuralFanoutWrapper(activity) {
 			if named := namedFanoutForParent(visible, parentRef); named != nil {
 				if key := activityIdentityKey(activity); key != "" {
@@ -472,21 +470,145 @@ func groupNestedActivitiesByRenderedTools(visible []Activity, toolsByParent map[
 			}
 			continue
 		}
-		for _, tool := range renderedTools {
-			if !activityMatchesParentRef(tool, parentRef) {
-				continue
+		if parentRef != "" {
+			for _, tool := range renderedTools {
+				if !activityMatchesParentRef(tool, parentRef) {
+					continue
+				}
+				registerGroupedActivity(grouped, tool, activity)
+				if key := activityIdentityKey(activity); key != "" {
+					nestedKeys[key] = true
+				}
+				nested = true
+				break
 			}
-			registerGroupedActivity(grouped, tool, activity)
+		}
+		if nested {
+			continue
+		}
+		if inferredTool, ok := inferredSemanticFanoutToolParent(visible, renderedTools, activity); ok {
+			opts.diagnose(RenderDiagnostic{
+				Code:       "live.render.infer_tool_fanout_parent",
+				Message:    "inferred semantic runtime fanout parent from adjacent fanout tool call",
+				WorkflowID: strings.TrimSpace(activity.WorkflowID),
+				ActivityID: strings.TrimSpace(activity.ActivityID),
+				StepID:     strings.TrimSpace(activity.StepID),
+				ParentRef:  strings.TrimSpace(inferredTool.ActivityID),
+			})
+			registerGroupedActivity(grouped, inferredTool, activity)
 			if key := activityIdentityKey(activity); key != "" {
 				nestedKeys[key] = true
 			}
-			break
 		}
 	}
 	for parentID := range grouped {
 		grouped[parentID] = sortActivitiesByTime(dedupeActivities(grouped[parentID]))
 	}
 	return grouped, nestedKeys
+}
+
+func inferredSemanticFanoutToolParent(visible []Activity, tools []Activity, activity Activity) (Activity, bool) {
+	if !isRuntimeSemanticFanoutActivity(activity) {
+		return Activity{}, false
+	}
+	parentRef := strings.TrimSpace(toolParentRef(activity))
+	if parentRef != "" && !strings.HasPrefix(parentRef, "flow:") {
+		return Activity{}, false
+	}
+	var match Activity
+	for _, tool := range tools {
+		if strings.TrimSpace(tool.WorkflowID) != strings.TrimSpace(activity.WorkflowID) {
+			continue
+		}
+		if !isFanoutToolActivity(tool) {
+			continue
+		}
+		if !fanoutToolCanInferActivity(tool, activity) {
+			continue
+		}
+		if !toolIsRenderedUnderRuntimeParent(visible, tool) {
+			continue
+		}
+		if !activityCanFollowTool(activity, tool) {
+			continue
+		}
+		if activityIdentityKey(match) != "" {
+			return Activity{}, false
+		}
+		match = tool
+	}
+	return match, activityIdentityKey(match) != ""
+}
+
+func isRuntimeSemanticFanoutActivity(activity Activity) bool {
+	return isFanoutActivity(activity) &&
+		!isGenericFanoutActivity(activity) &&
+		!activity.Planned &&
+		activityHasRecordedExecution(activity)
+}
+
+func isFanoutToolActivity(activity Activity) bool {
+	if !isToolActivity(activity) {
+		return false
+	}
+	return strings.Contains(fanoutInferenceText(activity), "fanout")
+}
+
+func fanoutToolCanInferActivity(tool Activity, activity Activity) bool {
+	toolText := fanoutInferenceText(tool)
+	activityText := fanoutInferenceText(activity)
+	switch {
+	case strings.Contains(toolText, "agent") || strings.Contains(toolText, "subagent"):
+		return strings.Contains(activityText, "agent") || strings.Contains(activityText, "subagent")
+	case strings.Contains(toolText, "child"):
+		return strings.Contains(activityText, "child")
+	default:
+		return true
+	}
+}
+
+func fanoutInferenceText(activity Activity) string {
+	return strings.ToLower(strings.Join(compactParts(activity.ActivityName, activity.ActivityType, activity.ToolCallID, activity.ActivityID, activity.StepID), " "))
+}
+
+func toolIsRenderedUnderRuntimeParent(visible []Activity, tool Activity) bool {
+	parentRef := toolParentRef(tool)
+	if parentRef == "" {
+		return false
+	}
+	for _, parent := range visible {
+		if parent.Planned || isToolActivity(parent) {
+			continue
+		}
+		if activityMatchesParentRef(parent, parentRef) {
+			return true
+		}
+	}
+	return false
+}
+
+func activityCanFollowTool(activity Activity, tool Activity) bool {
+	activityStart := activityTime(activity)
+	toolStart := activityTime(tool)
+	if activityStart.IsZero() || toolStart.IsZero() {
+		return true
+	}
+	return !activityStart.Before(toolStart.Add(-time.Millisecond))
+}
+
+func suppressPlannedGraphChild(nestedKeys map[string]bool, opts RenderOptions, activity Activity, parentRef string) {
+	if key := activityIdentityKey(activity); key != "" {
+		nestedKeys[key] = true
+	}
+	opts.diagnose(RenderDiagnostic{
+		Code:       "live.render.suppress_planned_graph_child_with_runtime_children",
+		Message:    "suppressed planned graph child because runtime children exist for the parent",
+		WorkflowID: strings.TrimSpace(activity.WorkflowID),
+		ActivityID: strings.TrimSpace(activity.ActivityID),
+		StepID:     strings.TrimSpace(activity.StepID),
+		ParentRef:  parentRef,
+		ScopeID:    strings.TrimSpace(activity.GraphScopeID),
+	})
 }
 
 func filterNestedActivitiesFromTopLevel(activities []Activity, nestedKeys map[string]bool) []Activity {
@@ -546,6 +668,9 @@ func groupGraphActivitiesByVisibleParent(visible []Activity, childrenByStep map[
 				}
 			}
 			if len(childrenForStep(childrenByStep, parent)) > 0 {
+				if activity.Planned {
+					suppressPlannedGraphChild(nestedKeys, opts, activity, parentRef)
+				}
 				break
 			}
 			if activityKey != "" {
@@ -855,12 +980,19 @@ func childrenForStep(childrenByStep map[string][]RunNode, activity Activity) []R
 	if children := childrenByStep[strings.TrimSpace(activity.StepID)]; len(children) > 0 {
 		return children
 	}
-	if isNestedFanoutActivity(activity) || isGenericFanoutActivity(activity) {
+	if runtimeFanoutCanUseGenericChildren(activity) {
 		if children := childrenByStep["fanout"]; len(children) > 0 {
 			return children
 		}
 	}
 	return childrenByStep[strings.TrimSpace(activity.ActivityID)]
+}
+
+func runtimeFanoutCanUseGenericChildren(activity Activity) bool {
+	if activity.Planned || !activityHasRecordedExecution(activity) {
+		return false
+	}
+	return isNestedFanoutActivity(activity) || isGenericFanoutActivity(activity)
 }
 
 func hasNamedFanoutFallbackActivity(activities []Activity) bool {

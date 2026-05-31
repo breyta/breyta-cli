@@ -809,11 +809,65 @@ func TestRenderSnapshotSuppressesPlannedFanoutItemsWhenRuntimeChildrenExist(t *t
 		}},
 	}, RenderOptions{Now: now, Frame: 2, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
 
-	if strings.Contains(out, "○ ◉ mock/researcher") || strings.Contains(out, "○ ◉ mock/auditor") {
-		t.Fatalf("expected planned fanout items to disappear once real runtime branches exist\n---\n%s", out)
+	for _, notWant := range []string{
+		"spawn-subagents:item",
+		"mock/researcher [",
+		"mock/auditor [",
+	} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("expected planned fanout item %q to disappear once real runtime branches exist\n---\n%s", notWant, out)
+		}
 	}
 	if !strings.Contains(out, "researcher [b0]") || !strings.Contains(out, "auditor [b1]") {
 		t.Fatalf("expected real runtime fanout branches to remain\n---\n%s", out)
+	}
+}
+
+func TestRenderSnapshotSuppressesPlannedFanoutCallFlowItemsWhenRuntimeChildrenExist(t *testing.T) {
+	now := time.Date(2026, 5, 31, 12, 2, 10, 0, time.UTC)
+	branchZero := 0
+	branchOne := 1
+	branchTwo := 2
+
+	out := RenderSnapshot(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 4, UpdatedAt: now},
+		Runs: []RunState{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", FlowSlug: "root-flow", Status: "running", Active: true, CurrentStepID: "spawn-children", UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-child-0", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "spawn-children", FlowSlug: "live-render-child", FanoutBranchIndex: &branchZero, Status: "running", Active: true, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-child-1", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "spawn-children", FlowSlug: "live-render-child", FanoutBranchIndex: &branchOne, Status: "running", Active: true, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-child-2", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "spawn-children", FlowSlug: "live-render-child", FanoutBranchIndex: &branchTwo, Status: "running", Active: true, UpdatedAt: now},
+		},
+		Relations: []RunRelation{
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-child-0", ParentStepID: "spawn-children", RelationKind: "child_flow", FlowSlug: "live-render-child", FanoutBranchIndex: &branchZero, Active: true, Status: "running", CreatedAt: now, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-child-1", ParentStepID: "spawn-children", RelationKind: "child_flow", FlowSlug: "live-render-child", FanoutBranchIndex: &branchOne, Active: true, Status: "running", CreatedAt: now, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-child-2", ParentStepID: "spawn-children", RelationKind: "child_flow", FlowSlug: "live-render-child", FanoutBranchIndex: &branchTwo, Active: true, Status: "running", CreatedAt: now, UpdatedAt: now},
+		},
+		Nodes: []Activity{{
+			WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root",
+			ActivityID: "spawn-children", ActivityKind: "step", ActivityType: "fanout", ActivityName: "spawn-children", StepID: "spawn-children", Status: "running", Active: true, StartedAt: &now, UpdatedAt: now,
+		}},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "root-flow",
+			Version:    1,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:root-flow", Nodes: []FlowGraphNode{
+				{ID: "flow:root-flow", Kind: "flow", Label: "root-flow", Order: 1},
+				{ID: "step:spawn-children", Kind: "step", Label: "Spawn children", StepID: "spawn-children", StepType: "fanout", ParentID: "flow:root-flow", Order: 2},
+				{ID: "step:spawn-children:item:0", Kind: "call-flow", Label: "live-render-child", ParentID: "step:spawn-children", FlowSlug: "live-render-child", Order: 3},
+				{ID: "step:spawn-children:item:1", Kind: "call-flow", Label: "live-render-child", ParentID: "step:spawn-children", FlowSlug: "live-render-child", Order: 4},
+				{ID: "step:spawn-children:item:2", Kind: "call-flow", Label: "live-render-child", ParentID: "step:spawn-children", FlowSlug: "live-render-child", Order: 5},
+				{ID: "step:collect-pause", Kind: "step", Label: "Pause before collect", StepID: "collect-pause", StepType: "sleep", ParentID: "flow:root-flow", Order: 6},
+			}},
+		}},
+	}, RenderOptions{Now: now, Frame: 2, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	for _, notWant := range []string{"spawn-children:item", "live-render-child [spawn-children:item"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("expected planned child-flow fanout item %q to disappear once runtime children exist\n---\n%s", notWant, out)
+		}
+	}
+	if strings.Count(out, "live-render-child [b") != 3 {
+		t.Fatalf("expected real runtime child flow branches to remain\n---\n%s", out)
 	}
 }
 
@@ -1512,6 +1566,68 @@ func TestCollectDisplayFrameNestsPackagedFanoutUnderAgentTool(t *testing.T) {
 	if strings.Index(out, agentLine.Text) > strings.Index(out, fanoutLine.Text) ||
 		strings.Index(out, fanoutLine.Text) > strings.Index(out, branchLine.Text) {
 		t.Fatalf("expected agent, fanout, branch order\n---\n%s", out)
+	}
+}
+
+func TestCollectDisplayFrameInfersPackagedFanoutParentFromToolWhenGraphParentIsRoot(t *testing.T) {
+	now := time.Date(2026, 5, 31, 14, 5, 0, 0, time.UTC)
+	agentStarted := now.Add(-2 * time.Second)
+	toolStarted := now.Add(-1600 * time.Millisecond)
+	fanoutStarted := now.Add(-1100 * time.Millisecond)
+	branchZero := 0
+	branchOne := 1
+
+	snapshot := Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", ActiveRunCount: 3, ActiveChildRunCount: 2, StepsRunning: 3, UpdatedAt: now},
+		Runs: []RunState{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", FlowSlug: "live-render-parent", Status: "running", Active: true, CurrentStepID: "spawn-subagents", CurrentStepType: "fanout", StepsRunning: 1, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b0", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "fanout", FlowSlug: "live-render-parent", Status: "running", Active: true, AgentID: "researcher", FanoutBranchIndex: &branchZero, StepsRunning: 1, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b1", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ParentStepID: "fanout", FlowSlug: "live-render-parent", Status: "running", Active: true, AgentID: "auditor", FanoutBranchIndex: &branchOne, StepsRunning: 1, UpdatedAt: now},
+		},
+		Relations: []RunRelation{
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-agent-b0", ParentStepID: "fanout", RelationKind: "agent_fanout", FlowSlug: "live-render-parent", AgentID: "researcher", FanoutBranchIndex: &branchZero, Active: true, Status: "running", CreatedAt: fanoutStarted, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", RootWorkflowID: "wf-root", ParentWorkflowID: "wf-root", ChildWorkflowID: "wf-agent-b1", ParentStepID: "fanout", RelationKind: "agent_fanout", FlowSlug: "live-render-parent", AgentID: "auditor", FanoutBranchIndex: &branchOne, Active: true, Status: "running", CreatedAt: fanoutStarted, UpdatedAt: now},
+		},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "agent-internal-fanout", ActivityKind: "step", ActivityType: "mock/fanout-manager", ActivityName: "agent-internal-fanout", StepID: "agent-internal-fanout", Status: "running", Active: true, StartedAt: &agentStarted, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "agent-internal-fanout/call-agent-fanout", ParentActivityID: "agent-internal-fanout", ActivityKind: "tool_call", ActivityType: "mock_spawn_agent_fanout", ActivityName: "mock_spawn_agent_fanout", Status: "completed", StartedAt: &toolStarted, CompletedAt: &fanoutStarted, UpdatedAt: fanoutStarted},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", RootWorkflowID: "wf-root", ActivityID: "spawn-subagents", ParentActivityID: "flow:live-render-parent", ActivityKind: "step", ActivityType: "fanout", ActivityName: "spawn-subagents", StepID: "spawn-subagents", Status: "running", Active: true, StartedAt: &fanoutStarted, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b0", RootWorkflowID: "wf-root", ActivityID: "agent-branch-0", ActivityKind: "step", ActivityType: "mock/researcher", ActivityName: "agent-branch-0", StepID: "agent-branch-0", Status: "running", Active: true, AgentID: "researcher", StartedAt: &fanoutStarted, UpdatedAt: now},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-agent-b1", RootWorkflowID: "wf-root", ActivityID: "agent-branch-1", ActivityKind: "step", ActivityType: "mock/auditor", ActivityName: "agent-branch-1", StepID: "agent-branch-1", Status: "running", Active: true, AgentID: "auditor", StartedAt: &fanoutStarted, UpdatedAt: now},
+		},
+		FlowGraphs: []FlowGraphDocument{{
+			WorkflowID: "wf-root",
+			FlowSlug:   "live-render-parent",
+			Version:    1,
+			Graph: FlowGraph{SchemaVersion: 1, RootID: "flow:live-render-parent", Nodes: []FlowGraphNode{
+				{ID: "flow:live-render-parent", Kind: "flow", Label: "live-render-parent", Order: 1},
+				{ID: "step:agent-internal-fanout", Kind: "step", Label: "Agent internal fanout", StepID: "agent-internal-fanout", StepType: "mock/fanout-manager", ParentID: "flow:live-render-parent", Order: 2},
+				{ID: "step:spawn-subagents", Kind: "step", Label: "Spawn subagents", StepID: "spawn-subagents", StepType: "fanout", ParentID: "flow:live-render-parent", Order: 3},
+				{ID: "step:spawn-subagents:item:0", Kind: "agent", Label: "mock/researcher", ParentID: "step:spawn-subagents", AgentID: "mock/researcher", Order: 4},
+				{ID: "step:spawn-subagents:item:1", Kind: "agent", Label: "mock/auditor", ParentID: "step:spawn-subagents", AgentID: "mock/auditor", Order: 5},
+				{ID: "step:spawn-children", Kind: "step", Label: "spawn-children", StepID: "spawn-children", StepType: "fanout", ParentID: "flow:live-render-parent", Order: 6},
+			}},
+		}},
+	}
+
+	frame := CollectDisplayFrame(snapshot, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+	out := RenderDisplayFrame(frame)
+
+	agentLine := displayLineContaining(t, frame, "◉ agent-internal-fanout")
+	fanoutLine := displayLineContaining(t, frame, "✣ spawn-subagents")
+	branchLine := displayLineContaining(t, frame, "◉ researcher [b0]")
+	if strings.Contains(out, "mock_spawn_agent_fanout") {
+		t.Fatalf("expected inferred semantic fanout to replace transport tool row\n---\n%s", out)
+	}
+	if strings.Contains(out, "spawn-subagents:item") || strings.Contains(out, "mock/researcher [") || strings.Contains(out, "mock/auditor [") {
+		t.Fatalf("expected planned fanout item skeletons to be suppressed after runtime branches exist\n---\n%s", out)
+	}
+	if displayIndent(fanoutLine.Text) <= displayIndent(agentLine.Text) || displayIndent(branchLine.Text) <= displayIndent(fanoutLine.Text) {
+		t.Fatalf("expected inferred fanout to nest under agent and contain branch runs\nagent=%q\nfanout=%q\nbranch=%q\n---\n%s", agentLine.Text, fanoutLine.Text, branchLine.Text, out)
+	}
+	if strings.Index(out, agentLine.Text) > strings.Index(out, fanoutLine.Text) ||
+		strings.Index(out, fanoutLine.Text) > strings.Index(out, branchLine.Text) {
+		t.Fatalf("expected agent, inferred fanout, branch order\n---\n%s", out)
 	}
 }
 
