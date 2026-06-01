@@ -143,17 +143,24 @@ func (m *liveTUIModel) startCursorStepIOInspect() (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
+	m.stickEnd = false
 	cacheKey := liveTUIStepIOCacheKey(ref)
 	if cached, ok := m.stepIOCache[cacheKey]; ok {
 		m.stepIO = liveTUIStepIOState{RowKey: ref.RowKey, Ref: ref, Result: cached}
+		m.stepIOOffset = 0
+		m.stepIOTab = m.stepIOResultKind()
 		return nil, true
 	}
 	if m.loadStepIO == nil {
 		m.stepIO = liveTUIStepIOState{RowKey: ref.RowKey, Ref: ref, Err: "step I/O loader unavailable"}
+		m.stepIOOffset = 0
+		m.stepIOTab = ""
 		return nil, true
 	}
 	loader := m.loadStepIO
 	m.stepIO = liveTUIStepIOState{RowKey: ref.RowKey, Ref: ref, Loading: true}
+	m.stepIOOffset = 0
+	m.stepIOTab = ""
 	return func() tea.Msg {
 		result, err := loader(ref)
 		return liveTUIStepIOLoadedMsg{rowKey: ref.RowKey, ref: ref, result: result, err: err}
@@ -175,6 +182,8 @@ func (m *liveTUIModel) handleStepIOLoaded(msg liveTUIStepIOLoadedMsg) {
 	m.stepIOCache[liveTUIStepIOCacheKey(msg.ref)] = msg.result
 	m.stepIO.Result = msg.result
 	m.stepIO.Err = ""
+	m.stepIOTab = m.stepIOResultKind()
+	m.stepIOOffset = 0
 }
 
 func (m *liveTUIModel) clearStepIOIfSelectionChanged() {
@@ -182,6 +191,8 @@ func (m *liveTUIModel) clearStepIOIfSelectionChanged() {
 		return
 	}
 	m.stepIO = liveTUIStepIOState{}
+	m.stepIOTab = ""
+	m.stepIOOffset = 0
 }
 
 func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef, bool) {
@@ -310,70 +321,6 @@ func liveTUIProblemStatus(status string) bool {
 	}
 }
 
-func (m liveTUIModel) stepIOPaneHeight() int {
-	if m.stepIO.RowKey == "" {
-		return 0
-	}
-	available := m.height - m.headerHeight() - m.headerSeparatorHeight() - m.footerHeight()
-	if available < 5 {
-		return 0
-	}
-	height := 8
-	if available < height+3 {
-		height = available / 2
-		if height < 4 {
-			height = 4
-		}
-	}
-	return height
-}
-
-func (m liveTUIModel) stepIOPaneLines() []string {
-	height := m.stepIOPaneHeight()
-	if height <= 0 {
-		return nil
-	}
-	lines := []string{m.footerSeparator()}
-	contentRows := height - 1
-	title := "step I/O"
-	if strings.TrimSpace(m.stepIO.Ref.ToolCallID) != "" {
-		title = "tool call I/O"
-	} else if strings.TrimSpace(m.stepIO.Ref.TargetKind) == "run" {
-		title = "run I/O"
-	}
-	if label := strings.TrimSpace(m.stepIO.Ref.Label); label != "" {
-		title += " " + styleTUIFg(label, "248")
-	}
-	if stepID := strings.TrimSpace(m.stepIO.Ref.StepID); stepID != "" {
-		title += " " + styleTUIFg("["+stepID+"]", "244")
-	}
-	if status := strings.TrimSpace(firstNonBlankString(m.stepIO.Result.Status, m.stepIO.Ref.Status)); status != "" {
-		title += " " + stepIOStatusStyle(status)
-	}
-	lines = append(lines, title)
-	contentRows--
-	if contentRows <= 0 {
-		return lines[:height]
-	}
-	if m.stepIO.Loading {
-		lines = append(lines, "  "+styleTUIFg("loading input/result...", "220"))
-		return padTUILines(lines, height)
-	}
-	if strings.TrimSpace(m.stepIO.Err) != "" {
-		lines = append(lines, "  "+styleTUIFg("error", "203")+" "+m.stepIO.Err)
-		return padTUILines(lines, height)
-	}
-	result := m.stepIO.Result
-	resultKind := strings.TrimSpace(result.ResultKind)
-	if resultKind == "" {
-		resultKind = "output"
-	}
-	lines = append(lines, stepIOSectionLines("input", result.Input, contentRows/2)...)
-	remaining := height - len(lines)
-	lines = append(lines, stepIOSectionLines(resultKind, result.Result, remaining)...)
-	return padTUILines(lines, height)
-}
-
 func stepIOSectionLines(label string, value any, maxRows int) []string {
 	if maxRows <= 0 {
 		return nil
@@ -401,6 +348,62 @@ func stepIOSectionLines(label string, value any, maxRows int) []string {
 		lines = append(lines, "  "+styleTUIFg("...", "244"))
 	}
 	return lines
+}
+
+func inspectValueLines(value any, width int) []string {
+	preview := "not captured"
+	if value != nil {
+		preview = renderStepIOPreview(redactLiveTUISensitiveValue(value))
+	}
+	if strings.TrimSpace(preview) == "" {
+		preview = "not captured"
+	}
+	raw := strings.Split(preview, "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		wrapped := wrapInspectLine(line, width)
+		if len(wrapped) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, wrapped...)
+	}
+	return lines
+}
+
+func wrapInspectLine(line string, width int) []string {
+	if width <= 0 {
+		return []string{line}
+	}
+	runes := []rune(line)
+	if len(runes) <= width {
+		return []string{line}
+	}
+	indent := 0
+	for indent < len(runes) && runes[indent] == ' ' {
+		indent++
+	}
+	continuationIndent := indent + 2
+	if continuationIndent > width/2 {
+		continuationIndent = indent
+	}
+	prefix := strings.Repeat(" ", continuationIndent)
+	out := []string{}
+	for len(runes) > width {
+		cut := width
+		for cut > 0 && runes[cut-1] != ' ' && runes[cut-1] != ',' {
+			cut--
+		}
+		if cut <= indent || cut < width/2 {
+			cut = width
+		}
+		part := strings.TrimRight(string(runes[:cut]), " ")
+		out = append(out, part)
+		rest := strings.TrimLeft(string(runes[cut:]), " ")
+		runes = []rune(prefix + rest)
+	}
+	out = append(out, string(runes))
+	return out
 }
 
 func liveTUIToolCallIOResult(ref liveTUIStepIORef, parentStatus string, parentResult any) (liveTUIStepIOResult, error) {
@@ -538,14 +541,4 @@ func stepIOStatusStyle(status string) string {
 		return styleTUIFg(status, "203")
 	}
 	return styleTUIFg(status, "121")
-}
-
-func padTUILines(lines []string, height int) []string {
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	if len(lines) > height {
-		return lines[:height]
-	}
-	return lines
 }

@@ -102,20 +102,22 @@ type liveTreeNode struct {
 }
 
 type liveTUIModel struct {
-	nodes       []liveTreeNode
-	header      string
-	collapsed   map[string]bool
-	cursorKey   string
-	cursor      int
-	offset      int
-	stickEnd    bool
-	width       int
-	height      int
-	updatedAt   time.Time
-	openURL     func(string) error
-	loadStepIO  func(liveTUIStepIORef) (liveTUIStepIOResult, error)
-	stepIOCache map[string]liveTUIStepIOResult
-	stepIO      liveTUIStepIOState
+	nodes        []liveTreeNode
+	header       string
+	collapsed    map[string]bool
+	cursorKey    string
+	cursor       int
+	offset       int
+	stickEnd     bool
+	width        int
+	height       int
+	updatedAt    time.Time
+	openURL      func(string) error
+	loadStepIO   func(liveTUIStepIORef) (liveTUIStepIOResult, error)
+	stepIOCache  map[string]liveTUIStepIOResult
+	stepIO       liveTUIStepIOState
+	stepIOTab    string
+	stepIOOffset int
 
 	waitAction        liveTUIWaitAction
 	waitActionPending string
@@ -143,8 +145,17 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.ensureCursorVisible()
+		if m.inspectOpen() {
+			m.clampStepIOOffset()
+		} else {
+			m.ensureCursorVisible()
+		}
 	case tea.KeyMsg:
+		if m.inspectOpen() {
+			if cmd, handled := m.updateInspectKey(msg); handled {
+				return m, cmd
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -217,6 +228,9 @@ func (m liveTUIModel) View() string {
 	if m.height <= 0 {
 		return ""
 	}
+	if m.inspectOpen() {
+		return m.inspectView()
+	}
 	visible := m.visibleNodes()
 	m.ensureCursorVisible()
 	bodyHeight := m.bodyHeight()
@@ -235,7 +249,6 @@ func (m liveTUIModel) View() string {
 		}
 		lines = append(lines, line)
 	}
-	lines = append(lines, m.stepIOPaneLines()...)
 	switch m.footerHeight() {
 	case 2:
 		lines = append(lines, m.footerSeparator(), m.footer(visible))
@@ -677,6 +690,107 @@ func (m liveTUIModel) cursorWebURL(visible []liveTreeNode) string {
 	return strings.TrimSpace(visible[m.cursor].WebURL)
 }
 
+func (m *liveTUIModel) updateInspectKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return tea.Quit, true
+	case "esc", "backspace":
+		m.closeStepIOInspect()
+		return nil, true
+	case "up", "k":
+		m.scrollStepIO(-1)
+		return nil, true
+	case "down", "j":
+		m.scrollStepIO(1)
+		return nil, true
+	case "pgup":
+		m.scrollStepIO(-m.inspectContentHeight())
+		return nil, true
+	case "pgdown":
+		m.scrollStepIO(m.inspectContentHeight())
+		return nil, true
+	case "home":
+		m.stepIOOffset = 0
+		return nil, true
+	case "end":
+		m.stepIOOffset = m.maxStepIOOffset()
+		return nil, true
+	case "i":
+		m.setStepIOTab("input")
+		return nil, true
+	case "o":
+		m.setStepIOTab("output")
+		return nil, true
+	case "e":
+		if m.stepIOResultKind() == "error" {
+			m.setStepIOTab("error")
+			return nil, true
+		}
+	case "tab":
+		m.toggleStepIOTab()
+		return nil, true
+	}
+	return nil, false
+}
+
+func (m liveTUIModel) inspectOpen() bool {
+	return strings.TrimSpace(m.stepIO.RowKey) != ""
+}
+
+func (m *liveTUIModel) closeStepIOInspect() {
+	m.stepIO = liveTUIStepIOState{}
+	m.stepIOOffset = 0
+	m.stepIOTab = ""
+	m.ensureCursorVisible()
+}
+
+func (m *liveTUIModel) scrollStepIO(delta int) {
+	if delta == 0 {
+		return
+	}
+	m.stepIOOffset += delta
+	m.clampStepIOOffset()
+}
+
+func (m *liveTUIModel) setStepIOTab(tab string) {
+	tab = strings.ToLower(strings.TrimSpace(tab))
+	if tab == "error" {
+		tab = m.stepIOResultKind()
+	}
+	if tab != "input" && tab != "output" {
+		tab = m.stepIOResultKind()
+	}
+	m.stepIOTab = tab
+	m.stepIOOffset = 0
+}
+
+func (m *liveTUIModel) toggleStepIOTab() {
+	if m.currentStepIOTab() == "input" {
+		m.setStepIOTab(m.stepIOResultKind())
+		return
+	}
+	m.setStepIOTab("input")
+}
+
+func (m liveTUIModel) currentStepIOTab() string {
+	tab := strings.ToLower(strings.TrimSpace(m.stepIOTab))
+	if tab == "input" || tab == "output" || tab == "error" {
+		return tab
+	}
+	return m.stepIOResultKind()
+}
+
+func (m liveTUIModel) stepIOResultKind() string {
+	kind := strings.ToLower(strings.TrimSpace(m.stepIO.Result.ResultKind))
+	if kind == "" {
+		kind = strings.ToLower(strings.TrimSpace(m.stepIO.Ref.Status))
+	}
+	if kind == "error" || liveTUIProblemStatus(kind) {
+		return "error"
+	}
+	return "output"
+}
+
 func (m *liveTUIModel) collapseCursorOrMoveParent() {
 	visible := m.visibleNodes()
 	if m.cursor < 0 || m.cursor >= len(visible) || !isSelectableLiveNode(visible[m.cursor]) {
@@ -930,6 +1044,165 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 	return strings.Join(parts, footerDivider())
 }
 
+func (m liveTUIModel) inspectView() string {
+	lines := make([]string, 0, m.height)
+	if m.header != "" {
+		lines = append(lines, m.header)
+	}
+	if m.inspectHeaderSeparatorHeight() > 0 {
+		lines = append(lines, m.headerSeparator())
+	}
+	content := m.inspectContentLines()
+	contentHeight := m.inspectContentHeight()
+	for row := 0; row < contentHeight; row++ {
+		idx := m.stepIOOffset + row
+		line := ""
+		if idx < len(content) {
+			line = content[idx]
+		}
+		lines = append(lines, line)
+	}
+	switch m.footerHeight() {
+	case 2:
+		lines = append(lines, m.footerSeparator(), m.inspectFooter())
+	case 1:
+		lines = append(lines, m.inspectFooter())
+	}
+	for i, line := range lines {
+		lines[i] = fitTUILine(line, m.width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m liveTUIModel) inspectContentLines() []string {
+	lines := []string{m.inspectTitleLine()}
+	if m.stepIO.Loading {
+		lines = append(lines, "", "  "+styleTUIFg("loading input/result...", "220"))
+		return lines
+	}
+	if strings.TrimSpace(m.stepIO.Err) != "" {
+		lines = append(lines, "", "  "+styleTUIFg("error", "203")+" "+m.stepIO.Err)
+		return lines
+	}
+	lines = append(lines, m.inspectTabsLine(), "")
+	tab := m.currentStepIOTab()
+	label := tab
+	value := m.stepIO.Result.Result
+	if tab == "input" {
+		value = m.stepIO.Result.Input
+	} else if label == "" {
+		label = "output"
+	}
+	lines = append(lines, styleTUIFg(label, "81"))
+	lines = append(lines, inspectValueLines(value, m.inspectContentWidth())...)
+	return lines
+}
+
+func (m liveTUIModel) inspectTitleLine() string {
+	title := "step I/O"
+	if strings.TrimSpace(m.stepIO.Ref.ToolCallID) != "" {
+		title = "tool call I/O"
+	} else if strings.TrimSpace(m.stepIO.Ref.TargetKind) == "run" {
+		title = "run I/O"
+	}
+	if label := strings.TrimSpace(m.stepIO.Ref.Label); label != "" {
+		title += " " + styleTUIFg(label, "248")
+	}
+	if stepID := strings.TrimSpace(m.stepIO.Ref.StepID); stepID != "" {
+		title += " " + styleTUIFg("["+stepID+"]", "244")
+	}
+	if toolCallID := strings.TrimSpace(m.stepIO.Ref.ToolCallID); toolCallID != "" {
+		title += " " + styleTUIFg("["+toolCallID+"]", "244")
+	}
+	if status := strings.TrimSpace(firstNonBlankString(m.stepIO.Result.Status, m.stepIO.Ref.Status)); status != "" {
+		title += " " + stepIOStatusStyle(status)
+	}
+	return title
+}
+
+func (m liveTUIModel) inspectTabsLine() string {
+	resultKind := m.stepIOResultKind()
+	current := m.currentStepIOTab()
+	input := inspectTabLabel("i", "input", current == "input")
+	output := inspectTabLabel("o", resultKind, current == resultKind)
+	return input + footerDivider() + output
+}
+
+func inspectTabLabel(key string, label string, selected bool) string {
+	text := footerKey(key) + " " + styleTUIFg(label, "248")
+	if selected {
+		return styleTUISelectedText(stripTUIANSI(text))
+	}
+	return text
+}
+
+func (m liveTUIModel) inspectFooter() string {
+	content := m.inspectContentLines()
+	position := footerPosition(minInt(m.stepIOOffset+1, maxInt(len(content), 1)), maxInt(len(content), 1))
+	parts := []string{
+		breytaTUILogoMark(),
+		footerCommand("↑↓/jk", "scroll"),
+		footerKey("pgup/pgdn"),
+		footerCommand("i/o", "tabs"),
+		footerCommand("esc/backspace", "back"),
+		footerCommand("q/ctrl+c", "exit"),
+		position,
+	}
+	return strings.Join(parts, footerDivider())
+}
+
+func (m liveTUIModel) inspectContentHeight() int {
+	body := m.height - m.headerHeight() - m.inspectHeaderSeparatorHeight() - m.footerHeight()
+	if body < 0 {
+		return 0
+	}
+	return body
+}
+
+func (m liveTUIModel) inspectHeaderSeparatorHeight() int {
+	if m.header == "" {
+		return 0
+	}
+	available := m.height - m.headerHeight() - m.footerHeight()
+	if available <= 1 {
+		return 0
+	}
+	return 1
+}
+
+func (m liveTUIModel) inspectContentWidth() int {
+	width := m.width - 2
+	if width < 20 {
+		width = m.width
+	}
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m *liveTUIModel) clampStepIOOffset() {
+	maxOffset := m.maxStepIOOffset()
+	if m.stepIOOffset > maxOffset {
+		m.stepIOOffset = maxOffset
+	}
+	if m.stepIOOffset < 0 {
+		m.stepIOOffset = 0
+	}
+}
+
+func (m liveTUIModel) maxStepIOOffset() int {
+	contentHeight := m.inspectContentHeight()
+	if contentHeight <= 0 {
+		return 0
+	}
+	maxOffset := len(m.inspectContentLines()) - contentHeight
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
 func (m liveTUIModel) footerSeparator() string {
 	if m.width <= 0 {
 		return ""
@@ -980,7 +1253,7 @@ func styleTUIFg(value string, color string) string {
 }
 
 func (m liveTUIModel) bodyHeight() int {
-	body := m.height - m.headerHeight() - m.headerSeparatorHeight() - m.stepIOPaneHeight() - m.footerHeight()
+	body := m.height - m.headerHeight() - m.headerSeparatorHeight() - m.footerHeight()
 	if body < 0 {
 		return 0
 	}
@@ -1113,6 +1386,20 @@ func hasPlannedAfter(nodes []liveTreeNode, idx int) bool {
 		}
 	}
 	return false
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func fitTUILine(value string, width int) string {

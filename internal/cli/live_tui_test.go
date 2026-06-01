@@ -654,13 +654,26 @@ func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())
-	for _, want := range []string{"step I/O", "input", "caseId", "output", "\"ok\": true"} {
+	for _, want := range []string{"step I/O", "i input", "o output", "esc/backspace back", "output", "\"ok\": true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected pane to contain %q\n%s", want, view)
 		}
 	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model = updated.(liveTUIModel)
+	view = stripTUIANSI(model.View())
+	for _, want := range []string{"input", "caseId"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected input tab to contain %q\n%s", want, view)
+		}
+	}
 	if got := len(strings.Split(model.View(), "\n")); got != model.height {
 		t.Fatalf("expected TUI view to stay at terminal height, got %d want %d", got, model.height)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(liveTUIModel)
+	if model.stepIO.RowKey != "" {
+		t.Fatalf("expected escape to close inspect view")
 	}
 }
 
@@ -757,10 +770,15 @@ func TestLiveTUIEnterInspectsCompletedToolCallIO(t *testing.T) {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())
-	for _, want := range []string{"tool call I/O", "mock_fetch_record", "recordId", "\"risk\": \"low\""} {
+	for _, want := range []string{"tool call I/O", "mock_fetch_record", "\"risk\": \"low\""} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected tool pane to contain %q\n%s", want, view)
 		}
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model = updated.(liveTUIModel)
+	if view := stripTUIANSI(model.View()); !strings.Contains(view, "recordId") {
+		t.Fatalf("expected tool input tab\n%s", view)
 	}
 }
 
@@ -812,10 +830,15 @@ func TestLiveTUIEnterInspectsCompletedChildRunIO(t *testing.T) {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())
-	for _, want := range []string{"run I/O", "live-render-child", "\"idx\": 2", "child-2-artifact.md"} {
+	for _, want := range []string{"run I/O", "live-render-child", "child-2-artifact.md"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected child run pane to contain %q\n%s", want, view)
 		}
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model = updated.(liveTUIModel)
+	if view := stripTUIANSI(model.View()); !strings.Contains(view, "\"idx\": 2") {
+		t.Fatalf("expected child run input tab\n%s", view)
 	}
 }
 
