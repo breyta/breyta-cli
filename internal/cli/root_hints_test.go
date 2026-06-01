@@ -348,6 +348,9 @@ func TestFlowsShowHelpExplainsDraftVsLiveTarget(t *testing.T) {
 	if !strings.Contains(help, "Use --target live when verifying what production/live runs are executing.") {
 		t.Fatalf("flows show help missing live verification guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "--version N: fetches an immutable historical version") {
+		t.Fatalf("flows show help missing historical version guidance:\n%s", help)
+	}
 }
 
 func TestFlowsValidateHelpIncludesReleaseSafetySequence(t *testing.T) {
