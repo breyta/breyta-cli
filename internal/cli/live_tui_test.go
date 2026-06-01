@@ -764,6 +764,93 @@ func TestLiveTUIEnterInspectsCompletedToolCallIO(t *testing.T) {
 	}
 }
 
+func TestLiveTUIEnterInspectsCompletedChildRunIO(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 14
+	var gotRef liveTUIStepIORef
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		gotRef = ref
+		return liveTUIStepIOResult{
+			Ref:        ref,
+			Status:     "completed",
+			Input:      map[string]any{"idx": 2},
+			Result:     map[string]any{"artifact": "child-2-artifact.md"},
+			ResultKind: "output",
+		}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:              "run:wf-child-b2",
+			Text:             "    ƒ live-render-child [b2] 20.6s",
+			RowKind:          "run",
+			WorkspaceID:      "ws-acme",
+			WorkflowID:       "wf-child-b2",
+			RootWorkflowID:   "wf-root",
+			ParentWorkflowID: "wf-root",
+			ParentStepID:     "spawn-children",
+			FlowSlug:         "live-render-child",
+			Status:           "completed",
+			UpdatedAt:        time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if plain := stripTUIANSI(model.View()); !strings.Contains(plain, "enter inspect") {
+		t.Fatalf("expected footer to expose child run inspection\n%s", plain)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected enter on completed child run to start lazy I/O load")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(liveTUIModel)
+
+	if gotRef.TargetKind != "run" || gotRef.WorkflowID != "wf-child-b2" || gotRef.StepID != "" {
+		t.Fatalf("unexpected loader ref: %#v", gotRef)
+	}
+	view := stripTUIANSI(model.View())
+	for _, want := range []string{"run I/O", "live-render-child", "\"idx\": 2", "child-2-artifact.md"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected child run pane to contain %q\n%s", want, view)
+		}
+	}
+}
+
+func TestLiveTUIRootRunIsNotInspectable(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 10
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		t.Fatalf("root run should not be inspected: %#v", ref)
+		return liveTUIStepIOResult{}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:         "run:wf-root",
+			Text:        "  ƒ live-render-parent 20.6s",
+			RowKind:     "run",
+			WorkspaceID: "ws-acme",
+			WorkflowID:  "wf-root",
+			FlowSlug:    "live-render-parent",
+			Status:      "completed",
+			UpdatedAt:   time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if plain := stripTUIANSI(model.View()); strings.Contains(plain, "enter inspect") {
+		t.Fatalf("did not expect root run inspection\n%s", plain)
+	}
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("did not expect enter on root run to start inspection")
+	}
+}
+
 func TestLiveTUIToolCallIOFiltersParentStepOutput(t *testing.T) {
 	ref := liveTUIStepIORef{
 		WorkflowID: "wf-root",

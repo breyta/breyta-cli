@@ -396,6 +396,9 @@ func isTUIRootFlowLine(line live.DisplayLine, header string, firstBodyLine bool)
 	if !strings.HasPrefix(strings.TrimSpace(line.Key), "run:") {
 		return false
 	}
+	if strings.TrimSpace(line.ParentWorkflowID) != "" || strings.TrimSpace(line.ParentStepID) != "" {
+		return false
+	}
 	fields := strings.Fields(stripTUIANSI(line.Text))
 	for i, field := range fields {
 		if field == "f" || field == "ƒ" {

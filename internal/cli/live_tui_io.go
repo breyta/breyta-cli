@@ -17,6 +17,7 @@ type liveTUIStepIORef struct {
 	WorkflowID string
 	StepID     string
 	ToolCallID string
+	TargetKind string
 	Label      string
 	Status     string
 	UpdatedAt  time.Time
@@ -58,7 +59,12 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 	workflowID := strings.TrimSpace(ref.WorkflowID)
 	stepID := strings.TrimSpace(ref.StepID)
 	if workflowID == "" || stepID == "" {
-		return liveTUIStepIOResult{}, fmt.Errorf("selected step is missing workflow or step id")
+		if ref.TargetKind != "run" {
+			return liveTUIStepIOResult{}, fmt.Errorf("selected step is missing workflow or step id")
+		}
+	}
+	if ref.TargetKind == "run" {
+		return fetchLiveTUIRunIO(app, ref, workflowID)
 	}
 	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", map[string]any{
 		"workflowId":         workflowID,
@@ -94,6 +100,39 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 		Ref:        ref,
 		Status:     stepStatus,
 		Input:      input,
+		Result:     result,
+		ResultKind: resultKind,
+	}, nil
+}
+
+func fetchLiveTUIRunIO(app *App, ref liveTUIStepIORef, workflowID string) (liveTUIStepIOResult, error) {
+	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", map[string]any{
+		"workflowId":    workflowID,
+		"includeSteps":  false,
+		"includeResult": true,
+	}, 20*time.Second)
+	if err != nil {
+		return liveTUIStepIOResult{}, err
+	}
+	if status >= 400 || !isOK(out) {
+		return liveTUIStepIOResult{}, fmt.Errorf("runs.get failed with HTTP %d", status)
+	}
+	run := mapStringAny(mapStringAny(out["data"])["run"])
+	if run == nil {
+		return liveTUIStepIOResult{}, fmt.Errorf("run %s not found", workflowID)
+	}
+	runStatus := firstNonBlankString(run["status"], ref.Status)
+	errValue := firstPresent(run, "error", "errorOutput", "error-output", "errorMessage", "error-message")
+	resultKind := "output"
+	result := firstPresent(run, "result", "resultPreview", "result-preview", "output", "outputPreview", "output-preview")
+	if liveTUIProblemStatus(runStatus) || errValue != nil {
+		resultKind = "error"
+		result = errValue
+	}
+	return liveTUIStepIOResult{
+		Ref:        ref,
+		Status:     runStatus,
+		Input:      firstPresent(run, "input", "inputPreview", "input-preview"),
 		Result:     result,
 		ResultKind: resultKind,
 	}, nil
@@ -154,6 +193,16 @@ func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef,
 	if !isInspectableStepLine(line) {
 		return liveTUIStepIORef{}, false
 	}
+	if isInspectableRunLine(line) {
+		return liveTUIStepIORef{
+			RowKey:     node.Key,
+			WorkflowID: strings.TrimSpace(line.WorkflowID),
+			TargetKind: "run",
+			Label:      firstNonBlankString(line.FlowSlug, node.Text),
+			Status:     strings.TrimSpace(line.Status),
+			UpdatedAt:  line.UpdatedAt,
+		}, true
+	}
 	stepID := strings.TrimSpace(line.StepID)
 	toolCallID := ""
 	if isToolDisplayLine(line) {
@@ -172,6 +221,9 @@ func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef,
 }
 
 func isInspectableStepLine(line live.DisplayLine) bool {
+	if isInspectableRunLine(line) {
+		return true
+	}
 	if line.Planned || line.Active || strings.TrimSpace(line.WorkflowID) == "" {
 		return false
 	}
@@ -182,6 +234,20 @@ func isInspectableStepLine(line live.DisplayLine) bool {
 		return false
 	}
 	if strings.EqualFold(strings.TrimSpace(line.ActivityKind), "resource") {
+		return false
+	}
+	status := strings.ToLower(strings.TrimSpace(line.Status))
+	if status == "" && line.CompletedAt != nil {
+		status = "completed"
+	}
+	return liveTUITerminalStatus(status)
+}
+
+func isInspectableRunLine(line live.DisplayLine) bool {
+	if line.Planned || line.Active || strings.TrimSpace(line.RowKind) != "run" || strings.TrimSpace(line.WorkflowID) == "" {
+		return false
+	}
+	if strings.TrimSpace(line.ParentWorkflowID) == "" && strings.TrimSpace(line.ParentStepID) == "" {
 		return false
 	}
 	status := strings.ToLower(strings.TrimSpace(line.Status))
@@ -223,7 +289,7 @@ func liveTUIStepIOCacheKey(ref liveTUIStepIORef) string {
 	if !ref.UpdatedAt.IsZero() {
 		updated = ref.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	return strings.Join([]string{ref.WorkflowID, ref.StepID, ref.ToolCallID, ref.Status, updated}, "\x00")
+	return strings.Join([]string{ref.TargetKind, ref.WorkflowID, ref.StepID, ref.ToolCallID, ref.Status, updated}, "\x00")
 }
 
 func liveTUITerminalStatus(status string) bool {
@@ -272,6 +338,8 @@ func (m liveTUIModel) stepIOPaneLines() []string {
 	title := "step I/O"
 	if strings.TrimSpace(m.stepIO.Ref.ToolCallID) != "" {
 		title = "tool call I/O"
+	} else if strings.TrimSpace(m.stepIO.Ref.TargetKind) == "run" {
+		title = "run I/O"
 	}
 	if label := strings.TrimSpace(m.stepIO.Ref.Label); label != "" {
 		title += " " + styleTUIFg(label, "248")
