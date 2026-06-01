@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -3046,6 +3047,128 @@ func TestFlowsRun_SendsInvocation(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_UploadsManualBlobRefInput(t *testing.T) {
+	const resourceURI = "res://v1/ws/ws-acme/file/uploaded-thesis"
+	var sawInit, sawDirect, sawComplete, sawRun bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/files/uploads/init":
+			sawInit = true
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["filename"] != "thesis.pdf" {
+				t.Fatalf("expected filename thesis.pdf, got %#v", body["filename"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI}})
+		case "/api/files/uploads/direct":
+			sawDirect = true
+			if got := r.URL.Query().Get("uri"); got != resourceURI {
+				t.Fatalf("expected direct upload uri %s, got %q", resourceURI, got)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "pdf-bytes" {
+				t.Fatalf("expected uploaded body, got %q", string(body))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "/api/files/uploads/complete":
+			sawComplete = true
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["uri"] != resourceURI {
+				t.Fatalf("expected complete uri %s, got %#v", resourceURI, body["uri"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"contentType": "application/pdf", "sizeBytes": 9}})
+		case "/api/commands":
+			sawRun = true
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["command"] != "flows.run" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			input, _ := args["input"].(map[string]any)
+			thesis, _ := input["thesis"].(map[string]any)
+			if thesis["type"] != "resource-ref" || thesis["uri"] != resourceURI {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": fmt.Sprintf("missing upload ref: %#v", thesis)}})
+				return
+			}
+			if thesis["contentType"] != "application/pdf" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing contentType"}})
+				return
+			}
+			if input["mode"] != "smoke" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing existing input"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"run": map[string]any{"workflowId": "wf-upload", "status": "running"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "thesis.pdf")
+	if err := os.WriteFile(path, []byte("pdf-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "thesis-pdf-review-docx",
+		"--target", "draft",
+		"--interface-id", "run",
+		"--input", `{"mode":"smoke"}`,
+		"--upload", "thesis="+path,
+	)
+	if err != nil {
+		t.Fatalf("flows run --upload failed: %v\n%s", err, stdout)
+	}
+	if !sawInit || !sawDirect || !sawComplete || !sawRun {
+		t.Fatalf("expected upload and run calls, got init=%v direct=%v complete=%v run=%v", sawInit, sawDirect, sawComplete, sawRun)
+	}
+}
+
+func TestFlowsRun_UploadConflictDoesNotCreateResource(t *testing.T) {
+	var apiCalled bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "thesis-pdf-review-docx",
+		"--target", "draft",
+		"--input", `{"thesis":{"type":"resource-ref","uri":"res://v1/ws/ws-acme/file/existing"}}`,
+		"--upload", "thesis=/does/not/need/to/exist.pdf",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --upload conflict to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, `--upload field "thesis" conflicts with --input`) {
+		t.Fatalf("expected conflict error, got stderr:\n%s", stderr)
+	}
+	if apiCalled {
+		t.Fatalf("expected no upload or run API calls after local conflict validation")
 	}
 }
 

@@ -372,6 +372,97 @@ func runStatusFailedForExit(status string) bool {
 	}
 }
 
+func parseFlowRunUpload(raw string) (string, string, error) {
+	field, path, ok := strings.Cut(raw, "=")
+	field = strings.TrimSpace(field)
+	path = strings.TrimSpace(path)
+	if !ok || field == "" || path == "" {
+		return "", "", fmt.Errorf("invalid --upload %q (expected field=path)", raw)
+	}
+	return field, path, nil
+}
+
+type flowRunUploadSpec struct {
+	field string
+	path  string
+}
+
+func parseFlowRunUploads(uploads []string, existingFields map[string]bool) ([]flowRunUploadSpec, error) {
+	specs := make([]flowRunUploadSpec, 0, len(uploads))
+	for _, raw := range trimStringSlice(uploads) {
+		field, path, err := parseFlowRunUpload(raw)
+		if err != nil {
+			return nil, err
+		}
+		if existingFields[field] {
+			return nil, fmt.Errorf("--upload field %q conflicts with --input; remove the field from --input or omit --upload", field)
+		}
+		specs = append(specs, flowRunUploadSpec{field: field, path: path})
+	}
+	return specs, nil
+}
+
+func flowRunUploadResourceRef(result map[string]any) (map[string]any, error) {
+	uri := firstNonBlankString(result["resourceUri"], result["uri"])
+	if uri == "" {
+		return nil, errors.New("upload response missing resource URI")
+	}
+	ref := map[string]any{
+		"type": "resource-ref",
+		"uri":  uri,
+	}
+	if contentType := firstNonBlankString(result["contentType"], result["content-type"]); contentType != "" {
+		ref["contentType"] = contentType
+	}
+	if filename := firstNonBlankString(result["filename"], result["name"]); filename != "" {
+		ref["filename"] = filename
+	}
+	if sizeBytes, ok := firstPresentAny(result["sizeBytes"], result["size-bytes"]).(int64); ok {
+		ref["sizeBytes"] = sizeBytes
+	} else if sizeBytes := firstPresentAny(result["sizeBytes"], result["size-bytes"]); sizeBytes != nil {
+		ref["sizeBytes"] = sizeBytes
+	}
+	return ref, nil
+}
+
+func addFlowRunUploadInput(input map[string]any, field string, ref map[string]any, existingFields map[string]bool) error {
+	if existingFields[field] {
+		return fmt.Errorf("--upload field %q conflicts with --input; remove the field from --input or omit --upload", field)
+	}
+	if existing, ok := input[field]; ok {
+		switch items := existing.(type) {
+		case []any:
+			input[field] = append(items, ref)
+		default:
+			input[field] = []any{items, ref}
+		}
+		return nil
+	}
+	input[field] = ref
+	return nil
+}
+
+func applyFlowRunUploads(ctx context.Context, app *App, input map[string]any, uploads []string, existingFields map[string]bool) error {
+	specs, err := parseFlowRunUploads(uploads, existingFields)
+	if err != nil {
+		return err
+	}
+	for _, spec := range specs {
+		result, err := jobsWorkerUploadFileResource(ctx, app, spec.path, filepath.Base(spec.path), "")
+		if err != nil {
+			return fmt.Errorf("upload %s: %w", spec.field, err)
+		}
+		ref, err := flowRunUploadResourceRef(result)
+		if err != nil {
+			return fmt.Errorf("upload %s: %w", spec.field, err)
+		}
+		if err := addFlowRunUploadInput(input, spec.field, ref, existingFields); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func newFlowsRunCmd(app *App) *cobra.Command {
 	var installationID string
 	var target string
@@ -380,6 +471,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var interfaceID string
 	var triggerID string
 	var inputJSON string
+	var uploads []string
 	var wait bool
 	var timeout time.Duration
 	var poll time.Duration
@@ -390,6 +482,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Default:
 - breyta flows run <flow-slug> [--input '{...}'] [--wait]
+- file/blob-ref manual inputs: use --upload field=path to emulate a browser upload
 - brand-new unreleased flows: add --target draft while authoring, or release first
 
 	Advanced targeting:
@@ -403,6 +496,7 @@ Default:
 		Example: strings.TrimSpace(`
 breyta flows run order-ingest --wait
 breyta flows run order-ingest --input '{"region":"EU"}' --wait
+breyta flows run thesis-pdf-review-docx --target draft --interface-id run --upload thesis=./thesis.pdf --wait
 
 	# Advanced
 	breyta flows run order-ingest --target live --wait
@@ -462,6 +556,20 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 				}
 				payload["input"] = m
 			}
+			if len(trimStringSlice(uploads)) > 0 {
+				input, _ := payload["input"].(map[string]any)
+				if input == nil {
+					input = map[string]any{}
+				}
+				existingFields := map[string]bool{}
+				for key := range input {
+					existingFields[key] = true
+				}
+				if err := applyFlowRunUploads(cmd.Context(), app, input, uploads, existingFields); err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["input"] = input
+			}
 			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll)
 		},
 	}
@@ -476,6 +584,7 @@ breyta flows run order-ingest --input '{"region":"EU"}' --wait
 	cmd.Flags().StringVar(&triggerID, "trigger-id", "", "Compatibility: legacy manual trigger id")
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
+	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
