@@ -692,9 +692,9 @@ func (m liveTUIModel) cursorWebURL(visible []liveTreeNode) string {
 
 func (m *liveTUIModel) updateInspectKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c":
 		return tea.Quit, true
-	case "esc", "backspace":
+	case "esc", "backspace", "q":
 		m.closeStepIOInspect()
 		return nil, true
 	case "up", "k":
@@ -1144,8 +1144,8 @@ func (m liveTUIModel) inspectFooter() string {
 		footerCommand("↑↓/jk", "scroll"),
 		footerKey("pgup/pgdn"),
 		footerCommand("i/o", "tabs"),
-		footerCommand("esc/backspace", "back"),
-		footerCommand("q/ctrl+c", "exit"),
+		footerCommand("q/esc", "back"),
+		footerCommand("ctrl+c", "exit"),
 		position,
 	}
 	return strings.Join(parts, footerDivider())

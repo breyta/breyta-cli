@@ -654,7 +654,7 @@ func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())
-	for _, want := range []string{"step I/O", "i input", "o output", "esc/backspace back", "output", "\"ok\": true"} {
+	for _, want := range []string{"step I/O", "i input", "o output", "q/esc back", "ctrl+c exit", "output", "\"ok\": true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected pane to contain %q\n%s", want, view)
 		}
@@ -674,6 +674,58 @@ func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
 	model = updated.(liveTUIModel)
 	if model.stepIO.RowKey != "" {
 		t.Fatalf("expected escape to close inspect view")
+	}
+}
+
+func TestLiveTUIInspectQReturnsToTree(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 14
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		return liveTUIStepIOResult{
+			Ref:        ref,
+			Status:     "completed",
+			Input:      map[string]any{"caseId": "case-1"},
+			Result:     map[string]any{"ok": true},
+			ResultKind: "output",
+		}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:          "activity:wf-root:collect",
+			Text:         "  ƒ Collect fanout [collect-fanout]",
+			RowKind:      "activity",
+			WorkspaceID:  "ws-acme",
+			WorkflowID:   "wf-root",
+			FlowSlug:     "live-render-parent",
+			StepID:       "collect-fanout",
+			ActivityKind: "step",
+			ActivityName: "Collect fanout",
+			Status:       "completed",
+			UpdatedAt:    time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected inspect command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(liveTUIModel)
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	model = updated.(liveTUIModel)
+	if cmd != nil {
+		t.Fatalf("expected q in inspect view to return to tree without quitting")
+	}
+	if model.stepIO.RowKey != "" {
+		t.Fatalf("expected q to close inspect view")
+	}
+	view := stripTUIANSI(model.View())
+	if !strings.Contains(view, "q/ctrl+c exit") {
+		t.Fatalf("expected tree footer after closing inspect view\n%s", view)
 	}
 }
 
