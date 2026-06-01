@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type liveTUIStepIORef struct {
 	RowKey     string
 	WorkflowID string
 	StepID     string
+	ToolCallID string
 	Label      string
 	Status     string
 	UpdatedAt  time.Time
@@ -85,6 +87,9 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 		resultKind = "error"
 		result = errValue
 	}
+	if strings.TrimSpace(ref.ToolCallID) != "" {
+		return liveTUIToolCallIOResult(ref, stepStatus, result)
+	}
 	return liveTUIStepIOResult{
 		Ref:        ref,
 		Status:     stepStatus,
@@ -149,10 +154,17 @@ func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef,
 	if !isInspectableStepLine(line) {
 		return liveTUIStepIORef{}, false
 	}
+	stepID := strings.TrimSpace(line.StepID)
+	toolCallID := ""
+	if isToolDisplayLine(line) {
+		stepID = firstNonBlankString(line.ParentActivityID, line.ParentStepID, line.StepID)
+		toolCallID = toolCallIDFromDisplayLine(line)
+	}
 	return liveTUIStepIORef{
 		RowKey:     node.Key,
 		WorkflowID: strings.TrimSpace(line.WorkflowID),
-		StepID:     strings.TrimSpace(line.StepID),
+		StepID:     strings.TrimSpace(stepID),
+		ToolCallID: strings.TrimSpace(toolCallID),
 		Label:      firstNonBlankString(line.ActivityName, line.StepID, node.Text),
 		Status:     strings.TrimSpace(line.Status),
 		UpdatedAt:  line.UpdatedAt,
@@ -160,7 +172,10 @@ func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef,
 }
 
 func isInspectableStepLine(line live.DisplayLine) bool {
-	if line.Planned || line.Active || strings.TrimSpace(line.WorkflowID) == "" || strings.TrimSpace(line.StepID) == "" {
+	if line.Planned || line.Active || strings.TrimSpace(line.WorkflowID) == "" {
+		return false
+	}
+	if strings.TrimSpace(line.StepID) == "" && !(isToolDisplayLine(line) && strings.TrimSpace(firstNonBlankString(line.ParentActivityID, line.ParentStepID)) != "") {
 		return false
 	}
 	if strings.TrimSpace(line.RowKind) != "activity" {
@@ -176,12 +191,39 @@ func isInspectableStepLine(line live.DisplayLine) bool {
 	return liveTUITerminalStatus(status)
 }
 
+func isToolDisplayLine(line live.DisplayLine) bool {
+	switch strings.ToLower(strings.TrimSpace(line.ActivityKind)) {
+	case "tool", "tool_call", "mcp_tool_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func toolCallIDFromDisplayLine(line live.DisplayLine) string {
+	if toolCallID := strings.TrimSpace(line.ToolCallID); toolCallID != "" {
+		return toolCallID
+	}
+	parent := strings.TrimSpace(firstNonBlankString(line.ParentActivityID, line.ParentStepID))
+	for _, candidate := range []string{line.ActivityID, line.StepID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if parent != "" && strings.HasPrefix(candidate, parent+"/") {
+			return strings.TrimPrefix(candidate, parent+"/")
+		}
+		return candidate
+	}
+	return ""
+}
+
 func liveTUIStepIOCacheKey(ref liveTUIStepIORef) string {
 	updated := ""
 	if !ref.UpdatedAt.IsZero() {
 		updated = ref.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	return strings.Join([]string{ref.WorkflowID, ref.StepID, ref.Status, updated}, "\x00")
+	return strings.Join([]string{ref.WorkflowID, ref.StepID, ref.ToolCallID, ref.Status, updated}, "\x00")
 }
 
 func liveTUITerminalStatus(status string) bool {
@@ -228,6 +270,9 @@ func (m liveTUIModel) stepIOPaneLines() []string {
 	lines := []string{m.footerSeparator()}
 	contentRows := height - 1
 	title := "step I/O"
+	if strings.TrimSpace(m.stepIO.Ref.ToolCallID) != "" {
+		title = "tool call I/O"
+	}
 	if label := strings.TrimSpace(m.stepIO.Ref.Label); label != "" {
 		title += " " + styleTUIFg(label, "248")
 	}
@@ -271,7 +316,7 @@ func stepIOSectionLines(label string, value any, maxRows int) []string {
 	}
 	preview := "not captured"
 	if value != nil {
-		preview = renderCompactPreview(redactLiveTUISensitiveValue(value))
+		preview = renderStepIOPreview(redactLiveTUISensitiveValue(value))
 	}
 	if strings.TrimSpace(preview) == "" {
 		preview = "not captured"
@@ -288,6 +333,100 @@ func stepIOSectionLines(label string, value any, maxRows int) []string {
 		lines = append(lines, "  "+styleTUIFg("...", "244"))
 	}
 	return lines
+}
+
+func liveTUIToolCallIOResult(ref liveTUIStepIORef, parentStatus string, parentResult any) (liveTUIStepIOResult, error) {
+	toolCall := findLiveTUIToolCallRecord(parentResult, ref.ToolCallID, ref.Label)
+	if toolCall == nil {
+		return liveTUIStepIOResult{}, fmt.Errorf("tool call %q not found in parent step %s", ref.ToolCallID, ref.StepID)
+	}
+	errValue := firstPresent(toolCall, "error", "errorMessage", "error-message")
+	resultKind := "output"
+	result := firstPresent(toolCall, "output", "result", "response", "content")
+	status := firstNonBlankString(toolCall["status"], parentStatus)
+	if errValue != nil || strings.EqualFold(firstNonBlankString(toolCall["success"]), "false") || liveTUIProblemStatus(status) {
+		resultKind = "error"
+		result = errValue
+		if strings.TrimSpace(status) == "" || strings.EqualFold(status, "completed") {
+			status = "failed"
+		}
+	}
+	input := firstPresent(toolCall, "input", "arguments", "args", "params", "parameters")
+	return liveTUIStepIOResult{
+		Ref:        ref,
+		Status:     status,
+		Input:      input,
+		Result:     result,
+		ResultKind: resultKind,
+	}, nil
+}
+
+func findLiveTUIToolCallRecord(value any, toolCallID string, label string) map[string]any {
+	return findLiveTUIToolCallRecordDepth(value, strings.TrimSpace(toolCallID), strings.TrimSpace(label), 0)
+}
+
+func findLiveTUIToolCallRecordDepth(value any, toolCallID string, label string, depth int) map[string]any {
+	if depth > 8 || value == nil {
+		return nil
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		if liveTUIToolCallRecordMatches(v, toolCallID, label) {
+			return v
+		}
+		for _, key := range []string{"toolCalls", "tool_calls", "tool-calls", "tools"} {
+			if found := findLiveTUIToolCallRecordDepth(v[key], toolCallID, label, depth+1); found != nil {
+				return found
+			}
+		}
+		for _, child := range v {
+			if found := findLiveTUIToolCallRecordDepth(child, toolCallID, label, depth+1); found != nil {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if found := findLiveTUIToolCallRecordDepth(child, toolCallID, label, depth+1); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+func liveTUIToolCallRecordMatches(record map[string]any, toolCallID string, label string) bool {
+	if toolCallID != "" {
+		for _, key := range []string{"id", "toolCallId", "tool_call_id", "tool-call-id", "callId", "call_id"} {
+			value := strings.TrimSpace(scalarString(record[key]))
+			if value == toolCallID || strings.HasSuffix(value, "/"+toolCallID) || strings.HasSuffix(toolCallID, "/"+value) {
+				return true
+			}
+		}
+	}
+	name := strings.TrimSpace(firstNonBlankString(record["name"], record["toolName"], record["tool_name"], record["tool-name"]))
+	return name != "" && label != "" && strings.Contains(strings.ToLower(label), strings.ToLower(name))
+}
+
+func renderStepIOPreview(value any) string {
+	switch v := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			var parsed any
+			if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+				return renderStepIOPreview(parsed)
+			}
+		}
+		return v
+	case fmt.Stringer:
+		return v.String()
+	default:
+		b, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			return renderCompactPreview(value)
+		}
+		return string(b)
+	}
 }
 
 func redactLiveTUISensitiveValue(value any) any {

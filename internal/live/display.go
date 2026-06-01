@@ -27,6 +27,7 @@ type DisplayLine struct {
 	ActivityType     string
 	ActivityName     string
 	StepID           string
+	ToolCallID       string
 	Status           string
 	Active           bool
 	ResourceURI      string
@@ -332,6 +333,7 @@ func collectActivity(frame *DisplayFrame, activity Activity, prefix string, opts
 		ActivityType:     strings.TrimSpace(activity.ActivityType),
 		ActivityName:     strings.TrimSpace(activity.ActivityName),
 		StepID:           strings.TrimSpace(activity.StepID),
+		ToolCallID:       strings.TrimSpace(activity.ToolCallID),
 		Status:           normalizeStatus(activity.Status, activity.Active),
 		Active:           activity.Active,
 		StartedAt:        activity.StartedAt,

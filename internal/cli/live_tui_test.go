@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -653,7 +654,7 @@ func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())
-	for _, want := range []string{"step I/O", "input", "caseId", "output", "\"ok\":true"} {
+	for _, want := range []string{"step I/O", "input", "caseId", "output", "\"ok\": true"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected pane to contain %q\n%s", want, view)
 		}
@@ -707,6 +708,105 @@ func TestLiveTUIFailedStepIOShowsErrorInsteadOfOutput(t *testing.T) {
 	}
 	if strings.Contains(view, "\noutput\n") {
 		t.Fatalf("did not expect failed step pane to show an output section\n%s", view)
+	}
+}
+
+func TestLiveTUIEnterInspectsCompletedToolCallIO(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 14
+	var gotRef liveTUIStepIORef
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		gotRef = ref
+		return liveTUIStepIOResult{
+			Ref:        ref,
+			Status:     "completed",
+			Input:      map[string]any{"recordId": "rec-1"},
+			Result:     map[string]any{"risk": "low"},
+			ResultKind: "output",
+		}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:              "activity:wf-root:tool-fetch",
+			Text:             "    ⚙ mock_fetch_record",
+			RowKind:          "activity",
+			WorkspaceID:      "ws-acme",
+			WorkflowID:       "wf-root",
+			ParentActivityID: "research-agent",
+			ActivityID:       "research-agent/call-fetch-record",
+			ActivityKind:     "tool_call",
+			ActivityName:     "mock_fetch_record",
+			ToolCallID:       "call-fetch-record",
+			Status:           "completed",
+			UpdatedAt:        time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected enter on completed tool call to start lazy I/O load")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(liveTUIModel)
+
+	if gotRef.WorkflowID != "wf-root" || gotRef.StepID != "research-agent" || gotRef.ToolCallID != "call-fetch-record" {
+		t.Fatalf("unexpected loader ref: %#v", gotRef)
+	}
+	view := stripTUIANSI(model.View())
+	for _, want := range []string{"tool call I/O", "mock_fetch_record", "recordId", "\"risk\": \"low\""} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected tool pane to contain %q\n%s", want, view)
+		}
+	}
+}
+
+func TestLiveTUIToolCallIOFiltersParentStepOutput(t *testing.T) {
+	ref := liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "research-agent",
+		ToolCallID: "call-fetch-record",
+		Label:      "mock_fetch_record",
+	}
+	result, err := liveTUIToolCallIOResult(ref, "completed", map[string]any{
+		"toolCalls": []any{
+			map[string]any{
+				"id":     "call-fetch-record",
+				"name":   "mock_fetch_record",
+				"input":  map[string]any{"recordId": "rec-1"},
+				"output": map[string]any{"ok": true},
+			},
+			map[string]any{
+				"id":     "call-score-risk",
+				"name":   "mock_score_risk",
+				"input":  map[string]any{"recordId": "rec-2"},
+				"output": map[string]any{"ok": false},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := fmt.Sprint(result.Input); !strings.Contains(got, "rec-1") || strings.Contains(got, "rec-2") {
+		t.Fatalf("unexpected tool input: %#v", result.Input)
+	}
+	if got := fmt.Sprint(result.Result); !strings.Contains(got, "true") || strings.Contains(got, "false") {
+		t.Fatalf("unexpected tool result: %#v", result.Result)
+	}
+}
+
+func TestLiveTUIStepIOPanePrettyPrintsJSON(t *testing.T) {
+	lines := stepIOSectionLines("output", map[string]any{
+		"nested": map[string]any{
+			"ok": true,
+		},
+	}, 6)
+	view := stripTUIANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(view, "{") || !strings.Contains(view, "\"nested\": {") || !strings.Contains(view, "\"ok\": true") {
+		t.Fatalf("expected pretty JSON output\n%s", view)
 	}
 }
 
