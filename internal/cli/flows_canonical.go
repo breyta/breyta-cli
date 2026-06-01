@@ -374,7 +374,7 @@ func runStatusFailedForExit(status string) bool {
 
 func parseFlowRunUpload(raw string) (string, string, error) {
 	field, path, ok := strings.Cut(raw, "=")
-	field = strings.TrimSpace(field)
+	field = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(field), ":"))
 	path = strings.TrimSpace(path)
 	if !ok || field == "" || path == "" {
 		return "", "", fmt.Errorf("invalid --upload %q (expected field=path)", raw)

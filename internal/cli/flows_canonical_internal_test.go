@@ -12,6 +12,16 @@ func TestParseFlowRunUploadsRejectsConflictsBeforeUpload(t *testing.T) {
 	}
 }
 
+func TestParseFlowRunUploadNormalizesEDNStyleFieldName(t *testing.T) {
+	field, path, err := parseFlowRunUpload(":thesis=/tmp/thesis.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if field != "thesis" || path != "/tmp/thesis.pdf" {
+		t.Fatalf("unexpected parsed upload: field=%q path=%q", field, path)
+	}
+}
+
 func TestAddFlowRunUploadInputAppendsRepeatedField(t *testing.T) {
 	input := map[string]any{}
 	first := map[string]any{"type": "resource-ref", "uri": "res://v1/ws/ws-1/file/a"}
