@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -586,6 +588,195 @@ func TestLiveTUIEnterOpensSelectedResourceURL(t *testing.T) {
 	}
 	if opened != "http://localhost:30546/ws-acme/runs/live-render-parent/wf-root?artifactUri=demo&output=fullscreen" {
 		t.Fatalf("unexpected opened URL: %q", opened)
+	}
+}
+
+func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 14
+	var gotRef liveTUIStepIORef
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		gotRef = ref
+		return liveTUIStepIOResult{
+			Ref:        ref,
+			Status:     "completed",
+			Input:      map[string]any{"caseId": "case-1"},
+			Result:     map[string]any{"ok": true},
+			ResultKind: "output",
+		}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:          "activity:wf-root:collect",
+			Text:         "  ƒ Collect fanout [collect-fanout]",
+			RowKind:      "activity",
+			WorkspaceID:  "ws-acme",
+			WorkflowID:   "wf-root",
+			FlowSlug:     "live-render-parent",
+			StepID:       "collect-fanout",
+			ActivityKind: "step",
+			ActivityName: "Collect fanout",
+			Status:       "completed",
+			UpdatedAt:    time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+
+	plain := stripTUIANSI(model.View())
+	if !strings.Contains(plain, "enter inspect") {
+		t.Fatalf("expected footer to expose step inspection\n%s", plain)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected enter on completed step to start lazy I/O load")
+	}
+	if !model.stepIO.Loading {
+		t.Fatalf("expected loading state")
+	}
+	loading := stripTUIANSI(model.View())
+	if !strings.Contains(loading, "loading input/result") {
+		t.Fatalf("expected loading pane\n%s", loading)
+	}
+	msg := cmd()
+	loaded, ok := msg.(liveTUIStepIOLoadedMsg)
+	if !ok {
+		t.Fatalf("expected step I/O loaded message, got %#v", msg)
+	}
+	updated, _ = model.Update(loaded)
+	model = updated.(liveTUIModel)
+
+	if gotRef.WorkflowID != "wf-root" || gotRef.StepID != "collect-fanout" {
+		t.Fatalf("unexpected loader ref: %#v", gotRef)
+	}
+	view := stripTUIANSI(model.View())
+	for _, want := range []string{"step I/O", "input", "caseId", "output", "\"ok\":true"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected pane to contain %q\n%s", want, view)
+		}
+	}
+	if got := len(strings.Split(model.View(), "\n")); got != model.height {
+		t.Fatalf("expected TUI view to stay at terminal height, got %d want %d", got, model.height)
+	}
+}
+
+func TestLiveTUIFailedStepIOShowsErrorInsteadOfOutput(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 14
+	model.loadStepIO = func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		return liveTUIStepIOResult{
+			Ref:        ref,
+			Status:     "failed",
+			Input:      map[string]any{"caseId": "case-1"},
+			Result:     map[string]any{"message": "boom"},
+			ResultKind: "error",
+		}, nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:          "activity:wf-root:collect",
+			Text:         "  ƒ Collect fanout [collect-fanout] failed",
+			RowKind:      "activity",
+			WorkspaceID:  "ws-acme",
+			WorkflowID:   "wf-root",
+			StepID:       "collect-fanout",
+			ActivityKind: "step",
+			ActivityName: "Collect fanout",
+			Status:       "failed",
+			UpdatedAt:    time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
+	if cmd == nil {
+		t.Fatalf("expected enter on failed step to start lazy I/O load")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(liveTUIModel)
+
+	view := stripTUIANSI(model.View())
+	if !strings.Contains(view, "error") || !strings.Contains(view, "boom") {
+		t.Fatalf("expected failed step pane to show error\n%s", view)
+	}
+	if strings.Contains(view, "\noutput\n") {
+		t.Fatalf("did not expect failed step pane to show an output section\n%s", view)
+	}
+}
+
+func TestLiveTUIStepIOPaneRedactsSensitiveKeys(t *testing.T) {
+	lines := stepIOSectionLines("input", map[string]any{
+		"caseId":        "case-1",
+		"authorization": "Bearer secret-token",
+		"nested": map[string]any{
+			"apiKey": "key-1",
+		},
+	}, 6)
+	view := stripTUIANSI(strings.Join(lines, "\n"))
+	for _, want := range []string{"case-1", "[redacted]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected redacted pane to contain %q\n%s", want, view)
+		}
+	}
+	for _, notWant := range []string{"Bearer secret-token", "key-1"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("expected sensitive value %q to be redacted\n%s", notWant, view)
+		}
+	}
+}
+
+func TestFetchLiveTUIStepIOWithoutAppFailsGracefully(t *testing.T) {
+	_, err := fetchLiveTUIStepIO(nil, liveTUIStepIORef{WorkflowID: "wf-root", StepID: "step-1"})
+	if err == nil || !strings.Contains(err.Error(), "loader unavailable") {
+		t.Fatalf("expected loader unavailable error, got %v", err)
+	}
+}
+
+func TestFetchLiveTUIStepIOUsesRunsGetStepResults(t *testing.T) {
+	var capturedArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-root",
+					"steps": []map[string]any{{
+						"stepId": "collect-fanout",
+						"status": "completed",
+						"input":  map[string]any{"caseId": "case-1"},
+						"output": map[string]any{"ok": true},
+					}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "collect-fanout",
+		Status:     "completed",
+	})
+	if err != nil {
+		t.Fatalf("fetch step I/O failed: %v", err)
+	}
+	if capturedArgs["workflowId"] != "wf-root" || capturedArgs["stepId"] != "collect-fanout" || capturedArgs["includeStepResults"] != true {
+		t.Fatalf("unexpected runs.get payload: %#v", capturedArgs)
+	}
+	if result.ResultKind != "output" || mapStringAny(result.Result)["ok"] != true {
+		t.Fatalf("unexpected result: %#v", result)
 	}
 }
 

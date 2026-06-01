@@ -24,10 +24,11 @@ type liveTUIRunner struct {
 	stopped bool
 }
 
-func newLiveTUIRunner(out io.Writer, resolver func(liveTUIWaitAction, string) error) *liveTUIRunner {
+func newLiveTUIRunner(out io.Writer, resolver func(liveTUIWaitAction, string) error, stepIOLoader func(liveTUIStepIORef) (liveTUIStepIOResult, error)) *liveTUIRunner {
 	runner := &liveTUIRunner{done: make(chan error, 1)}
 	model := newLiveTUIModel()
 	model.resolveWaitAction = resolver
+	model.loadStepIO = stepIOLoader
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(out))
 	runner.program = program
 	go func() {
@@ -93,6 +94,7 @@ type liveTreeNode struct {
 	Key        string
 	Text       string
 	WebURL     string
+	Line       live.DisplayLine
 	Depth      int
 	Parent     int
 	Expandable bool
@@ -100,17 +102,20 @@ type liveTreeNode struct {
 }
 
 type liveTUIModel struct {
-	nodes     []liveTreeNode
-	header    string
-	collapsed map[string]bool
-	cursorKey string
-	cursor    int
-	offset    int
-	stickEnd  bool
-	width     int
-	height    int
-	updatedAt time.Time
-	openURL   func(string) error
+	nodes       []liveTreeNode
+	header      string
+	collapsed   map[string]bool
+	cursorKey   string
+	cursor      int
+	offset      int
+	stickEnd    bool
+	width       int
+	height      int
+	updatedAt   time.Time
+	openURL     func(string) error
+	loadStepIO  func(liveTUIStepIORef) (liveTUIStepIOResult, error)
+	stepIOCache map[string]liveTUIStepIOResult
+	stepIO      liveTUIStepIOState
 
 	waitAction        liveTUIWaitAction
 	waitActionPending string
@@ -120,11 +125,12 @@ type liveTUIModel struct {
 
 func newLiveTUIModel() liveTUIModel {
 	return liveTUIModel{
-		collapsed: map[string]bool{},
-		stickEnd:  true,
-		width:     80,
-		height:    24,
-		openURL:   browseropen.Open,
+		collapsed:   map[string]bool{},
+		stickEnd:    true,
+		width:       80,
+		height:      24,
+		openURL:     browseropen.Open,
+		stepIOCache: map[string]liveTUIStepIOResult{},
 	}
 }
 
@@ -165,6 +171,9 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "right":
 			m.expandCursor()
 		case "enter":
+			if cmd, handled := m.startCursorStepIOInspect(); handled {
+				return m, cmd
+			}
 			if cmd := m.openCursorWebURL(); cmd != nil {
 				return m, cmd
 			}
@@ -188,6 +197,8 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFrame(msg.frame)
 	case liveTUIOpenURLMsg:
 		_ = msg
+	case liveTUIStepIOLoadedMsg:
+		m.handleStepIOLoaded(msg)
 	case liveTUIWaitResolvedMsg:
 		m.waitActionPending = ""
 		if msg.err != nil {
@@ -224,6 +235,7 @@ func (m liveTUIModel) View() string {
 		}
 		lines = append(lines, line)
 	}
+	lines = append(lines, m.stepIOPaneLines()...)
 	switch m.footerHeight() {
 	case 2:
 		lines = append(lines, m.footerSeparator(), m.footer(visible))
@@ -245,6 +257,7 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 		m.cursor = 0
 		m.cursorKey = ""
 		m.offset = 0
+		m.clearStepIOIfSelectionChanged()
 		return
 	}
 	if m.stickEnd {
@@ -252,6 +265,7 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 		m.cursorKey = cursorKeyAt(visible, m.cursor)
 		m.ensureCursorVisible()
 		m.scrollForStickEnd(visible)
+		m.clearStepIOIfSelectionChanged()
 		return
 	}
 	if oldCursorKey != "" {
@@ -260,6 +274,7 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 				m.cursor = i
 				m.cursorKey = node.Key
 				m.ensureCursorVisible()
+				m.clearStepIOIfSelectionChanged()
 				return
 			}
 		}
@@ -273,6 +288,7 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 	m.cursor = nearestSelectableIndex(visible, m.cursor, 0)
 	m.cursorKey = cursorKeyAt(visible, m.cursor)
 	m.ensureCursorVisible()
+	m.clearStepIOIfSelectionChanged()
 }
 
 func (m *liveTUIModel) setWaitAction(wait liveTUIWaitAction) {
@@ -310,6 +326,7 @@ func buildLiveTreeNodes(frame live.DisplayFrame) []liveTreeNode {
 			Key:     key,
 			Text:    line.Text,
 			WebURL:  webURL,
+			Line:    line,
 			Depth:   depth,
 			Parent:  parent,
 			Planned: line.Planned,
@@ -576,6 +593,7 @@ func (m *liveTUIModel) setCursorNearest(idx int, direction int) {
 		m.cursor = 0
 		m.cursorKey = ""
 		m.offset = 0
+		m.clearStepIOIfSelectionChanged()
 		return
 	}
 	if idx < 0 {
@@ -587,6 +605,7 @@ func (m *liveTUIModel) setCursorNearest(idx int, direction int) {
 	m.cursor = nearestSelectableIndex(visible, idx, direction)
 	m.cursorKey = cursorKeyAt(visible, m.cursor)
 	m.ensureCursorVisible()
+	m.clearStepIOIfSelectionChanged()
 }
 
 func (m *liveTUIModel) updateStickEnd() {
@@ -884,6 +903,8 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 	}
 	if m.cursorWebURL(visible) != "" {
 		parts = append(parts, footerCommand("enter", "open"))
+	} else if _, ok := m.cursorStepIORef(visible); ok {
+		parts = append(parts, footerCommand("enter", "inspect"))
 	}
 	if m.waitAction.Active {
 		parts = append(parts, footerWaitLabel(m.waitAction.Label()))
@@ -956,7 +977,7 @@ func styleTUIFg(value string, color string) string {
 }
 
 func (m liveTUIModel) bodyHeight() int {
-	body := m.height - m.headerHeight() - m.headerSeparatorHeight() - m.footerHeight()
+	body := m.height - m.headerHeight() - m.headerSeparatorHeight() - m.stepIOPaneHeight() - m.footerHeight()
 	if body < 0 {
 		return 0
 	}

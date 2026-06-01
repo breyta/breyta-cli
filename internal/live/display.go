@@ -11,15 +11,30 @@ var displayANSIRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 // DisplayLine is one rendered row in the live terminal tree.
 type DisplayLine struct {
-	Key          string
-	Text         string
-	Planned      bool
-	WorkspaceID  string
-	WorkflowID   string
-	FlowSlug     string
-	ResourceURI  string
-	ResourceKind string
-	WebURL       string
+	Key              string
+	Text             string
+	RowKind          string
+	Planned          bool
+	WorkspaceID      string
+	WorkflowID       string
+	RootWorkflowID   string
+	ParentWorkflowID string
+	ParentStepID     string
+	FlowSlug         string
+	ActivityID       string
+	ParentActivityID string
+	ActivityKind     string
+	ActivityType     string
+	ActivityName     string
+	StepID           string
+	Status           string
+	Active           bool
+	ResourceURI      string
+	ResourceKind     string
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+	UpdatedAt        time.Time
+	WebURL           string
 	// Live marks rows that change between frames (spinners, durations, active scopes).
 	Live bool
 }
@@ -51,9 +66,10 @@ func CollectDisplayFrame(snapshot Snapshot, opts RenderOptions) DisplayFrame {
 
 	if len(nodes) == 0 {
 		frame.add(DisplayLine{
-			Key:  "waiting",
-			Text: dim("Waiting for run updates...", opts.Color),
-			Live: true,
+			Key:     "waiting",
+			Text:    dim("Waiting for run updates...", opts.Color),
+			RowKind: "waiting",
+			Live:    true,
 		}, true)
 		return frame
 	}
@@ -69,9 +85,10 @@ func CollectDisplayFrame(snapshot Snapshot, opts RenderOptions) DisplayFrame {
 	if !snapshotHasActiveWork(snapshot) {
 		if summary := runSummaryStrip(snapshot, opts); summary != "" {
 			frame.add(DisplayLine{
-				Key:  "summary",
-				Text: summary,
-				Live: false,
+				Key:     "summary",
+				Text:    summary,
+				RowKind: "summary",
+				Live:    false,
 			}, false)
 		}
 	}
@@ -128,7 +145,7 @@ func renderHeaderLine(snapshot Snapshot, opts RenderOptions, activeWork bool, fl
 	} else if header := strings.TrimSpace(opts.FocusWorkflowID); header != "" {
 		key = "header:" + header
 	}
-	return DisplayLine{Key: key, Text: strings.TrimSuffix(b.String(), "\n")}
+	return DisplayLine{Key: key, Text: strings.TrimSuffix(b.String(), "\n"), RowKind: "header"}
 }
 
 func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool, opts RenderOptions, skipRunLine bool, rootFlowSlug string) {
@@ -160,8 +177,20 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 		}
 		runLive := runHasActiveWork(run) || run.Active || node.MissingRun
 		frame.add(DisplayLine{
-			Key:  "run:" + strings.TrimSpace(run.WorkflowID),
-			Text: line,
+			Key:              "run:" + strings.TrimSpace(run.WorkflowID),
+			Text:             line,
+			RowKind:          "run",
+			WorkspaceID:      strings.TrimSpace(run.WorkspaceID),
+			WorkflowID:       strings.TrimSpace(run.WorkflowID),
+			RootWorkflowID:   strings.TrimSpace(run.RootWorkflowID),
+			ParentWorkflowID: strings.TrimSpace(run.ParentWorkflowID),
+			ParentStepID:     strings.TrimSpace(run.ParentStepID),
+			FlowSlug:         strings.TrimSpace(run.FlowSlug),
+			Status:           status,
+			Active:           run.Active,
+			StartedAt:        run.StartedAt,
+			CompletedAt:      run.CompletedAt,
+			UpdatedAt:        run.UpdatedAt,
 		}, runLive)
 	}
 
@@ -180,8 +209,16 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 			activeTool := activeToolText(node, opts.Now)
 			if activeTool == "" || !sameActiveTool(current, activeTool) {
 				frame.add(DisplayLine{
-					Key:  "fallback:" + strings.TrimSpace(run.WorkflowID) + ":current",
-					Text: formatCurrentStepFallbackLine(current, activityPrefix, opts),
+					Key:         "fallback:" + strings.TrimSpace(run.WorkflowID) + ":current",
+					Text:        formatCurrentStepFallbackLine(current, activityPrefix, opts),
+					RowKind:     "fallback",
+					WorkspaceID: strings.TrimSpace(run.WorkspaceID),
+					WorkflowID:  strings.TrimSpace(run.WorkflowID),
+					FlowSlug:    strings.TrimSpace(run.FlowSlug),
+					StepID:      strings.TrimSpace(run.CurrentStepID),
+					Status:      strings.TrimSpace(run.CurrentStepStatus),
+					Active:      true,
+					UpdatedAt:   run.UpdatedAt,
 				}, true)
 				renderedCurrentFallback = true
 			}
@@ -252,7 +289,7 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 			}
 			continue
 		}
-		collectActivity(frame, displayActivity, activityPrefix, opts)
+		collectActivity(frame, displayActivity, activityPrefix, opts, run)
 		activityChildPrefix := branchChildPrefix(activityPrefix, isLastActivity)
 		for _, tool := range activityTools {
 			collectActivityBranch(frame, suppressRedundantAgentLabel(node, tool), activityChildPrefix, opts, run, nestedActivitiesByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
@@ -276,28 +313,96 @@ func collectRunNode(frame *DisplayFrame, node RunNode, prefix string, last bool,
 	}
 }
 
-func collectActivity(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions) {
+func collectActivity(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, run RunState) {
 	key := activityDisplayKey(activity)
 	frame.add(DisplayLine{
-		Key:     key,
-		Text:    formatActivityLine(activity, prefix, opts),
-		Planned: isUnstartedPlannedActivity(activity),
+		Key:              key,
+		Text:             formatActivityLine(activity, prefix, opts),
+		RowKind:          "activity",
+		Planned:          isUnstartedPlannedActivity(activity),
+		WorkspaceID:      firstNonBlank(activity.WorkspaceID, run.WorkspaceID),
+		WorkflowID:       firstNonBlank(activity.WorkflowID, run.WorkflowID),
+		RootWorkflowID:   firstNonBlank(activity.RootWorkflowID, run.RootWorkflowID),
+		ParentWorkflowID: firstNonBlank(activity.ParentWorkflowID, run.ParentWorkflowID),
+		ParentStepID:     firstNonBlank(activity.ParentStepID, run.ParentStepID),
+		FlowSlug:         strings.TrimSpace(run.FlowSlug),
+		ActivityID:       strings.TrimSpace(activity.ActivityID),
+		ParentActivityID: strings.TrimSpace(activity.ParentActivityID),
+		ActivityKind:     strings.TrimSpace(activity.ActivityKind),
+		ActivityType:     strings.TrimSpace(activity.ActivityType),
+		ActivityName:     strings.TrimSpace(activity.ActivityName),
+		StepID:           strings.TrimSpace(activity.StepID),
+		Status:           normalizeStatus(activity.Status, activity.Active),
+		Active:           activity.Active,
+		StartedAt:        activity.StartedAt,
+		CompletedAt:      activity.CompletedAt,
+		UpdatedAt:        activity.UpdatedAt,
 	}, activityLineLive(activity))
 }
 
 func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts RenderOptions, run RunState) {
+	if isAutomaticStepCaptureResource(activity) {
+		return
+	}
 	line := formatResourceLine(activity, prefix, opts)
 	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" + firstNonBlank(activity.ActivityID, activity.ResourceURI, activity.ResourceLabel)
 	frame.add(DisplayLine{
-		Key:          key,
-		Text:         line,
-		Planned:      isUnstartedPlannedActivity(activity),
-		WorkspaceID:  firstNonBlank(activity.WorkspaceID, run.WorkspaceID),
-		WorkflowID:   firstNonBlank(activity.WorkflowID, run.WorkflowID),
-		FlowSlug:     strings.TrimSpace(run.FlowSlug),
-		ResourceURI:  strings.TrimSpace(activity.ResourceURI),
-		ResourceKind: strings.TrimSpace(activity.ResourceKind),
+		Key:              key,
+		Text:             line,
+		RowKind:          "resource",
+		Planned:          isUnstartedPlannedActivity(activity),
+		WorkspaceID:      firstNonBlank(activity.WorkspaceID, run.WorkspaceID),
+		WorkflowID:       firstNonBlank(activity.WorkflowID, run.WorkflowID),
+		RootWorkflowID:   firstNonBlank(activity.RootWorkflowID, run.RootWorkflowID),
+		ParentWorkflowID: firstNonBlank(activity.ParentWorkflowID, run.ParentWorkflowID),
+		ParentStepID:     firstNonBlank(activity.ParentStepID, run.ParentStepID),
+		FlowSlug:         strings.TrimSpace(run.FlowSlug),
+		ActivityID:       strings.TrimSpace(activity.ActivityID),
+		ParentActivityID: strings.TrimSpace(activity.ParentActivityID),
+		ActivityKind:     strings.TrimSpace(activity.ActivityKind),
+		ActivityType:     strings.TrimSpace(activity.ActivityType),
+		ActivityName:     strings.TrimSpace(activity.ActivityName),
+		StepID:           strings.TrimSpace(activity.StepID),
+		Status:           normalizeStatus(activity.Status, activity.Active),
+		Active:           activity.Active,
+		ResourceURI:      strings.TrimSpace(activity.ResourceURI),
+		ResourceKind:     strings.TrimSpace(activity.ResourceKind),
+		StartedAt:        activity.StartedAt,
+		CompletedAt:      activity.CompletedAt,
+		UpdatedAt:        activity.UpdatedAt,
 	}, activityLineLive(activity))
+}
+
+func isAutomaticStepCaptureResource(activity Activity) bool {
+	for _, value := range []string{activity.ResourceURI, activity.ActivityID} {
+		if automaticStepCaptureResourceString(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func automaticStepCaptureResourceString(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.HasPrefix(value, "res://v1/ws/") {
+		return false
+	}
+	marker := "/result/run/"
+	idx := strings.Index(value, marker)
+	if idx < 0 {
+		return false
+	}
+	rest := value[idx+len(marker):]
+	stepIdx := strings.Index(rest, "/step/")
+	if stepIdx < 0 {
+		return false
+	}
+	for _, suffix := range []string{"/input", "/output", "/error"} {
+		if strings.HasSuffix(rest, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func activityDisplayKey(activity Activity) string {

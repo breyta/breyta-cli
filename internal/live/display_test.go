@@ -95,7 +95,7 @@ func TestCollectDisplayFrameKeepsCompletedStepsInTreeOrder(t *testing.T) {
 func TestCollectDisplayFrameCarriesResourceRunContext(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
 	done := now.Add(-2 * time.Second)
-	resourceURI := "res://v1/ws/ws-acme/result/run/wf-root/step/persist-report/output"
+	resourceURI := "res://v1/ws/ws-acme/result/blob/report.md"
 
 	frame := CollectDisplayFrame(Snapshot{
 		Workspace: WorkspaceSummary{
@@ -159,6 +159,45 @@ func TestCollectDisplayFrameCarriesResourceRunContext(t *testing.T) {
 	}
 	if resource.WebURL != "" {
 		t.Fatalf("expected live package not to derive CLI web URL, got %q", resource.WebURL)
+	}
+}
+
+func TestCollectDisplayFrameSuppressesAutomaticStepCaptureResources(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
+	done := now.Add(-2 * time.Second)
+	stepCaptureURI := "res://v1/ws/ws-acme/result/run/wf-root/step/collect-fanout/output"
+	artifactURI := "res://v1/ws/ws-acme/result/blob/report.md"
+	resultURI := "res://v1/ws/ws-acme/result/run/wf-root/flow-output"
+
+	frame := CollectDisplayFrame(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "completed",
+			UpdatedAt:      now,
+			CompletedAt:    &now,
+		}},
+		Nodes: []Activity{
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", ActivityKind: "step", ActivityType: "function", ActivityName: "collect-fanout", StepID: "collect-fanout", Status: "completed", CompletedAt: &done, UpdatedAt: done},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", ActivityID: stepCaptureURI, ParentActivityID: "collect-fanout", ActivityKind: "resource", ActivityType: "run-result", ActivityName: "output", Status: "completed", ResourceURI: stepCaptureURI, ResourceKind: "run-result", ResourceLabel: "output", CompletedAt: &done, UpdatedAt: done},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", ActivityID: artifactURI, ParentActivityID: "collect-fanout", ActivityKind: "resource", ActivityType: "blob", ActivityName: "report.md", Status: "completed", ResourceURI: artifactURI, ResourceKind: "blob", ResourceLabel: "report.md", CompletedAt: &done, UpdatedAt: done},
+			{WorkspaceID: "ws-acme", WorkflowID: "wf-root", ActivityID: resultURI, ParentActivityID: "run:wf-root", ActivityKind: "resource", ActivityType: "run-result", ActivityName: "flow result", Status: "completed", ResourceURI: resultURI, ResourceKind: "run-result", ResourceLabel: "flow result", CompletedAt: &done, UpdatedAt: done},
+		},
+	}, RenderOptions{Now: now, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	for _, line := range frame.Lines {
+		if line.ResourceURI == stepCaptureURI || strings.Contains(line.Text, stepCaptureURI) {
+			t.Fatalf("expected synthetic step capture resource to be suppressed: %#v", line)
+		}
+	}
+	if displayLineContaining(t, frame, "report.md").ResourceURI != artifactURI {
+		t.Fatalf("expected explicit artifact resource to remain visible")
+	}
+	if displayLineContaining(t, frame, "flow result").ResourceURI != resultURI {
+		t.Fatalf("expected run result resource to remain visible")
 	}
 }
 

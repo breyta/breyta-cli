@@ -449,7 +449,7 @@ func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string)
 	}
 	if r.interactive {
 		if r.tui == nil {
-			r.tui = newLiveTUIRunner(r.out, r.resolveTUIWaitAction)
+			r.tui = newLiveTUIRunner(r.out, r.resolveTUIWaitAction, newLiveTUIStepIOLoader(r.app))
 		}
 		r.tui.SendFrame(frame, r.waitAction)
 		return

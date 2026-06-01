@@ -1470,7 +1470,7 @@ func collectActivityBranch(frame *DisplayFrame, activity Activity, prefix string
 		}
 		return
 	}
-	collectActivity(frame, displayActivity, prefix, opts)
+	collectActivity(frame, displayActivity, prefix, opts, run)
 	childPrefix := branchChildPrefix(prefix, false)
 	for _, tool := range activityTools {
 		collectActivityBranch(frame, tool, childPrefix, opts, run, nestedByParent, resourcesByParent, toolsByParent, childrenByStep, rootFlowSlug)
@@ -1532,6 +1532,9 @@ func formatResourceLine(activity Activity, prefix string, opts RenderOptions) st
 }
 
 func renderResource(b *strings.Builder, activity Activity, prefix string, opts RenderOptions) {
+	if isAutomaticStepCaptureResource(activity) {
+		return
+	}
 	line := formatResourceLine(activity, prefix, opts)
 	b.WriteString(line)
 	b.WriteByte('\n')
