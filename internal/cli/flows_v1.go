@@ -1038,7 +1038,11 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			slug := args[0]
 			path := out
 			if strings.TrimSpace(path) == "" {
-				path = filepath.Join("tmp", "flows", slug+".clj")
+				filename := slug + ".clj"
+				if version > 0 {
+					filename = fmt.Sprintf("%s-v%d.clj", slug, version)
+				}
+				path = filepath.Join("tmp", "flows", filename)
 			}
 			targetChanged := cmd.Flags().Changed("target")
 			resolvedTarget := "draft"
@@ -1119,7 +1123,7 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			return writeData(cmd, app, nil, result)
 		},
 	}
-	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
+	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj, or tmp/flows/<slug>-vN.clj with --version N)")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
