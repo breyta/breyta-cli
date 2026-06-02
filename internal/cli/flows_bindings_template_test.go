@@ -61,12 +61,33 @@ func TestConnectionBucketsForRequirements(t *testing.T) {
 		"http-api":     {},
 		"llm-provider": {},
 	}
-	buckets := connectionBucketsForRequirements(conn, requiredTypes)
+	buckets := connectionBucketsForRequirements(conn, requiredTypes, false)
 	if len(buckets) != 2 {
 		t.Fatalf("expected both http-api and llm-provider buckets, got %#v", buckets)
 	}
 	if buckets[0] != "http-api" || buckets[1] != "llm-provider" {
 		t.Fatalf("unexpected bucket order/content: %#v", buckets)
+	}
+}
+
+func TestConnectionBucketsForRequirementsAllowsLegacyLLMForCanonicalHTTP(t *testing.T) {
+	conn := connectionSummary{
+		ID:      "conn-llm-openai",
+		Name:    "OpenAI LLM",
+		Type:    "llm-provider",
+		Backend: "openai",
+	}
+	requiredTypes := map[string]struct{}{
+		"http-api": {},
+	}
+	buckets := connectionBucketsForRequirements(conn, requiredTypes, true)
+	if len(buckets) != 1 || buckets[0] != "http-api" {
+		t.Fatalf("expected legacy llm-provider in http-api bucket, got %#v", buckets)
+	}
+
+	buckets = connectionBucketsForRequirements(conn, requiredTypes, false)
+	if len(buckets) != 0 {
+		t.Fatalf("expected no http-api bucket when legacy LLM compatibility is disabled, got %#v", buckets)
 	}
 }
 
@@ -106,6 +127,32 @@ func TestApplyDefaultConnectionReuseAllowsCompatibleHTTPConnectionForLLM(t *test
 	llmBinding, _ := bindings["llm"].(map[string]any)
 	if llmBinding["conn"] != "conn-http-openai" {
 		t.Fatalf("expected compatible http connection to be reused, got %#v", llmBinding)
+	}
+}
+
+func TestApplyDefaultConnectionReuseAllowsLegacyLLMProviderForCanonicalHTTP(t *testing.T) {
+	template := map[string]any{
+		"bindings": map[string]any{},
+	}
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "openai",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"http-api": {
+			{ID: "conn-llm-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
+		},
+	}
+
+	applyDefaultConnectionReuse(template, requirements, connectionsByType)
+
+	bindings, _ := template["bindings"].(map[string]any)
+	aiBinding, _ := bindings["ai"].(map[string]any)
+	if aiBinding["conn"] != "conn-llm-openai" {
+		t.Fatalf("expected legacy llm-provider connection to be reused, got %#v", aiBinding)
 	}
 }
 
@@ -169,6 +216,35 @@ func TestBuildConfigureSuggestionsAllowsCompatibleHTTPConnectionForLLM(t *testin
 		t.Fatalf("unexpected suggested connection: %#v", rows[0])
 	}
 	if len(setArgs) != 1 || setArgs[0] != "llm.conn=conn-http-openai" {
+		t.Fatalf("unexpected set args: %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsAllowsLegacyLLMProviderForCanonicalHTTP(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "anthropic",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"http-api": {
+			{ID: "conn-claude", Name: "Claude LLM", Type: "llm-provider", Backend: "anthropic"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "suggested" || rows[0].SuggestedConnectionID != "conn-claude" {
+		t.Fatalf("expected canonical http-api LLM slot to reuse legacy connection, got %#v", rows[0])
+	}
+	if len(setArgs) != 1 || setArgs[0] != "ai.conn=conn-claude" {
 		t.Fatalf("unexpected set args: %#v", setArgs)
 	}
 	if len(unresolved) != 0 {
@@ -475,6 +551,51 @@ func TestListConnectionsByTypeFallsBackToHTTPForLLMProvider(t *testing.T) {
 	}
 	if connectionsByType["llm-provider"][0].ID != "conn-http-openai" {
 		t.Fatalf("expected HTTP fallback candidate, got %#v", connectionsByType["llm-provider"][0])
+	}
+}
+
+func TestListConnectionsByTypeIncludesLegacyLLMForCanonicalHTTPRequirement(t *testing.T) {
+	var calls []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		typ := r.URL.Query().Get("type")
+		calls = append(calls, typ)
+		switch typ {
+		case "llm-provider":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{
+						"connection-id": "conn-llm-openai",
+						"name":          "OpenAI LLM",
+						"type":          "llm-provider",
+						"backend":       "openai",
+					},
+				},
+			})
+		case "http-api":
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "unexpected type"}})
+		}
+	}))
+	defer srv.Close()
+
+	connectionsByType, err := listConnectionsByType(api.Client{
+		BaseURL:     srv.URL,
+		WorkspaceID: "ws-test",
+		HTTP:        srv.Client(),
+	}, []any{
+		map[string]any{"slot": "ai", "type": "http-api", "backend": "openai"},
+	})
+	if err != nil {
+		t.Fatalf("listConnectionsByType returned error: %v", err)
+	}
+	if len(calls) != 2 || calls[0] != "llm-provider" || calls[1] != "http-api" {
+		t.Fatalf("expected llm-provider then http-api queries, got %#v", calls)
+	}
+	got := connectionsByType["http-api"]
+	if len(got) != 1 || got[0].ID != "conn-llm-openai" {
+		t.Fatalf("expected legacy LLM candidate in http-api bucket, got %#v", got)
 	}
 }
 

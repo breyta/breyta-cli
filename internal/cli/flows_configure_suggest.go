@@ -23,9 +23,10 @@ type configureSuggestRow struct {
 }
 
 type configureConnectionRequirement struct {
-	Slot     string
-	Type     string
-	Backends []string
+	Slot          string
+	Type          string
+	Backends      []string
+	LLMCompatible bool
 }
 
 func newFlowsConfigureSuggestCmd(app *App) *cobra.Command {
@@ -207,19 +208,21 @@ func collectConnectionRequirements(requirements []any) []configureConnectionRequ
 			continue
 		}
 		seen[slot] = struct{}{}
+		backends := normalizeRequirementBackends(req)
 		out = append(out, configureConnectionRequirement{
-			Slot:     slot,
-			Type:     reqType,
-			Backends: normalizeRequirementBackends(req["backends"]),
+			Slot:          slot,
+			Type:          reqType,
+			Backends:      backends,
+			LLMCompatible: requirementIsLLMCompatible(reqType, backends),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slot < out[j].Slot })
 	return out
 }
 
-func normalizeRequirementBackends(value any) []string {
+func normalizeRequirementBackends(req map[string]any) []string {
 	var raw []any
-	switch v := value.(type) {
+	switch v := req["backends"].(type) {
 	case []any:
 		raw = v
 	case []string:
@@ -227,29 +230,49 @@ func normalizeRequirementBackends(value any) []string {
 		for _, item := range v {
 			raw = append(raw, item)
 		}
-	default:
-		return nil
 	}
 
-	out := make([]string, 0, len(raw))
+	out := make([]string, 0, len(raw)+2)
 	seen := map[string]struct{}{}
-	for _, item := range raw {
-		backend := normalizeConnectionType(item)
+	add := func(value any) {
+		backend := normalizeConnectionType(value)
 		if backend == "" {
-			continue
+			return
 		}
 		if _, exists := seen[backend]; exists {
-			continue
+			return
 		}
 		seen[backend] = struct{}{}
 		out = append(out, backend)
+	}
+	add(req["backend"])
+	for _, item := range raw {
+		add(item)
+	}
+	if inferred := inferLLMBackendFromBaseURL(toString(firstPresentAny(req["base-url"], req["baseUrl"]))); inferred != "" {
+		add(inferred)
 	}
 	sort.Strings(out)
 	return out
 }
 
+func requirementIsLLMCompatible(reqType string, backends []string) bool {
+	if reqType == "llm-provider" {
+		return true
+	}
+	if reqType != "http-api" {
+		return false
+	}
+	for _, backend := range backends {
+		if _, ok := llmBackends[normalizeConnectionType(backend)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func effectiveBackendForRequirement(req configureConnectionRequirement, conn connectionSummary) string {
-	if req.Type == "llm-provider" {
+	if req.LLMCompatible {
 		return compatibleLLMBackend(conn)
 	}
 	backend := normalizeConnectionType(conn.Backend)
@@ -308,7 +331,7 @@ func filterConnectionsForRequirement(req configureConnectionRequirement, conns [
 	filtered := make([]connectionSummary, 0, len(conns))
 	for _, conn := range conns {
 		effective := effectiveBackendForRequirement(req, conn)
-		if req.Type == "llm-provider" {
+		if req.LLMCompatible {
 			if llmBackendAllowed(effective, allowed) {
 				filtered = append(filtered, conn)
 			}
@@ -333,7 +356,7 @@ func chooseSuggestedConnection(req configureConnectionRequirement, conns []conne
 	if len(conns) == 0 {
 		return connectionSummary{}, "", noMatchingConnectionsReason(req)
 	}
-	if req.Type == "llm-provider" {
+	if req.LLMCompatible {
 		if pick, ok := pickPreferredLLMConnection(conns); ok {
 			return pick, "high", "matched preferred LLM connection"
 		}

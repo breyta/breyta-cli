@@ -321,7 +321,7 @@ func compatibleLLMBackend(conn connectionSummary) string {
 	return inferLLMBackendFromBaseURL(conn.BaseURL)
 }
 
-func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[string]struct{}) []string {
+func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[string]struct{}, httpAPIAllowsLegacyLLM bool) []string {
 	buckets := make([]string, 0, 2)
 	seen := map[string]struct{}{}
 	add := func(bucket string) {
@@ -342,11 +342,15 @@ func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[
 	if _, ok := requiredTypes["llm-provider"]; ok && compatibleLLMBackend(conn) != "" {
 		add("llm-provider")
 	}
+	if httpAPIAllowsLegacyLLM && actualType == "llm-provider" && compatibleLLMBackend(conn) != "" {
+		add("http-api")
+	}
 	return buckets
 }
 
 func listConnectionsByType(client api.Client, requirements []any) (map[string][]connectionSummary, error) {
 	requiredTypes := map[string]struct{}{}
+	httpAPIAllowsLegacyLLM := false
 	for _, raw := range requirements {
 		req, ok := raw.(map[string]any)
 		if !ok {
@@ -361,6 +365,10 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 			continue
 		}
 		requiredTypes[t] = struct{}{}
+		backends := normalizeRequirementBackends(req)
+		if requirementIsLLMCompatible(t, backends) && t == "http-api" {
+			httpAPIAllowsLegacyLLM = true
+		}
 	}
 	if len(requiredTypes) == 0 {
 		return nil, nil
@@ -420,7 +428,7 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 				Backend: getConnectionBackend(item),
 				BaseURL: getConnectionBaseURL(item),
 			}
-			for _, bucket := range connectionBucketsForRequirements(summary, requiredTypes) {
+			for _, bucket := range connectionBucketsForRequirements(summary, requiredTypes, httpAPIAllowsLegacyLLM) {
 				if seen[bucket] == nil {
 					seen[bucket] = map[string]struct{}{}
 				}
@@ -435,6 +443,13 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 	}
 
 	if _, ok := requiredTypes["llm-provider"]; ok {
+		if err := fetchType("llm-provider"); err != nil {
+			return nil, err
+		}
+		if inventoryUnavailable {
+			return nil, nil
+		}
+	} else if httpAPIAllowsLegacyLLM {
 		if err := fetchType("llm-provider"); err != nil {
 			return nil, err
 		}
@@ -511,9 +526,8 @@ func applyDefaultConnectionReuse(template map[string]any, requirements []any, co
 	if !ok || bindings == nil {
 		return
 	}
-	llmConns := connectionsByType["llm-provider"]
 	for _, req := range collectConnectionRequirements(requirements) {
-		if req.Type != "llm-provider" {
+		if !req.LLMCompatible {
 			continue
 		}
 		slotKey := strings.TrimSpace(strings.TrimPrefix(req.Slot, ":"))
@@ -525,7 +539,7 @@ func applyDefaultConnectionReuse(template map[string]any, requirements []any, co
 				continue
 			}
 		}
-		pick, _, _ := chooseSuggestedConnection(req, llmConns)
+		pick, _, _ := chooseSuggestedConnection(req, connectionsByType[req.Type])
 		if strings.TrimSpace(pick.ID) == "" {
 			continue
 		}
