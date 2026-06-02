@@ -86,9 +86,9 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 	}
 	stepStatus := firstNonBlankString(step["status"], ref.Status)
 	input := firstPresent(step, "input", "params", "inputPreview", "input-preview", "paramsPreview", "params-preview")
-	errValue := firstPresent(step, "errorOutput", "error-output", "error", "errorMessage", "error-message")
+	errValue := firstPresent(step, "errorOutput", "error-output", "error", "errorMessage", "error-message", "errorResource", "error-resource")
 	resultKind := "output"
-	result := firstPresent(step, "output", "result", "resultPreview", "result-preview", "outputPreview", "output-preview")
+	result := firstPresent(step, "output", "result", "resultPreview", "result-preview", "outputPreview", "output-preview", "outputResource", "output-resource")
 	if liveTUIProblemStatus(stepStatus) || errValue != nil {
 		resultKind = "error"
 		result = errValue
@@ -122,10 +122,13 @@ func fetchLiveTUIRunIO(app *App, ref liveTUIStepIORef, workflowID string) (liveT
 		return liveTUIStepIOResult{}, fmt.Errorf("run %s not found", workflowID)
 	}
 	runStatus := firstNonBlankString(run["status"], ref.Status)
-	errValue := firstPresent(run, "error", "errorOutput", "error-output", "errorMessage", "error-message")
+	errValue := firstPresent(run, "error", "errorOutput", "error-output", "errorMessage", "error-message", "errorResource", "error-resource")
 	resultKind := "output"
-	result := firstPresent(run, "result", "resultPreview", "result-preview", "output", "outputPreview", "output-preview")
+	result := firstPresent(run, "result", "resultPreview", "result-preview", "output", "outputPreview", "output-preview", "outputResource", "output-resource", "resultResourceUri", "resultResourceURI", "result-resource-uri")
 	if liveTUIProblemStatus(runStatus) || errValue != nil {
+		if errValue == nil {
+			errValue = firstPresent(run, "resultResourceUri", "resultResourceURI", "result-resource-uri")
+		}
 		resultKind = "error"
 		result = errValue
 	}

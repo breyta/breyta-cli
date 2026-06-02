@@ -1136,6 +1136,158 @@ func TestFetchLiveTUIStepIOUsesRunsGetStepResults(t *testing.T) {
 	}
 }
 
+func TestFetchLiveTUIStepIOFallsBackToOutputResource(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-root",
+					"steps": []map[string]any{{
+						"stepId": "persist-run-report",
+						"status": "completed",
+						"input":  map[string]any{"caseId": "case-1"},
+						"outputResource": map[string]any{
+							"uri":         "res://v1/ws/ws-acme/result/run/wf-root/step/persist-run-report/output",
+							"contentType": "text/markdown",
+							"sizeBytes":   84,
+						},
+					}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "persist-run-report",
+		Status:     "completed",
+	})
+	if err != nil {
+		t.Fatalf("fetch step I/O failed: %v", err)
+	}
+	resource := mapStringAny(result.Result)
+	if result.ResultKind != "output" || resource["uri"] == nil || resource["contentType"] != "text/markdown" {
+		t.Fatalf("expected output resource fallback, got %#v", result)
+	}
+}
+
+func TestFetchLiveTUIStepIOFallsBackToErrorResource(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-root",
+					"steps": []map[string]any{{
+						"stepId": "collect-fanout",
+						"status": "failed",
+						"input":  map[string]any{"caseId": "case-1"},
+						"errorResource": map[string]any{
+							"uri":         "res://v1/ws/ws-acme/result/run/wf-root/step/collect-fanout/error",
+							"contentType": "application/json",
+						},
+					}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "collect-fanout",
+		Status:     "failed",
+	})
+	if err != nil {
+		t.Fatalf("fetch step I/O failed: %v", err)
+	}
+	resource := mapStringAny(result.Result)
+	if result.ResultKind != "error" || resource["uri"] == nil || resource["contentType"] != "application/json" {
+		t.Fatalf("expected error resource fallback, got %#v", result)
+	}
+}
+
+func TestFetchLiveTUIRunIOFallsBackToResultResourceURI(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId":            "wf-child",
+					"status":                "completed",
+					"input":                 map[string]any{"idx": 2},
+					"result-resource-uri":   "res://v1/ws/ws-acme/result/run/wf-child/flow-output",
+					"resultResourceIgnored": "not-a-supported-key",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-child",
+		TargetKind: "run",
+		Status:     "completed",
+	})
+	if err != nil {
+		t.Fatalf("fetch run I/O failed: %v", err)
+	}
+	if result.ResultKind != "output" || result.Result != "res://v1/ws/ws-acme/result/run/wf-child/flow-output" {
+		t.Fatalf("expected run result resource URI fallback, got %#v", result)
+	}
+}
+
+func TestFetchLiveTUIRunIOFallsBackToFailedResultResourceURI(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId":          "wf-child",
+					"status":              "failed",
+					"input":               map[string]any{"idx": 2},
+					"result-resource-uri": "res://v1/ws/ws-acme/result/run/wf-child/flow-error",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-child",
+		TargetKind: "run",
+		Status:     "failed",
+	})
+	if err != nil {
+		t.Fatalf("fetch run I/O failed: %v", err)
+	}
+	if result.ResultKind != "error" || result.Result != "res://v1/ws/ws-acme/result/run/wf-child/flow-error" {
+		t.Fatalf("expected failed run result resource URI fallback, got %#v", result)
+	}
+}
+
 func TestEnrichLiveDisplayFrameWebLinksAddsArtifactURLs(t *testing.T) {
 	app := &App{WorkspaceID: "ws-acme", APIURL: "http://localhost:30546", DevMode: true}
 	frame := live.DisplayFrame{Lines: []live.DisplayLine{
