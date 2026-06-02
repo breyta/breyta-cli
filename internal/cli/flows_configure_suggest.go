@@ -357,6 +357,17 @@ func chooseSuggestedConnection(req configureConnectionRequirement, conns []conne
 		return connectionSummary{}, "", noMatchingConnectionsReason(req)
 	}
 	if req.LLMCompatible {
+		if req.Type != "llm-provider" {
+			exactTypeConns := make([]connectionSummary, 0, len(conns))
+			for _, conn := range conns {
+				if normalizeConnectionType(conn.Type) == req.Type {
+					exactTypeConns = append(exactTypeConns, conn)
+				}
+			}
+			if len(exactTypeConns) > 0 {
+				conns = exactTypeConns
+			}
+		}
 		if pick, ok := pickPreferredLLMConnection(conns); ok {
 			return pick, "high", "matched preferred LLM connection"
 		}

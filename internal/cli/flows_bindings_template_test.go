@@ -153,6 +153,35 @@ func TestApplyDefaultConnectionReuseAllowsLegacyLLMProviderForCanonicalHTTP(t *t
 	}
 }
 
+func TestApplyDefaultConnectionReusePrefersCanonicalHTTPOverLegacyLLM(t *testing.T) {
+	template := map[string]any{
+		"bindings": map[string]any{},
+	}
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "openai",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"http-api": {
+			{ID: "conn-http-openai", Name: "OpenAI HTTP", Type: "http-api", Backend: "openai"},
+		},
+		"llm-provider": {
+			{ID: "conn-llm-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
+		},
+	}
+
+	applyDefaultConnectionReuse(template, requirements, connectionsByType)
+
+	bindings, _ := template["bindings"].(map[string]any)
+	aiBinding, _ := bindings["ai"].(map[string]any)
+	if aiBinding["conn"] != "conn-http-openai" {
+		t.Fatalf("expected canonical http-api connection to be reused, got %#v", aiBinding)
+	}
+}
+
 func TestApplyDefaultConnectionReuseRespectsRequiredLLMBackends(t *testing.T) {
 	template := map[string]any{
 		"bindings": map[string]any{},
@@ -283,6 +312,38 @@ func TestBuildConfigureSuggestionsAllowsLegacyLLMProviderForCanonicalHTTP(t *tes
 		t.Fatalf("expected canonical http-api LLM slot to reuse legacy connection, got %#v", rows[0])
 	}
 	if len(setArgs) != 1 || setArgs[0] != "ai.conn=conn-claude" {
+		t.Fatalf("unexpected set args: %#v", setArgs)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsPrefersCanonicalHTTPOverLegacyLLM(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "openai",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"http-api": {
+			{ID: "conn-http-openai", Name: "OpenAI HTTP", Type: "http-api", Backend: "openai"},
+		},
+		"llm-provider": {
+			{ID: "conn-llm-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
+		},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 1 {
+		t.Fatalf("expected one suggestion row, got %#v", rows)
+	}
+	if rows[0].Status != "suggested" || rows[0].SuggestedConnectionID != "conn-http-openai" {
+		t.Fatalf("expected canonical http-api connection to win, got %#v", rows[0])
+	}
+	if len(setArgs) != 1 || setArgs[0] != "ai.conn=conn-http-openai" {
 		t.Fatalf("unexpected set args: %#v", setArgs)
 	}
 	if len(unresolved) != 0 {
