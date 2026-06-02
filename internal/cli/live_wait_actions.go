@@ -24,6 +24,9 @@ type liveTUIWaitAction struct {
 }
 
 func (w liveTUIWaitAction) Can(action string) bool {
+	if !w.Active || strings.TrimSpace(w.WaitID) == "" {
+		return false
+	}
 	return containsFold(w.Actions, action)
 }
 
@@ -141,20 +144,30 @@ func fetchLiveTUIWaitAction(ctx context.Context, app *App, workflowID string, li
 func activeLiveTUIWaitActionFromItems(workflowID string, items []map[string]any) liveTUIWaitAction {
 	var selected map[string]any
 	var selectedTime time.Time
+	selectedActionable := false
 	for i, item := range items {
 		if !waitLooksActive(item) {
 			continue
 		}
 		t := waitSortTime(item)
-		if selected == nil || t.After(selectedTime) || (t.IsZero() && selectedTime.IsZero() && i == 0) {
+		actionable := waitItemHasResolvableTUIAction(item)
+		if selected != nil && selectedActionable && !actionable {
+			continue
+		}
+		if selected == nil || (actionable && !selectedActionable) || t.After(selectedTime) || (t.IsZero() && selectedTime.IsZero() && i == 0) {
 			selected = item
 			selectedTime = t
+			selectedActionable = actionable
 		}
 	}
 	if selected == nil {
 		return liveTUIWaitAction{}
 	}
 	return liveTUIWaitActionFromWait(workflowID, selected)
+}
+
+func waitItemHasResolvableTUIAction(wait map[string]any) bool {
+	return waitIDValue(wait) != "" && (waitLooksApprovable(wait) || waitLooksRejectable(wait))
 }
 
 func liveTUIWaitActionFromWait(workflowID string, wait map[string]any) liveTUIWaitAction {

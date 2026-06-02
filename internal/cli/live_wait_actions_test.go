@@ -68,6 +68,29 @@ func TestActiveLiveTUIWaitActionFromItemsKeepsGenericWaitActiveWithoutActions(t 
 	}
 }
 
+func TestActiveLiveTUIWaitActionFromItemsPrefersResolvableActionOverNewerGenericWait(t *testing.T) {
+	got := activeLiveTUIWaitActionFromItems("wf-live", []map[string]any{
+		{
+			"waitId":       "approval",
+			"workflowId":   "wf-live",
+			"status":       "active",
+			"registeredAt": time.Date(2026, 5, 31, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			"stepId":       "approval-gate",
+			"approval":     map[string]any{"actions": []any{"approve", "reject"}},
+		},
+		{
+			"waitId":       "generic",
+			"workflowId":   "wf-live",
+			"status":       "active",
+			"registeredAt": time.Date(2026, 5, 31, 10, 1, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			"stepId":       "signal",
+		},
+	})
+	if got.WaitID != "approval" || !got.Can("approve") || !got.Can("reject") {
+		t.Fatalf("expected older resolvable approval wait to win over newer generic wait, got %#v", got)
+	}
+}
+
 func TestActiveLiveTUIWaitActionFromItemsSortsNumericWaitTimestamps(t *testing.T) {
 	got := activeLiveTUIWaitActionFromItems("wf-live", []map[string]any{
 		{
@@ -85,6 +108,17 @@ func TestActiveLiveTUIWaitActionFromItemsSortsNumericWaitTimestamps(t *testing.T
 	})
 	if got.WaitID != "new" {
 		t.Fatalf("expected newer numeric wait timestamp to win, got %#v", got)
+	}
+}
+
+func TestLiveTUIWaitActionCanRequiresWaitID(t *testing.T) {
+	wait := liveTUIWaitAction{Active: true, Actions: []string{"approve", "reject"}}
+	if wait.Can("approve") || wait.Can("reject") {
+		t.Fatalf("expected action shortcuts to require wait id, got %#v", wait)
+	}
+	wait.WaitID = "wait-1"
+	if !wait.Can("approve") || !wait.Can("reject") {
+		t.Fatalf("expected wait with id to expose actions, got %#v", wait)
 	}
 }
 

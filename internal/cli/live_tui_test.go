@@ -526,6 +526,41 @@ func TestLiveTUIFooterShowsActiveWaitActions(t *testing.T) {
 	}
 }
 
+func TestLiveTUIFooterHidesWaitActionsWithoutWaitID(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 180
+	model.height = 8
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{Key: "activity:wf-root:approval", Text: "  ○ Await approval [wait-for-approval]"},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{
+		frame: frame,
+		at:    time.Now(),
+		waitAction: liveTUIWaitAction{
+			Active:  true,
+			StepID:  "wait-for-approval",
+			Title:   "Await approval",
+			Actions: []string{"approve", "reject"},
+		},
+	})
+	model = updated.(liveTUIModel)
+
+	plain := stripTUIANSI(model.View())
+	if !strings.Contains(plain, "wait Await approval") {
+		t.Fatalf("expected footer to still show generic wait state\n%s", plain)
+	}
+	for _, notWant := range []string{"a approve", "r reject"} {
+		if strings.Contains(plain, notWant) {
+			t.Fatalf("did not expect unresolved wait action %q\n%s", notWant, plain)
+		}
+	}
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if cmd != nil {
+		t.Fatalf("did not expect approve command for wait without wait id")
+	}
+}
+
 func TestLiveTUIApproveWaitActionCallsResolver(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 180
