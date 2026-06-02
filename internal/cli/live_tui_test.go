@@ -960,26 +960,26 @@ func TestLiveTUIToolCallIOFiltersParentStepOutput(t *testing.T) {
 	}
 }
 
-func TestLiveTUIStepIOPanePrettyPrintsJSON(t *testing.T) {
-	lines := stepIOSectionLines("output", map[string]any{
+func TestLiveTUIInspectValuePrettyPrintsJSON(t *testing.T) {
+	lines := inspectValueLines(map[string]any{
 		"nested": map[string]any{
 			"ok": true,
 		},
-	}, 6)
+	}, 120)
 	view := stripTUIANSI(strings.Join(lines, "\n"))
 	if !strings.Contains(view, "{") || !strings.Contains(view, "\"nested\": {") || !strings.Contains(view, "\"ok\": true") {
 		t.Fatalf("expected pretty JSON output\n%s", view)
 	}
 }
 
-func TestLiveTUIStepIOPaneRedactsSensitiveKeys(t *testing.T) {
-	lines := stepIOSectionLines("input", map[string]any{
+func TestLiveTUIInspectValueRedactsSensitiveKeys(t *testing.T) {
+	lines := inspectValueLines(map[string]any{
 		"caseId":        "case-1",
 		"authorization": "Bearer secret-token",
 		"nested": map[string]any{
 			"apiKey": "key-1",
 		},
-	}, 6)
+	}, 120)
 	view := stripTUIANSI(strings.Join(lines, "\n"))
 	for _, want := range []string{"case-1", "[redacted]"} {
 		if !strings.Contains(view, want) {
