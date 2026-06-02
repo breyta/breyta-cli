@@ -294,6 +294,25 @@ func TestLiveTUIPrepareFrameFlattensRootRunLineAfterLeakedSkeletonRows(t *testin
 	if len(got.Lines) == 0 || strings.HasPrefix(got.Lines[0].Text, "    ") {
 		t.Fatalf("expected body rows to be flattened with the removed root line: %#v", got.Lines)
 	}
+	if got.Lines[0].Text != "  ○◇ Escalation branch" {
+		t.Fatalf("expected leaked skeleton row to keep relative indentation, got %q", got.Lines[0].Text)
+	}
+	if got.Lines[1].Text != "⠙◇ Priority branch" {
+		t.Fatalf("expected root child to be promoted to top-level indentation, got %q", got.Lines[1].Text)
+	}
+	if got.Lines[2].Text != "  s priority-normal" {
+		t.Fatalf("expected nested row to keep one indentation level, got %q", got.Lines[2].Text)
+	}
+	nodes := buildLiveTreeNodes(got)
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 tree nodes, got %d", len(nodes))
+	}
+	if nodes[1].Depth != 0 || nodes[1].Parent != -1 {
+		t.Fatalf("expected promoted branch to become a root-level tree node, got depth=%d parent=%d", nodes[1].Depth, nodes[1].Parent)
+	}
+	if nodes[2].Depth != 1 || nodes[2].Parent != 1 {
+		t.Fatalf("expected nested row to remain under promoted branch, got depth=%d parent=%d", nodes[2].Depth, nodes[2].Parent)
+	}
 }
 
 func TestLiveTUIHeaderSeparatorAppearsOnlyAfterScroll(t *testing.T) {

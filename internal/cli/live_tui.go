@@ -15,6 +15,8 @@ import (
 	"github.com/breyta/breyta-cli/internal/live"
 )
 
+const liveTUIIndentWidth = 2
+
 type liveTUIRunner struct {
 	program *tea.Program
 	done    chan error
@@ -398,7 +400,7 @@ func removeDuplicateTUIRootFlowLine(lines []live.DisplayLine, header string) []l
 			continue
 		}
 		if displayLineDepth(line.Text) > rootDepth {
-			line.Text = trimLeadingTUISpaces(line.Text, 1)
+			line.Text = trimLeadingTUISpaces(line.Text, liveTUIIndentWidth)
 		}
 		out = append(out, line)
 	}
