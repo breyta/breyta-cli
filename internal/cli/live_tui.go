@@ -934,7 +934,7 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 	if m.waitActionPending != "" {
 		parts = append(parts, styleTUIFg(m.waitActionPending+"...", "220"))
 	} else if strings.TrimSpace(m.waitActionMessage) != "" {
-		parts = append(parts, styleTUIFg(m.waitActionMessage, "248"))
+		parts = append(parts, styleTUIFg(sanitizeTUIInlineText(m.waitActionMessage), "248"))
 	}
 	parts = append(parts,
 		footerCommand("q/ctrl+c", "exit"),

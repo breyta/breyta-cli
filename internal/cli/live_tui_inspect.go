@@ -144,7 +144,14 @@ func (m liveTUIModel) inspectContentLines() []string {
 		return lines
 	}
 	if strings.TrimSpace(m.stepIO.Err) != "" {
-		lines = append(lines, "", "  "+styleTUIFg("error", "203")+" "+m.stepIO.Err)
+		lines = append(lines, "")
+		for i, line := range inspectErrorLines(m.stepIO.Err, m.inspectContentWidth()) {
+			prefix := "    "
+			if i == 0 {
+				prefix = "  " + styleTUIFg("error", "203") + " "
+			}
+			lines = append(lines, prefix+line)
+		}
 		return lines
 	}
 	lines = append(lines, m.inspectTabsLine(), "")
@@ -341,6 +348,35 @@ func sanitizeLiveTUIInspectText(text string) string {
 		}
 	}
 	return b.String()
+}
+
+func sanitizeTUIInlineText(text string) string {
+	text = sanitizeLiveTUIInspectText(text)
+	text = strings.Join(strings.Fields(text), " ")
+	return strings.TrimSpace(text)
+}
+
+func inspectErrorLines(errText string, width int) []string {
+	text := sanitizeLiveTUIInspectText(errText)
+	if strings.TrimSpace(text) == "" {
+		return []string{"unknown error"}
+	}
+	innerWidth := width - 8
+	if innerWidth < 20 {
+		innerWidth = width
+	}
+	lines := []string{}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, wrapInspectLine(line, innerWidth)...)
+	}
+	if len(lines) == 0 {
+		return []string{"unknown error"}
+	}
+	return lines
 }
 
 func minInt(a int, b int) int {

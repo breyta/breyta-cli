@@ -1021,6 +1021,53 @@ func TestLiveTUIInspectValueStripsTerminalControls(t *testing.T) {
 	}
 }
 
+func TestLiveTUIInspectErrorStripsTerminalControls(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 100
+	model.height = 10
+	model.header = "f run-1"
+	model.stepIO = liveTUIStepIOState{
+		RowKey: "row-1",
+		Ref:    liveTUIStepIORef{RowKey: "row-1", StepID: "step-1"},
+		Err:    "bad\x1b[31mred\x1b[0m\x07\nnext\rline",
+	}
+	view := model.View()
+	if strings.Contains(view, "\x07") || strings.Contains(view, "\r") {
+		t.Fatalf("expected inspect error controls to be stripped: %q", view)
+	}
+	plain := stripTUIANSI(view)
+	for _, want := range []string{"badred", "next", "line"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected sanitized inspect error to contain %q\n%s", want, plain)
+		}
+	}
+}
+
+func TestLiveTUIFooterWaitMessageIsSingleLine(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 120
+	model.height = 8
+	model.nodes = []liveTreeNode{{
+		Key:  "activity:wf:step",
+		Text: "  s step",
+		Line: live.DisplayLine{Key: "activity:wf:step", RowKind: "activity", WorkflowID: "wf", StepID: "step", Status: "completed"},
+	}}
+	model.cursor = 0
+	model.cursorKey = "activity:wf:step"
+	model.waitActionMessage = "approval\x1b[31m failed\x1b[0m\nretry"
+	view := model.View()
+	if strings.Contains(view, "\x1b[31m") {
+		t.Fatalf("expected footer wait message color controls to be stripped before footer styling:\n%q", view)
+	}
+	plain := stripTUIANSI(view)
+	if strings.Contains(plain, "failed\nretry") {
+		t.Fatalf("expected footer wait message to stay on one row:\n%s", plain)
+	}
+	if !strings.Contains(plain, "approval failed retry") {
+		t.Fatalf("expected sanitized footer wait message:\n%s", plain)
+	}
+}
+
 func TestFetchLiveTUIStepIOWithoutAppFailsGracefully(t *testing.T) {
 	_, err := fetchLiveTUIStepIO(nil, liveTUIStepIORef{WorkflowID: "wf-root", StepID: "step-1"})
 	if err == nil || !strings.Contains(err.Error(), "loader unavailable") {
