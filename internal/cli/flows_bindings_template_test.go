@@ -750,3 +750,36 @@ func TestListConnectionsByTypeSkipsInvalidConnections(t *testing.T) {
 		t.Fatalf("expected invalid connection to be skipped, got %#v", got)
 	}
 }
+
+func TestBuildConnectionsCommentLinesIncludesRequirementAwareLLMFallbacks(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "openai",
+		},
+		map[string]any{
+			"slot": "webhook",
+			"type": "http-api",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
+		},
+		"http-api": {
+			{ID: "conn-webhook", Name: "Webhook API", Type: "http-api", Backend: "rest"},
+		},
+	}
+
+	lines := buildConnectionsCommentLines(connectionsByType, requirements)
+	if len(lines) != 3 {
+		t.Fatalf("expected tip plus two connection lines, got %#v", lines)
+	}
+	if lines[1] != "Existing http-api connections: conn-webhook (Webhook API)" {
+		t.Fatalf("unexpected generic HTTP comment line: %#v", lines)
+	}
+	if lines[2] != "Existing http-api LLM-compatible connections: conn-openai (OpenAI LLM)" {
+		t.Fatalf("unexpected LLM-compatible comment line: %#v", lines)
+	}
+}
