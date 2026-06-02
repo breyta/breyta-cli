@@ -6353,6 +6353,46 @@ func TestFlowsShow_DefaultsToDraftSource(t *testing.T) {
 	}
 }
 
+func TestFlowsShow_VersionUsesVersionSource(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		if args["source"] != "version" || args["version"] != float64(6) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected source=version version=6"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flow": map[string]any{"slug": "flow-show", "version": 6}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "show", "flow-show",
+		"--version", "6",
+	)
+	if err != nil {
+		t.Fatalf("flows show --version failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsShow_FullRequestsVerboseFields(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -6685,6 +6725,121 @@ func TestFlowsPull_DefaultsToDraftSource(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), ":flow-draft") {
 		t.Fatalf("pulled flow file did not contain expected content: %s", string(raw))
+	}
+}
+
+func TestFlowsPull_VersionUsesVersionSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "flow-version.clj")
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		if args["source"] != "version" || args["version"] != float64(6) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected source=version version=6"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowLiteral": "{:slug :flow-version :flow '(identity 6)}"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "pull", "flow-version",
+		"--version", "6",
+		"--out", outPath,
+	)
+	if err != nil {
+		t.Fatalf("flows pull --version failed: %v\n%s", err, stdout)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read pulled flow: %v", err)
+	}
+	if !strings.Contains(string(raw), ":flow-version") {
+		t.Fatalf("pulled flow file did not contain expected content: %s", string(raw))
+	}
+}
+
+func TestFlowsPull_VersionDefaultsToVersionedPath(t *testing.T) {
+	workdir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+	}()
+	if err := os.Chdir(workdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		if args["source"] != "version" || args["version"] != float64(6) {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected source=version version=6"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowLiteral": "{:slug :flow-version :flow '(identity 6)}"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "pull", "flow-version",
+		"--version", "6",
+	)
+	if err != nil {
+		t.Fatalf("flows pull --version failed: %v\n%s", err, stdout)
+	}
+	versionedPath := filepath.Join(workdir, "tmp", "flows", "flow-version-v6.clj")
+	raw, err := os.ReadFile(versionedPath)
+	if err != nil {
+		t.Fatalf("read versioned pull output: %v", err)
+	}
+	if !strings.Contains(string(raw), ":flow-version") {
+		t.Fatalf("pulled flow file did not contain expected content: %s", string(raw))
+	}
+	draftPath := filepath.Join(workdir, "tmp", "flows", "flow-version.clj")
+	if _, err := os.Stat(draftPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("version pull should not write default draft path %s; stat err=%v", draftPath, err)
 	}
 }
 

@@ -687,6 +687,85 @@ func TestFlowsPush_RendersAPIDeprecationWarnings(t *testing.T) {
 	}
 }
 
+func TestFlowsPush_ReturnsSavedDraftWhenImmediateValidationCannotFindCreatedFlow(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	flowFile := filepath.Join(tmp, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :push-create-missing :name \"Push Create Missing\" :concurrency {:type :singleton :on-new-version :supersede} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
+		t.Fatalf("failed to write test flow file: %v", err)
+	}
+	step := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.put_draft":
+			step++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug":    "push-create-missing",
+					"savedDraft":  true,
+					"flowVersion": 1,
+				},
+			})
+		case "flows.validate":
+			step++
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": "Flow not found",
+					"details": map[string]any{"flowSlug": "push-create-missing"},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "unexpected command"},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "push",
+		"--file", flowFile,
+	)
+	if err != nil {
+		t.Fatalf("flows push should keep successful draft save when validation cannot find the new flow: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected put_draft + validate commands, got %d", step)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+	meta, _ := e["meta"].(map[string]any)
+	if meta["validated"] != false || meta["validateSource"] != "draft" {
+		t.Fatalf("expected validation warning metadata, got %#v", meta)
+	}
+	if _, ok := meta["validationWarning"].(string); !ok {
+		t.Fatalf("expected validationWarning metadata, got %#v", meta)
+	}
+}
+
 func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	t.Helper()
 	tmp := t.TempDir()
