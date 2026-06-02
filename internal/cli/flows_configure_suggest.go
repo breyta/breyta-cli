@@ -380,6 +380,33 @@ func chooseSuggestedConnection(req configureConnectionRequirement, conns []conne
 	return connectionSummary{}, "", "multiple matching connections found"
 }
 
+func candidateConnectionsForRequirement(req configureConnectionRequirement, connectionsByType map[string][]connectionSummary) []connectionSummary {
+	if connectionsByType == nil {
+		return nil
+	}
+	candidates := append([]connectionSummary{}, connectionsByType[req.Type]...)
+	if !req.LLMCompatible || req.Type == "llm-provider" {
+		return candidates
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, conn := range candidates {
+		if strings.TrimSpace(conn.ID) != "" {
+			seen[conn.ID] = struct{}{}
+		}
+	}
+	for _, conn := range connectionsByType["llm-provider"] {
+		if strings.TrimSpace(conn.ID) == "" {
+			continue
+		}
+		if _, ok := seen[conn.ID]; ok {
+			continue
+		}
+		seen[conn.ID] = struct{}{}
+		candidates = append(candidates, conn)
+	}
+	return candidates
+}
+
 func buildConfigureSuggestions(requirements []any, bindingValues map[string]string, connectionsByType map[string][]connectionSummary) ([]configureSuggestRow, []string, []string) {
 	reqs := collectConnectionRequirements(requirements)
 	rows := make([]configureSuggestRow, 0, len(reqs))
@@ -400,7 +427,7 @@ func buildConfigureSuggestions(requirements []any, bindingValues map[string]stri
 			continue
 		}
 
-		candidate, confidence, reason := chooseSuggestedConnection(req, connectionsByType[req.Type])
+		candidate, confidence, reason := chooseSuggestedConnection(req, candidateConnectionsForRequirement(req, connectionsByType))
 		if strings.TrimSpace(candidate.ID) != "" {
 			row.Status = "suggested"
 			row.SuggestedConnectionID = candidate.ID

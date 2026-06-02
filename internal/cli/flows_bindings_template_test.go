@@ -61,7 +61,7 @@ func TestConnectionBucketsForRequirements(t *testing.T) {
 		"http-api":     {},
 		"llm-provider": {},
 	}
-	buckets := connectionBucketsForRequirements(conn, requiredTypes, false)
+	buckets := connectionBucketsForRequirements(conn, requiredTypes)
 	if len(buckets) != 2 {
 		t.Fatalf("expected both http-api and llm-provider buckets, got %#v", buckets)
 	}
@@ -70,7 +70,7 @@ func TestConnectionBucketsForRequirements(t *testing.T) {
 	}
 }
 
-func TestConnectionBucketsForRequirementsAllowsLegacyLLMForCanonicalHTTP(t *testing.T) {
+func TestConnectionBucketsForRequirementsKeepsLegacyLLMOutOfHTTPBucket(t *testing.T) {
 	conn := connectionSummary{
 		ID:      "conn-llm-openai",
 		Name:    "OpenAI LLM",
@@ -80,14 +80,11 @@ func TestConnectionBucketsForRequirementsAllowsLegacyLLMForCanonicalHTTP(t *test
 	requiredTypes := map[string]struct{}{
 		"http-api": {},
 	}
-	buckets := connectionBucketsForRequirements(conn, requiredTypes, true)
-	if len(buckets) != 1 || buckets[0] != "http-api" {
-		t.Fatalf("expected legacy llm-provider in http-api bucket, got %#v", buckets)
-	}
-
-	buckets = connectionBucketsForRequirements(conn, requiredTypes, false)
-	if len(buckets) != 0 {
-		t.Fatalf("expected no http-api bucket when legacy LLM compatibility is disabled, got %#v", buckets)
+	buckets := connectionBucketsForRequirements(conn, requiredTypes)
+	for _, bucket := range buckets {
+		if bucket == "http-api" {
+			t.Fatalf("expected no generic http-api bucket for legacy LLM provider, got %#v", buckets)
+		}
 	}
 }
 
@@ -142,7 +139,7 @@ func TestApplyDefaultConnectionReuseAllowsLegacyLLMProviderForCanonicalHTTP(t *t
 		},
 	}
 	connectionsByType := map[string][]connectionSummary{
-		"http-api": {
+		"llm-provider": {
 			{ID: "conn-llm-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
 		},
 	}
@@ -220,6 +217,47 @@ func TestBuildConfigureSuggestionsAllowsCompatibleHTTPConnectionForLLM(t *testin
 	}
 	if len(unresolved) != 0 {
 		t.Fatalf("expected no unresolved slots, got %#v", unresolved)
+	}
+}
+
+func TestBuildConfigureSuggestionsDoesNotSuggestLegacyLLMForGenericHTTP(t *testing.T) {
+	requirements := []any{
+		map[string]any{
+			"slot":    "ai",
+			"type":    "http-api",
+			"backend": "openai",
+		},
+		map[string]any{
+			"slot": "webhook",
+			"type": "http-api",
+		},
+	}
+	connectionsByType := map[string][]connectionSummary{
+		"llm-provider": {
+			{ID: "conn-openai", Name: "OpenAI LLM", Type: "llm-provider", Backend: "openai"},
+		},
+		"http-api": {},
+	}
+
+	rows, setArgs, unresolved := buildConfigureSuggestions(requirements, map[string]string{}, connectionsByType)
+	if len(rows) != 2 {
+		t.Fatalf("expected two rows, got %#v", rows)
+	}
+	bySlot := map[string]configureSuggestRow{}
+	for _, row := range rows {
+		bySlot[row.Slot] = row
+	}
+	if bySlot["ai"].Status != "suggested" || bySlot["ai"].SuggestedConnectionID != "conn-openai" {
+		t.Fatalf("expected LLM-compatible HTTP slot to reuse legacy LLM connection, got %#v", bySlot["ai"])
+	}
+	if bySlot["webhook"].Status != "unresolved" || bySlot["webhook"].SuggestedConnectionID != "" {
+		t.Fatalf("expected generic HTTP slot to remain unresolved, got %#v", bySlot["webhook"])
+	}
+	if len(setArgs) != 1 || setArgs[0] != "ai.conn=conn-openai" {
+		t.Fatalf("unexpected set args: %#v", setArgs)
+	}
+	if len(unresolved) != 1 || unresolved[0] != "webhook" {
+		t.Fatalf("expected only webhook unresolved, got %#v", unresolved)
 	}
 }
 
@@ -594,8 +632,12 @@ func TestListConnectionsByTypeIncludesLegacyLLMForCanonicalHTTPRequirement(t *te
 		t.Fatalf("expected llm-provider then http-api queries, got %#v", calls)
 	}
 	got := connectionsByType["http-api"]
+	if len(got) != 0 {
+		t.Fatalf("expected no legacy LLM candidate in generic http-api bucket, got %#v", got)
+	}
+	got = connectionsByType["llm-provider"]
 	if len(got) != 1 || got[0].ID != "conn-llm-openai" {
-		t.Fatalf("expected legacy LLM candidate in http-api bucket, got %#v", got)
+		t.Fatalf("expected legacy LLM candidate in llm-provider bucket, got %#v", got)
 	}
 }
 
