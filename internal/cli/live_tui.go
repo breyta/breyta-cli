@@ -333,7 +333,7 @@ func buildLiveTreeNodes(frame live.DisplayFrame) []liveTreeNode {
 		if key == "" {
 			key = fmt.Sprintf("line:%d", len(nodes))
 		}
-		webURL := strings.TrimSpace(line.WebURL)
+		webURL := openableLiveWebURL(line.WebURL)
 		if line.Planned {
 			webURL = ""
 		}

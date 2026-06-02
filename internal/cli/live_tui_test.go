@@ -646,6 +646,33 @@ func TestLiveTUIEnterOpensSelectedResourceURL(t *testing.T) {
 	}
 }
 
+func TestLiveTUIEnterIgnoresUnsafeSelectedWebURL(t *testing.T) {
+	model := newLiveTUIModel()
+	model.width = 160
+	model.height = 8
+	model.openURL = func(value string) error {
+		t.Fatalf("did not expect unsafe URL to be opened: %q", value)
+		return nil
+	}
+	frame := live.DisplayFrame{Lines: []live.DisplayLine{
+		{Key: "header:wf-root", Text: "f wf-root"},
+		{
+			Key:    "resource:wf-root:unsafe",
+			Text:   "  ▣ output resource blob text/markdown",
+			WebURL: "file:///tmp/should-not-open",
+		},
+	}}
+	updated, _ := model.Update(liveTUIFrameMsg{frame: frame, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if plain := stripTUIANSI(model.View()); strings.Contains(plain, "enter open") {
+		t.Fatalf("did not expect unsafe URL to expose open command\n%s", plain)
+	}
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("did not expect enter on unsafe URL row to return open command")
+	}
+}
+
 func TestLiveTUIEnterInspectsCompletedStepIO(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 160
@@ -1349,6 +1376,18 @@ func TestEnrichLiveDisplayFrameWebLinksAddsArtifactURLs(t *testing.T) {
 			WebURL:      "http://localhost:30546/should-not-open",
 			Planned:     true,
 		},
+		{
+			Key:         "resource:wf-root:malformed",
+			Text:        "  ▣ malformed resource",
+			WorkflowID:  "wf-root",
+			FlowSlug:    "live-render-parent",
+			ResourceURI: "https://evil.example/result/run/wf-root/step/persist-run-report/output",
+		},
+		{
+			Key:    "resource:wf-root:unsafe",
+			Text:   "  ▣ unsafe resource",
+			WebURL: "file:///tmp/should-not-open",
+		},
 	}}
 
 	got := enrichLiveDisplayFrameWebLinks(app, frame)
@@ -1360,6 +1399,12 @@ func TestEnrichLiveDisplayFrameWebLinksAddsArtifactURLs(t *testing.T) {
 	}
 	if got.Lines[2].WebURL != "" {
 		t.Fatalf("expected planned resource row not to be openable, got %q", got.Lines[2].WebURL)
+	}
+	if got.Lines[3].WebURL != "" {
+		t.Fatalf("expected malformed resource URI not to be openable, got %q", got.Lines[3].WebURL)
+	}
+	if got.Lines[4].WebURL != "" {
+		t.Fatalf("expected unsafe existing web URL not to be openable, got %q", got.Lines[4].WebURL)
 	}
 }
 

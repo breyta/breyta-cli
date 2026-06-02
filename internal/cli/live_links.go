@@ -20,7 +20,8 @@ func enrichLiveDisplayFrameWebLinks(app *App, frame live.DisplayFrame) live.Disp
 			out.Lines[i] = line
 			continue
 		}
-		if strings.TrimSpace(line.WebURL) == "" {
+		line.WebURL = openableLiveWebURL(line.WebURL)
+		if line.WebURL == "" {
 			line.WebURL = liveResourceWebURL(base, line)
 		}
 		out.Lines[i] = line
@@ -31,6 +32,9 @@ func enrichLiveDisplayFrameWebLinks(app *App, frame live.DisplayFrame) live.Disp
 func liveResourceWebURL(base string, line live.DisplayLine) string {
 	resourceURI := strings.TrimSpace(line.ResourceURI)
 	if line.Planned || resourceURI == "" {
+		return ""
+	}
+	if !isCanonicalResourceURI(resourceURI) {
 		return ""
 	}
 	workflowID, _, kind := parseRunResourceURI(resourceURI)
@@ -55,4 +59,21 @@ func runArtifactWebURL(base, flowSlug, runID, resourceURI string) string {
 	query.Set("artifactUri", resourceURI)
 	query.Set("output", "fullscreen")
 	return runURL + "?" + query.Encode()
+}
+
+func openableLiveWebURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return value
+	default:
+		return ""
+	}
 }

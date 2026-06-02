@@ -317,6 +317,10 @@ func inferResourceRunURL(base string, data map[string]any, parentFlowSlug string
 }
 
 func parseRunResourceURI(resourceURI string) (workflowID string, stepID string, kind string) {
+	resourceURI = strings.TrimSpace(resourceURI)
+	if !isCanonicalResourceURI(resourceURI) {
+		return "", "", ""
+	}
 	prefix := "/result/run/"
 	i := strings.Index(resourceURI, prefix)
 	if i < 0 {
@@ -345,6 +349,10 @@ func parseRunResourceURI(resourceURI string) (workflowID string, stepID string, 
 		return workflowID, "", strings.TrimSpace(parts[1])
 	}
 	return workflowID, "", ""
+}
+
+func isCanonicalResourceURI(resourceURI string) bool {
+	return strings.HasPrefix(strings.TrimSpace(resourceURI), "res://v1/ws/")
 }
 
 func extractRunID(m map[string]any) string {
