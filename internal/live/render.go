@@ -312,6 +312,9 @@ func groupResourcesByVisibleParent(activities []Activity, visible []Activity) ma
 		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
 			continue
 		}
+		if isAutomaticStepCaptureResource(activity) {
+			continue
+		}
 		parentRef := strings.TrimSpace(activity.ParentActivityID)
 		if parentRef == "" {
 			continue
@@ -1808,6 +1811,9 @@ func resourceParentIDs(activities []Activity) map[string]bool {
 		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
 			continue
 		}
+		if isAutomaticStepCaptureResource(activity) {
+			continue
+		}
 		if parentID := strings.TrimSpace(activity.ParentActivityID); parentID != "" {
 			parents[parentID] = true
 		}
@@ -1827,6 +1833,9 @@ func ensureResourceParentSteps(selected []Activity, node RunNode) []Activity {
 	}
 	for _, activity := range node.Activities {
 		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if isAutomaticStepCaptureResource(activity) {
 			continue
 		}
 		parentID := strings.TrimSpace(activity.ParentActivityID)
@@ -1972,6 +1981,9 @@ func runSummaryStrip(snapshot Snapshot, opts RenderOptions) string {
 	seenResources := map[string]bool{}
 	for _, activity := range snapshot.Nodes {
 		if !strings.EqualFold(strings.TrimSpace(activity.ActivityKind), "resource") {
+			continue
+		}
+		if isAutomaticStepCaptureResource(activity) {
 			continue
 		}
 		if activity.Planned {

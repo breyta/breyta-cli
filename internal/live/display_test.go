@@ -199,6 +199,58 @@ func TestCollectDisplayFrameSuppressesAutomaticStepCaptureResources(t *testing.T
 	if displayLineContaining(t, frame, "flow result").ResourceURI != resultURI {
 		t.Fatalf("expected run result resource to remain visible")
 	}
+	if !strings.Contains(RenderDisplayFrame(frame), "2 resources") {
+		t.Fatalf("expected summary to exclude suppressed step capture resource\n---\n%s", RenderDisplayFrame(frame))
+	}
+}
+
+func TestCollectDisplayFrameSuppressesAutomaticStepCaptureResourcesWithoutSyntheticParent(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
+	done := now.Add(-2 * time.Second)
+	stepCaptureURI := "res://v1/ws/ws-acme/result/run/wf-root/step/collect-fanout/output"
+
+	frame := CollectDisplayFrame(Snapshot{
+		Workspace: WorkspaceSummary{WorkspaceID: "ws-acme", UpdatedAt: now},
+		Runs: []RunState{{
+			WorkspaceID:    "ws-acme",
+			WorkflowID:     "wf-root",
+			RootWorkflowID: "wf-root",
+			FlowSlug:       "live-render-parent",
+			Status:         "completed",
+			UpdatedAt:      now,
+			CompletedAt:    &now,
+		}},
+		Nodes: []Activity{
+			{
+				WorkspaceID:      "ws-acme",
+				WorkflowID:       "wf-root",
+				ActivityID:       stepCaptureURI,
+				ParentActivityID: "collect-fanout",
+				ActivityKind:     "resource",
+				ActivityType:     "run-result",
+				ActivityName:     "output",
+				Status:           "completed",
+				ResourceURI:      stepCaptureURI,
+				ResourceKind:     "run-result",
+				ResourceLabel:    "output",
+				CompletedAt:      &done,
+				UpdatedAt:        done,
+			},
+		},
+	}, RenderOptions{Now: now, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
+
+	text := RenderDisplayFrame(frame)
+	if strings.Contains(text, "collect-fanout") {
+		t.Fatalf("expected suppressed step capture resource not to synthesize parent step\n---\n%s", text)
+	}
+	for _, line := range frame.Lines {
+		if line.ActivityID == "collect-fanout" || line.StepID == "collect-fanout" {
+			t.Fatalf("expected no synthetic parent metadata for suppressed step capture resource: %#v", line)
+		}
+	}
+	if !strings.Contains(text, "flow result") || !strings.Contains(text, "1 resource") {
+		t.Fatalf("expected only modeled flow result resource to remain visible and counted\n---\n%s", text)
+	}
 }
 
 func TestFitDisplayFrameForLiveTruncatesToTerminalHeight(t *testing.T) {
