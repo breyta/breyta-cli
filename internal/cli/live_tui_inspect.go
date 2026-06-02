@@ -268,8 +268,9 @@ func (m liveTUIModel) maxStepIOOffset() int {
 func inspectValueLines(value any, width int) []string {
 	preview := "not captured"
 	if value != nil {
-		preview = renderStepIOPreview(redactLiveTUISensitiveValue(value))
+		preview = renderStepIOPreview(redactLiveTUISensitiveValue(normalizeLiveTUIInspectableValue(value)))
 	}
+	preview = sanitizeLiveTUIInspectText(preview)
 	if strings.TrimSpace(preview) == "" {
 		preview = "not captured"
 	}
@@ -319,6 +320,27 @@ func wrapInspectLine(line string, width int) []string {
 	}
 	out = append(out, string(runes))
 	return out
+}
+
+func sanitizeLiveTUIInspectText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = stripTUIANSI(text)
+	var b strings.Builder
+	for _, r := range text {
+		switch r {
+		case '\n':
+			b.WriteRune('\n')
+		case '\t':
+			b.WriteString("  ")
+		default:
+			if r < 0x20 || r == 0x7f {
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func minInt(a int, b int) int {

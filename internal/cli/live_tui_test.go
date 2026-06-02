@@ -993,6 +993,34 @@ func TestLiveTUIInspectValueRedactsSensitiveKeys(t *testing.T) {
 	}
 }
 
+func TestLiveTUIInspectValueRedactsSensitiveKeysInJSONString(t *testing.T) {
+	lines := inspectValueLines(`{"caseId":"case-1","authorization":"Bearer secret-token","nested":{"apiKey":"key-1"}}`, 120)
+	view := stripTUIANSI(strings.Join(lines, "\n"))
+	for _, want := range []string{"case-1", "[redacted]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected redacted JSON string pane to contain %q\n%s", want, view)
+		}
+	}
+	for _, notWant := range []string{"Bearer secret-token", "key-1"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("expected sensitive JSON string value %q to be redacted\n%s", notWant, view)
+		}
+	}
+}
+
+func TestLiveTUIInspectValueStripsTerminalControls(t *testing.T) {
+	lines := inspectValueLines("ok\x1b[31mred\x1b[0m\x07done\rnext\tcol", 120)
+	view := strings.Join(lines, "\n")
+	if strings.Contains(view, "\x1b") || strings.Contains(view, "\x07") || strings.Contains(view, "\r") {
+		t.Fatalf("expected terminal controls to be stripped: %q", view)
+	}
+	for _, want := range []string{"okreddone", "next  col"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected sanitized view to contain %q: %q", want, view)
+		}
+	}
+}
+
 func TestFetchLiveTUIStepIOWithoutAppFailsGracefully(t *testing.T) {
 	_, err := fetchLiveTUIStepIO(nil, liveTUIStepIORef{WorkflowID: "wf-root", StepID: "step-1"})
 	if err == nil || !strings.Contains(err.Error(), "loader unavailable") {

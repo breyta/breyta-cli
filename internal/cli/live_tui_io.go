@@ -396,13 +396,6 @@ func liveTUIToolCallRecordMatches(record map[string]any, toolCallID string, labe
 func renderStepIOPreview(value any) string {
 	switch v := value.(type) {
 	case string:
-		trimmed := strings.TrimSpace(v)
-		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-			var parsed any
-			if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
-				return renderStepIOPreview(parsed)
-			}
-		}
 		return v
 	case fmt.Stringer:
 		return v.String()
@@ -412,6 +405,47 @@ func renderStepIOPreview(value any) string {
 			return renderCompactPreview(value)
 		}
 		return string(b)
+	}
+}
+
+const liveTUIInspectJSONStringMaxBytes = 1 << 20
+
+func normalizeLiveTUIInspectableValue(value any) any {
+	return normalizeLiveTUIInspectableValueDepth(value, 0)
+}
+
+func normalizeLiveTUIInspectableValueDepth(value any, depth int) any {
+	if depth > 8 || value == nil {
+		return value
+	}
+	switch v := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if len(trimmed) == 0 || len(trimmed) > liveTUIInspectJSONStringMaxBytes {
+			return value
+		}
+		if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+			return value
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+			return value
+		}
+		return normalizeLiveTUIInspectableValueDepth(parsed, depth+1)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = normalizeLiveTUIInspectableValueDepth(item, depth+1)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeLiveTUIInspectableValueDepth(item, depth+1)
+		}
+		return out
+	default:
+		return value
 	}
 }
 

@@ -2404,7 +2404,7 @@ func TestRenderSnapshotLiveFullNestsToolCallsUnderAgentStep(t *testing.T) {
 	}, RenderOptions{Now: now, Frame: 0, Color: false, FocusWorkflowID: "wf-root", FullTree: true})
 
 	if strings.Count(out, "research-agent") != 1 {
-		t.Fatalf("expected deduped research-agent row in live-full, got %d\n---\n%s", strings.Count(out, "research-agent"), out)
+		t.Fatalf("expected deduped research-agent row in full-tree live output, got %d\n---\n%s", strings.Count(out, "research-agent"), out)
 	}
 	var agentLine, fetchLine, scoreLine string
 	for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
@@ -2418,13 +2418,13 @@ func TestRenderSnapshotLiveFullNestsToolCallsUnderAgentStep(t *testing.T) {
 		}
 	}
 	if agentLine == "" || fetchLine == "" || scoreLine == "" {
-		t.Fatalf("expected agent and nested tool lines in live-full\n---\n%s", out)
+		t.Fatalf("expected agent and nested tool lines in full-tree live output\n---\n%s", out)
 	}
 	agentIndent := len(agentLine) - len(strings.TrimLeft(agentLine, " "))
 	fetchIndent := len(fetchLine) - len(strings.TrimLeft(fetchLine, " "))
 	scoreIndent := len(scoreLine) - len(strings.TrimLeft(scoreLine, " "))
 	if fetchIndent <= agentIndent || scoreIndent <= agentIndent {
-		t.Fatalf("expected live-full tool calls to stay nested under agent\nagent=%q\nfetch=%q\nscore=%q\n%s", agentLine, fetchLine, scoreLine, out)
+		t.Fatalf("expected full-tree live tool calls to stay nested under agent\nagent=%q\nfetch=%q\nscore=%q\n%s", agentLine, fetchLine, scoreLine, out)
 	}
 	if strings.Contains(fetchLine, "[tool:fetch]") || strings.Contains(scoreLine, "[tool:score]") {
 		t.Fatalf("expected tool rows not to show activity-id detail\nfetch=%q\nscore=%q\n%s", fetchLine, scoreLine, out)
