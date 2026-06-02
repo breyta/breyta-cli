@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.breyta/workspace-mcp",
+  "title": "Breyta Workspace MCP",
+  "description": "Workspace MCP tools for discovering, running, debugging, and authoring Breyta flows.",
+  "version": "1.0.0",
+  "websiteUrl": "https://flows.breyta.ai/docs/mcp-workspace",
+  "repository": {
+    "url": "https://github.com/breyta/breyta-cli",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://flows.breyta.ai/api/workspaces/{workspace_id}/mcp",
+      "variables": {
+        "workspace_id": {
+          "description": "Breyta workspace id, for example ws-acme.",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Authorization header value. Use Bearer plus a scoped Breyta service-account API key.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "X-MCP-Readonly",
+          "description": "Optional. Set to true to expose only read-only Breyta MCP tools.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "X-MCP-Toolsets",
+          "description": "Optional comma-separated toolsets such as read,setup,debug,feedback.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

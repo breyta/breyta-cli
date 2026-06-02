@@ -545,6 +545,16 @@ breyta mcp doctor \
 while creating a local agent workspace. Multi-workspace use should be modeled as
 multiple named MCP server entries, not runtime workspace switching.
 
+The repository root includes `server.json` for publishing Breyta Workspace MCP
+to the official MCP Registry. It describes the hosted Streamable HTTP endpoint
+with a required `workspace_id` URL variable and an `Authorization` header
+provided by the user's MCP host or secret store. The public scanner metadata
+endpoint is:
+
+```text
+https://flows.breyta.ai/.well-known/mcp/server-card.json
+```
+
 ## Dev utilities
 
 Analyze an old agent authoring session for command/token regressions:
