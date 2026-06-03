@@ -5055,6 +5055,12 @@ func TestFlowsRun_WaitPollsWhenWorkflowIDNestedUnderRun(t *testing.T) {
 	if !strings.Contains(stdout, "breyta runs inspect wf-nested") {
 		t.Fatalf("expected wait output to include run inspection next command, got:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, "breyta resources workflow list wf-nested") {
+		t.Fatalf("expected wait output to include canonical workflow resource list command, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "breyta resources workflow wf-nested") {
+		t.Fatalf("expected wait output not to omit workflow list subcommand, got:\n%s", stdout)
+	}
 }
 
 func TestFlowsRun_WaitForwardsInstallationIDToRunsGet(t *testing.T) {

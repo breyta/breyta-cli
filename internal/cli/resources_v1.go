@@ -567,14 +567,27 @@ func newResourcesURLCmd(app *App) *cobra.Command {
 }
 
 func newResourcesWorkflowCmd(app *App) *cobra.Command {
+	var limit int
+
 	cmd := &cobra.Command{
-		Use:   "workflow",
+		Use:   "workflow [list|step] <workflow-id>",
 		Short: "List resources by workflow/step",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
+			switch len(args) {
+			case 0:
+				return cmd.Help()
+			case 1:
+				if err := requireResourcesAPI(cmd, app); err != nil {
+					return err
+				}
+				return runResourcesWorkflowList(cmd, app, args[0], limit)
+			default:
+				return writeErr(cmd, errors.New("use `breyta resources workflow list <workflow-id>` or `breyta resources workflow step <workflow-id> <step-id>`"))
+			}
 		},
 	}
 
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max results for direct workflow lookup (0 to use server default, 1-100)")
 	cmd.AddCommand(newResourcesWorkflowListCmd(app))
 	cmd.AddCommand(newResourcesWorkflowStepCmd(app))
 	return cmd
@@ -591,33 +604,37 @@ func newResourcesWorkflowListCmd(app *App) *cobra.Command {
 			return requireResourcesAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workflowID := strings.TrimSpace(args[0])
-			if workflowID == "" {
-				return writeErr(cmd, errors.New("missing workflow-id"))
-			}
-
-			q := url.Values{}
-			if limit > 0 {
-				q.Set("limit", strconv.Itoa(limit))
-			}
-
-			out, status, err := apiClient(app).DoREST(
-				context.Background(),
-				http.MethodGet,
-				"/api/resources/workflow/"+url.PathEscape(workflowID),
-				q,
-				nil,
-			)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			out = compactResourceListPayload(enrichResourceListPayload(out))
-			return writeREST(cmd, app, status, out)
+			return runResourcesWorkflowList(cmd, app, args[0], limit)
 		},
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	return cmd
+}
+
+func runResourcesWorkflowList(cmd *cobra.Command, app *App, workflowID string, limit int) error {
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID == "" {
+		return writeErr(cmd, errors.New("missing workflow-id"))
+	}
+
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+
+	out, status, err := apiClient(app).DoREST(
+		context.Background(),
+		http.MethodGet,
+		"/api/resources/workflow/"+url.PathEscape(workflowID),
+		q,
+		nil,
+	)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	out = compactResourceListPayload(enrichResourceListPayload(out))
+	return writeREST(cmd, app, status, out)
 }
 
 func newResourcesWorkflowStepCmd(app *App) *cobra.Command {
