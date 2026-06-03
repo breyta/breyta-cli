@@ -774,6 +774,9 @@ func newConnectionsCallCmd(app *App) *cobra.Command {
 			if len(includeHeaders) > 0 {
 				payload["includeHeaders"] = includeHeaders
 			}
+			if cmd.Flags().Changed("timeout") && timeoutSeconds <= 0 {
+				return writeErr(cmd, errors.New("--timeout must be > 0"))
+			}
 			if timeoutSeconds > 0 {
 				payload["timeout"] = timeoutSeconds
 			}

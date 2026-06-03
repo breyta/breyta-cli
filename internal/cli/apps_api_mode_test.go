@@ -1888,6 +1888,34 @@ func TestConnectionsCall_RejectsMultipleBodyModesBeforeAPI(t *testing.T) {
 	}
 }
 
+func TestConnectionsCall_RejectsNonPositiveTimeoutBeforeAPI(t *testing.T) {
+	var callCount int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "call", "conn-github",
+		"--path", "/user",
+		"--timeout", "0",
+	)
+	if err == nil {
+		t.Fatalf("expected non-positive timeout to fail")
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no API call on local validation failure, got %d", callCount)
+	}
+	if !strings.Contains(stdout+stderr, "--timeout must be > 0") {
+		t.Fatalf("expected timeout validation message, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
 func TestConnectionsTest_All(t *testing.T) {
 	var bulkCalls int
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
