@@ -31,6 +31,7 @@ func newConnectionsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newConnectionsUpdateCmd(app))
 	cmd.AddCommand(newConnectionsDeleteCmd(app))
 	cmd.AddCommand(newConnectionsTestCmd(app))
+	cmd.AddCommand(newConnectionsCallCmd(app))
 	return cmd
 }
 
@@ -713,6 +714,181 @@ func newConnectionsTestCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "Test all workspace connections")
 	cmd.Flags().BoolVar(&onlyFailing, "only-failing", false, "When used with --all, include only failing results")
 	return cmd
+}
+
+func newConnectionsCallCmd(app *App) *cobra.Command {
+	var method string
+	var path string
+	var requestURL string
+	var queryJSON string
+	var headersJSON string
+	var jsonBody string
+	var formJSON string
+	var bodyRaw string
+	var bodyFile string
+	var contentType string
+	var accept string
+	var responseAs string
+	var includeHeaders []string
+	var timeoutSeconds int
+
+	cmd := &cobra.Command{
+		Use:   "call <id>",
+		Short: "Make one HTTP request through an existing HTTP API connection",
+		Example: strings.Join([]string{
+			`  breyta connections call conn_123 --method GET --path /user --response-as json`,
+			`  breyta connections call conn_123 --method POST --path /graphql --json '{"query":"query { viewer { login } }"}'`,
+		}, "\n"),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeNotImplemented(cmd, app, "Use API mode to call a connection.")
+			}
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+			id := strings.TrimSpace(args[0])
+			if id == "" {
+				return writeErr(cmd, errors.New("missing id"))
+			}
+
+			payload := map[string]any{}
+			if strings.TrimSpace(method) != "" {
+				payload["method"] = strings.ToUpper(strings.TrimSpace(method))
+			}
+			if strings.TrimSpace(path) != "" {
+				payload["path"] = strings.TrimSpace(path)
+			}
+			if strings.TrimSpace(requestURL) != "" {
+				payload["url"] = strings.TrimSpace(requestURL)
+			}
+			if strings.TrimSpace(contentType) != "" {
+				payload["contentType"] = strings.TrimSpace(contentType)
+			}
+			if strings.TrimSpace(accept) != "" {
+				payload["accept"] = strings.TrimSpace(accept)
+			}
+			if strings.TrimSpace(responseAs) != "" {
+				payload["responseAs"] = strings.TrimSpace(responseAs)
+			}
+			if len(includeHeaders) > 0 {
+				payload["includeHeaders"] = includeHeaders
+			}
+			if timeoutSeconds > 0 {
+				payload["timeout"] = timeoutSeconds
+			}
+
+			query, err := parseJSONObjectJSONInput(queryJSON, "", "query")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if query != nil {
+				payload["query"] = query
+			}
+			headers, err := parseJSONObjectJSONInput(headersJSON, "", "headers")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if headers != nil {
+				payload["headers"] = headers
+			}
+
+			jsonBodySet := strings.TrimSpace(jsonBody) != ""
+			formSet := strings.TrimSpace(formJSON) != ""
+			bodyRawSet := cmd.Flags().Changed("body")
+			bodyFileSet := cmd.Flags().Changed("body-file")
+			bodyModeCount := 0
+			if jsonBodySet {
+				bodyModeCount++
+			}
+			if formSet {
+				bodyModeCount++
+			}
+			if bodyRawSet || bodyFileSet {
+				bodyModeCount++
+			}
+			if bodyModeCount > 1 {
+				return writeErr(cmd, errors.New("provide only one of --json, --form, --body, or --body-file"))
+			}
+
+			jsonValue, err := parseAnyJSONInput(jsonBody, "", "json")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if jsonValue != nil {
+				payload["json"] = jsonValue
+			}
+			form, err := parseJSONObjectJSONInput(formJSON, "", "form")
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if form != nil {
+				payload["form"] = form
+			}
+			if bodyRawSet && bodyFileSet {
+				return writeErr(cmd, errors.New("provide --body or --body-file, not both"))
+			}
+			if bodyFileSet {
+				bodyFilePath := strings.TrimSpace(bodyFile)
+				if bodyFilePath == "" {
+					return writeErr(cmd, errors.New("missing --body-file path"))
+				}
+				b, err := readExplicitFile(bodyFilePath)
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --body-file: %w", err))
+				}
+				payload["body"] = string(b)
+			} else if bodyRawSet {
+				payload["body"] = bodyRaw
+			}
+
+			out, status, err := apiClient(app).DoREST(context.Background(), http.MethodPost, "/api/connections/"+url.PathEscape(id)+"/call", nil, payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if status >= 400 {
+				return writeREST(cmd, app, status, out)
+			}
+			if m, _ := out.(map[string]any); m != nil {
+				if success, ok := m["success"].(bool); ok && !success {
+					return writeFailure(
+						cmd,
+						app,
+						"connection_call_failed",
+						errors.New(connectionCallFailureMessage(m)),
+						"Inspect the returned provider status/body, then adjust request parameters or connection auth.",
+						m,
+					)
+				}
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
+	cmd.Flags().StringVar(&method, "method", "GET", "HTTP method")
+	cmd.Flags().StringVar(&path, "path", "", "Path appended to the connection base URL")
+	cmd.Flags().StringVar(&requestURL, "url", "", "Absolute URL override; must match the connection origin")
+	cmd.Flags().StringVar(&queryJSON, "query", "", "Query parameters as a JSON object")
+	cmd.Flags().StringVar(&headersJSON, "headers", "", "Request headers as a JSON object")
+	cmd.Flags().StringVar(&jsonBody, "json", "", "JSON request body")
+	cmd.Flags().StringVar(&formJSON, "form", "", "Form request body as a JSON object")
+	cmd.Flags().StringVar(&bodyRaw, "body", "", "Raw request body string")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "Read raw request body from file")
+	cmd.Flags().StringVar(&contentType, "content-type", "", "Content-Type for raw body")
+	cmd.Flags().StringVar(&accept, "accept", "", "Accept header content type")
+	cmd.Flags().StringVar(&responseAs, "response-as", "auto", "Response parser: auto|json|text|bytes")
+	cmd.Flags().StringSliceVar(&includeHeaders, "include-header", nil, "Response header to include in output; repeatable")
+	cmd.Flags().IntVar(&timeoutSeconds, "timeout", 0, "Request timeout in seconds")
+	return cmd
+}
+
+func connectionCallFailureMessage(m map[string]any) string {
+	if s := strings.TrimSpace(firstNonBlankString(m["error"])); s != "" {
+		return s
+	}
+	if status := anyInt(m["status"]); status > 0 {
+		return fmt.Sprintf("HTTP %d", status)
+	}
+	return "connection call failed"
 }
 
 func runConnectionBulkTestAPI(cmd *cobra.Command, app *App, onlyFailing bool) error {

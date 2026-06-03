@@ -1708,6 +1708,186 @@ func TestConnectionsCreate_OAuthAccountAPIModePassesCreateAlias(t *testing.T) {
 	}
 }
 
+func TestConnectionsCall_API(t *testing.T) {
+	var callCount int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/connections/conn-github/call" && r.Method == http.MethodPost:
+			callCount++
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["method"] != "POST" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing method"}})
+				return
+			}
+			if body["path"] != "/graphql" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing path"}})
+				return
+			}
+			query, _ := body["query"].(map[string]any)
+			if query["per_page"] != float64(1) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing query"}})
+				return
+			}
+			headers, _ := body["headers"].(map[string]any)
+			if headers["X-Test"] != "1" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing headers"}})
+				return
+			}
+			jsonBody, _ := body["json"].(map[string]any)
+			if jsonBody["query"] != "query { viewer { login } }" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing json body"}})
+				return
+			}
+			if body["responseAs"] != "json" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing responseAs"}})
+				return
+			}
+			includeHeaders, _ := body["includeHeaders"].([]any)
+			if len(includeHeaders) != 1 || includeHeaders[0] != "x-ratelimit-remaining" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing includeHeaders"}})
+				return
+			}
+			if body["timeout"] != float64(15) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing timeout"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success":      true,
+				"connectionId": "conn-github",
+				"status":       200,
+				"body":         map[string]any{"login": "octocat"},
+				"headers":      map[string]any{"X-RateLimit-Remaining": "4999"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "call", "conn-github",
+		"--method", "POST",
+		"--path", "/graphql",
+		"--query", `{"per_page":1}`,
+		"--headers", `{"X-Test":"1"}`,
+		"--json", `{"query":"query { viewer { login } }"}`,
+		"--response-as", "json",
+		"--include-header", "x-ratelimit-remaining",
+		"--timeout", "15",
+	)
+	if err != nil {
+		t.Fatalf("connections call failed: %v\n%s", err, stdout)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected one call endpoint hit, got %d", callCount)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["status"] != float64(200) {
+		t.Fatalf("expected provider status 200, got %#v", data["status"])
+	}
+	responseBody, _ := data["body"].(map[string]any)
+	if responseBody["login"] != "octocat" {
+		t.Fatalf("expected GitHub user body, got %#v", responseBody)
+	}
+}
+
+func TestConnectionsCall_ProviderFailureReturnsNonZero(t *testing.T) {
+	var callCount int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/connections/conn-github/call" && r.Method == http.MethodPost:
+			callCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success":      false,
+				"connectionId": "conn-github",
+				"status":       401,
+				"error":        "HTTP 401: Bad credentials",
+				"body":         map[string]any{"message": "Bad credentials"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "call", "conn-github",
+		"--path", "/user",
+		"--response-as", "json",
+	)
+	if err == nil {
+		t.Fatalf("expected provider failure to return non-zero")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected one call endpoint hit, got %d", callCount)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if out["ok"] != false {
+		t.Fatalf("expected ok=false, got %#v", out["ok"])
+	}
+	errorObj, _ := out["error"].(map[string]any)
+	if errorObj["code"] != "connection_call_failed" {
+		t.Fatalf("expected connection_call_failed code, got %#v", errorObj["code"])
+	}
+	if !strings.Contains(fmt.Sprint(errorObj["message"]), "HTTP 401") {
+		t.Fatalf("expected provider status in error message, got %#v", errorObj["message"])
+	}
+	details, _ := errorObj["details"].(map[string]any)
+	if details["status"] != float64(401) {
+		t.Fatalf("expected provider status in details, got %#v", details["status"])
+	}
+}
+
+func TestConnectionsCall_RejectsMultipleBodyModesBeforeAPI(t *testing.T) {
+	var callCount int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	_, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"connections", "call", "conn-github",
+		"--path", "/user",
+		"--json", `{}`,
+		"--body", "raw",
+	)
+	if err == nil {
+		t.Fatalf("expected multiple body modes to fail")
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no API call on local validation failure, got %d", callCount)
+	}
+}
+
 func TestConnectionsTest_All(t *testing.T) {
 	var bulkCalls int
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
