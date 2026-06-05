@@ -125,6 +125,28 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestFlowsHelpDocumentsCurrentFunctionStepShape(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if strings.Contains(help, "(flow/step :function :do {:code '(fn [x] x)} :input input)") {
+		t.Fatalf("flows help still documents legacy function-step shape:\n%s", help)
+	}
+	if !strings.Contains(help, "(flow/step :function :do {:code '(fn [input] input)") ||
+		!strings.Contains(help, ":input {:input input}})") {
+		t.Fatalf("flows help missing current function-step shape:\n%s", help)
+	}
+}
+
 func TestHelpFlowsIncludesMarketplaceSurface(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)

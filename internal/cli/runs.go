@@ -708,10 +708,15 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				return writeLocalRunInspect(cmd, app, args[0])
 			}
 			payload := map[string]any{
-				"workflowId":     strings.TrimSpace(args[0]),
-				"includeSteps":   true,
-				"includeResult":  false,
-				"compactInspect": true,
+				"workflowId":   strings.TrimSpace(args[0]),
+				"includeSteps": true,
+			}
+			if full {
+				payload["includeResult"] = true
+				payload["includeStepResults"] = true
+			} else {
+				payload["includeResult"] = false
+				payload["compactInspect"] = true
 			}
 			if strings.TrimSpace(installationID) != "" {
 				payload["installationId"] = strings.TrimSpace(installationID)
@@ -721,7 +726,11 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if status < 400 && isOK(out) {
-				compactRunInspectOutput(out, args[0])
+				if full {
+					annotateFullRunInspectOutput(out, args[0])
+				} else {
+					compactRunInspectOutput(out, args[0])
+				}
 				reconcileRunResponseWithTerminalEvents(apiClient(app), out, strings.TrimSpace(args[0]), installationID)
 			}
 			return writeAPIResult(cmd, app, out, status)
@@ -729,8 +738,29 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
-	cmd.Flags().BoolVar(&full, "full", false, "Include full captured step output with --step in API mode")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full run result and captured step output in API mode")
 	return cmd
+}
+
+func annotateFullRunInspectOutput(out map[string]any, workflowID string) {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	steps := sliceAny(run["steps"])
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	workflowID = strings.TrimSpace(workflowID)
+	meta["workflowId"] = workflowID
+	meta["outputView"] = "full"
+	meta["compactInspect"] = false
+	if steps != nil {
+		meta["stepsTotal"] = len(steps)
+	}
+	if workflowID == "" {
+		workflowID = "<workflow-id>"
+	}
+	appendMetaNextCommands(meta, "breyta resources workflow list "+workflowID)
 }
 
 func compactRunInspectOutput(out map[string]any, workflowID string) {

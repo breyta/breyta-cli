@@ -14,6 +14,45 @@ import (
 	"github.com/breyta/breyta-cli/internal/authstore"
 )
 
+func runFlowLintLocalOnlyForLiteral(t *testing.T, flowLiteral string) (map[string]any, error, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	err := cmd.Execute()
+	var body map[string]any
+	if decodeErr := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); decodeErr != nil {
+		t.Fatalf("decode output: %v\n%s", decodeErr, out.String())
+	}
+	return body, err, out.String()
+}
+
+func requireFlowLintDiagnosticCodes(t *testing.T, body map[string]any, want ...string) {
+	t.Helper()
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	codes := map[string]bool{}
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if code, _ := item["code"].(string); code != "" {
+			codes[code] = true
+		}
+	}
+	for _, code := range want {
+		if !codes[code] {
+			t.Fatalf("expected diagnostic code %q, got items=%#v", code, items)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
@@ -216,6 +255,118 @@ func TestFlowsLintLocalOnlyAllowsNilConcurrencyInsideFlowCode(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyRejectsInvalidInvocationAndInterfaceShapes(t *testing.T) {
+	flowLiteral := `{:slug :bad-authoring-shapes
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations [{:id :default :inputs [{:id :repo}]}]
+ :interfaces {:manual {:id :run :invocation :default}}
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body,
+		"invalid_invocations_shape",
+		"invalid_interface_category_shape")
+}
+
+func TestFlowsLintLocalOnlyAcceptsNilInvocationsAndInterfaces(t *testing.T) {
+	flowLiteral := `{:slug :minimal-authoring-shapes
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations nil
+ :interfaces nil
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("lint should accept documented nil invocation/interface shape: %v\n%s", err, stdout)
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "invalid_invocations_shape" {
+			t.Fatalf("unexpected nil invocations diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsDocumentedMinimalFunctionStepShape(t *testing.T) {
+	flowLiteral := `{:slug :my-flow
+ :name "My Flow"
+ :description "..."
+ :tags ["example"]
+ :concurrency {:type :singleton :on-new-version :supersede}
+ :requires nil
+ :templates nil
+ :functions nil
+ :invocations nil
+ :interfaces nil
+ :schedules nil
+ :flow '(let [input (flow/input)]
+          (flow/step :function :do {:code '(fn [input] input)
+                                     :input {:input input}}))}
+`
+	if _, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral); err != nil {
+		t.Fatalf("lint should accept documented minimal function step shape: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsUnknownInterfaceInvocation(t *testing.T) {
+	flowLiteral := `{:slug :missing-interface-invocation
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :invocation :missing}]}
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "unknown_interface_invocation")
+}
+
+func TestFlowsLintLocalOnlyAcceptsNonIdentifierMcpToolName(t *testing.T) {
+	flowLiteral := `{:slug :mcp-tool-name
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:mcp [{:tool-name "github.tree.commit/v1" :invocation :default}]}
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("lint should accept nonblank MCP tool names: %v\n%s", err, stdout)
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "invalid_interface_id" {
+			t.Fatalf("unexpected MCP tool-name diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
+	flowLiteral := `{:slug :bad-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :shape :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :shape {:ref :shape :input input}
+                     :code '(fn [_] nil)))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body,
+		"function_step_arity_invalid",
+		"function_step_input_shape_invalid")
+}
+
 func TestFlowsLintLocalOnlyReportsFunctionCodeStringSyntaxErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
@@ -226,7 +377,7 @@ func TestFlowsLintLocalOnlyReportsFunctionCodeStringSyntaxErrors(t *testing.T) {
  :functions [{:id :build-plan
               :code "(fn [input]\n  (assoc input :ok true)"}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -273,7 +424,7 @@ func TestFlowsLintLocalOnlyReportsFunctionCodeStringSyntaxErrorsAfterTopLevelRea
  :functions [{:id :build-plan
               :code "(fn [input]\n  (assoc input :ok true)"}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -322,7 +473,7 @@ func TestFlowsLintLocalOnlyBestEffortScansCodeStringsInTopLevelReaderConditional
     :functions [{:id :build-plan
                  :code "(fn [input]\n  (assoc input :ok true)"}]
     :flow '(let [input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -371,7 +522,7 @@ func TestFlowsLintLocalOnlyBestEffortIgnoresNonFunctionCodeStrings(t *testing.T)
     :functions [{:id :build-plan
                  :code "(fn [input]\n  (assoc input :ok true))"}]
     :flow '(let [input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -428,7 +579,7 @@ func TestFlowsLintLocalOnlyBestEffortSkipsInactiveReaderForms(t *testing.T) {
     :functions [{:id :build-plan
                  :code "(fn [input]\n  (assoc input :ok true))"}]
     :flow '(let [input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -479,7 +630,7 @@ func TestFlowsLintLocalOnlyReadsReaderConditionalFunctionsValue(t *testing.T) {
                :clj [{:id :build-plan
                       :code "(fn [input]\n  (assoc input :ok true)"}])
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -530,7 +681,7 @@ func TestFlowsLintLocalOnlyBestEffortReadsReaderConditionalFunctionsValue(t *tes
                   :clj [{:id :build-plan
                          :code "(fn [input]\n  (assoc input :ok true)"}])
     :flow '(let [input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -583,7 +734,7 @@ func TestFlowsLintLocalOnlyReadsReaderConditionalFunctionEntries(t *testing.T) {
                 :clj {:id :build-plan
                       :code "(fn [input]\n  (assoc input :ok true))"})]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -624,7 +775,7 @@ func TestFlowsLintLocalOnlyReportsReaderConditionalCodeValue(t *testing.T) {
               :code #?(:cljs "(fn [input]\n  (assoc input :cljs true))"
                        :clj "(fn [input]\n  (assoc input :ok true)")}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -672,7 +823,7 @@ func TestFlowsLintLocalOnlyAcceptsVarQuoteInFunctionCodeStrings(t *testing.T) {
  :functions [{:id :build-plan
               :code "(fn [input]\n  {:handler #'my.ns/f\n   :input input})"}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -712,7 +863,7 @@ func TestFlowsLintLocalOnlyAcceptsLegacyMetadataAndSymbolicValuesInFunctionCodeS
  :functions [{:id :build-plan
               :code "(fn [input]\n  {:typed #^String (:name input)\n   :nan ##NaN\n   :input input})"}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -752,7 +903,7 @@ func TestFlowsLintLocalOnlyRejectsReaderEvalInFunctionCodeStrings(t *testing.T) 
  :functions [{:id :build-plan
               :code "(fn [input]\n  #=(identity input))"}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :build-plan {:ref :build-plan :input input}))}
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -876,7 +1027,7 @@ func TestFlowsLintLocalOnlyBestEffortScansCodeStringsAfterExtractionError(t *tes
     :functions [{:id :build-plan
                  :code "(fn [input]\n  (assoc input :ok true)"}]
     :flow '(let [input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -926,7 +1077,7 @@ func TestFlowsLintLocalOnlyBestEffortIgnoresNestedFunctionsInFlow(t *testing.T) 
     :flow '(let [shadow {:functions [{:id :shadow
                                       :code "(fn [input]\n  (assoc input :shadow true)"}]}
                  input (flow/input)]
-             (flow/step :function :build-plan {:ref :build-plan :input input}))})
+             (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))})
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)

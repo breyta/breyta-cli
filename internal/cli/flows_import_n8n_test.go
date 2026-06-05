@@ -54,6 +54,7 @@ func TestConvertN8NWorkflow_HTTPAndCode(t *testing.T) {
 	assertNotContains(t, result.EDN, ":triggers")
 	assertContains(t, result.EDN, ":invocations {:default {:inputs []}}")
 	assertContains(t, result.EDN, ":ref :transform-users-fn")
+	assertContains(t, result.EDN, ":input {:input fetch_users}")
 	assertContains(t, result.EDN, ":flow (quote")
 	if !result.Validation.BalancedDelimiters || !result.Validation.EDNReadable {
 		t.Fatalf("expected successful validation, got %#v", result.Validation)
@@ -85,6 +86,7 @@ func TestImportN8NWorkflowFile_WritesDefaultShape(t *testing.T) {
 	text := string(b)
 	assertContains(t, text, ":slug :tiny")
 	assertContains(t, text, "TODO(n8n-import): Custom or unsupported n8n node")
+	assertContains(t, text, ":input {:input input}")
 }
 
 func TestConvertN8NWorkflow_RealHTTPParameterArraysAndControlNodes(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/breyta/breyta-cli/internal/clojure/parenrepair"
 	"github.com/spf13/cobra"
@@ -17,6 +18,12 @@ type flowLintDiagnostic map[string]any
 var (
 	flowLintWorkspaceIDRe    = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
+	flowLintInvocationTypes  = map[string]bool{
+		"string": true, "text": true, "number": true, "email": true, "password": true,
+		"textarea": true, "boolean": true, "checkbox": true, "select": true,
+		"date": true, "time": true, "datetime": true, "json": true, "file": true,
+		"blob": true, "blob-ref": true, "resource": true, "secret": true,
+	}
 )
 
 const defaultFlowLintServerTimeout = 30 * time.Second
@@ -68,6 +75,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 			} else {
 				expandedLiteral = expanded
 				diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
+				diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
 				diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 			}
 
@@ -331,6 +339,717 @@ func clojureFormIsNil(src string, start int) bool {
 	}
 	end := readClojureTokenEnd(src, i)
 	return end > i && src[i:end] == "nil"
+}
+
+type clojureFormSpan struct {
+	Start int
+	End   int
+}
+
+type clojureMapEntry struct {
+	KeyToken   string
+	KeyName    string
+	KeyStart   int
+	KeyEnd     int
+	ValueStart int
+	ValueEnd   int
+}
+
+func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
+	entries, err := extractTopLevelMapEntries(flowLiteral)
+	if err != nil {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"warning",
+			"authoring_shape_scan_incomplete",
+			[]string{":flow"},
+			fmt.Sprintf("Local authoring shape validation could not scan the top-level flow map: %v", err),
+			"Run `breyta flows lint --server` before pushing for canonical schema validation.",
+			"local",
+		)}
+	}
+	var diagnostics []flowLintDiagnostic
+	byKey := map[string]clojureMapEntry{}
+	for _, entry := range entries {
+		if entry.KeyName != "" {
+			byKey[entry.KeyName] = entry
+		}
+	}
+	invocationIDs, foundInvocations, invocationDiagnostics := localInvocationShapeDiagnostics(flowLiteral, byKey["invocations"])
+	diagnostics = append(diagnostics, invocationDiagnostics...)
+	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
+	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral)...)
+	return diagnostics
+}
+
+func extractTopLevelMapEntries(src string) ([]clojureMapEntry, error) {
+	start, err := topLevelFlowMapStart(src)
+	if err != nil || start < 0 {
+		return nil, err
+	}
+	entries, _, err := parseClojureMapEntries(src, start)
+	return entries, err
+}
+
+func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, error) {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) || src[i] != '{' {
+		return nil, i, fmt.Errorf("expected map near byte %d", start)
+	}
+	i++
+	var entries []clojureMapEntry
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return entries, i, fmt.Errorf("unterminated map")
+		}
+		if src[i] == '}' {
+			return entries, i + 1, nil
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, keyStart)
+		if err != nil || keyEnd <= keyStart {
+			if err == nil {
+				err = fmt.Errorf("could not read map key near byte %d", keyStart)
+			}
+			return entries, keyEnd, err
+		}
+		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if valueStart >= len(src) || src[valueStart] == '}' {
+			return entries, valueStart, fmt.Errorf("missing map value for key %s near byte %d", src[keyStart:keyEnd], keyStart)
+		}
+		valueEnd, err := readClojureFormEnd(src, valueStart)
+		if err != nil || valueEnd <= valueStart {
+			if err == nil {
+				err = fmt.Errorf("could not read map value for key %s near byte %d", src[keyStart:keyEnd], valueStart)
+			}
+			return entries, valueEnd, err
+		}
+		keyToken := strings.TrimSpace(src[keyStart:keyEnd])
+		entries = append(entries, clojureMapEntry{
+			KeyToken:   keyToken,
+			KeyName:    clojureKeywordName(keyToken),
+			KeyStart:   keyStart,
+			KeyEnd:     keyEnd,
+			ValueStart: valueStart,
+			ValueEnd:   valueEnd,
+		})
+		i = valueEnd
+	}
+	return entries, i, fmt.Errorf("unterminated map")
+}
+
+func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) || src[i] != '[' {
+		return nil, i, fmt.Errorf("expected vector near byte %d", start)
+	}
+	i++
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated vector")
+		}
+		if src[i] == ']' {
+			return out, i + 1, nil
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			if err == nil {
+				err = fmt.Errorf("could not read vector element near byte %d", i)
+			}
+			return out, end, err
+		}
+		out = append(out, clojureFormSpan{Start: i, End: end})
+		i = end
+	}
+	return out, i, fmt.Errorf("unterminated vector")
+}
+
+func parseClojureListElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) || src[i] != '(' {
+		return nil, i, fmt.Errorf("expected list near byte %d", start)
+	}
+	i++
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated list")
+		}
+		if src[i] == ')' {
+			return out, i + 1, nil
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			if err == nil {
+				err = fmt.Errorf("could not read list element near byte %d", i)
+			}
+			return out, end, err
+		}
+		out = append(out, clojureFormSpan{Start: i, End: end})
+		i = end
+	}
+	return out, i, fmt.Errorf("unterminated list")
+}
+
+func clojureActiveFormStart(src string, start int) (int, bool) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	for i < len(src) {
+		switch {
+		case strings.HasPrefix(src[i:], "#?"):
+			formStart, _, _, ok := activeReaderConditionalForm(src, i)
+			if !ok || formStart < 0 {
+				return i, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, formStart)
+		case src[i] == '^':
+			metaEnd, err := readClojureFormEnd(src, i+1)
+			if err != nil || metaEnd <= i+1 {
+				return i, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				return i, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		default:
+			return i, true
+		}
+	}
+	return i, false
+}
+
+func clojureFormStartsWith(src string, start int, ch byte) bool {
+	i, ok := clojureActiveFormStart(src, start)
+	return ok && i < len(src) && src[i] == ch
+}
+
+func clojureFormToken(src string, span clojureFormSpan) string {
+	if span.Start < 0 || span.End > len(src) || span.End <= span.Start {
+		return ""
+	}
+	return strings.TrimSpace(src[span.Start:span.End])
+}
+
+func clojureIdentifierFromForm(src string, start int) (string, bool) {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) {
+		return "", false
+	}
+	if src[i] == '"' {
+		_, value, _, err := readClojureStringToken(src, i)
+		if err != nil {
+			return "", false
+		}
+		value = strings.TrimSpace(strings.TrimPrefix(value, ":"))
+		return value, validFlowLintSafeIdentifier(value)
+	}
+	end, err := readClojureFormEnd(src, i)
+	if err != nil || end <= i {
+		return "", false
+	}
+	token := strings.TrimSpace(src[i:end])
+	if !strings.HasPrefix(token, ":") || strings.Contains(token, "/") {
+		return "", false
+	}
+	name := strings.TrimPrefix(token, ":")
+	return name, validFlowLintSafeIdentifier(name)
+}
+
+func clojureNonBlankStringFromForm(src string, start int) (string, bool) {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) || src[i] != '"' {
+		return "", false
+	}
+	_, value, _, err := readClojureStringToken(src, i)
+	if err != nil {
+		return "", false
+	}
+	value = strings.TrimSpace(value)
+	return value, value != ""
+}
+
+func validFlowLintSafeIdentifier(s string) bool {
+	if s == "" || len([]rune(s)) > 128 {
+		return false
+	}
+	for idx, r := range s {
+		if idx == 0 {
+			if !unicode.IsLetter(r) {
+				return false
+			}
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func mapEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool) {
+	for _, entry := range entries {
+		if entry.KeyName == key {
+			return entry, true
+		}
+	}
+	return clojureMapEntry{}, false
+}
+
+func localInvocationShapeDiagnostics(src string, entry clojureMapEntry) (map[string]bool, bool, []flowLintDiagnostic) {
+	invocationIDs := map[string]bool{}
+	if entry.ValueStart <= 0 && entry.ValueEnd <= 0 {
+		return invocationIDs, false, nil
+	}
+	if clojureFormIsNil(src, entry.ValueStart) {
+		return invocationIDs, false, nil
+	}
+	if !clojureFormStartsWith(src, entry.ValueStart, '{') {
+		return invocationIDs, true, []flowLintDiagnostic{lintDiagnostic(
+			"error",
+			"invalid_invocations_shape",
+			[]string{":invocations"},
+			":invocations must be a map keyed by invocation id.",
+			"Use a shape such as :invocations {:default {:inputs [...]}}.",
+			"local",
+		)}
+	}
+	entries, _, err := parseClojureMapEntries(src, entry.ValueStart)
+	if err != nil {
+		return invocationIDs, true, []flowLintDiagnostic{lintDiagnostic(
+			"warning",
+			"invocations_shape_scan_incomplete",
+			[]string{":invocations"},
+			fmt.Sprintf("Local lint could not scan :invocations: %v", err),
+			"Run `breyta flows lint --server` before pushing for canonical schema validation.",
+			"local",
+		)}
+	}
+	var diagnostics []flowLintDiagnostic
+	for _, inv := range entries {
+		id := ""
+		if strings.HasPrefix(inv.KeyToken, ":") && !strings.Contains(inv.KeyToken, "/") {
+			id = strings.TrimPrefix(inv.KeyToken, ":")
+			if validFlowLintSafeIdentifier(id) {
+				invocationIDs[id] = true
+			}
+		}
+		if id == "" || !validFlowLintSafeIdentifier(id) {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"invalid_invocation_id",
+				[]string{":invocations"},
+				fmt.Sprintf("Invocation id %s must be an unqualified safe keyword.", strings.TrimSpace(inv.KeyToken)),
+				"Use ids like :default or :run, not strings, namespaced keywords, or arbitrary forms.",
+				"local",
+			))
+		}
+		if !clojureFormStartsWith(src, inv.ValueStart, '{') {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"invalid_invocation_shape",
+				[]string{":invocations", inv.KeyToken},
+				"Each invocation value must be a map.",
+				"Use a shape such as :default {:inputs [{:name :query :type :text}]}",
+				"local",
+			))
+			continue
+		}
+		invEntries, _, err := parseClojureMapEntries(src, inv.ValueStart)
+		if err != nil {
+			continue
+		}
+		if inputs, ok := mapEntryByKey(invEntries, "inputs"); ok {
+			diagnostics = append(diagnostics, localInvocationInputsDiagnostics(src, inv.KeyToken, inputs)...)
+		}
+	}
+	return invocationIDs, true, diagnostics
+}
+
+func localInvocationInputsDiagnostics(src string, invocationToken string, inputs clojureMapEntry) []flowLintDiagnostic {
+	if !clojureFormStartsWith(src, inputs.ValueStart, '[') {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"error",
+			"invalid_invocation_inputs_shape",
+			[]string{":invocations", invocationToken, ":inputs"},
+			"Invocation :inputs must be a vector of input maps.",
+			"Use :inputs [{:name :query :type :text :required true}].",
+			"local",
+		)}
+	}
+	items, _, err := parseClojureVectorElements(src, inputs.ValueStart)
+	if err != nil {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"warning",
+			"invocation_inputs_scan_incomplete",
+			[]string{":invocations", invocationToken, ":inputs"},
+			fmt.Sprintf("Local lint could not scan invocation inputs: %v", err),
+			"Run `breyta flows lint --server` before pushing for canonical schema validation.",
+			"local",
+		)}
+	}
+	var diagnostics []flowLintDiagnostic
+	names := map[string]bool{}
+	for idx, item := range items {
+		path := []string{":invocations", invocationToken, ":inputs", fmt.Sprintf("[%d]", idx)}
+		if !clojureFormStartsWith(src, item.Start, '{') {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"invalid_invocation_input_shape",
+				path,
+				"Each invocation input must be a map.",
+				"Use an input map such as {:name :query :type :text}.",
+				"local",
+			))
+			continue
+		}
+		entries, _, err := parseClojureMapEntries(src, item.Start)
+		if err != nil {
+			continue
+		}
+		nameEntry, hasName := mapEntryByKey(entries, "name")
+		if !hasName {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"missing_invocation_input_name",
+				append(path, ":name"),
+				"Invocation input is missing required :name.",
+				"Add :name with a safe keyword or string such as :query.",
+				"local",
+			))
+		} else if name, ok := clojureIdentifierFromForm(src, nameEntry.ValueStart); !ok {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"invalid_invocation_input_name",
+				append(path, ":name"),
+				"Invocation input :name must be a safe identifier.",
+				"Use a keyword or string like :query, :repo, or :branch.",
+				"local",
+			))
+		} else if names[name] {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"duplicate_invocation_input_name",
+				append(path, ":name"),
+				fmt.Sprintf("Invocation input name %q is duplicated.", name),
+				"Keep input names unique within each invocation.",
+				"local",
+			))
+		} else {
+			names[name] = true
+		}
+		if typeEntry, hasType := mapEntryByKey(entries, "type"); hasType {
+			typeName, ok := clojureIdentifierFromForm(src, typeEntry.ValueStart)
+			if !ok || !flowLintInvocationTypes[typeName] {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"invalid_invocation_input_type",
+					append(path, ":type"),
+					"Invocation input :type is not a supported input type.",
+					"Use types such as :text, :string, :number, :boolean, :json, :file, :resource, or :secret.",
+					"local",
+				))
+			}
+		}
+	}
+	return diagnostics
+}
+
+func localInterfaceShapeDiagnostics(src string, entry clojureMapEntry, invocationIDs map[string]bool, foundInvocations bool) []flowLintDiagnostic {
+	if entry.ValueStart <= 0 && entry.ValueEnd <= 0 {
+		return nil
+	}
+	if clojureFormIsNil(src, entry.ValueStart) {
+		return nil
+	}
+	if !clojureFormStartsWith(src, entry.ValueStart, '{') {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"error",
+			"invalid_interfaces_shape",
+			[]string{":interfaces"},
+			":interfaces must be a map of interface categories.",
+			"Use a shape such as :interfaces {:manual [{:id :run :invocation :default}]}",
+			"local",
+		)}
+	}
+	entries, _, err := parseClojureMapEntries(src, entry.ValueStart)
+	if err != nil {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"warning",
+			"interfaces_shape_scan_incomplete",
+			[]string{":interfaces"},
+			fmt.Sprintf("Local lint could not scan :interfaces: %v", err),
+			"Run `breyta flows lint --server` before pushing for canonical schema validation.",
+			"local",
+		)}
+	}
+	var diagnostics []flowLintDiagnostic
+	identifiers := map[string]string{}
+	for _, category := range entries {
+		switch category.KeyName {
+		case "manual", "http", "webhook", "mcp":
+		default:
+			continue
+		}
+		path := []string{":interfaces", ":" + category.KeyName}
+		if !clojureFormStartsWith(src, category.ValueStart, '[') {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"invalid_interface_category_shape",
+				path,
+				fmt.Sprintf(":interfaces :%s must be a vector of interface maps.", category.KeyName),
+				"Use vectors, for example :manual [{:id :run :invocation :default}].",
+				"local",
+			))
+			continue
+		}
+		items, _, err := parseClojureVectorElements(src, category.ValueStart)
+		if err != nil {
+			continue
+		}
+		if category.KeyName != "mcp" && len(items) > 1 {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"too_many_interfaces",
+				path,
+				fmt.Sprintf(":interfaces :%s supports at most one entry.", category.KeyName),
+				"Keep a single manual, HTTP, or webhook interface per flow for this source shape.",
+				"local",
+			))
+		}
+		for idx, item := range items {
+			itemPath := append(path, fmt.Sprintf("[%d]", idx))
+			if !clojureFormStartsWith(src, item.Start, '{') {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"invalid_interface_shape",
+					itemPath,
+					"Each interface entry must be a map.",
+					"Use an interface map with :id or :tool-name plus :invocation.",
+					"local",
+				))
+				continue
+			}
+			itemEntries, _, err := parseClojureMapEntries(src, item.Start)
+			if err != nil {
+				continue
+			}
+			idKey := "id"
+			if category.KeyName == "mcp" {
+				idKey = "tool-name"
+			}
+			idEntry, hasID := mapEntryByKey(itemEntries, idKey)
+			if !hasID {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"missing_interface_id",
+					append(itemPath, ":"+idKey),
+					fmt.Sprintf(":%s interface entry is missing required :%s.", category.KeyName, idKey),
+					"Add a stable interface identifier.",
+					"local",
+				))
+			} else {
+				var id string
+				var ok bool
+				if category.KeyName == "mcp" {
+					id, ok = clojureNonBlankStringFromForm(src, idEntry.ValueStart)
+				} else {
+					id, ok = clojureIdentifierFromForm(src, idEntry.ValueStart)
+				}
+				if !ok {
+					message := fmt.Sprintf("Interface :%s must be a safe identifier.", idKey)
+					hint := "Use values like :run, :enrich, or \"enrich_company\"."
+					if category.KeyName == "mcp" {
+						message = "MCP interface :tool-name must be a nonblank string."
+						hint = "Use a string tool name, for example :tool-name \"enrich_company\"."
+					}
+					diagnostics = append(diagnostics, lintDiagnostic(
+						"error",
+						"invalid_interface_id",
+						append(itemPath, ":"+idKey),
+						message,
+						hint,
+						"local",
+					))
+					continue
+				}
+				if prev, exists := identifiers[id]; exists {
+					diagnostics = append(diagnostics, lintDiagnostic(
+						"error",
+						"duplicate_interface_id",
+						append(itemPath, ":"+idKey),
+						fmt.Sprintf("Interface identifier %q is duplicated with %s.", id, prev),
+						"Keep interface ids and MCP tool names unique.",
+						"local",
+					))
+				} else {
+					identifiers[id] = strings.Join(itemPath, " ")
+				}
+			}
+			invEntry, hasInvocation := mapEntryByKey(itemEntries, "invocation")
+			if !hasInvocation {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"missing_interface_invocation",
+					append(itemPath, ":invocation"),
+					"Interface entry is missing required :invocation.",
+					"Reference a declared invocation id, for example :invocation :default.",
+					"local",
+				))
+				continue
+			}
+			invocationName, ok := clojureIdentifierFromForm(src, invEntry.ValueStart)
+			if !ok {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"invalid_interface_invocation",
+					append(itemPath, ":invocation"),
+					"Interface :invocation must be a safe identifier.",
+					"Use a keyword or string matching a key in :invocations.",
+					"local",
+				))
+				continue
+			}
+			if !foundInvocations || !invocationIDs[invocationName] {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"error",
+					"unknown_interface_invocation",
+					append(itemPath, ":invocation"),
+					fmt.Sprintf("Interface references unknown invocation %q.", invocationName),
+					"Declare the invocation under :invocations, for example :invocations {:default {:inputs [...]}}.",
+					"local",
+				))
+			}
+		}
+	}
+	return diagnostics
+}
+
+func localFunctionStepShapeDiagnostics(src string) []flowLintDiagnostic {
+	var diagnostics []flowLintDiagnostic
+	for i := 0; i < len(src); {
+		switch src[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case ';':
+			i = readCommentEnd(src, i)
+			continue
+		case '(':
+			elements, _, err := parseClojureListElements(src, i)
+			if err == nil {
+				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i)...)
+			}
+		}
+		i++
+	}
+	return diagnostics
+}
+
+func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int) []flowLintDiagnostic {
+	if len(elements) == 0 || clojureFormToken(src, elements[0]) != "flow/step" {
+		return nil
+	}
+	if len(elements) < 2 {
+		return nil
+	}
+	stepType := clojureFormToken(src, elements[1])
+	if stepType != ":function" && stepType != ":code" {
+		return nil
+	}
+	stepID := "<missing>"
+	if len(elements) >= 3 {
+		if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {
+			stepID = ":" + id
+		} else {
+			stepID = strings.TrimSpace(src[elements[2].Start:elements[2].End])
+		}
+	}
+	path := []string{":flow", stepID}
+	var diagnostics []flowLintDiagnostic
+	if len(elements) != 4 {
+		diag := lintDiagnostic(
+			"error",
+			"function_step_arity_invalid",
+			path,
+			"Function steps must use exactly three arguments after flow/step: step type, step id, and config map.",
+			"Put :code, :ref, :input, :persist, and related fields inside the single config map.",
+			"local",
+		)
+		diag["byteOffset"] = listStart
+		diagnostics = append(diagnostics, diag)
+	}
+	if len(elements) < 4 {
+		return diagnostics
+	}
+	config := elements[3]
+	if !clojureFormStartsWith(src, config.Start, '{') {
+		diag := lintDiagnostic(
+			"error",
+			"function_step_config_invalid",
+			path,
+			"Function step config must be a map.",
+			"Use (flow/step :function :step-id {:input {...} :code '(fn [input] ...)}).",
+			"local",
+		)
+		diag["byteOffset"] = config.Start
+		diagnostics = append(diagnostics, diag)
+		return diagnostics
+	}
+	entries, _, err := parseClojureMapEntries(src, config.Start)
+	if err != nil {
+		return diagnostics
+	}
+	hasCode := false
+	hasRef := false
+	if _, ok := mapEntryByKey(entries, "code"); ok {
+		hasCode = true
+	}
+	if _, ok := mapEntryByKey(entries, "ref"); ok {
+		hasRef = true
+	}
+	if hasCode && hasRef {
+		diagnostics = append(diagnostics, lintDiagnostic(
+			"error",
+			"function_step_code_ref_conflict",
+			path,
+			"Function step config cannot include both :code and :ref.",
+			"Use inline :code or reference one top-level :functions entry with :ref, not both.",
+			"local",
+		))
+	} else if !hasCode && !hasRef {
+		diagnostics = append(diagnostics, lintDiagnostic(
+			"error",
+			"function_step_missing_code_or_ref",
+			path,
+			"Function step config requires either :code or :ref.",
+			"Add inline :code or reference a top-level function with :ref.",
+			"local",
+		))
+	}
+	if input, ok := mapEntryByKey(entries, "input"); ok && !clojureFormStartsWith(src, input.ValueStart, '{') {
+		diag := lintDiagnostic(
+			"error",
+			"function_step_input_shape_invalid",
+			append(path, ":input"),
+			"Function step :input must be a map when present.",
+			"Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}.",
+			"local",
+		)
+		diag["byteOffset"] = input.ValueStart
+		diagnostics = append(diagnostics, diag)
+	}
+	return diagnostics
 }
 
 type functionCodeString struct {
