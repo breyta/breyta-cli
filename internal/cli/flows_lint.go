@@ -273,7 +273,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
-		case '\'':
+		case '\'', '`':
 			next, err := readClojureFormEnd(src, i+1)
 			if err != nil || next <= i+1 {
 				i++
@@ -298,7 +298,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 
 func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 	i := skipClojureWhitespaceCommaAndComments(src, 0)
-	if i < len(src) && src[i] == '\'' {
+	if i < len(src) && (src[i] == '\'' || src[i] == '`') {
 		return src[i+1:], i + 1
 	}
 	return src, 0

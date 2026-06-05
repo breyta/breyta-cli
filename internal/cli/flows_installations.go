@@ -468,6 +468,9 @@ func parseJSONObjectInputFlags(raw string, file string) (map[string]any, error) 
 		if err != nil {
 			return nil, fmt.Errorf("read --input-file: %w", err)
 		}
+		if strings.TrimSpace(string(b)) == "" {
+			return nil, errors.New("--input-file is empty; write a JSON object such as {}")
+		}
 		return parseJSONObjectFlag(string(b))
 	}
 	return parseJSONObjectFlag(raw)
