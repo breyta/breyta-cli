@@ -471,6 +471,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var interfaceID string
 	var triggerID string
 	var inputJSON string
+	var inputFile string
 	var uploads []string
 	var wait bool
 	var timeout time.Duration
@@ -481,7 +482,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 		Short: "Start a flow run",
 		Long: strings.TrimSpace(`
 Default:
-- breyta flows run <flow-slug> [--input '{...}'] [--wait]
+- breyta flows run <flow-slug> [--input '{...}' | --input-file ./input.json] [--wait]
 - file/blob-ref manual inputs: use --upload field=path to emulate a browser upload
 - brand-new unreleased flows: add --target draft while authoring, or release first
 
@@ -496,6 +497,7 @@ Default:
 		Example: strings.TrimSpace(`
 breyta flows run order-ingest --wait
 breyta flows run order-ingest --input '{"region":"EU"}' --wait
+breyta flows run github-file-update --input-file ./package-lock-run-input.json --wait
 breyta flows run thesis-pdf-review-docx --target draft --interface-id run --upload thesis=./thesis.pdf --wait
 
 	# Advanced
@@ -549,10 +551,10 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 			if manualSelector != "" {
 				payload["triggerId"] = manualSelector
 			}
-			if strings.TrimSpace(inputJSON) != "" {
-				m, err := parseJSONObjectFlag(inputJSON)
+			if strings.TrimSpace(inputJSON) != "" || strings.TrimSpace(inputFile) != "" {
+				m, err := parseJSONObjectInputFlags(inputJSON, inputFile)
 				if err != nil {
-					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+					return writeErr(cmd, fmt.Errorf("invalid --input/--input-file JSON: %w", err))
 				}
 				payload["input"] = m
 			}
@@ -584,6 +586,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	cmd.Flags().StringVar(&triggerID, "trigger-id", "", "Compatibility: legacy manual trigger id")
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
+	cmd.Flags().StringVar(&inputFile, "input-file", "", "Read JSON object input from file")
 	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
@@ -598,6 +601,7 @@ func newFlowsRunStepCmd(app *App) *cobra.Command {
 	var version int
 	var invocation string
 	var inputJSON string
+	var inputFile string
 	var wait bool
 	var timeout time.Duration
 	var poll time.Duration
@@ -612,7 +616,7 @@ executed, and the run stops immediately after the selected step completes.
 This author/debug command requires workspace creator or admin permissions.
 
 Default:
-- breyta flows run-step <flow-slug> <step-id> [--input '{...}'] [--wait]
+- breyta flows run-step <flow-slug> <step-id> [--input '{...}' | --input-file ./input.json] [--wait]
 
 Advanced targeting:
 - --target draft|live : select workspace draft/live when not using --installation-id
@@ -623,6 +627,7 @@ Advanced targeting:
 		`),
 		Example: strings.TrimSpace(`
 breyta flows run-step ai-social-publisher draft-platform-posts --target live --input '{"topic":"launch"}' --wait
+breyta flows run-step github-file-update publish-file --target draft --input-file ./package-lock-run-input.json --wait
 breyta flows run-step order-ingest normalize-order --target draft --input '{"orderId":"ord_123"}' --wait
 breyta flows run-step report-builder summarize --installation-id prof_123 --input '{"range":"last_week"}' --wait
 		`),
@@ -668,10 +673,10 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 			if invocation != "" {
 				payload["invocation"] = invocation
 			}
-			if strings.TrimSpace(inputJSON) != "" {
-				m, err := parseJSONObjectFlag(inputJSON)
+			if strings.TrimSpace(inputJSON) != "" || strings.TrimSpace(inputFile) != "" {
+				m, err := parseJSONObjectInputFlags(inputJSON, inputFile)
 				if err != nil {
-					return writeErr(cmd, fmt.Errorf("invalid --input JSON: %w", err))
+					return writeErr(cmd, fmt.Errorf("invalid --input/--input-file JSON: %w", err))
 				}
 				payload["input"] = m
 			}
@@ -686,6 +691,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Advanced: named invocation input contract")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
+	cmd.Flags().StringVar(&inputFile, "input-file", "", "Read JSON object input from file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")

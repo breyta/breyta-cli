@@ -457,6 +457,22 @@ func parseJSONObjectFlag(raw string) (map[string]any, error) {
 	return m, nil
 }
 
+func parseJSONObjectInputFlags(raw string, file string) (map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	file = strings.TrimSpace(file)
+	if raw != "" && file != "" {
+		return nil, errors.New("--input and --input-file cannot be combined")
+	}
+	if file != "" {
+		b, err := readExplicitFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("read --input-file: %w", err)
+		}
+		return parseJSONObjectFlag(string(b))
+	}
+	return parseJSONObjectFlag(raw)
+}
+
 func scheduleResetMap(items []string) map[string]any {
 	out := map[string]any{}
 	for _, item := range items {

@@ -140,6 +140,9 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
+Use `--input-file ./input.json` instead of `--input '<json>'` when the per-run
+payload is large enough to hit shell or OS argument limits.
+
 Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
@@ -168,6 +171,7 @@ Workspace creators/admins can verify one existing flow step without running othe
 
 ```bash
 breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait
+breyta flows run-step <slug> <step-id> --target live --input-file ./input.json --wait
 ```
 
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
