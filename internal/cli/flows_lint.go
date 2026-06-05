@@ -81,6 +81,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 				diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
 			} else {
 				expandedLiteral = expanded
+				diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
 				diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
 				diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 			}
@@ -222,7 +223,6 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 	if flowLintUnboundedRangeRe.MatchString(flowLiteral) {
 		diagnostics = append(diagnostics, lintDiagnostic("warning", "sandbox_unbounded_range", []string{":flow"}, "Flow source calls unbounded (range), which is rejected by the runtime sandbox.", "Use a bounded range such as (range n), take from a finite collection, or derive limits from invocation inputs.", "local"))
 	}
-	diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(flowLiteral)...)
 	return diagnostics
 }
 

@@ -178,6 +178,51 @@ func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
 	t.Fatalf("expected unsupported_visual_flow_form diagnostic, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreadingInIncludedFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includedFlow := filepath.Join(tmpDir, "flow-body.clj")
+	if err := os.WriteFile(includedFlow, []byte(`'(let [input (flow/input)
+       payload (cond-> {:path (:path input)}
+                 (:content input) (assoc :content (:content input)))]
+   payload)`), 0o644); err != nil {
+		t.Fatalf("write included flow file: %v", err)
+	}
+	flowLiteral := `{:slug :included-visual-threading-risk
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow #flow/include "flow-body.clj"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" && item["form"] == "cond->" {
+			return
+		}
+	}
+	t.Fatalf("expected included unsupported_visual_flow_form diagnostic, got %#v", items)
+}
+
 func TestFlowsLintLocalOnlyAllowsUnsupportedVisualFormsInsideQuotedFunctionCode(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
