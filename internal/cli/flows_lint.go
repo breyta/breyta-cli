@@ -231,6 +231,8 @@ func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnosti
 	if !ok {
 		return nil
 	}
+	flowSource, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	baseOffset += readerOffset
 	flowSource, unwrappedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
 	baseOffset += unwrappedOffset
 	var diagnostics []flowLintDiagnostic
@@ -300,6 +302,18 @@ func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 		return src[i+1:], i + 1
 	}
 	return src, 0
+}
+
+func unwrapTopLevelReaderConditionalFlowSource(src string) (string, int) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	if i >= len(src) || !strings.HasPrefix(src[i:], "#?") {
+		return src, 0
+	}
+	formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+	if !ok || formStart < 0 {
+		return src, 0
+	}
+	return src[formStart:formEnd], formStart
 }
 
 func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
