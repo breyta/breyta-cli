@@ -472,6 +472,7 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var triggerID string
 	var inputJSON string
 	var uploads []string
+	var buyerTest bool
 	var wait bool
 	var timeout time.Duration
 	var poll time.Duration
@@ -487,6 +488,7 @@ Default:
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
+	- --buyer-test : make the installation run intent explicit for Buyer Test Mode
 	- --invocation <id> : select a named invocation input contract
 	- --interface-id <id> : select the declared manual interface explicitly
 	- --target draft|live : select workspace draft/live when not using --installation-id
@@ -504,13 +506,22 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	breyta flows run order-ingest --invocation import-orders --input '{"region":"EU"}' --wait
 	breyta flows run order-ingest --target draft --interface-id manual-import --input '{"limit":5}' --wait
 	breyta flows run order-ingest --installation-id inst_123 --wait
-	`),
+	breyta flows run paid-public-flow --buyer-test --installation-id inst_buyer_test --wait
+		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
 			installationID = strings.TrimSpace(installationID)
+			if buyerTest {
+				if installationID == "" {
+					return writeErr(cmd, errors.New("--buyer-test requires --installation-id; create or list the Buyer Test installation from the Buyer Test workspace with `breyta flows installations create <flow-slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <flow-slug>`"))
+				}
+				if cmd.Flags().Changed("target") {
+					return writeErr(cmd, errors.New("--buyer-test cannot be combined with --target; Buyer Test runs are installation-scoped"))
+				}
+			}
 			resolvedTarget := ""
 			if cmd.Flags().Changed("target") {
 				var err error
@@ -585,6 +596,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	cmd.Flags().StringVar(&triggerID, "trigger", "", "Compatibility alias for --trigger-id")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
+	cmd.Flags().BoolVar(&buyerTest, "buyer-test", false, "Buyer Test Mode: run the specified Buyer Test installation id")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")

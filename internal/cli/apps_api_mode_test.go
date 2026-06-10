@@ -725,6 +725,59 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallations_Create_AllowsBuyerTestSourceInstall(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.create" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["sourceWorkspaceId"] != "ws-source" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceWorkspaceId"}})
+			return
+		}
+		if args["sourceFlowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
+			return
+		}
+		if args["buyerTestSourceInstall"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing buyerTestSourceInstall"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-buyer-test", "data": map[string]any{"instance": map[string]any{"profileId": "prof-buyer-test"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "create", "paid-public-flow",
+		"--source-workspace-id", "ws-source",
+		"--source-flow-slug", "paid-public-flow",
+		"--buyer-test-source-install",
+	)
+	if err != nil {
+		t.Fatalf("flows installations create with buyer test source install failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
 		"flows", "installations", "create", "--help",
@@ -738,6 +791,8 @@ func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *te
 		"zero-setup installations",
 		"--local-private-test",
 		"active source version",
+		"--buyer-test-source-install",
+		"breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected help to contain %q\n%s", want, stdout)
@@ -3215,6 +3270,98 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_BuyerTestUsesInstallationRun(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["target"] != "live" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "buyer test installation runs should use live target"}})
+			return
+		}
+		if args["installationId"] != "prof-buyer-test" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+			return
+		}
+		if _, ok := args["buyerTest"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "buyerTest must not be forwarded to runs.start"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-buyer-test",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-buyer-test", "status": "running"}, "installationId": "prof-buyer-test"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+	)
+	if err != nil {
+		t.Fatalf("flows run --buyer-test failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_BuyerTestRequiresInstallationID(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --buyer-test without installation id to fail\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stderr, "--buyer-test requires --installation-id") {
+		t.Fatalf("expected installation-id guidance, got stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestFlowsRun_BuyerTestRejectsExplicitTarget(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+		"--target", "live",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --buyer-test --target to fail\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stderr, "--buyer-test cannot be combined with --target") {
+		t.Fatalf("expected buyer-test target guidance, got stdout=%s stderr=%s", stdout, stderr)
 	}
 }
 
