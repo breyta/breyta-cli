@@ -121,7 +121,7 @@ func commandWorkspaceID(out map[string]any) string {
 	return ""
 }
 
-func waitRetryCommand(command string, flowSlug string, payload map[string]any) string {
+func waitRetryCommand(command string, flowSlug string, payload map[string]any, extraFlags []string) string {
 	flowSlug = strings.TrimSpace(flowSlug)
 	if flowSlug == "" {
 		return ""
@@ -142,6 +142,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any) s
 	default:
 		parts = []string{"breyta", "flows", "run", flowSlug}
 	}
+	parts = append(parts, extraFlags...)
 	if installationID := argString(payload, "installationId", "installation-id"); installationID != "" {
 		parts = append(parts, "--installation-id", installationID)
 	} else if profileID := argString(payload, "profileId", "profile-id"); profileID != "" {
@@ -173,7 +174,7 @@ func runStepRetryInputFlags(payload map[string]any) ([]string, bool) {
 	return parts, true
 }
 
-func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration) error {
+func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, payload map[string]any, wait bool, timeout time.Duration, poll time.Duration, retryFlags ...string) error {
 	client := apiClient(app)
 	startResp, status, err := client.DoCommand(context.Background(), command, payload)
 	if err != nil {
@@ -200,10 +201,10 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 		return nil
 	}
 
-	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, payload, timeout, poll)
+	return waitForRunCompletion(cmd, app, startResp, strings.TrimSpace(flowSlug), command, payload, timeout, poll, retryFlags)
 }
 
-func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, payload map[string]any, timeout time.Duration, poll time.Duration) error {
+func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any, flowSlug string, command string, payload map[string]any, timeout time.Duration, poll time.Duration, retryFlags []string) error {
 	client := apiClient(app)
 	data, _ := startResp["data"].(map[string]any)
 	workflowID := workflowIDFromRunData(data)
@@ -330,7 +331,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"breyta runs show " + workflowID + " --include-steps",
 				"breyta resources workflow list " + workflowID,
 			}
-			if retryCommand := waitRetryCommand(command, flowSlug, payload); retryCommand != "" {
+			if retryCommand := waitRetryCommand(command, flowSlug, payload, retryFlags); retryCommand != "" {
 				nextCommands = append(nextCommands, retryCommand)
 			}
 			timeoutOut := map[string]any{
@@ -581,7 +582,11 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 				}
 				payload["input"] = input
 			}
-			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll)
+			var retryFlags []string
+			if buyerTest {
+				retryFlags = append(retryFlags, "--buyer-test")
+			}
+			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll, retryFlags...)
 		},
 	}
 

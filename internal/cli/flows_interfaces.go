@@ -276,7 +276,7 @@ func newFlowsInterfacesCallCmd(app *App) *cobra.Command {
 			}
 			enrichFlowInterfaceFailure(resp, args[0], installationID, args[1])
 			if wait && status < 400 && isOK(resp) {
-				return waitForRunCompletion(cmd, app, resp, args[0], "flows.interfaces.call", nil, timeout, poll)
+				return waitForRunCompletion(cmd, app, resp, args[0], "flows.interfaces.call", nil, timeout, poll, nil)
 			}
 			return writeAPIResult(cmd, app, resp, status)
 		},
