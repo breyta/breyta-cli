@@ -79,6 +79,9 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "Discover install plus an installed run") {
 		t.Fatalf("expected Discover installed-run proof in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait") {
+		t.Fatalf("expected Buyer Test installation-run proof in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
 		t.Fatalf("expected paid app marketplace section in override, got:\n%s", body)
 	}

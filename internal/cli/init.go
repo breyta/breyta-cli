@@ -436,6 +436,7 @@ Advanced ideas:
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
 - For installable/public flows, do not stop at activation; verify Discover install plus an installed run. The CLI path is installation create/configure/enable plus ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `.
+- For author dogfood of paid/public apps through Buyer Test Mode, run from the paired Buyer Test workspace: create the source install with ` + "`breyta flows installations create <slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <slug>`" + ` and run it with ` + "`breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait`" + `.
 - For paid apps, draft runs and owner activation checks are not enough; verify checkout or trial entry, install handoff, installed run behavior, billing state, and exhausted/remediation state when relevant.
 - When browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - Archive flows you want to retire without removing their history: ` + "`breyta flows archive <slug>`" + `
