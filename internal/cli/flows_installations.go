@@ -151,28 +151,41 @@ surfaces with ` + "`breyta flows installations interfaces <installation-id>`" + 
 installed interfaces with ` + "`breyta flows interfaces call ... --installation-id <installation-id>`" + `.
 If creation returns a checkout action, open that URL and retry after checkout.
 
-	Local private cross-workspace tests require --local-private-test plus
-	--source-workspace-id, --source-flow-slug, and an active source version.
+Local private cross-workspace tests require --local-private-test plus
+--source-workspace-id, --source-flow-slug, and an active source version.
 
-	Buyer Test Mode author installs require the Buyer Test workspace plus
-	--buyer-test-source-install, --source-workspace-id, --source-flow-slug, and
-	an active source version. Run the resulting installation with:
-	- breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait
-	`),
+Buyer Test Mode author installs require the Buyer Test workspace plus
+--buyer-test-source-install, --source-workspace-id, --source-flow-slug, and
+an active source version. Run the resulting installation with:
+- breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait
+`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations create requires API mode"))
 			}
+			sourceWorkspaceID = strings.TrimSpace(sourceWorkspaceID)
+			sourceFlowSlug = strings.TrimSpace(sourceFlowSlug)
+			if buyerTestSourceInstall && localPrivateTest {
+				return writeErr(cmd, errors.New("--buyer-test-source-install cannot be combined with --local-private-test"))
+			}
+			if buyerTestSourceInstall {
+				if sourceWorkspaceID == "" {
+					return writeErr(cmd, errors.New("--buyer-test-source-install requires --source-workspace-id"))
+				}
+				if sourceFlowSlug == "" {
+					return writeErr(cmd, errors.New("--buyer-test-source-install requires --source-flow-slug"))
+				}
+			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if strings.TrimSpace(name) != "" {
 				payload["name"] = strings.TrimSpace(name)
 			}
-			if strings.TrimSpace(sourceWorkspaceID) != "" {
-				payload["sourceWorkspaceId"] = strings.TrimSpace(sourceWorkspaceID)
+			if sourceWorkspaceID != "" {
+				payload["sourceWorkspaceId"] = sourceWorkspaceID
 			}
-			if strings.TrimSpace(sourceFlowSlug) != "" {
-				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
+			if sourceFlowSlug != "" {
+				payload["sourceFlowSlug"] = sourceFlowSlug
 			}
 			if enable {
 				payload["enabled"] = true

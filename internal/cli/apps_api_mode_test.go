@@ -778,6 +778,43 @@ func TestFlowsInstallations_Create_AllowsBuyerTestSourceInstall(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallations_Create_BuyerTestRejectsInvalidSourceFlags(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing source workspace",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--source-flow-slug", "paid-public-flow"},
+			want: "--buyer-test-source-install requires --source-workspace-id",
+		},
+		{
+			name: "missing source flow slug",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--source-workspace-id", "ws-source"},
+			want: "--buyer-test-source-install requires --source-flow-slug",
+		},
+		{
+			name: "local private conflict",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--local-private-test", "--source-workspace-id", "ws-source", "--source-flow-slug", "paid-public-flow"},
+			want: "--buyer-test-source-install cannot be combined with --local-private-test",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := []string{"--dev", "--workspace", "ws-buyer-test", "--api", "http://127.0.0.1:1", "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(base, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected buyer test install validation to fail\nstdout=%s", stdout)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("expected %q, got stdout=%s stderr=%s", tc.want, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
 		"flows", "installations", "create", "--help",
@@ -796,6 +833,14 @@ func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *te
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected help to contain %q\n%s", want, stdout)
+		}
+	}
+	for _, unwanted := range []string{
+		"\tLocal private cross-workspace tests",
+		"\tBuyer Test Mode author installs",
+	} {
+		if strings.Contains(stdout, unwanted) {
+			t.Fatalf("expected help text not to contain tab-indented section %q\n%s", unwanted, stdout)
 		}
 	}
 }
