@@ -3410,6 +3410,74 @@ func TestFlowsRun_BuyerTestRejectsExplicitTarget(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_BuyerTestWaitUsesPayloadInstallationIDWhenStartOmitsIt(t *testing.T) {
+	runsGetCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			if args["flowSlug"] != "paid-public-flow" || args["target"] != "live" || args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing buyer test installation run payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-buyer-test-fallback",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-buyer-test-fallback" || args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installation scoped wait payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-buyer-test-fallback",
+						"status":     "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "50ms",
+	)
+	if err != nil {
+		t.Fatalf("flows run --buyer-test --wait failed: %v\n%s", err, stdout)
+	}
+	if runsGetCalls == 0 {
+		t.Fatalf("expected waited buyer test run to poll runs.get\nstdout=%s", stdout)
+	}
+}
+
 func TestFlowsRun_BuyerTestWaitTimeoutPreservesRetryIntent(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

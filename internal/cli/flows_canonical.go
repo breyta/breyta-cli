@@ -212,6 +212,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
+	if installationID == "" {
+		installationID = argString(payload, "installationId", "installation-id")
+	}
 	deadline := time.Now().Add(timeout)
 	polls := 0
 	var nextTerminalFallback time.Time
