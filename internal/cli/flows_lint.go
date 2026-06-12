@@ -377,7 +377,7 @@ func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	invocationIDs, foundInvocations, invocationDiagnostics := localInvocationShapeDiagnostics(flowLiteral, byKey["invocations"])
 	diagnostics = append(diagnostics, invocationDiagnostics...)
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
-	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral)...)
+	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"))...)
 	return diagnostics
 }
 
@@ -599,6 +599,26 @@ func mapEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool
 		}
 	}
 	return clojureMapEntry{}, false
+}
+
+func localFlowHasTag(src string, entry clojureMapEntry, tag string) bool {
+	if entry.ValueStart <= 0 && entry.ValueEnd <= 0 {
+		return false
+	}
+	if !clojureFormStartsWith(src, entry.ValueStart, '[') {
+		return false
+	}
+	items, _, err := parseClojureVectorElements(src, entry.ValueStart)
+	if err != nil {
+		return false
+	}
+	want := ":" + tag
+	for _, item := range items {
+		if clojureFormToken(src, item) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func localInvocationShapeDiagnostics(src string, entry clojureMapEntry) (map[string]bool, bool, []flowLintDiagnostic) {
@@ -930,11 +950,11 @@ func localInterfaceShapeDiagnostics(src string, entry clojureMapEntry, invocatio
 	return diagnostics
 }
 
-func localFunctionStepShapeDiagnostics(src string) []flowLintDiagnostic {
-	return localFunctionStepShapeDiagnosticsInRange(src, 0, len(src))
+func localFunctionStepShapeDiagnostics(src string, allowBareInput bool) []flowLintDiagnostic {
+	return localFunctionStepShapeDiagnosticsInRange(src, 0, len(src), allowBareInput)
 }
 
-func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int) []flowLintDiagnostic {
+func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, allowBareInput bool) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
 	for i := start; i < end && i < len(src); {
 		if strings.HasPrefix(src[i:], "#_") {
@@ -950,7 +970,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int) []
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
 				if formStart >= 0 && formEnd >= formStart {
-					diagnostics = append(diagnostics, localFunctionStepShapeDiagnosticsInRange(src, formStart, formEnd)...)
+					diagnostics = append(diagnostics, localFunctionStepShapeDiagnosticsInRange(src, formStart, formEnd, allowBareInput)...)
 				}
 				i = next
 				continue
@@ -971,7 +991,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int) []
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
 			if err == nil {
-				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i)...)
+				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i, allowBareInput)...)
 			}
 		}
 		i++
@@ -979,7 +999,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int) []
 	return diagnostics
 }
 
-func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int) []flowLintDiagnostic {
+func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int, allowBareInput bool) []flowLintDiagnostic {
 	if len(elements) == 0 || clojureFormToken(src, elements[0]) != "flow/step" {
 		return nil
 	}
@@ -1060,7 +1080,7 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 			"local",
 		))
 	}
-	if input, ok := mapEntryByKey(entries, "input"); ok && !clojureFormStartsWith(src, input.ValueStart, '{') {
+	if input, ok := mapEntryByKey(entries, "input"); ok && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
 		diag := lintDiagnostic(
 			"error",
 			"function_step_input_shape_invalid",

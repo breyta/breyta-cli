@@ -1256,7 +1256,7 @@ func n8nFunctionStepInputExpr(input string) string {
 	if strings.HasPrefix(trimmed, "{") {
 		return input
 	}
-	return "{:input " + trimmed + "}"
+	return trimmed
 }
 
 func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhooks, schedules []string, body string) string {
