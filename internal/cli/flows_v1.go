@@ -1428,6 +1428,7 @@ Discover card media loop:
 - inspect current discover card media with ` + "`breyta flows show <slug>`" + `
 - replace the whole card media value with ` + "`--publish-media-type`" + ` + source flags
 - use ` + "`--clear-publish-media`" + ` to remove it
+- HTTPS media sources must be publicly reachable safe media URLs; public Discover cards copy them into Breyta-owned assets/CDN and reject private hosts, unsafe redirects, or oversized responses
 
 Display icon loop:
 - inspect current display icon selector with ` + "`breyta flows show <slug>`" + `

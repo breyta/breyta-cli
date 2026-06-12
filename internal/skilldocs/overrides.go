@@ -496,6 +496,7 @@ Goal: make public discover/install cards show creator-curated media instead of o
 - clear discover card media intentionally with:
   - ` + "`breyta flows update <slug> --clear-publish-media`" + `
 - if you keep the flow in source control, you can also author the same value in the flow file as ` + "`:publish-media`" + ` and push it
+- HTTPS media sources must be publicly reachable safe media URLs; public Discover cards copy them into Breyta-owned assets/CDN and reject private hosts, unsafe redirects, or oversized responses
 - use alt text that explains the visible result, not the implementation detail`
 
 const paidAppMarketplaceSection = `## Paid app marketplace authoring (Source-authored)

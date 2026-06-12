@@ -314,6 +314,11 @@ breyta flows update <slug> --clear-publish-media
 You can also keep this in source as `:publish-media` inside the flow file and
 push it with `breyta flows push`.
 
+HTTPS media sources must be publicly reachable media URLs. When the flow is
+public in Discover, Breyta copies them into Breyta-owned public assets for the
+card/CDN path; private hosts, unsafe redirects, and oversized responses are
+rejected.
+
 ## Connection item caches
 
 Some installable flows use connection-backed dropdowns for provider-owned
