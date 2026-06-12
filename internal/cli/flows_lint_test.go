@@ -134,6 +134,352 @@ func TestFlowsLintLocalOnlyWarnsOnUnboundedRange(t *testing.T) {
 	t.Fatalf("expected sandbox_unbounded_range warning, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :visual-threading-risk
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)
+              payload (cond-> {:path (:path input)}
+                        (:content input) (assoc :content (:content input)))]
+          payload)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" && item["form"] == "cond->" {
+			if item["severity"] != "error" {
+				t.Fatalf("expected error diagnostic, got %#v", item)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected unsupported_visual_flow_form diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlySkipsReaderDiscardedUnsupportedVisualThreading(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :discarded-visual-threading
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)
+              #_(cond-> {:path (:path input)}
+                  (:content input) (assoc :content (:content input)))
+              payload {:path (:path input)}]
+          payload)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should ignore reader-discarded visual threading form: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" {
+			t.Fatalf("reader-discarded cond-> produced visual-flow diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreadingInSyntaxQuotedFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := strings.Join([]string{
+		"{:slug :syntax-quoted-visual-threading-risk",
+		" :concurrency {:type :singleton :on-new-version :coexist}",
+		" :invocations {:default {:inputs []}}",
+		" :interfaces {:manual [{:id :run :label \"Run\" :invocation :default}]}",
+		" :flow `(let [input (flow/input)",
+		"              payload (cond-> {:path (:path input)}",
+		"                        (:content input) (assoc :content (:content input)))]",
+		"          payload)}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" && item["form"] == "cond->" {
+			return
+		}
+	}
+	t.Fatalf("expected syntax-quoted unsupported_visual_flow_form diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreadingInIncludedFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includedFlow := filepath.Join(tmpDir, "flow-body.clj")
+	if err := os.WriteFile(includedFlow, []byte(`'(let [input (flow/input)
+       payload (cond-> {:path (:path input)}
+                 (:content input) (assoc :content (:content input)))]
+   payload)`), 0o644); err != nil {
+		t.Fatalf("write included flow file: %v", err)
+	}
+	flowLiteral := `{:slug :included-visual-threading-risk
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow #flow/include "flow-body.clj"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" && item["form"] == "cond->" {
+			return
+		}
+	}
+	t.Fatalf("expected included unsupported_visual_flow_form diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreadingInReaderConditionalFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-conditional-visual-threading-risk
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow #?(:cljs '(let [input (flow/input)]
+                   (-> input
+                       (assoc :cljs true)))
+          :clj '(let [input (flow/input)
+                      payload (cond-> {:path (:path input)}
+                                (:content input) (assoc :content (:content input)))]
+                  payload))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected lint error")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" && item["form"] == "cond->" {
+			return
+		}
+	}
+	t.Fatalf("expected reader-conditional unsupported_visual_flow_form diagnostic, got %#v", items)
+}
+
+func TestFlowsLintLocalOnlySkipsInactiveReaderConditionalFlowBranch(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :reader-conditional-inactive-visual-threading
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)
+              payload #?(:cljs (cond-> {}
+                                  true (assoc :x 1))
+                          :clj {})]
+          (assoc payload :path (:path input)))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should ignore inactive reader-conditional visual threading form: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" {
+			t.Fatalf("inactive reader-conditional branch produced visual-flow diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyAllowsUnsupportedVisualFormsInsideQuotedFunctionCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :function-threading-ok
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)
+              payload (flow/step :function :build-payload
+                                 {:input input
+                                  :code '(fn [input]
+                                           (cond-> {:path (:path input)}
+                                             (:content input) (assoc :content (:content input))))})]
+          payload)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should not reject quoted function code cond->: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" {
+			t.Fatalf("function :code cond-> produced visual-flow diagnostic: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyAllowsUnsupportedVisualFormsInsideSyntaxQuotedFunctionCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := strings.Join([]string{
+		"{:slug :function-syntax-quote-threading-ok",
+		" :concurrency {:type :singleton :on-new-version :coexist}",
+		" :invocations {:default {:inputs []}}",
+		" :interfaces {:manual [{:id :run :label \"Run\" :invocation :default}]}",
+		" :flow '(let [input (flow/input)",
+		"              payload (flow/step :function :build-payload",
+		"                                 {:input input",
+		"                                  :code `(fn [input]",
+		"                                           (cond-> {:path (:path input)}",
+		"                                             (:content input) (assoc :content (:content input))))})]",
+		"          payload)}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint should not reject syntax-quoted function code cond->: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "unsupported_visual_flow_form" {
+			t.Fatalf("syntax-quoted function :code cond-> produced visual-flow diagnostic: %#v", item)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyRejectsNilConcurrency(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

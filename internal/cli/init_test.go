@@ -228,6 +228,10 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`") {
 		t.Fatalf("unexpected readme content (missing focused run-step proof guidance): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`breyta flows run <slug> --input-file ./input.json`") ||
+		!strings.Contains(string(readme), "shell or OS argument limits") {
+		t.Fatalf("unexpected readme content (missing input-file payload guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "`breyta flows lint --file ./flows/<slug>.clj`") {
 		t.Fatalf("unexpected readme content (missing flow lint guidance): %s", string(readme))
 	}

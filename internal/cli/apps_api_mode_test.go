@@ -3715,6 +3715,121 @@ func TestFlowsRun_UploadConflictDoesNotCreateResource(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_InputFileSendsJSONInput(t *testing.T) {
+	largeContent := strings.Repeat("package-lock-json\n", 9000)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		input, _ := args["input"].(map[string]any)
+		if args["flowSlug"] != "github-file-update" ||
+			args["target"] != "draft" ||
+			input["path"] != "package-lock.json" ||
+			input["content"] != largeContent {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing input-file payload"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-input-file", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	inputPath := filepath.Join(t.TempDir(), "run-input.json")
+	if err := os.WriteFile(inputPath, []byte(fmt.Sprintf(`{"path":"package-lock.json","content":%q}`, largeContent)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "github-file-update",
+		"--input-file", inputPath,
+	)
+	if err != nil {
+		t.Fatalf("flows run --input-file failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_InputFileRejectsEmptyFileBeforeAPI(t *testing.T) {
+	var apiCalled bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	inputPath := filepath.Join(t.TempDir(), "empty-input.json")
+	if err := os.WriteFile(inputPath, []byte(" \n\t"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "github-file-update",
+		"--input-file", inputPath,
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --input-file to reject empty file\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--input-file is empty") {
+		t.Fatalf("expected empty input-file error, got stderr:\n%s", stderr)
+	}
+	if apiCalled {
+		t.Fatalf("expected no API calls after empty input-file validation")
+	}
+}
+
+func TestFlowsRun_InputAndInputFileAreMutuallyExclusiveBeforeAPI(t *testing.T) {
+	var apiCalled bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	inputPath := filepath.Join(t.TempDir(), "run-input.json")
+	if err := os.WriteFile(inputPath, []byte(`{"path":"package-lock.json"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "github-file-update",
+		"--input", `{"content":"body"}`,
+		"--input-file", inputPath,
+	)
+	if err == nil {
+		t.Fatalf("expected flows run to reject combined input flags\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--input and --input-file cannot be combined") {
+		t.Fatalf("expected mutual exclusion error, got stderr:\n%s", stderr)
+	}
+	if apiCalled {
+		t.Fatalf("expected no API calls after combined input flag validation")
+	}
+}
+
 func TestFlowsRunStep_UsesCanonicalCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -3762,6 +3877,56 @@ func TestFlowsRunStep_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows run-step failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRunStep_InputFileSendsJSONInput(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run_step" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		input, _ := args["input"].(map[string]any)
+		if args["flowSlug"] != "github-file-update" ||
+			args["stepId"] != "publish-file" ||
+			args["target"] != "draft" ||
+			input["path"] != "package-lock.json" ||
+			input["content"] != "large file body" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing run-step input-file payload"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-step-input-file", "status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	inputPath := filepath.Join(t.TempDir(), "run-step-input.json")
+	if err := os.WriteFile(inputPath, []byte(`{"path":"package-lock.json","content":"large file body"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run-step", "github-file-update", "publish-file",
+		"--input-file", inputPath,
+	)
+	if err != nil {
+		t.Fatalf("flows run-step --input-file failed: %v\n%s", err, stdout)
 	}
 }
 

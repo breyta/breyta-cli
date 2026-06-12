@@ -19,6 +19,20 @@ var (
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
 )
 
+type unsupportedFlowFormRule struct {
+	reason string
+	hint   string
+}
+
+var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
+	"->>":     {reason: "Visual renderer only supports -> (thread-first) for Data Pipeline view.", hint: "Rewrite with -> or explicit let bindings."},
+	"as->":    {reason: "Visual renderer only supports -> (thread-first).", hint: "Rewrite with explicit let bindings for named intermediates."},
+	"some->":  {reason: "Visual renderer cannot display nil-short-circuiting.", hint: "Use explicit if/when branching before the pipeline."},
+	"some->>": {reason: "Visual renderer cannot display nil-short-circuiting.", hint: "Use explicit if/when branching before the pipeline."},
+	"cond->":  {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
+	"cond->>": {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
+}
+
 const defaultFlowLintServerTimeout = 30 * time.Second
 
 func newFlowsLintCmd(app *App) *cobra.Command {
@@ -67,6 +81,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 				diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
 			} else {
 				expandedLiteral = expanded
+				diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
 				diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
 				diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 			}
@@ -211,6 +226,119 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 	return diagnostics
 }
 
+func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnostic {
+	flowSource, baseOffset, ok := topLevelFlowValueSource(flowLiteral)
+	if !ok {
+		return nil
+	}
+	flowSource, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	baseOffset += readerOffset
+	flowSource, unwrappedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
+	baseOffset += unwrappedOffset
+	var diagnostics []flowLintDiagnostic
+	for _, match := range unsupportedFlowFormMatches(flowSource, baseOffset) {
+		rule := flowLintUnsupportedFlowForms[match.symbol]
+		diag := lintDiagnostic(
+			"error",
+			"unsupported_visual_flow_form",
+			[]string{":flow"},
+			fmt.Sprintf("Flow source uses %s. %s", match.symbol, rule.reason),
+			rule.hint,
+			"local",
+		)
+		diag["form"] = match.symbol
+		diag["byteOffset"] = match.offset
+		diagnostics = append(diagnostics, diag)
+	}
+	return diagnostics
+}
+
+type unsupportedFlowFormMatch struct {
+	symbol string
+	offset int
+}
+
+func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
+	var matches []unsupportedFlowFormMatch
+	for i := 0; i < len(src); {
+		if strings.HasPrefix(src[i:], "#?") {
+			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
+			if ok {
+				if formStart >= 0 {
+					matches = append(matches, unsupportedFlowFormMatches(src[formStart:formEnd], baseOffset+formStart)...)
+				}
+				if next <= i {
+					i++
+				} else {
+					i = next
+				}
+				continue
+			}
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := readClojureFormEnd(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
+		switch src[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case ';':
+			i = readCommentEnd(src, i)
+			continue
+		case '\'', '`':
+			next, err := readClojureFormEnd(src, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case '(':
+			j := skipClojureWhitespaceCommaAndComments(src, i+1)
+			tokenEnd := readClojureTokenEnd(src, j)
+			if tokenEnd > j {
+				symbol := src[j:tokenEnd]
+				if _, ok := flowLintUnsupportedFlowForms[symbol]; ok {
+					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, offset: baseOffset + j})
+				}
+			}
+		}
+		i++
+	}
+	return matches
+}
+
+func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	if i < len(src) && (src[i] == '\'' || src[i] == '`') {
+		return src[i+1:], i + 1
+	}
+	return src, 0
+}
+
+func unwrapTopLevelReaderConditionalFlowSource(src string) (string, int) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	if i >= len(src) || !strings.HasPrefix(src[i:], "#?") {
+		return src, 0
+	}
+	formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+	if !ok || formStart < 0 {
+		return src, 0
+	}
+	return src[formStart:formEnd], formStart
+}
+
 func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	for i := 0; i < len(flowLiteral); {
 		switch flowLiteral[i] {
@@ -272,6 +400,67 @@ func topLevelConcurrencyValueIsNil(src string) bool {
 		}
 	}
 	return false
+}
+
+func topLevelFlowValueSource(src string) (string, int, bool) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	for i < len(src) {
+		switch {
+		case src[i] == '{':
+			return topLevelMapValueSource(src, i, "flow")
+		case src[i] == '^':
+			metaEnd, err := readClojureFormEnd(src, i+1)
+			if err != nil || metaEnd <= i+1 {
+				return "", 0, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				return "", 0, false
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		case strings.HasPrefix(src[i:], "#?"):
+			formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+			if !ok || formStart < 0 {
+				return "", 0, false
+			}
+			flowSource, offset, ok := topLevelFlowValueSource(src[formStart:formEnd])
+			return flowSource, formStart + offset, ok
+		default:
+			return "", 0, false
+		}
+	}
+	return "", 0, false
+}
+
+func topLevelMapValueSource(src string, start int, targetKey string) (string, int, bool) {
+	i := start + 1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) || src[i] == '}' {
+			return "", 0, false
+		}
+		keyStart := i
+		keyEnd, err := readClojureFormEnd(src, i)
+		if err != nil || keyEnd <= keyStart {
+			return "", 0, false
+		}
+		key := clojureKeywordName(src[keyStart:keyEnd])
+		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		if valueStart >= len(src) {
+			return "", 0, false
+		}
+		valueEnd, err := readClojureFormEnd(src, valueStart)
+		if err != nil || valueEnd <= valueStart {
+			return "", 0, false
+		}
+		if key == targetKey {
+			return src[valueStart:valueEnd], valueStart, true
+		}
+		i = valueEnd
+	}
+	return "", 0, false
 }
 
 func topLevelMapValueIsNil(src string, start int, targetKey string) bool {
