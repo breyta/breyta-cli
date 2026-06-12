@@ -261,6 +261,15 @@ type unsupportedFlowFormMatch struct {
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
 	for i := 0; i < len(src); {
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := readClojureFormEnd(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
 		switch src[i] {
 		case '"':
 			_, _, next, err := readClojureStringToken(src, i)

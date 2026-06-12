@@ -48,6 +48,10 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(body, "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Primitive-first reuse for create/edit (Required)") {
 		t.Fatalf("expected primitive-first reuse section in override, got:\n%s", body)
 	}
@@ -208,6 +212,10 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	if !strings.Contains(string(got["SKILL.md"]), "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance in SKILL.md, got:\n%s", string(got["SKILL.md"]))
 	}
+	if !strings.Contains(string(got["SKILL.md"]), "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(string(got["SKILL.md"]), "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in SKILL.md, got:\n%s", string(got["SKILL.md"]))
+	}
 	if !strings.Contains(string(got["SKILL.md"]), "write a compact workflow contract and acceptance") {
 		t.Fatalf("expected contract and acceptance matrix guidance, got:\n%s", string(got["SKILL.md"]))
 	}
@@ -216,6 +224,10 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance in authoring playbook, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(string(got["playbooks/author-flows.md"]), "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in authoring playbook, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "`breyta flows lint --file ./flows/<slug>.clj` before push") ||
 		!strings.Contains(string(got["playbooks/author-flows.md"]), "`--timeout <duration>` when server lint needs a longer bound") {
@@ -351,6 +363,10 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(body, "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
 		t.Fatalf("expected paid app marketplace section added to canonical skill, got:\n%s", body)
 	}
@@ -386,6 +402,33 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingLintTimeoutGu
 	}
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingInputFilePayloadGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Reference Loading Matrix",
+			"- creating/editing: `references/authoring-loop.md`",
+			"",
+			"## Create/Edit Preflight",
+			"- Use `breyta flows run <slug> --input-file ./input.json` for large payloads that may hit shell or OS argument limits.",
+			"",
+			"## Public Approval Gate",
+			"- end-user landing page approval",
+			"",
+			"## Provider/API Freshness And Model Selection",
+			"- check current official provider docs/API references",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Count(body, "--input-file ./input.json") != 1 {
+		t.Fatalf("expected existing input-file payload guidance to remain singular, got:\n%s", body)
 	}
 }
 
