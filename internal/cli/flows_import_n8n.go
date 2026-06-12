@@ -1248,7 +1248,15 @@ func renderFunctionStep(node n8nNode, stepID, input string) string {
 	return fmt.Sprintf(`(flow/step :function :%s
            {:title %s
             :ref :%s-fn
-            :input %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), stepID, input)
+            :input %s})`, stepID, ednQuote(firstNonEmpty(node.Name, stepID)), stepID, n8nFunctionStepInputExpr(input))
+}
+
+func n8nFunctionStepInputExpr(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if strings.HasPrefix(trimmed, "{") {
+		return input
+	}
+	return trimmed
 }
 
 func renderN8NFlowEDN(slug, name string, requires, templates, functions, webhooks, schedules []string, body string) string {

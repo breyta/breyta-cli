@@ -275,7 +275,8 @@ Flow file format (minimal):
  :interfaces nil
  :schedules nil
  :flow '(let [input (flow/input)]
-          (flow/step :function :do {:code '(fn [x] x)} :input input))}
+          (flow/step :function :do {:code '(fn [input] input)
+                                     :input {:input input}}))}
 
 Notes:
 - The server reads the file with *read-eval* disabled.
