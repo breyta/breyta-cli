@@ -53,6 +53,22 @@ func requireFlowLintDiagnosticCodes(t *testing.T, body map[string]any, want ...s
 	}
 }
 
+func rejectFlowLintDiagnosticCodes(t *testing.T, body map[string]any, reject ...string) {
+	t.Helper()
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	rejected := map[string]bool{}
+	for _, code := range reject {
+		rejected[code] = true
+	}
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if code, _ := item["code"].(string); rejected[code] {
+			t.Fatalf("unexpected diagnostic code %q, got item=%#v all=%#v", code, item, items)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
@@ -363,6 +379,47 @@ func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
 		t.Fatalf("expected lint error\n%s", stdout)
 	}
 	requireFlowLintDiagnosticCodes(t, body,
+		"function_step_arity_invalid",
+		"function_step_input_shape_invalid")
+}
+
+func TestFlowsLintLocalOnlyIgnoresReaderDiscardedFunctionStepAuthoringShapes(t *testing.T) {
+	flowLiteral := `{:slug :discarded-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :active :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)
+              #_(flow/step :function :old {:ref :old :input input}
+                           :code '(fn [_] nil))]
+          (flow/step :function :active {:ref :active :input {:input input}}))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("lint should ignore reader-discarded function step shape: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
+		"function_step_arity_invalid",
+		"function_step_input_shape_invalid")
+}
+
+func TestFlowsLintLocalOnlyIgnoresInactiveReaderConditionalFunctionStepAuthoringShapes(t *testing.T) {
+	flowLiteral := `{:slug :inactive-reader-conditional-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :active :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)
+              result #?(:cljs (flow/step :function :old {:ref :old :input input}
+                                          :code '(fn [_] nil))
+                        :clj (flow/step :function :active {:ref :active :input {:input input}}))]
+          result)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("lint should ignore inactive reader-conditional function step shape: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
 		"function_step_arity_invalid",
 		"function_step_input_shape_invalid")
 }

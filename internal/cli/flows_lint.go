@@ -931,8 +931,31 @@ func localInterfaceShapeDiagnostics(src string, entry clojureMapEntry, invocatio
 }
 
 func localFunctionStepShapeDiagnostics(src string) []flowLintDiagnostic {
+	return localFunctionStepShapeDiagnosticsInRange(src, 0, len(src))
+}
+
+func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
-	for i := 0; i < len(src); {
+	for i := start; i < end && i < len(src); {
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := readClojureFormEnd(src, i)
+			if err != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
+		if strings.HasPrefix(src[i:], "#?") {
+			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
+			if ok {
+				if formStart >= 0 && formEnd >= formStart {
+					diagnostics = append(diagnostics, localFunctionStepShapeDiagnosticsInRange(src, formStart, formEnd)...)
+				}
+				i = next
+				continue
+			}
+		}
 		switch src[i] {
 		case '"':
 			_, _, next, err := readClojureStringToken(src, i)
