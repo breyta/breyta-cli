@@ -283,6 +283,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-file ./screenshot.png`") {
 		t.Fatalf("unexpected readme content (missing discover card media workflow): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "HTTPS media sources must be publicly reachable safe media URLs") {
+		t.Fatalf("unexpected readme content (missing HTTPS discover media constraints): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "For paid apps, author pricing in source under `:marketplace {:app ... :monetization {:plans [...]}}`") {
 		t.Fatalf("unexpected readme content (missing paid app source-authored pricing guidance): %s", string(readme))
 	}
