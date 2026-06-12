@@ -164,6 +164,17 @@ instead of `--target`:
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
 
+For author dogfood of a paid/public app through Buyer Test Mode, run from the
+paired Buyer Test workspace and make the source-install intent explicit:
+
+```bash
+breyta flows installations create <slug> \
+  --buyer-test-source-install \
+  --source-workspace-id <source-workspace-id> \
+  --source-flow-slug <slug>
+breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait
+```
+
 Workspace creators/admins can verify one existing flow step without running other flow steps:
 
 ```bash
@@ -279,10 +290,11 @@ breyta flows show <slug> --target live
 ```
 
 Then verify from a buyer workspace with the web Discover checkout/install path
-or an installation smoke run. For paid behavior, draft runs and owner
-`/activate` checks are not enough: verify checkout or trial entry, install
-handoff, installed run behavior, exhausted/remediation state when relevant, and
-Billing page state.
+or an installation smoke run. For author dogfood, use Buyer Test Mode from the
+paired test workspace instead of real buyer entitlement. For paid behavior,
+draft runs and owner `/activate` checks are not enough: verify checkout or trial
+entry, install handoff, installed run behavior, exhausted/remediation state when
+relevant, and Billing page state.
 
 Current restrictions: seat-based pricing is not implemented. Do not represent a
 plan as "N seats" or "N installs" unless the product has added explicit seat

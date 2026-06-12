@@ -725,6 +725,96 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallations_Create_AllowsBuyerTestSourceInstall(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.create" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["sourceWorkspaceId"] != "ws-source" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceWorkspaceId"}})
+			return
+		}
+		if args["sourceFlowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
+			return
+		}
+		if args["buyerTestSourceInstall"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing buyerTestSourceInstall"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-buyer-test", "data": map[string]any{"instance": map[string]any{"profileId": "prof-buyer-test"}}})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "create", "paid-public-flow",
+		"--source-workspace-id", "ws-source",
+		"--source-flow-slug", "paid-public-flow",
+		"--buyer-test-source-install",
+	)
+	if err != nil {
+		t.Fatalf("flows installations create with buyer test source install failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_Create_BuyerTestRejectsInvalidSourceFlags(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing source workspace",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--source-flow-slug", "paid-public-flow"},
+			want: "--buyer-test-source-install requires --source-workspace-id",
+		},
+		{
+			name: "missing source flow slug",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--source-workspace-id", "ws-source"},
+			want: "--buyer-test-source-install requires --source-flow-slug",
+		},
+		{
+			name: "local private conflict",
+			args: []string{"flows", "installations", "create", "paid-public-flow", "--buyer-test-source-install", "--local-private-test", "--source-workspace-id", "ws-source", "--source-flow-slug", "paid-public-flow"},
+			want: "--buyer-test-source-install cannot be combined with --local-private-test",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := []string{"--dev", "--workspace", "ws-buyer-test", "--api", "http://127.0.0.1:1", "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(base, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected buyer test install validation to fail\nstdout=%s", stdout)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("expected %q, got stdout=%s stderr=%s", tc.want, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *testing.T) {
 	stdout, _, err := runCLIArgs(t,
 		"flows", "installations", "create", "--help",
@@ -738,9 +828,19 @@ func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *te
 		"zero-setup installations",
 		"--local-private-test",
 		"active source version",
+		"--buyer-test-source-install",
+		"breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected help to contain %q\n%s", want, stdout)
+		}
+	}
+	for _, unwanted := range []string{
+		"\tLocal private cross-workspace tests",
+		"\tBuyer Test Mode author installs",
+	} {
+		if strings.Contains(stdout, unwanted) {
+			t.Fatalf("expected help text not to contain tab-indented section %q\n%s", unwanted, stdout)
 		}
 	}
 }
@@ -3215,6 +3315,241 @@ func TestFlowsRun_UsesCanonicalCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_BuyerTestUsesInstallationRun(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "paid-public-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			return
+		}
+		if args["target"] != "live" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "buyer test installation runs should use live target"}})
+			return
+		}
+		if args["installationId"] != "prof-buyer-test" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installationId"}})
+			return
+		}
+		if _, ok := args["buyerTest"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "buyerTest must not be forwarded to runs.start"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-buyer-test",
+			"data":        map[string]any{"run": map[string]any{"workflowId": "wf-buyer-test", "status": "running"}, "installationId": "prof-buyer-test"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+	)
+	if err != nil {
+		t.Fatalf("flows run --buyer-test failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsRun_BuyerTestRequiresInstallationID(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --buyer-test without installation id to fail\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stderr, "--buyer-test requires --installation-id") {
+		t.Fatalf("expected installation-id guidance, got stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestFlowsRun_BuyerTestRejectsExplicitTarget(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", "http://127.0.0.1:1",
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+		"--target", "live",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --buyer-test --target to fail\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stderr, "--buyer-test cannot be combined with --target") {
+		t.Fatalf("expected buyer-test target guidance, got stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestFlowsRun_BuyerTestWaitUsesPayloadInstallationIDWhenStartOmitsIt(t *testing.T) {
+	runsGetCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			if args["flowSlug"] != "paid-public-flow" || args["target"] != "live" || args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing buyer test installation run payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-buyer-test-fallback",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if args["workflowId"] != "wf-buyer-test-fallback" || args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installation scoped wait payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-buyer-test-fallback",
+						"status":     "completed",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "50ms",
+	)
+	if err != nil {
+		t.Fatalf("flows run --buyer-test --wait failed: %v\n%s", err, stdout)
+	}
+	if runsGetCalls == 0 {
+		t.Fatalf("expected waited buyer test run to poll runs.get\nstdout=%s", stdout)
+	}
+}
+
+func TestFlowsRun_BuyerTestWaitTimeoutPreservesRetryIntent(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			if args["flowSlug"] != "paid-public-flow" || args["target"] != "live" || args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing buyer test installation run payload"}})
+				return
+			}
+			if _, ok := args["buyerTest"]; ok {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "buyerTest must not be forwarded to runs.start"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId":     "wf-buyer-test-slow",
+					"status":         "running",
+					"installationId": "prof-buyer-test",
+				},
+			})
+		case "runs.get":
+			if args["installationId"] != "prof-buyer-test" {
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing installation scoped wait payload"}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-buyer-test-slow",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-buyer-test",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "paid-public-flow",
+		"--buyer-test",
+		"--installation-id", "prof-buyer-test",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err == nil {
+		t.Fatalf("expected flows run --buyer-test --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run paid-public-flow --buyer-test --installation-id prof-buyer-test --wait --timeout 5m") {
+		t.Fatalf("expected buyer-test retry command to preserve explicit intent, got:\n%s", stdout)
 	}
 }
 

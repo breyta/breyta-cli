@@ -243,6 +243,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "verify Discover install plus an installed run") {
 		t.Fatalf("unexpected readme content (missing Discover installed-run proof): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait") {
+		t.Fatalf("unexpected readme content (missing Buyer Test installation-run proof): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "OpenAI connection default: `:http-api` requirement, backend `openai`, base URL `https://api.openai.com/v1`") {
 		t.Fatalf("unexpected readme content (missing OpenAI connection default): %s", string(readme))
 	}

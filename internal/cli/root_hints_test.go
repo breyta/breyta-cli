@@ -266,6 +266,9 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	if !strings.Contains(help, "--interface-id") {
 		t.Fatalf("flows run help missing interface selector guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "--buyer-test") {
+		t.Fatalf("flows run help missing buyer test guidance:\n%s", help)
+	}
 }
 
 func TestFlowRunWaitTimeoutDefaultsToFiveMinutes(t *testing.T) {
