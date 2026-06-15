@@ -1177,6 +1177,21 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
+		case '\'', '`':
+			formStart := skipClojureWhitespaceCommaAndComments(src, i+1)
+			if formStart < len(src) && src[formStart] == '(' {
+				elements, _, err := parseClojureListElements(src, formStart)
+				if err == nil && len(elements) > 0 {
+					switch clojureFormToken(src, elements[0]) {
+					case "fn", "fn*":
+						next, err := readClojureFormEnd(src, i)
+						if err == nil && next > i {
+							i = next
+							continue
+						}
+					}
+				}
+			}
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
 			if err == nil {
@@ -1269,7 +1284,7 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 			"local",
 		))
 	}
-	if input, ok := mapEntryByKey(entries, "input"); ok && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
+	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
 		diag := lintDiagnostic(
 			"error",
 			"function_step_input_shape_invalid",
