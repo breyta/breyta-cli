@@ -20,6 +20,16 @@ type Client struct {
 	HTTP        *http.Client
 }
 
+const (
+	clientName      = "cli"
+	clientUserAgent = "breyta-cli"
+)
+
+func setClientHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", clientUserAgent)
+	req.Header.Set("X-Breyta-Client", clientName)
+}
+
 func (c Client) baseEndpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
@@ -149,6 +159,7 @@ func (c Client) doRESTWithReader(ctx context.Context, endpoint string, method st
 	if err != nil {
 		return nil, 0, err
 	}
+	setClientHeaders(req)
 	if body != nil && strings.TrimSpace(contentType) != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -234,6 +245,7 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 	if err != nil {
 		return nil, 0, err
 	}
+	setClientHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -335,6 +347,7 @@ func (c Client) bootstrapLocalWorkspace(ctx context.Context) (map[string]any, in
 	if err != nil {
 		return nil, 0, err
 	}
+	setClientHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 	if token := strings.TrimSpace(c.Token); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
