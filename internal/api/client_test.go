@@ -55,14 +55,16 @@ func TestClient_endpointFor_AppendsPath(t *testing.T) {
 }
 
 func TestClient_DoRootREST_SetsHeadersAndQueryAndParsesJSON(t *testing.T) {
-	var gotAuth, gotCT, gotPath, gotQuery string
+	var gotAuth, gotClient, gotCT, gotPath, gotQuery, gotUA string
 	var gotBody []byte
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		gotClient = r.Header.Get("X-Breyta-Client")
 		gotCT = r.Header.Get("Content-Type")
 		gotPath = r.URL.Path
 		gotQuery = r.URL.RawQuery
+		gotUA = r.Header.Get("User-Agent")
 		gotBody, _ = io.ReadAll(r.Body)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -80,6 +82,12 @@ func TestClient_DoRootREST_SetsHeadersAndQueryAndParsesJSON(t *testing.T) {
 	if gotAuth != "Bearer tok" {
 		t.Fatalf("unexpected auth header: %q", gotAuth)
 	}
+	if gotClient != "cli" {
+		t.Fatalf("unexpected client header: %q", gotClient)
+	}
+	if gotUA != "breyta-cli" {
+		t.Fatalf("unexpected user-agent header: %q", gotUA)
+	}
 	if gotCT != "application/json" {
 		t.Fatalf("unexpected content-type: %q", gotCT)
 	}
@@ -95,6 +103,40 @@ func TestClient_DoRootREST_SetsHeadersAndQueryAndParsesJSON(t *testing.T) {
 	m, ok := out.(map[string]any)
 	if !ok || m["ok"] != true {
 		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestClient_DoRootRESTBytes_AllowsClientHeaderOverride(t *testing.T) {
+	var gotClient, gotUA string
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotClient = r.Header.Get("X-Breyta-Client")
+		gotUA = r.Header.Get("User-Agent")
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	_, status, err := c.DoRootRESTBytes(
+		context.Background(),
+		http.MethodPost,
+		"/api/me",
+		nil,
+		[]byte(`{"ok":true}`),
+		map[string]string{"X-Breyta-Client": "agent-harness", "User-Agent": "codex"},
+	)
+	if err != nil {
+		t.Fatalf("DoRootRESTBytes: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if gotClient != "agent-harness" {
+		t.Fatalf("expected override client header, got %q", gotClient)
+	}
+	if gotUA != "codex" {
+		t.Fatalf("expected override user-agent header, got %q", gotUA)
 	}
 }
 
@@ -121,11 +163,14 @@ func TestClient_DoRootREST_AllowsNonJSONResponse(t *testing.T) {
 
 func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	var got map[string]any
+	var gotClient, gotUA string
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
 		}
+		gotClient = r.Header.Get("X-Breyta-Client")
+		gotUA = r.Header.Get("User-Agent")
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &got)
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -142,6 +187,12 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	}
 	if out["ok"] != true {
 		t.Fatalf("unexpected response: %#v", out)
+	}
+	if gotClient != "cli" {
+		t.Fatalf("unexpected client header: %q", gotClient)
+	}
+	if gotUA != "breyta-cli" {
+		t.Fatalf("unexpected user-agent header: %q", gotUA)
 	}
 	if got["command"] != "runs.start" {
 		t.Fatalf("unexpected payload command: %#v", got["command"])
@@ -176,6 +227,16 @@ func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"items": []any{}}})
 		case "/api/debug/workspace/bootstrap":
 			bootstrapCalls++
+			if got := r.Header.Get("X-Breyta-Client"); got != "cli" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing client header"})
+				return
+			}
+			if got := r.Header.Get("User-Agent"); got != "breyta-cli" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing user-agent"})
+				return
+			}
 			if got := r.Header.Get("Authorization"); got != "Bearer user-dev" {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing auth"})
