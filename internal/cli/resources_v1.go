@@ -301,13 +301,21 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	var storageRoot string
 	var pathPrefix string
 	var mode string
+	var keywordMode string
 	var limit int
 	var offset int
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search resources in workspace",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Search workspace resources.
+
+Use --keyword-mode balanced for natural-language questions over small resource
+sets where requiring every query term may be too strict. Supported
+keyword-mode values are all, balanced, and any.
+`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},
@@ -337,6 +345,9 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(mode) != "" {
 				q.Set("mode", strings.TrimSpace(mode))
 			}
+			if strings.TrimSpace(keywordMode) != "" {
+				q.Set("keyword-mode", strings.TrimSpace(keywordMode))
+			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			}
@@ -365,6 +376,7 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
 	cmd.Flags().StringVar(&mode, "mode", "", "Search mode: lexical, hybrid, or semantic")
+	cmd.Flags().StringVar(&keywordMode, "keyword-mode", "", "Keyword matching mode: all, balanced, or any")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset (>=0)")
 	return cmd

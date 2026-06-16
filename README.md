@@ -53,6 +53,7 @@ breyta flows templates search "<problem or integration query>" --limit 5
 breyta flows templates duplicate "<template-slug>"
 breyta flows templates grep "<literal config or tool name>" --limit 5
 breyta flows examples step <type> "<problem or integration query>" --limit 3
+breyta resources search "<existing data or question>" --limit 5 --keyword-mode balanced
 ```
 
 For new flows, search nearby workspace flows first instead of listing every
@@ -70,6 +71,10 @@ architecture-level reuse, public install patterns, multi-flow orchestration,
 fanout/child-flow behavior, unclear snippet dependencies, or copying overall
 flow structure. `breyta flows list` is for inventory, slug checks, or explicit
 user requests, not pattern discovery.
+When existing workspace uploads, prior run outputs, or reports may be reused,
+search resources with `breyta resources search "<query>" --limit 5`; add
+`--keyword-mode balanced` for natural-language questions over small resource
+sets. Read only the selected URI with `breyta resources read <uri> --limit 5`.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,

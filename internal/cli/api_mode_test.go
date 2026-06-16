@@ -981,6 +981,9 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("mode"); got != "hybrid" {
 			t.Fatalf("expected mode=hybrid, got %q", got)
 		}
+		if got := r.URL.Query().Get("keyword-mode"); got != "balanced" {
+			t.Fatalf("expected keyword-mode=balanced, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "30" {
 			t.Fatalf("expected limit=30, got %q", got)
 		}
@@ -1011,6 +1014,7 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		"--storage-root", "reports/acme",
 		"--path-prefix", "exports/2026",
 		"--mode", "hybrid",
+		"--keyword-mode", "balanced",
 		"--limit", "30",
 		"--offset", "10",
 	)
@@ -1027,6 +1031,19 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 	data, _ := out["data"].(map[string]any)
 	if got, _ := data["query"].(string); got != "transcript summary" {
 		t.Fatalf("unexpected data.query: %q", got)
+	}
+}
+
+func TestResourcesSearchHelp_DocumentsKeywordMode(t *testing.T) {
+	stdout, _, err := runCLIArgs(t, "resources", "search", "--help")
+	if err != nil {
+		t.Fatalf("resources search --help failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "Use --keyword-mode balanced for natural-language questions over small resource") {
+		t.Fatalf("expected keyword-mode guidance in help, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Keyword matching mode: all, balanced, or any") {
+		t.Fatalf("expected keyword-mode flag values in help, got:\n%s", stdout)
 	}
 }
 
