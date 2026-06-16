@@ -156,6 +156,7 @@ Types:
 
 	cmd.AddCommand(newResourcesListCmd(app))
 	cmd.AddCommand(newResourcesSearchCmd(app))
+	cmd.AddCommand(newResourcesSearchIndexCmd(app))
 	cmd.AddCommand(newResourcesUploadCmd(app))
 	cmd.AddCommand(newResourcesGetCmd(app))
 	cmd.AddCommand(newResourcesReadCmd(app))
@@ -298,6 +299,7 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	var storageBackend string
 	var storageRoot string
 	var pathPrefix string
+	var mode string
 	var limit int
 	var offset int
 
@@ -331,6 +333,9 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(pathPrefix) != "" {
 				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
 			}
+			if strings.TrimSpace(mode) != "" {
+				q.Set("mode", strings.TrimSpace(mode))
+			}
 			if limit > 0 {
 				q.Set("limit", strconv.Itoa(limit))
 			}
@@ -358,8 +363,202 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
+	cmd.Flags().StringVar(&mode, "mode", "", "Search mode: lexical, hybrid, or semantic")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-100)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "Result offset (>=0)")
+	return cmd
+}
+
+func resourceSearchIndexRequest(cmd *cobra.Command, app *App, body map[string]any) error {
+	out, status, err := apiClient(app).DoREST(
+		cmd.Context(),
+		http.MethodPost,
+		"/api/resources/search-index",
+		nil,
+		body,
+	)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	return writeREST(cmd, app, status, out)
+}
+
+func newResourcesSearchIndexCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "search-index",
+		Short: "Inspect or update one resource's search-index metadata",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newResourcesSearchIndexShowCmd(app))
+	cmd.AddCommand(newResourcesSearchIndexUpdateCmd(app))
+	cmd.AddCommand(newResourcesSearchIndexClearCmd(app))
+	cmd.AddCommand(newResourcesSearchIndexReindexCmd(app))
+	return cmd
+}
+
+func newResourcesSearchIndexShowCmd(app *App) *cobra.Command {
+	var full bool
+	cmd := &cobra.Command{
+		Use:   "show <uri>",
+		Short: "Show search-index metadata and index preview for one resource",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+			body := map[string]any{
+				"op":   "show",
+				"uri":  uri,
+				"full": full,
+			}
+			return resourceSearchIndexRequest(cmd, app, body)
+		},
+	}
+	cmd.Flags().BoolVar(&full, "full", false, "Include indexed content fields in the preview")
+	return cmd
+}
+
+func newResourcesSearchIndexUpdateCmd(app *App) *cobra.Command {
+	var searchIndexFile string
+	var searchIndexRaw string
+	var text string
+	var sourceLabel string
+	var tagsCSV string
+	var tags []string
+	var includeRawContent bool
+	var full bool
+
+	cmd := &cobra.Command{
+		Use:   "update <uri>",
+		Short: "Update search-index metadata for one resource and reindex it",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+
+			fileSet := strings.TrimSpace(searchIndexFile) != ""
+			rawSet := strings.TrimSpace(searchIndexRaw) != ""
+			fieldSet := strings.TrimSpace(text) != "" ||
+				strings.TrimSpace(sourceLabel) != "" ||
+				strings.TrimSpace(tagsCSV) != "" ||
+				len(tags) > 0 ||
+				cmd.Flags().Changed("include-raw-content")
+			if (fileSet || rawSet) && fieldSet {
+				return writeErr(cmd, errors.New("use either --search-index-file/--search-index or field flags, not both"))
+			}
+			if fileSet && rawSet {
+				return writeErr(cmd, errors.New("use either --search-index-file or --search-index, not both"))
+			}
+			body := map[string]any{
+				"op":   "update",
+				"uri":  uri,
+				"full": full,
+			}
+			switch {
+			case fileSet:
+				b, err := readExplicitFile(strings.TrimSpace(searchIndexFile))
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				body["searchIndex"] = string(b)
+			case rawSet:
+				body["searchIndex"] = strings.TrimSpace(searchIndexRaw)
+			case fieldSet:
+				searchIndex := map[string]any{}
+				if strings.TrimSpace(text) != "" {
+					searchIndex["text"] = strings.TrimSpace(text)
+				}
+				if strings.TrimSpace(sourceLabel) != "" {
+					searchIndex["sourceLabel"] = strings.TrimSpace(sourceLabel)
+				}
+				tagValues := append([]string{}, parseCommaFields(tagsCSV)...)
+				for _, tag := range tags {
+					tagValues = append(tagValues, parseCommaFields(tag)...)
+				}
+				if len(tagValues) > 0 {
+					searchIndex["tags"] = tagValues
+				}
+				if cmd.Flags().Changed("include-raw-content") {
+					searchIndex["includeRawContent"] = includeRawContent
+				}
+				body["searchIndex"] = searchIndex
+			default:
+				return writeErr(cmd, errors.New("provide --search-index-file, --search-index, or at least one search-index field flag"))
+			}
+			return resourceSearchIndexRequest(cmd, app, body)
+		},
+	}
+	cmd.Flags().StringVar(&searchIndexFile, "search-index-file", "", "EDN or JSON map containing search-index metadata")
+	cmd.Flags().StringVar(&searchIndexRaw, "search-index", "", "Inline EDN or JSON map containing search-index metadata")
+	cmd.Flags().StringVar(&text, "text", "", "Override indexed search text")
+	cmd.Flags().StringVar(&sourceLabel, "source-label", "", "Override the search result source label")
+	cmd.Flags().StringVar(&tagsCSV, "tags", "", "Comma-separated search tags")
+	cmd.Flags().StringArrayVar(&tags, "tag", nil, "Add one or more search tags; may be repeated")
+	cmd.Flags().BoolVar(&includeRawContent, "include-raw-content", false, "Append raw resource content after --text when indexing")
+	cmd.Flags().BoolVar(&full, "full", false, "Include indexed content fields in the response preview")
+	return cmd
+}
+
+func newResourcesSearchIndexClearCmd(app *App) *cobra.Command {
+	var full bool
+	cmd := &cobra.Command{
+		Use:   "clear <uri>",
+		Short: "Clear search-index metadata for one resource and reindex it",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+			body := map[string]any{
+				"op":   "clear",
+				"uri":  uri,
+				"full": full,
+			}
+			return resourceSearchIndexRequest(cmd, app, body)
+		},
+	}
+	cmd.Flags().BoolVar(&full, "full", false, "Include indexed content fields in the response preview")
+	return cmd
+}
+
+func newResourcesSearchIndexReindexCmd(app *App) *cobra.Command {
+	var full bool
+	cmd := &cobra.Command{
+		Use:   "reindex <uri>",
+		Short: "Rebuild one resource search-index document",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+			body := map[string]any{
+				"op":   "reindex",
+				"uri":  uri,
+				"full": full,
+			}
+			return resourceSearchIndexRequest(cmd, app, body)
+		},
+	}
+	cmd.Flags().BoolVar(&full, "full", false, "Include indexed content fields in the response preview")
 	return cmd
 }
 
