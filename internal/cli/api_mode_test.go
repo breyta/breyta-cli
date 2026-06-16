@@ -1034,6 +1034,19 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 	}
 }
 
+func TestResourcesSearchHelp_DocumentsKeywordMode(t *testing.T) {
+	stdout, _, err := runCLIArgs(t, "resources", "search", "--help")
+	if err != nil {
+		t.Fatalf("resources search --help failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "Use --keyword-mode balanced for natural-language questions over small resource") {
+		t.Fatalf("expected keyword-mode guidance in help, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Keyword matching mode: all, balanced, or any") {
+		t.Fatalf("expected keyword-mode flag values in help, got:\n%s", stdout)
+	}
+}
+
 func TestResourcesSearchIndexUpdate_PostsPayload(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources/search-index" {

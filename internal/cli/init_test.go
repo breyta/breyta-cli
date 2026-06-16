@@ -112,6 +112,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta flows grep \"<literal>\" --limit 5`",
 		"`breyta flows templates search \"<query>\" --limit 5`",
 		"`breyta resources search \"<query>\" --limit 5`",
+		"`--keyword-mode balanced` for natural-language questions over small resource sets",
 		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
 		"Persist large or unknown payloads with `:persist`",
 		"`:tier :ephemeral` on streaming `:http` steps",
@@ -200,6 +201,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "`breyta flows templates search \"<problem or integration query>\" --limit 5`") {
 		t.Fatalf("unexpected readme content (missing query-shaped flows search step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`--keyword-mode balanced` for natural-language questions over small resource sets") {
+		t.Fatalf("unexpected readme content (missing keyword-mode search guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "use primitive snippets and referenced dependencies before a full template") {
 		t.Fatalf("unexpected readme content (missing primitive-first reuse step): %s", string(readme))

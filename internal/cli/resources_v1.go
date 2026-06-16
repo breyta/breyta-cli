@@ -308,7 +308,14 @@ func newResourcesSearchCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search resources in workspace",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Search workspace resources.
+
+Use --keyword-mode balanced for natural-language questions over small resource
+sets where requiring every query term may be too strict. Supported
+keyword-mode values are all, balanced, and any.
+`),
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
 		},

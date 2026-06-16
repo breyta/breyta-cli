@@ -307,7 +307,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
    - docs: ` + "`breyta docs find \"<query>\" --limit 5 --format json`" + `
    - source/config: ` + "`breyta flows grep \"<literal>\" --limit 5`" + `
    - templates: ` + "`breyta flows templates search \"<query>\" --limit 5`" + `
-   - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `
+   - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
 6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
 7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
 8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
@@ -376,7 +376,7 @@ This directory was created by ` + "`breyta init`" + ` for your first Breyta CLI 
    - ` + "`breyta docs find \"<idea or primitive>\" --limit 5 --format json`" + `
    - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
    - if an approved template closely matches the requested outcome, ` + "`breyta flows templates duplicate <template-slug>`" + ` first, prove one green draft, then make narrow edits
-   - ` + "`breyta resources search \"<existing data>\" --limit 5`" + ` when prior reports, uploads, or run outputs may be reused
+   - ` + "`breyta resources search \"<existing data>\" --limit 5`" + ` when prior reports, uploads, or run outputs may be reused; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
 7. Keep reuse primitive-first:
    - use matching primitive snippets and referenced dependencies when available
    - inspect one full template only for architecture-level reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
@@ -406,7 +406,7 @@ Advanced ideas:
   - ` + "`breyta docs find \"<chosen idea or primitive>\" --limit 5 --format json`" + `
   - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
   - approved template copy-first: when a hit closely matches, run ` + "`breyta flows templates duplicate <template-slug>`" + `, prove the copied draft, then edit
-  - existing data lookup: use ` + "`breyta resources search \"<query>\" --limit 5`" + ` and ` + "`breyta resources read <resource-uri> --limit 5`" + ` for one selected resource
+  - existing data lookup: use ` + "`breyta resources search \"<query>\" --limit 5`" + ` (or ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets) and ` + "`breyta resources read <resource-uri> --limit 5`" + ` for one selected resource
   - use primitive snippets and referenced dependencies before a full template
   - inspect one full template only when architecture-level reuse is needed
   - compare the touched surface against the closest local or approved template example before changing structure
