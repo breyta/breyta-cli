@@ -132,6 +132,7 @@ Resources provide a unified model for all data produced and consumed by flows:
 API routes:
   GET /<workspace>/api/resources                  - List resources
   GET /<workspace>/api/resources/search?q=...     - Search resources
+  POST /<workspace>/api/resources/search-index    - Inspect/update per-resource search-index metadata
   GET /<workspace>/api/resources/by-uri?uri=...   - Get resource metadata
   GET /<workspace>/api/resources/content?uri=...  - Read resource content
   POST /<workspace>/api/resources/table/*         - Query/update/import/export table resources
