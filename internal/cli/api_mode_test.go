@@ -981,6 +981,9 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("mode"); got != "hybrid" {
 			t.Fatalf("expected mode=hybrid, got %q", got)
 		}
+		if got := r.URL.Query().Get("keyword-mode"); got != "balanced" {
+			t.Fatalf("expected keyword-mode=balanced, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "30" {
 			t.Fatalf("expected limit=30, got %q", got)
 		}
@@ -1011,6 +1014,7 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		"--storage-root", "reports/acme",
 		"--path-prefix", "exports/2026",
 		"--mode", "hybrid",
+		"--keyword-mode", "balanced",
 		"--limit", "30",
 		"--offset", "10",
 	)
