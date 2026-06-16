@@ -27,6 +27,12 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows templates search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta resources search \"<query>\" --limit 5") {
+		t.Fatalf("expected resource search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "`--keyword-mode balanced` for natural-language questions over small resource sets") {
+		t.Fatalf("expected keyword-mode resource search guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows search \"<integration or problem query>\" --limit 5") {
 		t.Fatalf("expected workspace search guidance in override, got:\n%s", body)
 	}
