@@ -751,6 +751,67 @@ func TestFlowsGrep_TemplateScopeFullIncludesRawDefinition(t *testing.T) {
 	}
 }
 
+func TestFlowsGrep_TemplateScopeFullPreservesDefinition(t *testing.T) {
+	rawDef := strings.Repeat("(step :x) ", 200)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["command"] != "flows.search" {
+			t.Fatalf("expected flows.search, got %#v", body["command"])
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["includeDefinition"] != true || args["rawDefinition"] != true {
+			t.Fatalf("expected full+raw definition args, got %#v", args)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"result": map[string]any{
+					"hits": []any{
+						map[string]any{"flow_slug": "t-flow", "scope": "template", "definition": rawDef},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"step", "--scope", "templates", "--full", "--raw-definition"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, out.String())
+	}
+	data, _ := envelope["data"].(map[string]any)
+	result, _ := data["result"].(map[string]any)
+	hits, _ := result["hits"].([]any)
+	if len(hits) != 1 {
+		t.Fatalf("expected one hit, got %#v", hits)
+	}
+	hit, _ := hits[0].(map[string]any)
+	if got, _ := hit["definition"].(string); got != rawDef {
+		t.Fatalf("expected raw definition preserved under --full, got %d chars", len(got))
+	}
+	if _, ok := hit["sourcePreview"]; ok {
+		t.Fatalf("did not expect compacted sourcePreview under --full: %#v", hit)
+	}
+	if meta, _ := envelope["meta"].(map[string]any); meta["outputView"] == "compact" {
+		t.Fatalf("did not expect compact outputView under --full: %#v", meta)
+	}
+}
+
 func TestFlowsGrep_RejectsRawDefinitionWithoutFull(t *testing.T) {
 	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
 	cmd := newFlowsGrepCmd(app)

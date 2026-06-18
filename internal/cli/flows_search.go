@@ -411,9 +411,14 @@ Results are compact by default. Add ` + "`--full`" + ` for a bounded source prev
 			case "workspace":
 				return dispatchFlowAPICommand(cmd, app, "flows.workspace.search", workspacePayload, false)
 			case "templates":
+				// --full requests a source preview, so skip the compacting
+				// transform that would strip the definition back out.
+				if full {
+					return dispatchFlowAPICommand(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "")
+				}
 				return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "", compactTemplateSearchEnvelope)
 			default:
-				return runCombinedFlowGrep(cmd, app, workspacePayload, templatePayload, limit)
+				return runCombinedFlowGrep(cmd, app, workspacePayload, templatePayload, limit, full)
 			}
 		},
 	}
@@ -435,7 +440,7 @@ Results are compact by default. Add ` + "`--full`" + ` for a bounded source prev
 	return cmd
 }
 
-func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templatePayload map[string]any, limit int) error {
+func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templatePayload map[string]any, limit int, full bool) error {
 	workspaceOut, workspaceStatus, err := runAPICommand(app, "flows.workspace.search", workspacePayload)
 	if err != nil {
 		return writeErr(cmd, err)
@@ -450,7 +455,11 @@ func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templat
 	if templateStatus >= 400 || !isOK(templateOut) {
 		return writeAPIResult(cmd, app, templateOut, templateStatus)
 	}
-	compactTemplateSearchEnvelope(templateOut)
+	// --full requests a source preview, so keep the template definitions
+	// instead of compacting them back out (matches the templates scope path).
+	if !full {
+		compactTemplateSearchEnvelope(templateOut)
+	}
 
 	hits := append(resultHits(workspaceOut), resultHits(templateOut)...)
 	meta := map[string]any{
