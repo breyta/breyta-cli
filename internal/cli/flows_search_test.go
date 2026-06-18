@@ -674,6 +674,161 @@ func TestFlowsGrep_TemplateScopeMarksTemplateSurface(t *testing.T) {
 	}
 }
 
+func TestFlowsGrep_FullIncludesWorkspaceDefinition(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--full"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "flows.workspace.search" {
+		t.Fatalf("expected method flows.workspace.search, got %q", gotMethod)
+	}
+	if gotPayload["definitionSearch"] != true || gotPayload["includeDefinition"] != true {
+		t.Fatalf("expected definition source preview enabled, got %#v", gotPayload)
+	}
+	if gotPayload["rawDefinition"] != false {
+		t.Fatalf("expected rawDefinition=false without --raw-definition, got %#v", gotPayload["rawDefinition"])
+	}
+}
+
+func TestFlowsGrep_TemplateScopeFullIncludesRawDefinition(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--scope", "templates", "--full", "--raw-definition"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "flows.search" {
+		t.Fatalf("expected method flows.search, got %q", gotMethod)
+	}
+	if gotPayload["surface"] != "templates" || gotPayload["includeDefinition"] != true || gotPayload["rawDefinition"] != true {
+		t.Fatalf("expected template source preview with raw definition, got %#v", gotPayload)
+	}
+}
+
+func TestFlowsGrep_TemplateScopeFullPreservesDefinition(t *testing.T) {
+	rawDef := strings.Repeat("(step :x) ", 200)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["command"] != "flows.search" {
+			t.Fatalf("expected flows.search, got %#v", body["command"])
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["includeDefinition"] != true || args["rawDefinition"] != true {
+			t.Fatalf("expected full+raw definition args, got %#v", args)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"result": map[string]any{
+					"hits": []any{
+						map[string]any{"flow_slug": "t-flow", "scope": "template", "definition": rawDef},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-test", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"step", "--scope", "templates", "--full", "--raw-definition"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, out.String())
+	}
+	data, _ := envelope["data"].(map[string]any)
+	result, _ := data["result"].(map[string]any)
+	hits, _ := result["hits"].([]any)
+	if len(hits) != 1 {
+		t.Fatalf("expected one hit, got %#v", hits)
+	}
+	hit, _ := hits[0].(map[string]any)
+	if got, _ := hit["definition"].(string); got != rawDef {
+		t.Fatalf("expected raw definition preserved under --full, got %d chars", len(got))
+	}
+	if _, ok := hit["sourcePreview"]; ok {
+		t.Fatalf("did not expect compacted sourcePreview under --full: %#v", hit)
+	}
+	if meta, _ := envelope["meta"].(map[string]any); meta["outputView"] == "compact" {
+		t.Fatalf("did not expect compact outputView under --full: %#v", meta)
+	}
+}
+
+func TestFlowsGrep_RejectsRawDefinitionWithoutFull(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"web_search", "--raw-definition"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got success")
+	}
+	if !strings.Contains(err.Error(), "--raw-definition requires --full") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFlowsExamplesStep_BuildsWorkspacePayload(t *testing.T) {
 	var gotWorkspaceHeader string
 	var gotBody map[string]any
