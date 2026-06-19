@@ -301,3 +301,61 @@ func TestEnsureErrorRecoveryActions_NoWorkspaceSkipsSynthesizedRunURLs(t *testin
 		t.Fatalf("did not expect metadata side effects without workspace, got %#v", meta)
 	}
 }
+
+func containsString(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func waitRunNextCommands(t *testing.T, out map[string]any) []string {
+	t.Helper()
+	meta := mapStringAny(out["meta"])
+	var cmds []string
+	for _, raw := range sliceAny(meta["nextCommands"]) {
+		if s := firstNonBlankString(raw); s != "" {
+			cmds = append(cmds, s)
+		}
+	}
+	return cmds
+}
+
+func TestAddWaitRunNextCommands_InstallationScopedHintIsRunnable(t *testing.T) {
+	t.Run("explicit installation id is threaded into the inspect hint", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{"status": "completed"}}}
+		addWaitRunNextCommands(out, "wf-linked", "prof-consumer")
+		cmds := waitRunNextCommands(t, out)
+		if !containsString(cmds, "breyta runs inspect wf-linked --installation-id prof-consumer") {
+			t.Fatalf("expected installation-scoped inspect hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("installation id falls back to the run snapshot", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":         "completed",
+			"installationId": "prof-consumer",
+		}}}
+		addWaitRunNextCommands(out, "wf-linked", "")
+		cmds := waitRunNextCommands(t, out)
+		if !containsString(cmds, "breyta runs inspect wf-linked --installation-id prof-consumer") {
+			t.Fatalf("expected inspect hint to use snapshot installation id, got %#v", cmds)
+		}
+	})
+
+	t.Run("workspace-owned runs keep the plain inspect hint", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{"status": "completed"}}}
+		addWaitRunNextCommands(out, "wf-local", "")
+		cmds := waitRunNextCommands(t, out)
+		if !containsString(cmds, "breyta runs inspect wf-local") {
+			t.Fatalf("expected plain inspect hint, got %#v", cmds)
+		}
+		for _, c := range cmds {
+			if strings.Contains(c, "--installation-id") {
+				t.Fatalf("did not expect an installation-id flag for a workspace run, got %#v", cmds)
+			}
+		}
+	})
+}
