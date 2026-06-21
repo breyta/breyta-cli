@@ -21,7 +21,7 @@ Most users should use:
 - breyta flows run <flow-slug>
 
 Use install commands only when you need explicit targets, installation-specific
-config/triggers, or controlled promotion.
+config, triggers, endpoints, or controlled promotion.
 `),
 	}
 	cmd.AddCommand(newFlowsInstallationsListCmd(app))
@@ -36,6 +36,7 @@ config/triggers, or controlled promotion.
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDeleteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
+	cmd.AddCommand(newFlowsInstallationsSurfacesCmd(app))
 	cmd.AddCommand(newFlowsInstallationsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
@@ -147,7 +148,7 @@ state the enable intent explicitly.
 For paid public apps, use the Discover/public app checkout surface first when
 purchase, subscription, prepaid runs, or trial entry is required. After checkout
 or trial entry, create/configure/enable the installation here, inspect callable
-surfaces with ` + "`breyta flows installations interfaces <installation-id>`" + `, then call
+surfaces with ` + "`breyta flows installations surfaces <installation-id>`" + `, then call
 installed interfaces with ` + "`breyta flows interfaces call ... --installation-id <installation-id>`" + `.
 If creation returns a checkout action, open that URL and retry after checkout.
 

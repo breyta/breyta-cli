@@ -880,6 +880,88 @@ func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.surfaces.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["profileId"] != "prof-abc" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"profileId":      "prof-abc",
+				"installationId": "prof-abc",
+				"flowSlug":       "receipt-flow",
+				"items": []any{
+					map[string]any{
+						"id":          "receipt-inbox",
+						"kind":        "email",
+						"surfaceType": "installation",
+						"status":      "ready",
+						"email": map[string]any{
+							"address":  "receipt-demo@receipts.breyta.ai",
+							"domain":   "receipts.breyta.ai",
+							"provider": "sendgrid",
+						},
+					},
+					map[string]any{
+						"id":           "parse_receipt",
+						"kind":         "mcp",
+						"surfaceType":  "interface",
+						"status":       "ready",
+						"protocol":     "mcp",
+						"transport":    "streamable-http",
+						"endpointPath": "/api/workspaces/ws-acme/flows/receipt-flow/installations/prof-abc/interfaces/parse_receipt",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "surfaces", "prof-abc",
+	)
+	if err != nil {
+		t.Fatalf("flows installations surfaces failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["installationId"] != "prof-abc" || out.Data["flowSlug"] != "receipt-flow" {
+		t.Fatalf("expected installation surface metadata, got %#v", out.Data)
+	}
+	items, _ := out.Data["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 surfaces, got %#v", out.Data["items"])
+	}
+	email, _ := items[0].(map[string]any)
+	emailData, _ := email["email"].(map[string]any)
+	if email["kind"] != "email" || emailData["address"] != "receipt-demo@receipts.breyta.ai" {
+		t.Fatalf("expected email surface, got %#v", email)
+	}
+	mcp, _ := items[1].(map[string]any)
+	if mcp["kind"] != "mcp" || mcp["transport"] != "streamable-http" {
+		t.Fatalf("expected MCP surface, got %#v", mcp)
+	}
+}
+
 func TestFlowsInstallations_SetInputs_UsesFlowsInstallationsSetInputsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
