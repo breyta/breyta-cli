@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDocsHintForCommand(t *testing.T) {
@@ -121,6 +122,28 @@ func TestFlowsHelpHidesLegacyLifecycleCommands(t *testing.T) {
 	}
 	if !strings.Contains(help, "breyta flows update <slug> --group-order 10") {
 		t.Fatalf("flows help missing grouped-flow quick command:\n%s", help)
+	}
+}
+
+func TestFlowsHelpDocumentsCurrentFunctionStepShape(t *testing.T) {
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	if strings.Contains(help, "(flow/step :function :do {:code '(fn [x] x)} :input input)") {
+		t.Fatalf("flows help still documents legacy function-step shape:\n%s", help)
+	}
+	if !strings.Contains(help, "(flow/step :function :do {:code '(fn [input] input)") ||
+		!strings.Contains(help, ":input {:input input}})") {
+		t.Fatalf("flows help missing current function-step shape:\n%s", help)
 	}
 }
 
@@ -265,6 +288,44 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	if !strings.Contains(help, "--interface-id") {
 		t.Fatalf("flows run help missing interface selector guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "--buyer-test") {
+		t.Fatalf("flows run help missing buyer test guidance:\n%s", help)
+	}
+}
+
+func TestFlowRunWaitTimeoutDefaultsToFiveMinutes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "flows run", args: []string{"flows", "run"}},
+		{name: "flows run-step", args: []string{"flows", "run-step"}},
+		{name: "flows interfaces call", args: []string{"flows", "interfaces", "call"}},
+		{name: "runs start", args: []string{"runs", "start"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := NewRootCmd()
+			cmd, _, err := root.Find(tc.args)
+			if err != nil {
+				t.Fatalf("find %s: %v", tc.name, err)
+			}
+			flag := cmd.Flags().Lookup("timeout")
+			if flag == nil {
+				t.Fatalf("%s missing timeout flag", tc.name)
+			}
+			got, err := time.ParseDuration(flag.DefValue)
+			if err != nil {
+				t.Fatalf("%s timeout default is not a duration: %q", tc.name, flag.DefValue)
+			}
+			if got != defaultFlowRunWaitTimeout {
+				t.Fatalf("%s timeout default = %s, want %s", tc.name, got, defaultFlowRunWaitTimeout)
+			}
+		})
+	}
 }
 
 func TestFlowSubcommandHelpOmitsSourceFlag(t *testing.T) {
@@ -311,6 +372,9 @@ func TestFlowsShowHelpExplainsDraftVsLiveTarget(t *testing.T) {
 	}
 	if !strings.Contains(help, "Use --target live when verifying what production/live runs are executing.") {
 		t.Fatalf("flows show help missing live verification guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "--version N: fetches an immutable historical version") {
+		t.Fatalf("flows show help missing historical version guidance:\n%s", help)
 	}
 }
 

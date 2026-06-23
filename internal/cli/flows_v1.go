@@ -259,6 +259,7 @@ Quick commands:
 - breyta flows promote <slug> --version <n>
 - breyta flows show <slug> --target live
 - breyta flows run <slug> --target live --wait
+- breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait
 - breyta flows run <slug> --wait
 
 Flow file format (minimal):
@@ -274,7 +275,8 @@ Flow file format (minimal):
  :interfaces nil
  :schedules nil
  :flow '(let [input (flow/input)]
-          (flow/step :function :do {:code '(fn [x] x)} :input input))}
+          (flow/step :function :do {:code '(fn [input] input)
+                                     :input {:input input}}))}
 
 Notes:
 - The server reads the file with *read-eval* disabled.
@@ -332,6 +334,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsReleaseCmd(app))
 	cmd.AddCommand(newFlowsPromoteCmd(app))
 	cmd.AddCommand(newFlowsRunCmd(app))
+	cmd.AddCommand(newFlowsRunStepCmd(app))
 	cmd.AddCommand(newFlowsMetricsCmd(app))
 	cmd.AddCommand(newFlowsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
@@ -807,12 +810,14 @@ Show a flow definition for a specific source target.
 
 - Default (no --target): workspace current (draft) source
 - --target live: resolves the live installation profile and fetches its active version
+- --version N: fetches an immutable historical version
 
 Use --target live when verifying what production/live runs are executing.
 `),
 		Example: strings.TrimSpace(`
 breyta flows show order-ingest
 breyta flows show order-ingest --target live
+breyta flows show order-ingest --version 6
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -846,6 +851,7 @@ breyta flows show order-ingest --target live
 
 			if isAPIMode(app) {
 				if version > 0 {
+					payload["source"] = "version"
 					payload["version"] = version
 				}
 				applyFlowsGetVerbosityPayload(payload, full, include)
@@ -1010,7 +1016,18 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull <flow-slug>",
 		Short: "Pull a flow to a local .clj file for editing",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+Pull an editable flow source file.
+
+By default this pulls the current draft. Use --version N for a read-only
+historical source snapshot, or --target live for the live installation target.
+`),
+		Example: strings.TrimSpace(`
+breyta flows pull order-ingest --out ./tmp/flows/order-ingest.clj
+breyta flows pull order-ingest --version 6 --out ./tmp/flows/order-ingest-v6.clj
+breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live.clj
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "Pull requires --api/BREYTA_API_URL")
@@ -1022,7 +1039,11 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			slug := args[0]
 			path := out
 			if strings.TrimSpace(path) == "" {
-				path = filepath.Join("tmp", "flows", slug+".clj")
+				filename := slug + ".clj"
+				if version > 0 {
+					filename = fmt.Sprintf("%s-v%d.clj", slug, version)
+				}
+				path = filepath.Join("tmp", "flows", filename)
 			}
 			targetChanged := cmd.Flags().Changed("target")
 			resolvedTarget := "draft"
@@ -1047,11 +1068,11 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 				if target.Version > 0 {
 					payload["version"] = target.Version
 				}
+			} else if version > 0 {
+				payload["source"] = "version"
+				payload["version"] = version
 			} else {
 				payload["source"] = "draft"
-				if version > 0 {
-					payload["version"] = version
-				}
 			}
 			payload["view"] = "full"
 			payload["includeFlowLiteral"] = true
@@ -1103,7 +1124,7 @@ func newFlowsPullCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, result)
 		},
 	}
-	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj)")
+	cmd.Flags().StringVar(&out, "out", "", "Output path (default: tmp/flows/<slug>.clj, or tmp/flows/<slug>-vN.clj with --version N)")
 	cmd.Flags().StringVar(&target, "target", "", "Target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Version (0 = default)")
 	return cmd
@@ -1255,6 +1276,24 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeErr(cmd, err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
+				if postPushValidationFlowNotFound(validateOut, validateStatus, flowSlug) {
+					meta := ensureMeta(out)
+					if meta != nil {
+						meta["validated"] = false
+						meta["validateSource"] = "draft"
+						meta["validationWarning"] = "Draft was saved, but immediate validation could not read the new flow yet. Retry validation after the draft is visible."
+						appendMetaNextCommands(meta, "breyta flows validate "+flowSlug, "breyta flows show "+flowSlug)
+					}
+					trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
+						"product":         "flows",
+						"channel":         "cli",
+						"api_host":        apiHostname(app.APIURL),
+						"flow_slug":       flowSlug,
+						"validated":       false,
+						"validate_source": "draft",
+					})
+					return writeAPIResult(cmd, app, out, status)
+				}
 				_ = appendProvenanceHintsWithOptions(validateOut, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug, includeProvenance)
 				trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, map[string]any{
 					"product":         "flows",
@@ -1292,6 +1331,30 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
+}
+
+func postPushValidationFlowNotFound(out map[string]any, status int, flowSlug string) bool {
+	if status != 404 {
+		return false
+	}
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		return false
+	}
+	code := strings.ToLower(firstNonBlankString(errMap["code"]))
+	message := strings.ToLower(firstNonBlankString(errMap["message"]))
+	if code != "" && code != "not_found" {
+		return false
+	}
+	if !strings.Contains(message, "flow not found") {
+		return false
+	}
+	details := mapStringAny(errMap["details"])
+	if details == nil || strings.TrimSpace(flowSlug) == "" {
+		return true
+	}
+	detailSlug := firstNonBlankString(details["flowSlug"], details["flow-slug"], details["slug"])
+	return detailSlug == "" || strings.EqualFold(strings.TrimSpace(detailSlug), strings.TrimSpace(flowSlug))
 }
 
 func newFlowsDeployCmd(app *App) *cobra.Command {
@@ -1366,6 +1429,7 @@ Discover card media loop:
 - inspect current discover card media with ` + "`breyta flows show <slug>`" + `
 - replace the whole card media value with ` + "`--publish-media-type`" + ` + source flags
 - use ` + "`--clear-publish-media`" + ` to remove it
+- HTTPS media sources must be publicly reachable safe media URLs; public Discover cards copy them into Breyta-owned assets/CDN and reject private hosts, unsafe redirects, or oversized responses
 
 Display icon loop:
 - inspect current display icon selector with ` + "`breyta flows show <slug>`" + `

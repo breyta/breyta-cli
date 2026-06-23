@@ -101,11 +101,11 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 		},
 		{
 			"- Before creating a new flow, search existing definitions: `breyta flows search <query>`.",
-			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5` for source/config search, search docs snippets for touched primitives, and search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
+			"- Before creating or editing a flow, pick a task mode, inspect current state, search nearby workspace patterns with `breyta flows search \"<integration or problem query>\" --limit 5`, use `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5` for source/config search, search docs snippets for touched primitives, search approved templates with `breyta flows templates search \"<problem or integration query>\" --limit 5`, and search existing data with `breyta resources search \"<query>\" --limit 5`.\n- Add `--keyword-mode balanced` to `breyta resources search` for natural-language questions over small resource sets, then read only the selected URI with `breyta resources read <resource-uri> --limit 5`.\n- Use private/approved primitive snippets and referenced `:requires`, `:templates`, and `:functions` before pulling full templates.\n- Inspect a full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure.\n- For new flows, use workspace search/grep instead of `breyta flows list --limit 50` for pattern discovery.\n- For existing flows, inspect the target summary with `breyta flows show <slug>` or pull editable source with `breyta flows pull <slug>` before editing.",
 		},
 		{
 			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta flows search <query>`",
-			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\" --limit 5 --format json`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
+			"3. Confirm reusable resources:\n   - `breyta connections list`\n   - `breyta connections show <id>` for the connection you expect to bind\n   - `breyta connections test <id>` only when binding or debugging that connection\n   - Nearby workspace patterns: `breyta flows search \"<integration or problem query>\" --limit 5`\n   - Workspace source/config search: `breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`\n   - Private primitive snippets: `breyta flows workspace examples step <type> \"<query>\" --limit 3`\n   - Docs snippets: `breyta docs find \"<problem or primitive>\" --limit 5 --format json`\n   - Approved template discovery: `breyta flows templates search \"<problem or integration query>\" --limit 5`\n   - Existing data/resources: `breyta resources search \"<query>\" --limit 5`; add `--keyword-mode balanced` for natural-language questions over small resource sets\n   - Primitive-first reuse: inspect matching snippets and referenced dependencies before full templates\n   - Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source",
 		},
 		{
 			"2. Bootstrap from existing artifacts\n- Prefer existing flow file first:\n  - `breyta flows pull <slug> --out ./tmp/flows/<slug>.clj`\n\n3. Working copy iteration\n- Before editing `:flow`, shape the reusable surfaces first:\n  - `:templates` for large static content\n  - `:functions` for deterministic transforms\n  - packaged `:steps` for heavy built-in step configs\n  - `:agents` for reusable reviewer/fixer/coordinator behavior",
@@ -160,6 +160,8 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	}
 	updated = ensureN8NImportGuidance(updated)
 	updated = ensurePaidAppMarketplaceSection(updated)
+	updated = ensureFocusedStepRunGuidance(updated)
+	updated = ensureInputFilePayloadGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
@@ -186,6 +188,8 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureDocSearchPatternsSection(updated)
 	updated = ensureProviderAPIFreshnessSection(updated)
 	updated = ensureN8NImportGuidance(updated)
+	updated = ensureFocusedStepRunGuidance(updated)
+	updated = ensureInputFilePayloadGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
 	if updated == original {
 		return files
@@ -224,8 +228,12 @@ func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string
 	}
 
 	updateFile("SKILL.md", ensureMinimumSufficientEvidenceCoreRule)
+	updateFile("SKILL.md", ensureFocusedStepRunGuidance)
+	updateFile("SKILL.md", ensureInputFilePayloadGuidance)
 	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
 	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
+	updateFile("playbooks/author-flows.md", ensureFocusedStepRunGuidance)
+	updateFile("playbooks/author-flows.md", ensureInputFilePayloadGuidance)
 	updateFile("playbooks/author-flows.md", ensureLintBeforePushGuidance)
 	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
 	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
@@ -331,15 +339,20 @@ Goal: avoid inventing flow structure from a name alone while keeping evidence sm
   - inspect private primitive snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + `
   - search docs snippets for the problem, primitive, and integration
   - search approved templates with ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
+  - if an approved template closely matches the requested outcome, duplicate it first with ` + "`breyta flows templates duplicate <template-slug>`" + `, prove one green draft, then make narrow edits
 - for existing flows:
   - inspect the current flow first with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows pull <slug>`" + `
   - search docs and approved templates before changing structure
   - compare the touched surface against the closest local or approved template example before editing
+- for resource/data reuse:
+  - search existing resources with ` + "`breyta resources search \"<query>\" --limit 5`" + `; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
+  - read only the selected URI with ` + "`breyta resources read <resource-uri> --limit 5`" + `
 - primitive-first ladder:
   - review metadata: name, description, tags, providers, tool names, connection slots, step types, step count, compact publish/steps previews, and ` + "`flow_web_url`" + `
   - inspect matching private workspace snippets with ` + "`breyta flows workspace examples step <type> \"<query>\" --limit 3`" + ` when available
   - inspect matching primitive snippets with ` + "`breyta flows examples step <type> \"<query>\" --limit 3`" + ` when available
   - include only referenced ` + "`:requires`" + `, ` + "`:templates`" + `, and ` + "`:functions`" + `
+  - when copying overall flow structure, prefer ` + "`breyta flows templates duplicate <template-slug>`" + ` over raw-definition copy/paste
   - inspect one full template only for cross-step architecture reuse, public install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear snippet dependencies, or copying overall flow structure
 - if no useful approved template exists, say so explicitly and continue from docs
 - command budget:
@@ -385,6 +398,7 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
 - for installed flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `
+- for Buyer Test Mode author smoke tests, run from the paired Buyer Test workspace: create the source install with ` + "`breyta flows installations create <slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <slug>`" + ` and run it with ` + "`breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait`" + `
 - when browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page
 - if CLI works but UI fails, or draft works but setup page, run form fields, installed flow, resource picker, or old live version fails, send ` + "`breyta feedback send`" + ` with full run/output URLs`
 
@@ -490,6 +504,7 @@ Goal: make public discover/install cards show creator-curated media instead of o
 - clear discover card media intentionally with:
   - ` + "`breyta flows update <slug> --clear-publish-media`" + `
 - if you keep the flow in source control, you can also author the same value in the flow file as ` + "`:publish-media`" + ` and push it
+- HTTPS media sources must be publicly reachable safe media URLs; public Discover cards copy them into Breyta-owned assets/CDN and reject private hosts, unsafe redirects, or oversized responses
 - use alt text that explains the visible result, not the implementation detail`
 
 const paidAppMarketplaceSection = `## Paid app marketplace authoring (Source-authored)
@@ -580,7 +595,16 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
 
+const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+
+const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
+
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
+
+func hasInputFilePayloadGuidance(body string) bool {
+	return strings.Contains(body, "--input-file ./input.json") &&
+		strings.Contains(body, "shell or OS argument limits")
+}
 
 func hasLintTimeoutGuidance(body string) bool {
 	search := body
@@ -621,6 +645,70 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 		return body[:headingPos] + section + "\n\n" + body[headingPos:]
 	}
 	return strings.TrimRight(body, "\n") + "\n\n" + section + "\n"
+}
+
+func ensureFocusedStepRunGuidance(body string) string {
+	if strings.Contains(body, "breyta flows run-step <slug> <step-id>") {
+		return body
+	}
+	guidance := focusedStepRunProofBullet
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
+		insertPos := headingPos + len("## Create/Edit Preflight")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Core Rule"); headingPos >= 0 {
+		insertPos := headingPos + len("## Core Rule")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + guidance + "\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Focused step proof\n\n" + guidance + "\n"
+}
+
+func ensureInputFilePayloadGuidance(body string) string {
+	if hasInputFilePayloadGuidance(body) {
+		return body
+	}
+	if proofPos := strings.Index(body, "breyta flows run-step <slug> <step-id>"); proofPos >= 0 {
+		if eol := strings.Index(body[proofPos:], "\n"); eol >= 0 {
+			insertPos := proofPos + eol + 1
+			return body[:insertPos] + inputFilePayloadGuidance + "\n" + body[insertPos:]
+		}
+		return strings.TrimRight(body, "\n") + "\n" + inputFilePayloadGuidance + "\n"
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Default Loop"); headingPos >= 0 {
+		insertPos := headingPos + len("## Default Loop")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + inputFilePayloadGuidance + "\n\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
+		insertPos := headingPos + len("## Create/Edit Preflight")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + inputFilePayloadGuidance + "\n" + body[insertPos:]
+	}
+	if headingPos := h2LineStartOutsideFences(body, "## Core Rule"); headingPos >= 0 {
+		insertPos := headingPos + len("## Core Rule")
+		if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+			insertPos += eol + 1
+		}
+		return body[:insertPos] + "\n" + inputFilePayloadGuidance + "\n" + body[insertPos:]
+	}
+	return strings.TrimRight(body, "\n") + "\n\n## Large run payloads\n\n" + inputFilePayloadGuidance + "\n"
 }
 
 func ensureAuthoringDefaultsContractMatrix(body string) string {
@@ -676,8 +764,29 @@ func ensureLintBeforePushGuidance(body string) string {
 }
 
 func ensureAuthorFlowEfficientLoop(body string) string {
-	if strings.Contains(body, "write the contract and acceptance matrix before source grows") {
+	readinessBullet := strings.Join([]string{
+		"- before wrapper smoke tests around paid public apps, inspect",
+		"  `breyta flows installations get <installation-id>` and check",
+		"  `data.runReadiness` for billing/trial blocks",
+	}, "\n")
+	wrapperFlowBullet := strings.Join([]string{
+		"- inside authored Breyta wrapper flows, call installed public children with",
+		"  `flow/call-flow` plus `:installation-id`; reserve installed HTTP/MCP",
+		"  interfaces for external clients and MCP-capable agents",
+	}, "\n")
+	if strings.Contains(body, readinessBullet) && strings.Contains(body, wrapperFlowBullet) {
 		return body
+	}
+	transportBullet := "- treat HTTP/MCP as consumer transports for installed callable interfaces,"
+	if transportPos := strings.Index(body, transportBullet); transportPos >= 0 {
+		missing := make([]string, 0, 2)
+		if !strings.Contains(body, readinessBullet) {
+			missing = append(missing, readinessBullet)
+		}
+		if !strings.Contains(body, wrapperFlowBullet) {
+			missing = append(missing, wrapperFlowBullet)
+		}
+		return body[:transportPos] + strings.Join(missing, "\n") + "\n" + body[transportPos:]
 	}
 	guidance := strings.Join([]string{
 		"Use the default loop as one efficient workflow creation method, not as a",
@@ -700,6 +809,8 @@ func ensureAuthorFlowEfficientLoop(body string) string {
 		"- prove public/installable flow reuse with",
 		"  `breyta flows installations interfaces <installation-id>` and an",
 		"  installation-scoped `breyta flows interfaces call ... --installation-id <installation-id>`",
+		readinessBullet,
+		wrapperFlowBullet,
 		"- treat HTTP/MCP as consumer transports for installed callable interfaces,",
 		"  not as an instruction to create or assume extra builder infrastructure",
 		"- patch in focused lanes: behavior first, output/schema second, verification",
@@ -764,8 +875,30 @@ func ensureOutputHandoffContract(body string) string {
 }
 
 func ensurePublicFlowReuseDuringAuthoring(body string) string {
-	if strings.Contains(body, "During authoring, check public/installable flows before building from scratch") {
+	readinessGuidance := strings.Join([]string{
+		"Before wrapper smoke tests around paid public apps, inspect",
+		"`breyta flows installations get <installation-id>` and check",
+		"`data.runReadiness` for billing/trial blocks.",
+	}, "\n")
+	internalCompositionGuidance := strings.Join([]string{
+		"Inside authored Breyta wrapper flows, call the installed public flow with",
+		"`flow/call-flow` and `:installation-id`. Use installed HTTP/MCP interfaces",
+		"for external clients and MCP-capable agents, not as the default internal",
+		"wrapper-flow composition path.",
+	}, "\n")
+	if strings.Contains(body, readinessGuidance) && strings.Contains(body, internalCompositionGuidance) {
 		return body
+	}
+	missingGuidance := make([]string, 0, 2)
+	if !strings.Contains(body, readinessGuidance) {
+		missingGuidance = append(missingGuidance, readinessGuidance)
+	}
+	if !strings.Contains(body, internalCompositionGuidance) {
+		missingGuidance = append(missingGuidance, internalCompositionGuidance)
+	}
+	missingBlock := strings.Join(missingGuidance, "\n\n")
+	if existingPos := strings.Index(body, "During authoring, check public/installable flows before building from scratch"); existingPos >= 0 {
+		return strings.TrimRight(body, "\n") + "\n\n" + missingBlock + "\n"
 	}
 	guidance := strings.Join([]string{
 		"During authoring, check public/installable flows before building from scratch",
@@ -773,6 +906,10 @@ func ensurePublicFlowReuseDuringAuthoring(body string) string {
 		"valid only when the installed flow satisfies the contract, output schema,",
 		"setup/auth model, billing/entitlement model, quality bar, and failure behavior",
 		"with less risk than editing or building a new flow.",
+		"",
+		readinessGuidance,
+		"",
+		internalCompositionGuidance,
 	}, "\n")
 	anchor := "reuse a public flow, prefer the installed HTTP or MCP interface over author\ndraft/live endpoints."
 	if anchorPos := strings.Index(body, anchor); anchorPos >= 0 {

@@ -50,8 +50,10 @@ breyta flows grep "<literal config or tool name>" --or "<variant>" --limit 5
 breyta flows workspace examples step <type> "<integration or problem query>" --limit 3
 breyta docs find "<idea or primitive>"
 breyta flows templates search "<problem or integration query>" --limit 5
+breyta flows templates duplicate "<template-slug>"
 breyta flows templates grep "<literal config or tool name>" --limit 5
 breyta flows examples step <type> "<problem or integration query>" --limit 3
+breyta resources search "<existing data or question>" --limit 5 --keyword-mode balanced
 ```
 
 For new flows, search nearby workspace flows first instead of listing every
@@ -62,10 +64,17 @@ before docs/example search. Keep reuse primitive-first: use
 `breyta flows workspace examples step <type> "<query>"` for local private
 snippets, then `breyta flows examples step <type> "<query>"` for approved
 snippets. Use `breyta flows templates search/grep` for approved reusable
-templates. Inspect a full template only for architecture-level reuse, public
-install patterns, multi-flow orchestration, fanout/child-flow behavior, unclear
-snippet dependencies, or copying overall flow structure. `breyta flows list` is
-for inventory, slug checks, or explicit user requests, not pattern discovery.
+templates. If an approved template closely matches the desired outcome, copy it
+first with `breyta flows templates duplicate <template-slug>`, prove one green
+draft run, then make narrow edits. Inspect a full template only for
+architecture-level reuse, public install patterns, multi-flow orchestration,
+fanout/child-flow behavior, unclear snippet dependencies, or copying overall
+flow structure. `breyta flows list` is for inventory, slug checks, or explicit
+user requests, not pattern discovery.
+When existing workspace uploads, prior run outputs, or reports may be reused,
+search resources with `breyta resources search "<query>" --limit 5`; add
+`--keyword-mode balanced` for natural-language questions over small resource
+sets. Read only the selected URI with `breyta resources read <uri> --limit 5`.
 
 When a flow touches external APIs or LLM models, check current official provider
 docs/API references or model-list endpoints before choosing request shapes,
@@ -136,6 +145,9 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
+Use `--input-file ./input.json` instead of `--input '<json>'` when the per-run
+payload is large enough to hit shell or OS argument limits.
+
 Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
@@ -160,14 +172,34 @@ instead of `--target`:
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
 
+For author dogfood of a paid/public app through Buyer Test Mode, run from the
+paired Buyer Test workspace and make the source-install intent explicit:
+
+```bash
+breyta flows installations create <slug> \
+  --buyer-test-source-install \
+  --source-workspace-id <source-workspace-id> \
+  --source-flow-slug <slug>
+breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait
+```
+
+Workspace creators/admins can verify one existing flow step without running other flow steps:
+
+```bash
+breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait
+breyta flows run-step <slug> <step-id> --target live --input-file ./input.json --wait
+```
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
 previews and bounded table row/cell previews; pass `--full` only when the full
 resource payload is required. `flows show` includes a non-editable
 `flowLiteralPreview` that keeps source structure while omitting heavy leaves;
-use `flows pull` for editable source. `--pretty` changes formatting only; it
-does not request full payloads.
+use `flows pull` for editable source. Use `--version <n>` with `flows show` or
+`flows pull` when you need to inspect a specific historical version instead of
+the current draft. `--pretty` changes formatting only; it does not request full
+payloads.
 For large reports and research artifacts, store full bodies as resources and
 move refs, URLs, short summaries, and previews through tables or run output.
 For intermediate blobs, choose the tier deliberately: retained/default for
@@ -267,10 +299,11 @@ breyta flows show <slug> --target live
 ```
 
 Then verify from a buyer workspace with the web Discover checkout/install path
-or an installation smoke run. For paid behavior, draft runs and owner
-`/activate` checks are not enough: verify checkout or trial entry, install
-handoff, installed run behavior, exhausted/remediation state when relevant, and
-Billing page state.
+or an installation smoke run. For author dogfood, use Buyer Test Mode from the
+paired test workspace instead of real buyer entitlement. For paid behavior,
+draft runs and owner `/activate` checks are not enough: verify checkout or trial
+entry, install handoff, installed run behavior, exhausted/remediation state when
+relevant, and Billing page state.
 
 Current restrictions: seat-based pricing is not implemented. Do not represent a
 plan as "N seats" or "N installs" unless the product has added explicit seat
@@ -301,6 +334,11 @@ breyta flows update <slug> --clear-publish-media
 
 You can also keep this in source as `:publish-media` inside the flow file and
 push it with `breyta flows push`.
+
+HTTPS media sources must be publicly reachable media URLs. When the flow is
+public in Discover, Breyta copies them into Breyta-owned public assets for the
+card/CDN path; private hosts, unsafe redirects, and oversized responses are
+rejected.
 
 ## Connection item caches
 

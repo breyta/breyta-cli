@@ -27,6 +27,12 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows templates search \"<problem or integration query>\" --limit 5") {
 		t.Fatalf("expected query-shaped template search guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta resources search \"<query>\" --limit 5") {
+		t.Fatalf("expected resource search guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "`--keyword-mode balanced` for natural-language questions over small resource sets") {
+		t.Fatalf("expected keyword-mode resource search guidance in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows search \"<integration or problem query>\" --limit 5") {
 		t.Fatalf("expected workspace search guidance in override, got:\n%s", body)
 	}
@@ -44,6 +50,13 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	}
 	if !strings.Contains(body, "Existing workspace flow: `breyta flows show <slug>` for compact summary or `breyta flows pull <slug>` for editable source") {
 		t.Fatalf("expected workspace flow guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
+		t.Fatalf("expected focused run-step proof guidance in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(body, "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Primitive-first reuse for create/edit (Required)") {
 		t.Fatalf("expected primitive-first reuse section in override, got:\n%s", body)
@@ -75,6 +88,9 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	}
 	if !strings.Contains(body, "Discover install plus an installed run") {
 		t.Fatalf("expected Discover installed-run proof in override, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait") {
+		t.Fatalf("expected Buyer Test installation-run proof in override, got:\n%s", body)
 	}
 	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
 		t.Fatalf("expected paid app marketplace section in override, got:\n%s", body)
@@ -202,11 +218,25 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	if !strings.Contains(string(got["SKILL.md"]), "Use minimum sufficient evidence") {
 		t.Fatalf("expected minimum-sufficient-evidence guidance, got:\n%s", string(got["SKILL.md"]))
 	}
+	if !strings.Contains(string(got["SKILL.md"]), "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
+		t.Fatalf("expected focused run-step proof guidance in SKILL.md, got:\n%s", string(got["SKILL.md"]))
+	}
+	if !strings.Contains(string(got["SKILL.md"]), "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(string(got["SKILL.md"]), "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in SKILL.md, got:\n%s", string(got["SKILL.md"]))
+	}
 	if !strings.Contains(string(got["SKILL.md"]), "write a compact workflow contract and acceptance") {
 		t.Fatalf("expected contract and acceptance matrix guidance, got:\n%s", string(got["SKILL.md"]))
 	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "write the contract and acceptance matrix before source grows") {
 		t.Fatalf("expected authoring acceptance matrix guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
+		t.Fatalf("expected focused run-step proof guidance in authoring playbook, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(string(got["playbooks/author-flows.md"]), "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance in authoring playbook, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "`breyta flows lint --file ./flows/<slug>.clj` before push") ||
 		!strings.Contains(string(got["playbooks/author-flows.md"]), "`--timeout <duration>` when server lint needs a longer bound") {
@@ -214,6 +244,12 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	}
 	if !strings.Contains(string(got["playbooks/author-flows.md"]), "treat HTTP/MCP as consumer transports for installed callable interfaces") {
 		t.Fatalf("expected installed callable interface transport guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "inside authored Breyta wrapper flows, call installed public children with") {
+		t.Fatalf("expected wrapper flow child composition guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
+	}
+	if !strings.Contains(string(got["playbooks/author-flows.md"]), "`data.runReadiness` for billing/trial blocks") {
+		t.Fatalf("expected installed public app readiness guidance, got:\n%s", string(got["playbooks/author-flows.md"]))
 	}
 	if !strings.Contains(string(got["playbooks/debug-and-verify.md"]), "acceptance case") {
 		t.Fatalf("expected debug acceptance case guidance, got:\n%s", string(got["playbooks/debug-and-verify.md"]))
@@ -223,6 +259,12 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillDoesNotReinflate(t *testing.
 	}
 	if !strings.Contains(string(got["references/public-flows.md"]), "During authoring, check public/installable flows before building from scratch") {
 		t.Fatalf("expected public reusable flow authoring guidance, got:\n%s", string(got["references/public-flows.md"]))
+	}
+	if !strings.Contains(string(got["references/public-flows.md"]), "not as the default internal\nwrapper-flow composition path") {
+		t.Fatalf("expected internal wrapper-flow composition guidance, got:\n%s", string(got["references/public-flows.md"]))
+	}
+	if !strings.Contains(string(got["references/public-flows.md"]), "`data.runReadiness` for billing/trial blocks") {
+		t.Fatalf("expected public app readiness guidance, got:\n%s", string(got["references/public-flows.md"]))
 	}
 	if strings.Contains(string(got["SKILL.md"]), "## Workflow architecture planning") {
 		t.Fatalf("expected playbook router skill not to be inflated, got:\n%s", string(got["SKILL.md"]))
@@ -327,6 +369,13 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testin
 	if !strings.Contains(body, "For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first") {
 		t.Fatalf("expected n8n importer-first guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
+		t.Fatalf("expected focused run-step proof guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
+		!strings.Contains(body, "shell or OS argument limits") {
+		t.Fatalf("expected input-file payload guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "## Paid app marketplace authoring (Source-authored)") {
 		t.Fatalf("expected paid app marketplace section added to canonical skill, got:\n%s", body)
 	}
@@ -362,6 +411,33 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingLintTimeoutGu
 	}
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingInputFilePayloadGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Reference Loading Matrix",
+			"- creating/editing: `references/authoring-loop.md`",
+			"",
+			"## Create/Edit Preflight",
+			"- Use `breyta flows run <slug> --input-file ./input.json` for large payloads that may hit shell or OS argument limits.",
+			"",
+			"## Public Approval Gate",
+			"- end-user landing page approval",
+			"",
+			"## Provider/API Freshness And Model Selection",
+			"- check current official provider docs/API references",
+			"",
+			"## Output Guidance",
+			"- include full URLs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Count(body, "--input-file ./input.json") != 1 {
+		t.Fatalf("expected existing input-file payload guidance to remain singular, got:\n%s", body)
 	}
 }
 

@@ -78,6 +78,20 @@ func TestRunsShowErrors_FiltersFailedSteps(t *testing.T) {
 	if meta["errorsOnly"] != true {
 		t.Fatalf("expected errorsOnly meta, got %#v", meta)
 	}
+	nextCommands, _ := meta["nextCommands"].([]any)
+	var nextCommandStrings []string
+	for _, item := range nextCommands {
+		if s, ok := item.(string); ok {
+			nextCommandStrings = append(nextCommandStrings, s)
+		}
+	}
+	joined := strings.Join(nextCommandStrings, "\n")
+	if !strings.Contains(joined, "breyta resources workflow list wf-1") {
+		t.Fatalf("expected canonical workflow resource list command, got %q", joined)
+	}
+	if strings.Contains(joined, "breyta resources workflow wf-1") {
+		t.Fatalf("expected nextCommands not to omit workflow list subcommand, got %q", joined)
+	}
 }
 
 func TestRunsInspect_CompactsLargeHTMLErrorBody(t *testing.T) {

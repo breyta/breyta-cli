@@ -723,6 +723,7 @@ Examples:
   breyta steps run --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}'
   breyta steps run --type http --id image --params '{"url":"https://picsum.photos/seed/smoke/800/450","responseAs":"bytes","persist":{"type":"blob","tier":"ephemeral"}}'
   breyta steps run --type llm --id summarize --params '{"prompt":"Summarize this","model":"gpt-5.4"}'
+  breyta steps run --type search --id kb-search --params '{"query":"summarize the user testing session","targets":["resources"],"mode":"hybrid","hydrate":{"enabled":true}}'
   breyta steps run --type llm --id summarize --params-file ./params.json
   breyta steps run --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
   breyta steps run --flow my-flow --source draft --type code --id make-output --params-file ./params.json --result-path rows.0

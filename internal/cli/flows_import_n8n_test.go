@@ -54,10 +54,17 @@ func TestConvertN8NWorkflow_HTTPAndCode(t *testing.T) {
 	assertNotContains(t, result.EDN, ":triggers")
 	assertContains(t, result.EDN, ":invocations {:default {:inputs []}}")
 	assertContains(t, result.EDN, ":ref :transform-users-fn")
+	assertContains(t, result.EDN, ":input fetch_users")
+	assertNotContains(t, result.EDN, ":input {:input fetch_users}")
 	assertContains(t, result.EDN, ":flow (quote")
 	if !result.Validation.BalancedDelimiters || !result.Validation.EDNReadable {
 		t.Fatalf("expected successful validation, got %#v", result.Validation)
 	}
+	body, lintErr, stdout := runFlowLintLocalOnlyForLiteral(t, result.EDN)
+	if lintErr != nil {
+		t.Fatalf("generated n8n import should pass local lint: %v\n%s", lintErr, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
 	if len(result.Todos) != 1 || result.Todos[0] != `transform-users: port Code node "Transform Users" to Clojure` {
 		t.Fatalf("unexpected todos: %#v", result.Todos)
 	}
@@ -85,6 +92,8 @@ func TestImportN8NWorkflowFile_WritesDefaultShape(t *testing.T) {
 	text := string(b)
 	assertContains(t, text, ":slug :tiny")
 	assertContains(t, text, "TODO(n8n-import): Custom or unsupported n8n node")
+	assertContains(t, text, ":input input")
+	assertNotContains(t, text, ":input {:input input}")
 }
 
 func TestConvertN8NWorkflow_RealHTTPParameterArraysAndControlNodes(t *testing.T) {

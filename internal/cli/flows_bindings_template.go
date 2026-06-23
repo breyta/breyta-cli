@@ -339,6 +339,9 @@ func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[
 	if _, ok := requiredTypes[actualType]; ok {
 		add(actualType)
 	}
+	if actualType == "llm-provider" && compatibleLLMBackend(conn) != "" {
+		add("llm-provider")
+	}
 	if _, ok := requiredTypes["llm-provider"]; ok && compatibleLLMBackend(conn) != "" {
 		add("llm-provider")
 	}
@@ -347,6 +350,7 @@ func connectionBucketsForRequirements(conn connectionSummary, requiredTypes map[
 
 func listConnectionsByType(client api.Client, requirements []any) (map[string][]connectionSummary, error) {
 	requiredTypes := map[string]struct{}{}
+	httpAPIAllowsLegacyLLM := false
 	for _, raw := range requirements {
 		req, ok := raw.(map[string]any)
 		if !ok {
@@ -361,6 +365,10 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 			continue
 		}
 		requiredTypes[t] = struct{}{}
+		backends := normalizeRequirementBackends(req)
+		if requirementIsLLMCompatible(t, backends) && t == "http-api" {
+			httpAPIAllowsLegacyLLM = true
+		}
 	}
 	if len(requiredTypes) == 0 {
 		return nil, nil
@@ -441,6 +449,13 @@ func listConnectionsByType(client api.Client, requirements []any) (map[string][]
 		if inventoryUnavailable {
 			return nil, nil
 		}
+	} else if httpAPIAllowsLegacyLLM {
+		if err := fetchType("llm-provider"); err != nil {
+			return nil, err
+		}
+		if inventoryUnavailable {
+			return nil, nil
+		}
 	}
 
 	otherTypes := make([]string, 0, len(requiredTypes))
@@ -511,9 +526,8 @@ func applyDefaultConnectionReuse(template map[string]any, requirements []any, co
 	if !ok || bindings == nil {
 		return
 	}
-	llmConns := connectionsByType["llm-provider"]
 	for _, req := range collectConnectionRequirements(requirements) {
-		if req.Type != "llm-provider" {
+		if !req.LLMCompatible {
 			continue
 		}
 		slotKey := strings.TrimSpace(strings.TrimPrefix(req.Slot, ":"))
@@ -525,7 +539,7 @@ func applyDefaultConnectionReuse(template map[string]any, requirements []any, co
 				continue
 			}
 		}
-		pick, _, _ := chooseSuggestedConnection(req, llmConns)
+		pick, _, _ := chooseSuggestedConnection(req, candidateConnectionsForRequirement(req, connectionsByType))
 		if strings.TrimSpace(pick.ID) == "" {
 			continue
 		}
@@ -537,31 +551,42 @@ func buildConnectionsCommentLines(connectionsByType map[string][]connectionSumma
 	if connectionsByType == nil {
 		return nil
 	}
-	typesInReq := map[string]struct{}{}
-	for _, raw := range requirements {
-		req, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		kind := strings.ToLower(toString(req["kind"]))
-		if kind == "form" {
-			continue
-		}
-		t := normalizeConnectionType(req["type"])
-		if t == "" || t == "secret" {
-			continue
-		}
-		typesInReq[t] = struct{}{}
-	}
-	if len(typesInReq) == 0 {
+	reqs := collectConnectionRequirements(requirements)
+	if len(reqs) == 0 {
 		return nil
 	}
 
 	lines := []string{
 		"Tip: prefer reusing existing workspace connections (bind slot.conn=conn-... instead of creating duplicates).",
 	}
-	for typ := range typesInReq {
-		conns := connectionsByType[typ]
+	connsByLabel := map[string][]connectionSummary{}
+	seenByLabel := map[string]map[string]struct{}{}
+	for _, req := range reqs {
+		label := req.Type
+		if req.LLMCompatible && req.Type == "http-api" {
+			label = "http-api LLM-compatible"
+		}
+		for _, conn := range filterConnectionsForRequirement(req, candidateConnectionsForRequirement(req, connectionsByType)) {
+			if strings.TrimSpace(conn.ID) == "" {
+				continue
+			}
+			if seenByLabel[label] == nil {
+				seenByLabel[label] = map[string]struct{}{}
+			}
+			if _, exists := seenByLabel[label][conn.ID]; exists {
+				continue
+			}
+			seenByLabel[label][conn.ID] = struct{}{}
+			connsByLabel[label] = append(connsByLabel[label], conn)
+		}
+	}
+	labels := make([]string, 0, len(connsByLabel))
+	for label := range connsByLabel {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		conns := connsByLabel[label]
 		if len(conns) == 0 {
 			continue
 		}
@@ -573,7 +598,7 @@ func buildConnectionsCommentLines(connectionsByType map[string][]connectionSumma
 				parts = append(parts, c.ID)
 			}
 		}
-		lines = append(lines, fmt.Sprintf("Existing %s connections: %s", typ, strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("Existing %s connections: %s", label, strings.Join(parts, ", ")))
 	}
 	return lines
 }

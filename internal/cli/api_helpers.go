@@ -439,7 +439,7 @@ func hydrateWaitRunSnapshot(client apiCommandRunner, workflowID string, installa
 		return nil, status, err
 	}
 	compactWaitRunOutput(out)
-	addWaitRunNextCommands(out, workflowID)
+	addWaitRunNextCommands(out, workflowID, installationID)
 	return out, status, nil
 }
 
@@ -483,15 +483,36 @@ func compactRunStepSummaries(value any) []any {
 	return out
 }
 
-func addWaitRunNextCommands(out map[string]any, workflowID string) {
+func addWaitRunNextCommands(out map[string]any, workflowID string, installationID string) {
 	workflowID = strings.TrimSpace(workflowID)
 	if workflowID == "" {
 		return
 	}
+	// Installation-scoped runs only resolve with --installation-id; without it
+	// `runs inspect <workflow-id>` returns "Run not found", so the suggested
+	// command must carry the installation id to be directly runnable. Fall back
+	// to the id on the run snapshot when the caller did not pass one explicitly.
+	installationID = strings.TrimSpace(installationID)
+	if installationID == "" {
+		installationID = installationIDFromWaitRunSnapshot(out)
+	}
+	inspectCmd := "breyta runs inspect " + workflowID
+	if installationID != "" {
+		inspectCmd += " --installation-id " + installationID
+	}
 	meta := ensureMeta(out)
 	appendMetaNextCommands(meta,
-		"breyta runs inspect "+workflowID,
+		inspectCmd,
 		"breyta resources workflow list "+workflowID)
+}
+
+func installationIDFromWaitRunSnapshot(out map[string]any) string {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return ""
+	}
+	return strings.TrimSpace(firstNonBlankString(run["installationId"]))
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
@@ -641,7 +662,7 @@ func runFailureShouldUseDraftBindings(command string, args map[string]any, out m
 	case "runs.start":
 		source, _ := args["source"].(string)
 		return strings.EqualFold(strings.TrimSpace(source), "draft")
-	case "flows.run":
+	case "flows.run", "flows.run_step":
 		if _, ok := args["profileId"]; ok {
 			return false
 		}
@@ -692,7 +713,7 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 		if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
-	case "runs.start", "flows.run":
+	case "runs.start", "flows.run", "flows.run_step":
 		if status >= 400 || !isOK(out) {
 			if runFailureIsMissingFlow(out) {
 				addMissingFlowAuthoringHint(out, slug)

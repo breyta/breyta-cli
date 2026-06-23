@@ -687,6 +687,85 @@ func TestFlowsPush_RendersAPIDeprecationWarnings(t *testing.T) {
 	}
 }
 
+func TestFlowsPush_ReturnsSavedDraftWhenImmediateValidationCannotFindCreatedFlow(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	flowFile := filepath.Join(tmp, "flow.clj")
+	if err := os.WriteFile(flowFile, []byte("{:slug :push-create-missing :name \"Push Create Missing\" :concurrency {:type :singleton :on-new-version :supersede} :flow '(let [input (flow/input)] input)}\n"), 0o644); err != nil {
+		t.Fatalf("failed to write test flow file: %v", err)
+	}
+	step := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.put_draft":
+			step++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug":    "push-create-missing",
+					"savedDraft":  true,
+					"flowVersion": 1,
+				},
+			})
+		case "flows.validate":
+			step++
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "not_found",
+					"message": "Flow not found",
+					"details": map[string]any{"flowSlug": "push-create-missing"},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "unexpected command"},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "push",
+		"--file", flowFile,
+	)
+	if err != nil {
+		t.Fatalf("flows push should keep successful draft save when validation cannot find the new flow: %v\n%s", err, stdout)
+	}
+	if step != 2 {
+		t.Fatalf("expected put_draft + validate commands, got %d", step)
+	}
+	var e map[string]any
+	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := e["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", e)
+	}
+	meta, _ := e["meta"].(map[string]any)
+	if meta["validated"] != false || meta["validateSource"] != "draft" {
+		t.Fatalf("expected validation warning metadata, got %#v", meta)
+	}
+	if _, ok := meta["validationWarning"].(string); !ok {
+		t.Fatalf("expected validationWarning metadata, got %#v", meta)
+	}
+}
+
 func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	t.Helper()
 	tmp := t.TempDir()
@@ -899,6 +978,12 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("path-prefix"); got != "exports/2026" {
 			t.Fatalf("expected path-prefix=exports/2026, got %q", got)
 		}
+		if got := r.URL.Query().Get("mode"); got != "hybrid" {
+			t.Fatalf("expected mode=hybrid, got %q", got)
+		}
+		if got := r.URL.Query().Get("keyword-mode"); got != "balanced" {
+			t.Fatalf("expected keyword-mode=balanced, got %q", got)
+		}
 		if got := r.URL.Query().Get("limit"); got != "30" {
 			t.Fatalf("expected limit=30, got %q", got)
 		}
@@ -928,6 +1013,8 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 		"--storage-backend", "platform",
 		"--storage-root", "reports/acme",
 		"--path-prefix", "exports/2026",
+		"--mode", "hybrid",
+		"--keyword-mode", "balanced",
 		"--limit", "30",
 		"--offset", "10",
 	)
@@ -944,6 +1031,86 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 	data, _ := out["data"].(map[string]any)
 	if got, _ := data["query"].(string); got != "transcript summary" {
 		t.Fatalf("unexpected data.query: %q", got)
+	}
+}
+
+func TestResourcesSearchHelp_DocumentsKeywordMode(t *testing.T) {
+	stdout, _, err := runCLIArgs(t, "resources", "search", "--help")
+	if err != nil {
+		t.Fatalf("resources search --help failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "Use --keyword-mode balanced for natural-language questions over small resource") {
+		t.Fatalf("expected keyword-mode guidance in help, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Keyword matching mode: all, balanced, or any") {
+		t.Fatalf("expected keyword-mode flag values in help, got:\n%s", stdout)
+	}
+}
+
+func TestResourcesSearchIndexUpdate_PostsPayload(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resources/search-index" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("invalid request json: %v", err)
+		}
+		if got := body["op"]; got != "update" {
+			t.Fatalf("expected op=update, got %#v", got)
+		}
+		if got := body["uri"]; got != "res://v1/ws/ws-acme/file/file-1" {
+			t.Fatalf("unexpected uri: %#v", got)
+		}
+		searchIndex, _ := body["searchIndex"].(map[string]any)
+		if searchIndex == nil {
+			t.Fatalf("missing searchIndex in body: %#v", body)
+		}
+		if got := searchIndex["text"]; got != "A focused transcript summary" {
+			t.Fatalf("unexpected searchIndex.text: %#v", got)
+		}
+		if got := searchIndex["sourceLabel"]; got != "user testing video" {
+			t.Fatalf("unexpected searchIndex.sourceLabel: %#v", got)
+		}
+		if got := searchIndex["includeRawContent"]; got != true {
+			t.Fatalf("unexpected searchIndex.includeRawContent: %#v", got)
+		}
+		tags, _ := searchIndex["tags"].([]any)
+		if len(tags) != 2 || tags[0] != "testing" || tags[1] != "transcript" {
+			t.Fatalf("unexpected tags: %#v", tags)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"operation":  "update",
+			"uri":        body["uri"],
+			"reindexed?": true,
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "search-index", "update", "res://v1/ws/ws-acme/file/file-1",
+		"--text", "A focused transcript summary",
+		"--source-label", "user testing video",
+		"--tags", "testing,transcript",
+		"--include-raw-content",
+	)
+	if err != nil {
+		t.Fatalf("resources search-index update failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true, got: %+v", out)
 	}
 }
 

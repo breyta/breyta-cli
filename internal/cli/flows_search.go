@@ -326,6 +326,8 @@ func newFlowsGrepCmd(app *App) *cobra.Command {
 	var limit int
 	var from int
 	var includeArchived bool
+	var full bool
+	var rawDefinition bool
 
 	cmd := &cobra.Command{
 		Use:   "grep [pattern]",
@@ -338,6 +340,9 @@ By default it searches actual workspace flows. Use ` + "`--scope templates`" + `
 reusable templates or ` + "`--scope all`" + ` to combine workspace and template hits. Use
 repeatable ` + "`--or <pattern>`" + ` for spelling variations. Grep does not do hidden
 synonym expansion.
+
+Results are compact by default. Add ` + "`--full`" + ` for a bounded source preview, or
+` + "`--full --raw-definition`" + ` for the raw definition inline.
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -365,17 +370,22 @@ synonym expansion.
 			if (effectiveScope == "workspace" || effectiveScope == "all") && strings.TrimSpace(app.WorkspaceID) == "" {
 				return writeErr(cmd, errors.New("workspace grep requires --workspace or BREYTA_WORKSPACE; use --scope templates without workspace context"))
 			}
+			if rawDefinition && !full {
+				return writeErr(cmd, errors.New("--raw-definition requires --full"))
+			}
 			normalizedSurfaces, err := normalizedMatchSurfaces(matchSurfaces)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 
 			workspacePayload := map[string]any{
-				"definitionSearch": true,
-				"target":           effectiveTarget,
-				"limit":            limit,
-				"from":             from,
-				"includeArchived":  includeArchived,
+				"definitionSearch":  true,
+				"target":            effectiveTarget,
+				"limit":             limit,
+				"from":              from,
+				"includeArchived":   includeArchived,
+				"includeDefinition": full,
+				"rawDefinition":     rawDefinition,
 			}
 			addPatternPayload(workspacePayload, pattern, ors)
 			appendFlowSearchFilters(workspacePayload, provider, stepType, toolName, connection)
@@ -385,11 +395,13 @@ synonym expansion.
 			}
 
 			templatePayload := map[string]any{
-				"definitionSearch": true,
-				"scope":            "all",
-				"surface":          "templates",
-				"limit":            limit,
-				"from":             from,
+				"definitionSearch":  true,
+				"scope":             "all",
+				"surface":           "templates",
+				"limit":             limit,
+				"from":              from,
+				"includeDefinition": full,
+				"rawDefinition":     rawDefinition,
 			}
 			addPatternPayload(templatePayload, pattern, ors)
 			appendFlowSearchFilters(templatePayload, provider, stepType, toolName, connection)
@@ -399,9 +411,14 @@ synonym expansion.
 			case "workspace":
 				return dispatchFlowAPICommand(cmd, app, "flows.workspace.search", workspacePayload, false)
 			case "templates":
+				// --full requests a source preview, so skip the compacting
+				// transform that would strip the definition back out.
+				if full {
+					return dispatchFlowAPICommand(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "")
+				}
 				return dispatchFlowAPICommandWithTransform(cmd, app, "flows.search", templatePayload, strings.TrimSpace(app.WorkspaceID) == "", compactTemplateSearchEnvelope)
 			default:
-				return runCombinedFlowGrep(cmd, app, workspacePayload, templatePayload, limit)
+				return runCombinedFlowGrep(cmd, app, workspacePayload, templatePayload, limit, full)
 			}
 		},
 	}
@@ -418,10 +435,12 @@ synonym expansion.
 	cmd.Flags().IntVar(&limit, "limit", 5, "Max results per scope (1..100 recommended)")
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived workspace flows")
+	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched flows")
+	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include raw source definition inline; verbose")
 	return cmd
 }
 
-func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templatePayload map[string]any, limit int) error {
+func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templatePayload map[string]any, limit int, full bool) error {
 	workspaceOut, workspaceStatus, err := runAPICommand(app, "flows.workspace.search", workspacePayload)
 	if err != nil {
 		return writeErr(cmd, err)
@@ -436,7 +455,11 @@ func runCombinedFlowGrep(cmd *cobra.Command, app *App, workspacePayload, templat
 	if templateStatus >= 400 || !isOK(templateOut) {
 		return writeAPIResult(cmd, app, templateOut, templateStatus)
 	}
-	compactTemplateSearchEnvelope(templateOut)
+	// --full requests a source preview, so keep the template definitions
+	// instead of compacting them back out (matches the templates scope path).
+	if !full {
+		compactTemplateSearchEnvelope(templateOut)
+	}
 
 	hits := append(resultHits(workspaceOut), resultHits(templateOut)...)
 	meta := map[string]any{
@@ -481,9 +504,71 @@ for source/content search.
 	}
 	cmd.AddCommand(newFlowsTemplatesSearchCmd(app))
 	cmd.AddCommand(newFlowsTemplatesGrepCmd(app))
+	cmd.AddCommand(newFlowsTemplatesDuplicateCmd(app))
 	examples := newFlowsExamplesCmd(app)
 	examples.Short = "Extract primitive examples from approved templates"
 	cmd.AddCommand(examples)
+	return cmd
+}
+
+func newFlowsTemplatesDuplicateCmd(app *App) *cobra.Command {
+	var targetSlug string
+	var name string
+	var description string
+	var catalogScope string
+	var outFormat string
+	var replace bool
+
+	cmd := &cobra.Command{
+		Use:     "duplicate <template-slug>",
+		Aliases: []string{"copy", "import"},
+		Short:   "Duplicate an approved template into this workspace",
+		Long: strings.TrimSpace(`
+Duplicate an approved reusable template into the current workspace as a workspace-owned
+draft. Use this before custom authoring when a template closely matches the requested
+outcome: copy the known-good base, prove one green draft run, then make narrow edits.
+`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows templates duplicate requires API mode"))
+			}
+			if err := validateJSONOnlyFormat(outFormat, "flows templates duplicate"); err != nil {
+				return writeErr(cmd, err)
+			}
+			if strings.TrimSpace(app.WorkspaceID) == "" {
+				return writeErr(cmd, errors.New("flows templates duplicate requires --workspace or BREYTA_WORKSPACE"))
+			}
+			effectiveScope, err := searchScopeValue(catalogScope)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			payload := map[string]any{
+				"templateSlug": strings.TrimSpace(args[0]),
+				"scope":        effectiveScope,
+			}
+			if strings.TrimSpace(targetSlug) != "" {
+				payload["targetSlug"] = strings.TrimSpace(targetSlug)
+			}
+			if strings.TrimSpace(name) != "" {
+				payload["name"] = strings.TrimSpace(name)
+			}
+			if strings.TrimSpace(description) != "" {
+				payload["description"] = strings.TrimSpace(description)
+			}
+			if replace {
+				payload["replace"] = true
+			}
+			return dispatchFlowAPICommand(cmd, app, "flows.templates.duplicate", payload, false)
+		},
+	}
+
+	cmd.Flags().StringVar(&targetSlug, "slug", "", "Target workspace flow slug; defaults to <template-slug>-copy")
+	cmd.Flags().StringVar(&name, "name", "", "Override copied flow name")
+	cmd.Flags().StringVar(&description, "description", "", "Override copied flow description")
+	cmd.Flags().StringVar(&catalogScope, "catalog-scope", "all", "Template catalog scope: all|workspace")
+	cmd.Flags().BoolVar(&replace, "replace", false, "Replace the existing target draft when --slug already exists")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	return cmd
 }
 

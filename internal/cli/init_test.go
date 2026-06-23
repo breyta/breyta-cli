@@ -112,6 +112,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta flows grep \"<literal>\" --limit 5`",
 		"`breyta flows templates search \"<query>\" --limit 5`",
 		"`breyta resources search \"<query>\" --limit 5`",
+		"`--keyword-mode balanced` for natural-language questions over small resource sets",
 		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
 		"Persist large or unknown payloads with `:persist`",
 		"`:tier :ephemeral` on streaming `:http` steps",
@@ -131,6 +132,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(agents), "Say `draft verified` when only draft was exercised.") {
 		t.Fatalf("unexpected agents content (missing draft verified wording): %s", string(agents))
+	}
+	if !strings.Contains(string(agents), "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`") {
+		t.Fatalf("unexpected agents content (missing focused run-step proof guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "verify live/install-shaped behavior or report `web UI not verified`") {
 		t.Fatalf("unexpected agents content (missing web UI risk wording): %s", string(agents))
@@ -198,6 +202,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta flows templates search \"<problem or integration query>\" --limit 5`") {
 		t.Fatalf("unexpected readme content (missing query-shaped flows search step): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`--keyword-mode balanced` for natural-language questions over small resource sets") {
+		t.Fatalf("unexpected readme content (missing keyword-mode search guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "use primitive snippets and referenced dependencies before a full template") {
 		t.Fatalf("unexpected readme content (missing primitive-first reuse step): %s", string(readme))
 	}
@@ -222,6 +229,13 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only") {
 		t.Fatalf("unexpected readme content (missing configure-check run gate): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`") {
+		t.Fatalf("unexpected readme content (missing focused run-step proof guidance): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows run <slug> --input-file ./input.json`") ||
+		!strings.Contains(string(readme), "shell or OS argument limits") {
+		t.Fatalf("unexpected readme content (missing input-file payload guidance): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "`breyta flows lint --file ./flows/<slug>.clj`") {
 		t.Fatalf("unexpected readme content (missing flow lint guidance): %s", string(readme))
 	}
@@ -236,6 +250,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "verify Discover install plus an installed run") {
 		t.Fatalf("unexpected readme content (missing Discover installed-run proof): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait") {
+		t.Fatalf("unexpected readme content (missing Buyer Test installation-run proof): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "OpenAI connection default: `:http-api` requirement, backend `openai`, base URL `https://api.openai.com/v1`") {
 		t.Fatalf("unexpected readme content (missing OpenAI connection default): %s", string(readme))
@@ -269,6 +286,9 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "set curated media with `breyta flows update <slug> --publish-media-type image --publish-media-source-file ./screenshot.png`") {
 		t.Fatalf("unexpected readme content (missing discover card media workflow): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "HTTPS media sources must be publicly reachable safe media URLs") {
+		t.Fatalf("unexpected readme content (missing HTTPS discover media constraints): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "For paid apps, author pricing in source under `:marketplace {:app ... :monetization {:plans [...]}}`") {
 		t.Fatalf("unexpected readme content (missing paid app source-authored pricing guidance): %s", string(readme))

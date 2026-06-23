@@ -21,7 +21,7 @@ Most users should use:
 - breyta flows run <flow-slug>
 
 Use install commands only when you need explicit targets, installation-specific
-config/triggers, or controlled promotion.
+config, triggers, endpoints, or controlled promotion.
 `),
 	}
 	cmd.AddCommand(newFlowsInstallationsListCmd(app))
@@ -36,6 +36,7 @@ config/triggers, or controlled promotion.
 	cmd.AddCommand(newFlowsInstallationsDisableCmd(app))
 	cmd.AddCommand(newFlowsInstallationsDeleteCmd(app))
 	cmd.AddCommand(newFlowsInstallationsTriggersCmd(app))
+	cmd.AddCommand(newFlowsInstallationsSurfacesCmd(app))
 	cmd.AddCommand(newFlowsInstallationsInterfacesCmd(app))
 	cmd.AddCommand(newFlowsInstallationsUploadCmd(app))
 	return cmd
@@ -121,6 +122,7 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var sourceFlowSlug string
 	var enable bool
 	var localPrivateTest bool
+	var buyerTestSourceInstall bool
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug>",
 		Short: "Create a new installation",
@@ -146,33 +148,54 @@ state the enable intent explicitly.
 For paid public apps, use the Discover/public app checkout surface first when
 purchase, subscription, prepaid runs, or trial entry is required. After checkout
 or trial entry, create/configure/enable the installation here, inspect callable
-surfaces with ` + "`breyta flows installations interfaces <installation-id>`" + `, then call
+surfaces with ` + "`breyta flows installations surfaces <installation-id>`" + `, then call
 installed interfaces with ` + "`breyta flows interfaces call ... --installation-id <installation-id>`" + `.
 If creation returns a checkout action, open that URL and retry after checkout.
 
 Local private cross-workspace tests require --local-private-test plus
 --source-workspace-id, --source-flow-slug, and an active source version.
+
+Buyer Test Mode author installs require the Buyer Test workspace plus
+--buyer-test-source-install, --source-workspace-id, --source-flow-slug, and
+an active source version. Run the resulting installation with:
+- breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations create requires API mode"))
 			}
+			sourceWorkspaceID = strings.TrimSpace(sourceWorkspaceID)
+			sourceFlowSlug = strings.TrimSpace(sourceFlowSlug)
+			if buyerTestSourceInstall && localPrivateTest {
+				return writeErr(cmd, errors.New("--buyer-test-source-install cannot be combined with --local-private-test"))
+			}
+			if buyerTestSourceInstall {
+				if sourceWorkspaceID == "" {
+					return writeErr(cmd, errors.New("--buyer-test-source-install requires --source-workspace-id"))
+				}
+				if sourceFlowSlug == "" {
+					return writeErr(cmd, errors.New("--buyer-test-source-install requires --source-flow-slug"))
+				}
+			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if strings.TrimSpace(name) != "" {
 				payload["name"] = strings.TrimSpace(name)
 			}
-			if strings.TrimSpace(sourceWorkspaceID) != "" {
-				payload["sourceWorkspaceId"] = strings.TrimSpace(sourceWorkspaceID)
+			if sourceWorkspaceID != "" {
+				payload["sourceWorkspaceId"] = sourceWorkspaceID
 			}
-			if strings.TrimSpace(sourceFlowSlug) != "" {
-				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
+			if sourceFlowSlug != "" {
+				payload["sourceFlowSlug"] = sourceFlowSlug
 			}
 			if enable {
 				payload["enabled"] = true
 			}
 			if localPrivateTest {
 				payload["localPrivateTest"] = true
+			}
+			if buyerTestSourceInstall {
+				payload["buyerTestSourceInstall"] = true
 			}
 			return doAPICommand(cmd, app, "flows.installations.create", payload)
 		},
@@ -182,6 +205,7 @@ Local private cross-workspace tests require --local-private-test plus
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Source flow slug override for cross-workspace installs")
 	cmd.Flags().BoolVar(&enable, "enable", false, "Explicitly request enabled state after create; zero-setup installs enable by default")
 	cmd.Flags().BoolVar(&localPrivateTest, "local-private-test", false, "Local dev only: test a private cross-workspace source flow; requires source ids and an active source version")
+	cmd.Flags().BoolVar(&buyerTestSourceInstall, "buyer-test-source-install", false, "Buyer Test Mode: install a source flow from the paired source workspace")
 	return cmd
 }
 
@@ -455,6 +479,25 @@ func parseJSONObjectFlag(raw string) (map[string]any, error) {
 		return nil, errors.New("input must be a JSON object")
 	}
 	return m, nil
+}
+
+func parseJSONObjectInputFlags(raw string, file string) (map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	file = strings.TrimSpace(file)
+	if raw != "" && file != "" {
+		return nil, errors.New("--input and --input-file cannot be combined")
+	}
+	if file != "" {
+		b, err := readExplicitFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("read --input-file: %w", err)
+		}
+		if strings.TrimSpace(string(b)) == "" {
+			return nil, errors.New("--input-file is empty; write a JSON object such as {}")
+		}
+		return parseJSONObjectFlag(string(b))
+	}
+	return parseJSONObjectFlag(raw)
 }
 
 func scheduleResetMap(items []string) map[string]any {
