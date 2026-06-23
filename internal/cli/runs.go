@@ -1265,34 +1265,6 @@ func latestApprovableWait(items []map[string]any) map[string]any {
 	return selected
 }
 
-func waitLooksApprovable(wait map[string]any) bool {
-	if wait == nil {
-		return false
-	}
-	switch strings.ToLower(firstNonBlankString(wait["status"], wait["state"])) {
-	case "completed", "complete", "cancelled", "canceled", "rejected", "expired", "failed":
-		return false
-	}
-	if approval := mapStringAny(wait["approval"]); approval != nil {
-		if actions := stringSlice(approval["actions"]); len(actions) > 0 {
-			return containsFold(actions, "approve")
-		}
-		return true
-	}
-	if actions := stringSlice(wait["actions"]); len(actions) > 0 {
-		return containsFold(actions, "approve")
-	}
-	notify := firstPresent(wait, "notify", "notification")
-	if notify == nil {
-		return false
-	}
-	encoded, err := json.Marshal(notify)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(string(encoded)), "approve")
-}
-
 func waitIneligibilityDetails(items []map[string]any) []map[string]any {
 	details := make([]map[string]any, 0, len(items))
 	for _, item := range items {
@@ -1336,6 +1308,9 @@ func containsFold(items []string, needle string) bool {
 
 func waitSortTime(wait map[string]any) time.Time {
 	for _, key := range []string{"registeredAt", "registered-at", "createdAt", "created-at", "updatedAt", "updated-at", "expiresAt", "expires-at"} {
+		if t, ok := waitTimeValue(wait[key]); ok {
+			return t
+		}
 		raw := firstNonBlankString(wait[key])
 		if raw == "" {
 			continue
@@ -1348,6 +1323,33 @@ func waitSortTime(wait map[string]any) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+func waitTimeValue(value any) (time.Time, bool) {
+	switch v := value.(type) {
+	case int64:
+		return unixWaitTime(v)
+	case int:
+		return unixWaitTime(int64(v))
+	case int32:
+		return unixWaitTime(int64(v))
+	case float64:
+		return unixWaitTime(int64(v))
+	case float32:
+		return unixWaitTime(int64(v))
+	default:
+		return time.Time{}, false
+	}
+}
+
+func unixWaitTime(value int64) (time.Time, bool) {
+	if value <= 0 {
+		return time.Time{}, false
+	}
+	if value > 1_000_000_000_000 {
+		return time.UnixMilli(value).UTC(), true
+	}
+	return time.Unix(value, 0).UTC(), true
 }
 
 func waitIDValue(wait map[string]any) string {
