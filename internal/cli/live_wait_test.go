@@ -44,9 +44,12 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 						"workspaceId":     "ws-acme",
 						"workflowId":      "wf-live",
 						"baseUrl":         baseURL,
+						"watchUrl":        baseURL + "/watch/wf-live",
 						"snapshotUrl":     baseURL + "/workspaces/ws-acme/live",
 						"signalsUrl":      baseURL + "/workspaces/ws-acme/signals",
 						"streamUrl":       baseURL + "/workspaces/ws-acme/stream",
+						"runSnapshotUrl":  baseURL + "/workspaces/ws-acme/runs/wf-live/live",
+						"runStreamUrl":    baseURL + "/workspaces/ws-acme/runs/wf-live/stream",
 						"pollMs":          1,
 						"refreshBeforeMs": 60000,
 						"auth": map[string]any{
@@ -107,7 +110,7 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command " + command}})
 			}
-		case "/workspaces/ws-acme/stream":
+		case "/workspaces/ws-acme/stream", "/workspaces/ws-acme/runs/wf-live/stream":
 			atomic.AddInt64(&streamCalls, 1)
 			if got := r.Header.Get("Authorization"); got != "Bearer rt-token" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -142,7 +145,7 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 				},
 			})
 			_, _ = w.Write([]byte("\n"))
-		case "/workspaces/ws-acme/live":
+		case "/workspaces/ws-acme/live", "/workspaces/ws-acme/runs/wf-live/live":
 			atomic.AddInt64(&snapshotCalls, 1)
 			if got := r.Header.Get("Authorization"); got != "Bearer rt-token" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -256,7 +259,7 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 	if atomic.LoadInt64(&streamCalls) == 0 {
 		t.Fatalf("expected realtime stream call")
 	}
-	for _, want := range []string{"wf-live", "Fan out customers", "customer-agent", "[b1]"} {
+	for _, want := range []string{"Watch live: " + baseURL + "/watch/wf-live", "wf-live", "Fan out customers", "customer-agent", "[b1]"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("expected live stderr to contain %q\n--- stderr ---\n%s", want, stderr)
 		}

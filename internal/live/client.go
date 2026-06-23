@@ -17,9 +17,12 @@ type Bootstrap struct {
 	WorkspaceID     string    `json:"workspaceId"`
 	WorkflowID      string    `json:"workflowId"`
 	BaseURL         string    `json:"baseUrl"`
+	WatchURL        string    `json:"watchUrl"`
 	SnapshotURL     string    `json:"snapshotUrl"`
 	SignalsURL      string    `json:"signalsUrl"`
 	StreamURL       string    `json:"streamUrl"`
+	RunSnapshotURL  string    `json:"runSnapshotUrl"`
+	RunStreamURL    string    `json:"runStreamUrl"`
 	Auth            Auth      `json:"auth"`
 	PollMs          int       `json:"pollMs"`
 	RefreshBeforeMs int       `json:"refreshBeforeMs"`
@@ -77,7 +80,10 @@ type SnapshotClient struct {
 
 func (c SnapshotClient) Fetch(ctx context.Context, bootstrap Bootstrap) (Snapshot, error) {
 	var snapshot Snapshot
-	snapshotURL := strings.TrimSpace(bootstrap.SnapshotURL)
+	snapshotURL := strings.TrimSpace(bootstrap.RunSnapshotURL)
+	if snapshotURL == "" {
+		snapshotURL = strings.TrimSpace(bootstrap.SnapshotURL)
+	}
 	if snapshotURL == "" {
 		return snapshot, fmt.Errorf("missing realtime snapshot URL")
 	}
@@ -111,7 +117,10 @@ type StreamClient struct {
 }
 
 func (c StreamClient) Stream(ctx context.Context, bootstrap Bootstrap, snapshots chan<- Snapshot) error {
-	streamURL := strings.TrimSpace(bootstrap.StreamURL)
+	streamURL := strings.TrimSpace(bootstrap.RunStreamURL)
+	if streamURL == "" {
+		streamURL = strings.TrimSpace(bootstrap.StreamURL)
+	}
 	if streamURL == "" {
 		return fmt.Errorf("missing realtime stream URL")
 	}

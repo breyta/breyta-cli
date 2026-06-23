@@ -23,23 +23,24 @@ type liveBootstrapper interface {
 }
 
 type liveWaitRenderer struct {
-	app              *App
-	cmd              *cobra.Command
-	apiClient        liveBootstrapper
-	snapshotClient   live.SnapshotClient
-	streamClient     live.StreamClient
-	workflowID       string
-	bootstrap        live.Bootstrap
-	bootstrapOK      bool
-	nextBootstrapAt  time.Time
-	nextSnapshotAt   time.Time
-	nextStreamAt     time.Time
-	streamCancel     context.CancelFunc
-	streamSnapshots  chan live.Snapshot
-	streamErrors     chan error
-	streamKey        string
-	streamRunning    bool
-	graphsByWorkflow map[string]live.FlowGraphDocument
+	app               *App
+	cmd               *cobra.Command
+	apiClient         liveBootstrapper
+	snapshotClient    live.SnapshotClient
+	streamClient      live.StreamClient
+	workflowID        string
+	bootstrap         live.Bootstrap
+	bootstrapOK       bool
+	nextBootstrapAt   time.Time
+	nextSnapshotAt    time.Time
+	nextStreamAt      time.Time
+	streamCancel      context.CancelFunc
+	streamSnapshots   chan live.Snapshot
+	streamErrors      chan error
+	streamKey         string
+	streamRunning     bool
+	graphsByWorkflow  map[string]live.FlowGraphDocument
+	displayedWatchURL string
 
 	lastSnapshot              *live.Snapshot
 	lastDisplayKey            string
@@ -197,6 +198,7 @@ func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) 
 	}
 	r.bootstrap = bootstrap
 	r.bootstrapOK = true
+	r.printWatchURL(bootstrap)
 	r.resetStreamIfBootstrapChanged()
 
 	if expiresAt, ok := bootstrap.TokenExpiresAt(); ok {
@@ -211,8 +213,21 @@ func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) 
 	return nil
 }
 
+func (r *liveWaitRenderer) printWatchURL(bootstrap live.Bootstrap) {
+	watchURL := strings.TrimSpace(bootstrap.WatchURL)
+	if watchURL == "" || watchURL == r.displayedWatchURL {
+		return
+	}
+	_, _ = fmt.Fprintf(r.out, "Watch live: %s\n", watchURL)
+	r.displayedWatchURL = watchURL
+}
+
 func (r *liveWaitRenderer) resetStreamIfBootstrapChanged() {
-	streamKey := strings.TrimSpace(r.bootstrap.StreamURL) + "\x00" + strings.TrimSpace(r.bootstrap.Auth.Token)
+	streamURL := strings.TrimSpace(r.bootstrap.RunStreamURL)
+	if streamURL == "" {
+		streamURL = strings.TrimSpace(r.bootstrap.StreamURL)
+	}
+	streamKey := streamURL + "\x00" + strings.TrimSpace(r.bootstrap.Auth.Token)
 	if streamKey == r.streamKey {
 		return
 	}
@@ -225,7 +240,7 @@ func (r *liveWaitRenderer) resetStreamIfBootstrapChanged() {
 	r.streamSnapshots = nil
 	r.streamErrors = nil
 	r.nextStreamAt = time.Time{}
-	if strings.TrimSpace(r.bootstrap.StreamURL) != "" {
+	if streamURL != "" {
 		r.streamKey = streamKey
 	}
 }
