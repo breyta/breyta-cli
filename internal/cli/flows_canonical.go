@@ -194,6 +194,11 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 			"wait":      wait,
 		})
 	}
+	if startOK {
+		// Immediately surface the flow's historical average runtime so the
+		// caller knows roughly how long to wait instead of polling blindly.
+		printRunStartETA(cmd, startResp, wait)
+	}
 	if !wait || !startOK {
 		if err := writeAPIResult(cmd, app, startResp, status); err != nil {
 			return writeErr(cmd, err)
@@ -218,6 +223,14 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	deadline := time.Now().Add(timeout)
 	polls := 0
 	var nextTerminalFallback time.Time
+	avgMs := avgDurationMsFromRunData(startResp)
+	// In --wait mode the start response is swallowed and one of the responses
+	// below is written instead; carry the run-start ETA meta onto whichever
+	// final response we emit so JSON/--pretty consumers still receive it.
+	writeFinal := func(resp map[string]any, st int) error {
+		addRunStartETAMeta(resp, avgMs)
+		return writeAPIResult(cmd, app, resp, st)
+	}
 	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
 		trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 			"product":     "flows",
@@ -230,7 +243,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"wait":        true,
 			"reconciled":  true,
 		})
-		if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+		if err := writeFinal(finalResp, finalStatus); err != nil {
 			return writeErr(cmd, err)
 		}
 		if runStatusFailedForExit(finalRunStatus) {
@@ -259,7 +272,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				}
 			}
 			if time.Now().After(deadline) {
-				if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
+				if err := writeFinal(execResp, execStatus); err != nil {
 					return writeErr(cmd, err)
 				}
 				return nil
@@ -268,7 +281,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			continue
 		}
 		if execStatus >= 400 {
-			if err := writeAPIResult(cmd, app, execResp, execStatus); err != nil {
+			if err := writeFinal(execResp, execStatus); err != nil {
 				return writeErr(cmd, err)
 			}
 			return nil
@@ -296,7 +309,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				finalResp = execResp
 				finalStatus = execStatus
 			}
-			if err := writeAPIResult(cmd, app, finalResp, finalStatus); err != nil {
+			if err := writeFinal(finalResp, finalStatus); err != nil {
 				return writeErr(cmd, err)
 			}
 			if runStatusFailedForExit(s) {
@@ -358,7 +371,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 					"lastPoll":   lastPoll,
 				},
 			}
-			if err := writeAPIResult(cmd, app, timeoutOut, 200); err != nil {
+			if err := writeFinal(timeoutOut, 200); err != nil {
 				return writeErr(cmd, err)
 			}
 			return nil
