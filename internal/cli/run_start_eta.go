@@ -112,7 +112,18 @@ func printRunStartETA(cmd *cobra.Command, out map[string]any, waiting bool) {
 // to the response meta map. It is a no-op when avgDurationMs is missing or
 // non-positive, and it does not clobber existing meta values.
 func addRunStartETAHint(out map[string]any) {
-	ms := avgDurationMsFromRunData(out)
+	addRunStartETAMeta(out, avgDurationMsFromRunData(out))
+}
+
+// addRunStartETAMeta adds the runtime estimate (`avgDurationMs` raw number and
+// `expectedRuntime` human string) to the response meta map from a pre-extracted
+// millisecond value. Unlike addRunStartETAHint, the value is supplied directly
+// rather than read from `data.avgDurationMs`, so it can carry the estimate from
+// the initial run-start response onto the final response written by --wait
+// paths (which replace the start response with the runs.get/terminal/timeout
+// response and would otherwise drop the meta). No-op when ms<=0 or there is no
+// meta map; does not clobber existing meta values.
+func addRunStartETAMeta(out map[string]any, ms int64) {
 	if ms <= 0 {
 		return
 	}

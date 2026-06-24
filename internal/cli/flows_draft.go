@@ -99,6 +99,15 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(workflowID) == "" {
 				return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 			}
+			avgMs := avgDurationMsFromRunData(startResp)
+			// In --wait mode the start response is swallowed and one of the
+			// responses below is written instead; carry the run-start ETA meta
+			// onto whichever final response we emit so JSON/--pretty consumers
+			// still receive it.
+			writeFinal := func(resp map[string]any, st int) error {
+				addRunStartETAMeta(resp, avgMs)
+				return writeAPIResult(cmd, app, resp, st)
+			}
 			deadline := time.Now().Add(timeout)
 			polls := 0
 			var nextTerminalFallback time.Time
@@ -112,17 +121,17 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 					if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 						nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 						if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, ""); err == nil && ok {
-							return writeAPIResult(cmd, app, finalResp, finalStatus)
+							return writeFinal(finalResp, finalStatus)
 						}
 					}
 					if time.Now().After(deadline) {
-						return writeAPIResult(cmd, app, execResp, execStatus)
+						return writeFinal(execResp, execStatus)
 					}
 					time.Sleep(poll)
 					continue
 				}
 				if execStatus >= 400 {
-					return writeAPIResult(cmd, app, execResp, execStatus)
+					return writeFinal(execResp, execStatus)
 				}
 				execDataAny := execResp["data"]
 				execData, _ := execDataAny.(map[string]any)
@@ -137,13 +146,13 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 						finalResp = execResp
 						finalStatus = execStatus
 					}
-					return writeAPIResult(cmd, app, finalResp, finalStatus)
+					return writeFinal(finalResp, finalStatus)
 				}
 				polls++
 				if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 					nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 					if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, ""); err == nil && ok {
-						return writeAPIResult(cmd, app, finalResp, finalStatus)
+						return writeFinal(finalResp, finalStatus)
 					}
 				}
 				if time.Now().After(deadline) {
@@ -154,7 +163,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 						},
 						"data": map[string]any{"workflowId": workflowID},
 					}
-					return writeAPIResult(cmd, app, timeoutOut, 408)
+					return writeFinal(timeoutOut, 408)
 				}
 				time.Sleep(poll)
 			}

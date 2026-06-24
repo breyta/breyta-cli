@@ -206,3 +206,53 @@ func TestAddRunStartETAHintNoOpWhenAbsent(t *testing.T) {
 		t.Fatalf("meta should not be created when avgDurationMs is absent: %#v", out["meta"])
 	}
 }
+
+func TestAddRunStartETAMetaInjectsWithoutDataField(t *testing.T) {
+	// Simulates a final --wait response (runs.get/terminal/timeout) that carries
+	// no data.avgDurationMs; the estimate must still be carried onto meta from
+	// the pre-extracted start-response value.
+	out := map[string]any{
+		"ok":   true,
+		"data": map[string]any{"run": map[string]any{"status": "completed"}},
+	}
+
+	addRunStartETAMeta(out, 125000)
+
+	meta, ok := out["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("meta not created: %#v", out["meta"])
+	}
+	if got := meta["avgDurationMs"]; got != int64(125000) {
+		t.Fatalf("avgDurationMs = %#v, want 125000", got)
+	}
+	if got := meta["expectedRuntime"]; got != "2 minutes" {
+		t.Fatalf("expectedRuntime = %#v, want \"2 minutes\"", got)
+	}
+}
+
+func TestAddRunStartETAMetaNoClobber(t *testing.T) {
+	out := map[string]any{
+		"meta": map[string]any{"avgDurationMs": int64(999), "expectedRuntime": "preset"},
+	}
+
+	addRunStartETAMeta(out, 125000)
+
+	meta := out["meta"].(map[string]any)
+	if got := meta["avgDurationMs"]; got != int64(999) {
+		t.Fatalf("existing avgDurationMs clobbered: %#v", got)
+	}
+	if got := meta["expectedRuntime"]; got != "preset" {
+		t.Fatalf("existing expectedRuntime clobbered: %#v", got)
+	}
+}
+
+func TestAddRunStartETAMetaNoOpWhenNonPositive(t *testing.T) {
+	out := map[string]any{"ok": true}
+
+	addRunStartETAMeta(out, 0)
+	addRunStartETAMeta(out, -5)
+
+	if _, ok := out["meta"]; ok {
+		t.Fatalf("meta should not be created when ms<=0: %#v", out["meta"])
+	}
+}
