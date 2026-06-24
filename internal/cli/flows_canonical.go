@@ -452,7 +452,7 @@ func applyFlowRunUploads(ctx context.Context, app *App, input map[string]any, up
 		return err
 	}
 	for _, spec := range specs {
-		result, err := jobsWorkerUploadFileResource(ctx, app, spec.path, filepath.Base(spec.path), "")
+		result, err := jobsWorkerUploadFileResource(ctx, app, spec.path, filepath.Base(spec.path), "", "")
 		if err != nil {
 			return fmt.Errorf("upload %s: %w", spec.field, err)
 		}

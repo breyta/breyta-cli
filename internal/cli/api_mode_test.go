@@ -1315,6 +1315,61 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 	}
 }
 
+func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
+	const resourceURI = "res://v1/ws/ws-acme/file/profile-md"
+	var lastInitBody map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/files/uploads/init":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			lastInitBody = body
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI}})
+		case "/api/files/uploads/direct":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "/api/files/uploads/complete":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"contentType": "text/markdown", "sizeBytes": 3}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "profile.md")
+	if err := os.WriteFile(path, []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("with folder sends it in the init body", func(t *testing.T) {
+		lastInitBody = nil
+		if _, _, err := runCLIArgs(t,
+			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"resources", "upload", path,
+			"--folder", "Company information",
+			"--print-uri",
+		); err != nil {
+			t.Fatalf("resources upload --folder failed: %v", err)
+		}
+		if lastInitBody["folder"] != "Company information" {
+			t.Fatalf("expected init folder %q, got %#v", "Company information", lastInitBody["folder"])
+		}
+	})
+
+	t.Run("without folder omits the field", func(t *testing.T) {
+		lastInitBody = nil
+		if _, _, err := runCLIArgs(t,
+			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"resources", "upload", path,
+			"--print-uri",
+		); err != nil {
+			t.Fatalf("resources upload failed: %v", err)
+		}
+		if _, ok := lastInitBody["folder"]; ok {
+			t.Fatalf("expected no folder field, got %#v", lastInitBody["folder"])
+		}
+	})
+}
+
 func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T) {
 	uri := "res://v1/ws/ws-acme/result/blob/output-json"
 	longBody := strings.Repeat("payload ", 900)
