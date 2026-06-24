@@ -194,6 +194,11 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 			"wait":      wait,
 		})
 	}
+	if startOK {
+		// Immediately surface the flow's historical average runtime so the
+		// caller knows roughly how long to wait instead of polling blindly.
+		printRunStartETA(cmd, startResp, wait)
+	}
 	if !wait || !startOK {
 		if err := writeAPIResult(cmd, app, startResp, status); err != nil {
 			return writeErr(cmd, err)

@@ -476,8 +476,14 @@ Use runs start only when integrating with older scripts.
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-				trackCommandTelemetry(app, "runs.start", payload, status, status < 400 && isOK(startResp))
+				startOK := status < 400 && isOK(startResp)
+				trackCommandTelemetry(app, "runs.start", payload, status, startOK)
 				enrichCommandHints(app, "runs.start", payload, status, startResp)
+				if startOK {
+					// Immediately surface the flow's historical average runtime so the
+					// caller knows roughly how long to wait instead of polling blindly.
+					printRunStartETA(cmd, startResp, wait)
+				}
 				if !wait {
 					return writeAPIResult(cmd, app, startResp, status)
 				}
