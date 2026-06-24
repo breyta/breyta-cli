@@ -175,7 +175,7 @@ func validatePublishMediaSourceFileInput(cmd *cobra.Command, app *App, publishMe
 }
 
 func uploadPublishMediaSourceFile(cmd *cobra.Command, app *App, path string, filename string) (*state.FlowPublishMediaSource, error) {
-	uploadResult, err := publishMediaUploadFileResource(cmd.Context(), app, path, filename, "", "")
+	uploadResult, err := publishMediaUploadFileResource(cmd.Context(), app, path, filename, "", "", false)
 	if err != nil {
 		return nil, err
 	}
