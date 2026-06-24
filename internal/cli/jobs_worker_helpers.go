@@ -152,7 +152,7 @@ func newJobsWorkerAttachFileCmd(app *App) *cobra.Command {
 				return writeErr(cmd, fmt.Errorf("invalid --file path %q", trimmedPath))
 			}
 
-			uploadResult, err := jobsWorkerUploadFileResource(cmd.Context(), app, trimmedPath, filename, contentType)
+			uploadResult, err := jobsWorkerUploadFileResource(cmd.Context(), app, trimmedPath, filename, contentType, "")
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1043,7 +1043,7 @@ func detectJobsWorkerContentType(path string, explicit string, file *os.File) (s
 	return http.DetectContentType(header[:n]), nil
 }
 
-func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string) (map[string]any, error) {
+func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string, folder string) (map[string]any, error) {
 	file, err := openExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open upload file: %w", err)
@@ -1059,10 +1059,14 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 		return nil, err
 	}
 
-	initResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/init", nil, map[string]any{
+	initBody := map[string]any{
 		"filename":     filename,
 		"content-type": contentType,
-	})
+	}
+	if strings.TrimSpace(folder) != "" {
+		initBody["folder"] = folder
+	}
+	initResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/init", nil, initBody)
 	if err != nil {
 		return nil, err
 	}

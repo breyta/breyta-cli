@@ -170,6 +170,7 @@ Types:
 func newResourcesUploadCmd(app *App) *cobra.Command {
 	var name string
 	var contentType string
+	var folder string
 	var printURI bool
 
 	cmd := &cobra.Command{
@@ -188,7 +189,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 			if filename == "" {
 				filename = filepath.Base(path)
 			}
-			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType)
+			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType, folder)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -206,6 +207,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "Resource filename to store; defaults to the local file basename")
 	cmd.Flags().StringVar(&contentType, "content-type", "", "Content type to store; defaults to extension or file sniffing")
+	cmd.Flags().StringVar(&folder, "folder", "", "Store the file inside this Storage folder, e.g. \"Company information\"")
 	cmd.Flags().BoolVar(&printURI, "print-uri", false, "Print only the uploaded res:// URI")
 	return cmd
 }
