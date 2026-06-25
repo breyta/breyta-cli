@@ -515,13 +515,16 @@ func TestFlowsUpdate_BuildsPublishMediaPayloadFromSourceFile(t *testing.T) {
 
 	var gotPayload map[string]any
 	var uploadedPath string
-	publishMediaUploadFileResource = func(_ context.Context, _ *App, path string, filename string, contentType string, _ string) (map[string]any, error) {
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, path string, filename string, contentType string, _ string, replaceExisting bool) (map[string]any, error) {
 		uploadedPath = path
 		if filename != "hero.png" {
 			t.Fatalf("expected upload filename hero.png, got %q", filename)
 		}
 		if contentType != "" {
 			t.Fatalf("expected inferred content type, got %q", contentType)
+		}
+		if replaceExisting {
+			t.Fatalf("publish media upload should not replace existing resources")
 		}
 		return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/uploaded-hero"}, nil
 	}
@@ -636,7 +639,7 @@ func TestFlowsUpdate_ValidatesUpdateBeforePublishMediaSourceFileUpload(t *testin
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			uploadCalled := false
-			publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string, _ string) (map[string]any, error) {
+			publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string, _ string, _ bool) (map[string]any, error) {
 				uploadCalled = true
 				return map[string]any{"resourceUri": "res://v1/ws/ws-test/file/should-not-exist"}, nil
 			}
@@ -667,7 +670,7 @@ func TestFlowsUpdate_RejectsPublishMediaSourceFileInExplicitMockMode(t *testing.
 	t.Cleanup(func() {
 		publishMediaUploadFileResource = origUpload
 	})
-	publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string, _ string) (map[string]any, error) {
+	publishMediaUploadFileResource = func(_ context.Context, _ *App, _ string, _ string, _ string, _ string, _ bool) (map[string]any, error) {
 		t.Fatalf("upload should not run in explicit mock mode")
 		return nil, nil
 	}

@@ -1264,6 +1264,9 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 			if body["content-type"] != "image/png" {
 				t.Fatalf("expected content-type image/png, got %#v", body["content-type"])
 			}
+			if body["replace-existing"] != true {
+				t.Fatalf("expected stable --name upload to request replacement, got %#v", body["replace-existing"])
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI}})
 		case "/api/files/uploads/direct":
 			sawDirect = true
@@ -1353,6 +1356,9 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 		if lastInitBody["folder"] != "Company information" {
 			t.Fatalf("expected init folder %q, got %#v", "Company information", lastInitBody["folder"])
 		}
+		if lastInitBody["replace-existing"] != true {
+			t.Fatalf("expected folder upload to request replacement, got %#v", lastInitBody["replace-existing"])
+		}
 	})
 
 	t.Run("without folder omits the field", func(t *testing.T) {
@@ -1367,7 +1373,71 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 		if _, ok := lastInitBody["folder"]; ok {
 			t.Fatalf("expected no folder field, got %#v", lastInitBody["folder"])
 		}
+		if _, ok := lastInitBody["replace-existing"]; ok {
+			t.Fatalf("expected no replace-existing field, got %#v", lastInitBody["replace-existing"])
+		}
 	})
+
+	t.Run("explicit replace sends replace-existing", func(t *testing.T) {
+		lastInitBody = nil
+		if _, _, err := runCLIArgs(t,
+			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"resources", "upload", path,
+			"--replace",
+			"--print-uri",
+		); err != nil {
+			t.Fatalf("resources upload --replace failed: %v", err)
+		}
+		if lastInitBody["replace-existing"] != true {
+			t.Fatalf("expected explicit replacement request, got %#v", lastInitBody["replace-existing"])
+		}
+	})
+}
+
+func TestResourcesDelete_DeletesResourceByURI(t *testing.T) {
+	const resourceURI = "res://v1/ws/ws-acme/file/profile-md"
+	var sawDelete bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/files/by-uri" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			t.Fatalf("expected DELETE, got %s", r.Method)
+		}
+		sawDelete = true
+		if got := r.URL.Query().Get("uri"); got != resourceURI {
+			t.Fatalf("expected uri=%s, got %q", resourceURI, got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"deleted?":         true,
+			"storage-deleted?": true,
+			"uri":              resourceURI,
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "delete", resourceURI,
+	)
+	if err != nil {
+		t.Fatalf("resources delete failed: %v\n%s", err, stdout)
+	}
+	if !sawDelete {
+		t.Fatalf("expected delete request")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if data["deleted?"] != true || data["storage-deleted?"] != true || data["uri"] != resourceURI {
+		t.Fatalf("expected delete response, got %#v", out)
+	}
 }
 
 func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T) {

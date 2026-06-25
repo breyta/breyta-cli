@@ -135,6 +135,7 @@ API routes:
   POST /<workspace>/api/resources/search-index    - Inspect/update per-resource search-index metadata
   GET /<workspace>/api/resources/by-uri?uri=...   - Get resource metadata
   GET /<workspace>/api/resources/content?uri=...  - Read resource content
+  DELETE /<workspace>/api/files/by-uri?uri=...    - Delete a file/storage resource
   POST /<workspace>/api/resources/table/*         - Query/update/import/export table resources
   GET /<workspace>/api/resources/url?uri=...      - Get signed URL
   GET /<workspace>/api/resources/workflow/<id>    - List workflow resources
@@ -159,6 +160,7 @@ Types:
 	cmd.AddCommand(newResourcesSearchCmd(app))
 	cmd.AddCommand(newResourcesSearchIndexCmd(app))
 	cmd.AddCommand(newResourcesUploadCmd(app))
+	cmd.AddCommand(newResourcesDeleteCmd(app))
 	cmd.AddCommand(newResourcesGetCmd(app))
 	cmd.AddCommand(newResourcesReadCmd(app))
 	cmd.AddCommand(newResourcesTableCmd(app))
@@ -171,6 +173,8 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 	var name string
 	var contentType string
 	var folder string
+	var replace bool
+	var overwrite bool
 	var printURI bool
 
 	cmd := &cobra.Command{
@@ -189,7 +193,8 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 			if filename == "" {
 				filename = filepath.Base(path)
 			}
-			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType, folder)
+			replaceExisting := replace || overwrite || cmd.Flags().Changed("folder") || cmd.Flags().Changed("name")
+			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType, folder, replaceExisting)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -205,10 +210,46 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "Resource filename to store; defaults to the local file basename")
+	cmd.Flags().StringVar(&name, "name", "", "Resource filename to store; defaults to the local file basename and replaces the existing stable target when set")
 	cmd.Flags().StringVar(&contentType, "content-type", "", "Content type to store; defaults to extension or file sniffing")
-	cmd.Flags().StringVar(&folder, "folder", "", "Store the file inside this Storage folder, e.g. \"Company information\"")
+	cmd.Flags().StringVar(&folder, "folder", "", "Store the file inside this Storage folder, e.g. \"Company information\"; replaces the existing stable target when set")
+	cmd.Flags().BoolVar(&replace, "replace", false, "Replace the existing resource with the same stable Storage folder and filename when present")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Alias for --replace")
 	cmd.Flags().BoolVar(&printURI, "print-uri", false, "Print only the uploaded res:// URI")
+	return cmd
+}
+
+func newResourcesDeleteCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "delete <uri>",
+		Aliases: []string{"archive", "rm"},
+		Short:   "Delete a workspace file/storage resource by URI",
+		Args:    cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireResourcesAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uri := strings.TrimSpace(args[0])
+			if uri == "" {
+				return writeErr(cmd, errors.New("missing resource URI"))
+			}
+
+			q := url.Values{}
+			q.Set("uri", uri)
+
+			out, status, err := apiClient(app).DoREST(
+				cmd.Context(),
+				http.MethodDelete,
+				"/api/files/by-uri",
+				q,
+				nil,
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeREST(cmd, app, status, out)
+		},
+	}
 	return cmd
 }
 
