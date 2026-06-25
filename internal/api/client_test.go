@@ -10,7 +10,26 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func httpJSON(status int, body any) (*http.Response, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(string(b))),
+	}, nil
+}
 
 func newLocalTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
@@ -203,6 +222,117 @@ func TestClient_DoCommand_FiltersArgsAndSendsPayload(t *testing.T) {
 	}
 	if args["x"] != float64(1) {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestClient_DoCommand_RetriesDiscoverSearchOnTransientStatus(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0, 0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("unexpected path: %q", r.URL.Path)
+		}
+		commandCalls++
+		if commandCalls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "service_unavailable",
+					"message": "Discover search backend unavailable",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"result": map[string]any{"hits": []any{}}}})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", Token: "tok", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "flows.discover.search", map[string]any{"query": "seo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected retry status 200, got %d", status)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected one retry, got %d calls", commandCalls)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestClient_DoCommand_RetriesDiscoverSearchOnTimeoutError(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0, 0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	c := Client{
+		BaseURL:     "https://flows.example.test",
+		WorkspaceID: "ws-acme",
+		Token:       "tok",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			commandCalls++
+			if commandCalls == 1 {
+				return nil, context.DeadlineExceeded
+			}
+			return httpJSON(http.StatusOK, map[string]any{"ok": true, "data": map[string]any{"result": map[string]any{"hits": []any{}}}})
+		})},
+	}
+
+	out, status, err := c.DoCommand(context.Background(), "flows.discover.search", map[string]any{"query": "content"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected retry status 200, got %d", status)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected one retry, got %d calls", commandCalls)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestClient_DoCommand_DoesNotRetryMutatingCommandOnTransientStatus(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0, 0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		commandCalls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"code":    "service_unavailable",
+				"message": "temporarily unavailable",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", Token: "tok", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "runs.start", map[string]any{"flowSlug": "demo"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", status)
+	}
+	if commandCalls != 1 {
+		t.Fatalf("expected no retry for mutating command, got %d calls", commandCalls)
+	}
+	if out["ok"] != false {
+		t.Fatalf("unexpected response: %#v", out)
 	}
 }
 

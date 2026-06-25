@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1315,6 +1316,70 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 	}
 	if !sawInit || !sawDirect || !sawComplete {
 		t.Fatalf("expected init/direct/complete calls, got init=%v direct=%v complete=%v", sawInit, sawDirect, sawComplete)
+	}
+}
+
+func TestResourcesUpload_FallsBackToAPIDirectWhenSignedUploadReturns503(t *testing.T) {
+	const resourceURI = "res://v1/ws/ws-acme/file/uploaded-profile"
+	var sawSigned, sawDirect, sawComplete bool
+	var directUploadBody string
+	var srv *httptest.Server
+	srv = newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/files/uploads/init":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"uri":        resourceURI,
+					"upload-url": srv.URL + "/signed/uploaded-profile",
+				},
+			})
+		case "/signed/uploaded-profile":
+			sawSigned = true
+			http.Error(w, "storage busy", http.StatusServiceUnavailable)
+		case "/api/files/uploads/direct":
+			sawDirect = true
+			if got := r.URL.Query().Get("uri"); got != resourceURI {
+				t.Fatalf("expected direct upload uri %s, got %q", resourceURI, got)
+			}
+			body, _ := io.ReadAll(r.Body)
+			directUploadBody = string(body)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "/api/files/uploads/complete":
+			sawComplete = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"contentType": "text/markdown", "sizeBytes": len("profile-body")},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "profile.md")
+	if err := os.WriteFile(path, []byte("profile-body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "upload", path,
+		"--folder", "Company information",
+		"--print-uri",
+	)
+	if err != nil {
+		t.Fatalf("resources upload failed after signed upload fallback: %v\n%s", err, stdout)
+	}
+	if strings.TrimSpace(stdout) != resourceURI {
+		t.Fatalf("expected printed resource URI %q, got %q", resourceURI, stdout)
+	}
+	if !sawSigned || !sawDirect || !sawComplete {
+		t.Fatalf("expected signed/direct/complete calls, got signed=%v direct=%v complete=%v", sawSigned, sawDirect, sawComplete)
+	}
+	if directUploadBody != "profile-body" {
+		t.Fatalf("expected direct upload body %q, got %q", "profile-body", directUploadBody)
 	}
 }
 

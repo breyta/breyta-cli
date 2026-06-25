@@ -1086,7 +1086,12 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 
 	if jobsWorkerSupportsSignedUploadURL(uploadURL) {
 		if err := jobsWorkerUploadWithSignedURL(ctx, uploadURL, contentType, file, fileInfo.Size()); err != nil {
-			return nil, err
+			if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+				return nil, fmt.Errorf("signed upload failed (%v); reset upload file for direct upload fallback: %w", err, seekErr)
+			}
+			if directErr := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, file, fileInfo.Size()); directErr != nil {
+				return nil, fmt.Errorf("signed upload failed (%v); direct upload fallback failed: %w", err, directErr)
+			}
 		}
 	} else {
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -1158,7 +1163,7 @@ func jobsWorkerSupportsSignedUploadURL(uploadURL string) bool {
 }
 
 func jobsWorkerUploadWithSignedURL(ctx context.Context, uploadURL string, contentType string, body io.Reader, contentLength int64) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, io.NopCloser(body))
 	if err != nil {
 		return fmt.Errorf("create upload request: %w", err)
 	}
