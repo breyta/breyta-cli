@@ -135,6 +135,7 @@ API routes:
   POST /<workspace>/api/resources/search-index    - Inspect/update per-resource search-index metadata
   GET /<workspace>/api/resources/by-uri?uri=...   - Get resource metadata
   GET /<workspace>/api/resources/content?uri=...  - Read resource content
+  DELETE /<workspace>/api/files/by-uri?uri=...    - Delete a file/storage resource
   POST /<workspace>/api/resources/table/*         - Query/update/import/export table resources
   GET /<workspace>/api/resources/url?uri=...      - Get signed URL
   GET /<workspace>/api/resources/workflow/<id>    - List workflow resources
@@ -222,7 +223,7 @@ func newResourcesDeleteCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "delete <uri>",
 		Aliases: []string{"archive", "rm"},
-		Short:   "Delete (archive) a workspace resource by URI",
+		Short:   "Delete a workspace file/storage resource by URI",
 		Args:    cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireResourcesAPI(cmd, app)
@@ -239,7 +240,7 @@ func newResourcesDeleteCmd(app *App) *cobra.Command {
 			out, status, err := apiClient(app).DoREST(
 				cmd.Context(),
 				http.MethodDelete,
-				"/api/resources/by-uri",
+				"/api/files/by-uri",
 				q,
 				nil,
 			)

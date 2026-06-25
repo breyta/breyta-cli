@@ -1398,7 +1398,7 @@ func TestResourcesDelete_DeletesResourceByURI(t *testing.T) {
 	const resourceURI = "res://v1/ws/ws-acme/file/profile-md"
 	var sawDelete bool
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/resources/by-uri" {
+		if r.URL.Path != "/api/files/by-uri" {
 			http.NotFound(w, r)
 			return
 		}
@@ -1410,9 +1410,9 @@ func TestResourcesDelete_DeletesResourceByURI(t *testing.T) {
 			t.Fatalf("expected uri=%s, got %q", resourceURI, got)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"deleted":  true,
-			"archived": true,
-			"uri":      resourceURI,
+			"deleted?":         true,
+			"storage-deleted?": true,
+			"uri":              resourceURI,
 		})
 	}))
 	defer srv.Close()
@@ -1435,7 +1435,7 @@ func TestResourcesDelete_DeletesResourceByURI(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	data, _ := out["data"].(map[string]any)
-	if data["deleted"] != true || data["archived"] != true || data["uri"] != resourceURI {
+	if data["deleted?"] != true || data["storage-deleted?"] != true || data["uri"] != resourceURI {
 		t.Fatalf("expected delete response, got %#v", out)
 	}
 }
