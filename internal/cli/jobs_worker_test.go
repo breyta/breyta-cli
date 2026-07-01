@@ -1158,6 +1158,77 @@ func TestJobsWorkerAttachFile_UploadsResourceAndAppendsArtifact(t *testing.T) {
 	}
 }
 
+// Regression test: replace-existing uploads (triggered by --name/--folder/--replace)
+// route bytes through a server staging path, and the server only stores the upload
+// session under the session-id-keyed path. The CLI must echo the init-issued
+// upload-session-id back on complete, otherwise the server cannot find the staged
+// object and returns 404 "Uploaded object not found".
+func TestResourcesUpload_ForwardsUploadSessionIdOnComplete(t *testing.T) {
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	tmpDir := t.TempDir()
+	uploadPath := filepath.Join(tmpDir, "PERMISSIONS.md")
+	uploadBody := "# Permissions\n\nhello\n"
+	if err := os.WriteFile(uploadPath, []byte(uploadBody), 0644); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+
+	const wantSessionID = "sess-9d03960d"
+	var initBody map[string]any
+	var completeBody map[string]any
+	var srv *httptest.Server
+	srv = newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/files/uploads/init":
+			_ = json.NewDecoder(r.Body).Decode(&initBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"uri":               "res://v1/ws/ws-acme/file/stable-abc123",
+				"upload-url":        srv.URL + "/upload/staged",
+				"upload-session-id": wantSessionID,
+			})
+		case "/upload/staged":
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		case "/api/files/uploads/complete":
+			_ = json.NewDecoder(r.Body).Decode(&completeBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"uri":          "res://v1/ws/ws-acme/file/stable-abc123",
+				"content-type": "text/markdown",
+				"size-bytes":   len(uploadBody),
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("BREYTA_API_URL", srv.URL)
+	t.Setenv("BREYTA_WORKSPACE", "ws-acme")
+	t.Setenv("BREYTA_TOKEN", "user-dev")
+
+	// --name flips replaceExisting on, which routes the server through staging.
+	stdout, stderr, err := runCLIArgs(t,
+		"resources", "upload", uploadPath,
+		"--name", "PERMISSIONS-test.md",
+		"--content-type", "text/markdown",
+		"--print-uri",
+	)
+	if err != nil {
+		t.Fatalf("resources upload failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+
+	if got, _ := initBody["replace-existing"].(bool); !got {
+		t.Fatalf("expected init to request replace-existing when --name is set, got %#v", initBody["replace-existing"])
+	}
+	if got, _ := completeBody["upload-session-id"].(string); got != wantSessionID {
+		t.Fatalf("expected complete to forward upload-session-id %q, got %#v", wantSessionID, completeBody["upload-session-id"])
+	}
+	if got := strings.TrimSpace(stdout); got != "res://v1/ws/ws-acme/file/stable-abc123" {
+		t.Fatalf("expected printed resource uri, got %q", got)
+	}
+}
+
 func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
