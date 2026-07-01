@@ -1080,6 +1080,7 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 	initData := jobsWorkerRESTPayload(initResp)
 	resourceURI := firstNonBlankString(initData["uri"])
 	uploadURL := firstNonBlankString(initData["upload-url"], initData["uploadUrl"])
+	uploadSessionID := firstNonBlankString(initData["upload-session-id"], initData["uploadSessionId"])
 	if resourceURI == "" {
 		return nil, errors.New("upload init response missing resource uri")
 	}
@@ -1097,9 +1098,17 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 		}
 	}
 
-	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, map[string]any{
+	completeBody := map[string]any{
 		"uri": resourceURI,
-	})
+	}
+	// Forward the init-issued upload session id so the server can locate the
+	// staged upload when replace-existing routes bytes through a staging path.
+	// Without it, complete cannot find the session and reports 404 "Uploaded
+	// object not found" for --name/--folder/--replace uploads.
+	if strings.TrimSpace(uploadSessionID) != "" {
+		completeBody["upload-session-id"] = uploadSessionID
+	}
+	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, completeBody)
 	if err != nil {
 		return nil, err
 	}
