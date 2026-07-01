@@ -1203,12 +1203,14 @@ func TestResourcesUpload_ForwardsUploadSessionIdOnComplete(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("BREYTA_API_URL", srv.URL)
-	t.Setenv("BREYTA_WORKSPACE", "ws-acme")
-	t.Setenv("BREYTA_TOKEN", "user-dev")
-
+	// --dev + explicit --api/--token mirrors the other resources command tests
+	// and satisfies the --api override guard that applies outside dev mode.
 	// --name flips replaceExisting on, which routes the server through staging.
 	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
 		"resources", "upload", uploadPath,
 		"--name", "PERMISSIONS-test.md",
 		"--content-type", "text/markdown",
