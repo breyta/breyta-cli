@@ -173,6 +173,20 @@ func extractStepsRunResult(out map[string]any) any {
 	return nil
 }
 
+func extractStepsRunStepType(out map[string]any) string {
+	if out == nil {
+		return ""
+	}
+	if dataAny, ok := out["data"]; ok {
+		if data, ok := dataAny.(map[string]any); ok {
+			if s, ok := data["stepType"].(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
 func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, stepID string, stepType string, params map[string]any, resultAny any, note string, testName string, traceID string, profileID string, recordExample bool, recordTest bool) {
 	if !isOK(out) || (!recordExample && !recordTest) {
 		return
@@ -238,6 +252,121 @@ func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, 
 			meta["recordTestError"] = formatAPIError(testOut)
 		}
 	}
+}
+
+type stepsRunInvocation struct {
+	CommandName         string
+	StepType            string
+	StepID              string
+	FlowSlug            string
+	Source              string
+	Version             int
+	ParamsJSON          string
+	ParamsFile          string
+	TraceID             string
+	InstallationID      string
+	LegacyProfileID     string
+	RecordExample       bool
+	RecordTest          bool
+	RecordNote          string
+	RecordTestName      string
+	Preview             stepResultPreviewOptions
+	RequireFlowForRun   bool
+	MissingTypeHelpText string
+}
+
+func runStepsRunCommand(cmd *cobra.Command, app *App, inv stepsRunInvocation) error {
+	commandName := strings.TrimSpace(inv.CommandName)
+	if commandName == "" {
+		commandName = "steps.run"
+	}
+
+	t := strings.TrimSpace(inv.StepType)
+	id := strings.TrimSpace(inv.StepID)
+	fs := strings.TrimSpace(inv.FlowSlug)
+	if t == "" && fs == "" {
+		help := strings.TrimSpace(inv.MissingTypeHelpText)
+		if help == "" {
+			help = "missing --type (or pass --flow for a registered flow-local step)"
+		}
+		return writeErr(cmd, errors.New(help))
+	}
+	if id == "" {
+		return writeErr(cmd, errors.New("missing --id"))
+	}
+	if inv.RequireFlowForRun && fs == "" {
+		return writeErr(cmd, errors.New("missing flow slug"))
+	}
+	if (inv.RecordExample || inv.RecordTest) && fs == "" {
+		return writeErr(cmd, errors.New("missing --flow (required for --record-example/--record-test)"))
+	}
+
+	paramsRaw := strings.TrimSpace(inv.ParamsJSON)
+	if strings.TrimSpace(inv.ParamsFile) != "" {
+		b, err := readExplicitFile(strings.TrimSpace(inv.ParamsFile))
+		if err != nil {
+			return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
+		}
+		paramsRaw = strings.TrimSpace(string(b))
+	}
+
+	params := map[string]any{}
+	if paramsRaw != "" {
+		var v any
+		if err := json.Unmarshal([]byte(paramsRaw), &v); err != nil {
+			return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
+		}
+		m, ok := v.(map[string]any)
+		if !ok {
+			return writeErr(cmd, errors.New("--params must be a JSON object"))
+		}
+		params = m
+	}
+
+	payload := map[string]any{
+		"stepId": id,
+		"params": params,
+	}
+	if t != "" {
+		payload["stepType"] = t
+	}
+	if fs != "" {
+		payload["flowSlug"] = fs
+	}
+	if strings.TrimSpace(inv.Source) != "" {
+		payload["source"] = strings.TrimSpace(inv.Source)
+	}
+	if inv.Version > 0 {
+		payload["version"] = inv.Version
+	}
+	if strings.TrimSpace(inv.TraceID) != "" {
+		payload["traceId"] = strings.TrimSpace(inv.TraceID)
+	}
+	effectiveInstallationID := strings.TrimSpace(inv.InstallationID)
+	if effectiveInstallationID == "" {
+		effectiveInstallationID = strings.TrimSpace(inv.LegacyProfileID)
+	}
+	if effectiveInstallationID != "" {
+		payload["profileId"] = effectiveInstallationID
+	}
+
+	client := apiClient(app)
+	out, status, err := client.DoCommand(context.Background(), commandName, payload)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	effectiveStepType := t
+	if effectiveStepType == "" {
+		effectiveStepType = extractStepsRunStepType(out)
+	}
+	recordStepSidecars(client, out, fs, id, effectiveStepType, params, extractStepsRunResult(out), inv.RecordNote, inv.RecordTestName, inv.TraceID, effectiveInstallationID, inv.RecordExample, inv.RecordTest)
+	if isOK(out) {
+		addStepSidecarHint(out, fs, id)
+	}
+	if err := compactStepsRunResult(out, id, inv.Preview); err != nil {
+		return writeErr(cmd, err)
+	}
+	return writeAPIResult(cmd, app, out, status)
 }
 
 func newStepsShowCmd(app *App) *cobra.Command {
@@ -732,79 +861,25 @@ Examples:
 			return requireStepsAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			t := strings.TrimSpace(stepType)
-			if t == "" {
-				return writeErr(cmd, errors.New("missing --type"))
-			}
-			id := strings.TrimSpace(stepID)
-			if id == "" {
-				return writeErr(cmd, errors.New("missing --id"))
-			}
-			fs := strings.TrimSpace(flowSlug)
-			if (recordExample || recordTest) && fs == "" {
-				return writeErr(cmd, errors.New("missing --flow (required for --record-example/--record-test)"))
-			}
-
-			paramsRaw := strings.TrimSpace(paramsJSON)
-			if strings.TrimSpace(paramsFile) != "" {
-				b, err := readExplicitFile(strings.TrimSpace(paramsFile))
-				if err != nil {
-					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
-				}
-				paramsRaw = strings.TrimSpace(string(b))
-			}
-
-			params := map[string]any{}
-			if paramsRaw != "" {
-				var v any
-				if err := json.Unmarshal([]byte(paramsRaw), &v); err != nil {
-					return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
-				}
-				m, ok := v.(map[string]any)
-				if !ok {
-					return writeErr(cmd, errors.New("--params must be a JSON object"))
-				}
-				params = m
-			}
-
-			payload := map[string]any{
-				"stepType": t,
-				"stepId":   id,
-				"params":   params,
-			}
-			if strings.TrimSpace(flowSlug) != "" {
-				payload["flowSlug"] = strings.TrimSpace(flowSlug)
-			}
-			if strings.TrimSpace(source) != "" {
-				payload["source"] = strings.TrimSpace(source)
-			}
-			if version > 0 {
-				payload["version"] = version
-			}
-			if strings.TrimSpace(traceID) != "" {
-				payload["traceId"] = strings.TrimSpace(traceID)
-			}
-			effectiveInstallationID := strings.TrimSpace(installationID)
-			if effectiveInstallationID == "" {
-				effectiveInstallationID = strings.TrimSpace(legacyProfileID)
-			}
-			if effectiveInstallationID != "" {
-				payload["profileId"] = effectiveInstallationID
-			}
-
-			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.run", payload)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, effectiveInstallationID, recordExample, recordTest)
-			if isOK(out) {
-				addStepSidecarHint(out, flowSlug, id)
-			}
-			if err := compactStepsRunResult(out, id, previewOpts); err != nil {
-				return writeErr(cmd, err)
-			}
-			return writeAPIResult(cmd, app, out, status)
+			return runStepsRunCommand(cmd, app, stepsRunInvocation{
+				CommandName:         "steps.run",
+				StepType:            stepType,
+				StepID:              stepID,
+				FlowSlug:            flowSlug,
+				Source:              source,
+				Version:             version,
+				ParamsJSON:          paramsJSON,
+				ParamsFile:          paramsFile,
+				TraceID:             traceID,
+				InstallationID:      installationID,
+				LegacyProfileID:     legacyProfileID,
+				RecordExample:       recordExample,
+				RecordTest:          recordTest,
+				RecordNote:          recordNote,
+				RecordTestName:      recordTestName,
+				Preview:             previewOpts,
+				MissingTypeHelpText: "missing --type (or pass --flow for a registered flow-local step)",
+			})
 		},
 	}
 

@@ -305,11 +305,17 @@ Default authoring order:
 
 4. ` + "`:steps`" + `
 - package heavy built-in step configs behind a smaller input/output contract
+- author and prove them with ` + "`breyta flows steps create/update/run`" + `
+- use ` + "`breyta flows steps checks run <slug> <step-id> --category eval`" + ` before wiring them into agents or full orchestration
+- use ` + "`result.fn`" + ` or ` + "`result.fnFile`" + ` for reusable result projection
 - prefer packaged step tools over exposing raw broad built-in surfaces to agents
 
 5. ` + "`:agents`" + `
 - define reusable named agent roles here when the behavior is agent-shaped
 - put objective, instructions, memory, cost/evaluate/trace, and delegation config in the named agent definition
+- set tool access with ` + "`breyta flows agents tools set`" + `
+- run ` + "`breyta flows agents checks run <slug> <agent-step-id> --category security`" + `; security checks fail closed until a policy check exists
+- referenced tool steps must have input schemas and current isolated output-shape evidence
 
 6. ` + "`:flow`" + `
 - only after the reusable surfaces are in place, wire them together in deterministic orchestration
@@ -595,9 +601,9 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
 
-const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows steps run <slug> <step-id> --source draft` for authored draft steps before a full-flow proof. Use `breyta flows run-step <slug> <step-id> --target live --wait` only when you need an existing live step with configured bindings."
 
-const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
+const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json`, `breyta flows run-step <slug> <step-id> --input-file ./input.json`, or `breyta flows steps run <slug> <step-id> --params-file ./params.json` instead of inline payload flags when payloads may hit shell or OS argument limits."
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
@@ -648,7 +654,7 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 }
 
 func ensureFocusedStepRunGuidance(body string) string {
-	if strings.Contains(body, "breyta flows run-step <slug> <step-id>") {
+	if strings.Contains(body, "breyta flows steps run <slug> <step-id>") {
 		return body
 	}
 	guidance := focusedStepRunProofBullet
@@ -680,7 +686,7 @@ func ensureInputFilePayloadGuidance(body string) string {
 	if hasInputFilePayloadGuidance(body) {
 		return body
 	}
-	if proofPos := strings.Index(body, "breyta flows run-step <slug> <step-id>"); proofPos >= 0 {
+	if proofPos := strings.Index(body, "breyta flows steps run <slug> <step-id>"); proofPos >= 0 {
 		if eol := strings.Index(body[proofPos:], "\n"); eol >= 0 {
 			insertPos := proofPos + eol + 1
 			return body[:insertPos] + inputFilePayloadGuidance + "\n" + body[insertPos:]

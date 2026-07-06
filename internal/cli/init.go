@@ -308,7 +308,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
    - source/config: ` + "`breyta flows grep \"<literal>\" --limit 5`" + `
    - templates: ` + "`breyta flows templates search \"<query>\" --limit 5`" + `
    - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
-6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
+6. Build in small slices: contract -> ` + "`flows init`" + ` -> one ` + "`flows steps create/update`" + ` boundary -> ` + "`flows steps run`" + ` -> target checks -> scoped connection status -> interface run -> inspect output.
 7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
 8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
 9. Keep functions map-oriented; prefer Clojure map access plus ` + "`json/*`" + ` and ` + "`breyta.sandbox/*`" + ` helpers over custom parser/guard layers.
@@ -318,7 +318,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - ` + "`draft`" + ` is staging/current authoring; ` + "`live`" + ` is released/runtime.
 - A flow is unreleased until a version is released/activated and the live path is verified.
 - Say ` + "`draft verified`" + ` when only draft was exercised.
-- When a whole-flow proof could trigger unsafe downstream side effects, verify one existing step with ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + `.
+- When a whole-flow proof could trigger unsafe downstream side effects, verify the authored draft step first with ` + "`breyta flows steps run <slug> <step-id> --source draft`" + `. Use ` + "`breyta flows run-step <slug> <step-id> --target live --wait`" + ` only for an existing live step with configured bindings.
 - Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.
 - Release/promote only after draft proof, explicit sign-off, and a release note.
 - For public/end-user work, verify live/install-shaped behavior or report ` + "`web UI not verified`" + `.
@@ -418,9 +418,9 @@ Advanced ideas:
 - For first proof, inline small one-off transform bodies when that is fastest; before release, extract repeated or bulky content into ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, or reusable ` + "`:agents`" + `
 - Shape ` + "`:requires`" + ` around stable capability slots before binding reusable surfaces and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Iterate in draft: pull, edit, lint, push, configure check, run or validate, then diff against live
-- When a provider/model or primitive change only needs one existing step, use ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + ` to avoid triggering downstream flow side effects.
-- Use ` + "`breyta flows run <slug> --input-file ./input.json`" + ` or ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + ` instead of inline ` + "`--input '{...}'`" + ` when per-run payloads may hit shell or OS argument limits.
+- Iterate in draft with the step-first API first: ` + "`breyta flows init`" + `, ` + "`breyta flows steps create/update/run`" + `, ` + "`breyta flows steps checks run`" + `, ` + "`breyta flows connections status --step <step-id>`" + `, interface/schedule commands, then full source lint/push only when a whole-definition edit is intended
+- When a provider/model or primitive change only needs one authored draft step, use ` + "`breyta flows steps run <slug> <step-id> --source draft`" + ` to avoid triggering downstream flow side effects. Use ` + "`breyta flows run-step <slug> <step-id> --target live --wait`" + ` only for an existing live step with configured bindings.
+- Use ` + "`breyta flows run <slug> --input-file ./input.json`" + `, ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + `, or ` + "`breyta flows steps run <slug> <step-id> --params-file ./params.json`" + ` instead of inline payload flags when payloads may hit shell or OS argument limits.
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for editable source.

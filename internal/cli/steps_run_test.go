@@ -63,6 +63,138 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 	}
 }
 
+func TestStepsRunAllowsRegisteredFlowStepWithoutType(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"stepType":   "function",
+				"stepId":     "tools/add-one",
+				"durationMs": 1,
+				"result":     map[string]any{"answer": 3},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"steps", "run",
+		"--flow", "my-flow",
+		"--source", "draft",
+		"--id", "tools/add-one",
+	)
+	if err != nil {
+		t.Fatalf("steps run failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if got["command"] != "steps.run" {
+		t.Fatalf("expected steps.run, got %#v", got["command"])
+	}
+	args, _ := got["args"].(map[string]any)
+	if args["flowSlug"] != "my-flow" || args["source"] != "draft" || args["stepId"] != "tools/add-one" {
+		t.Fatalf("expected flow-scoped step args, got %#v", args)
+	}
+	if _, exists := args["stepType"]; exists {
+		t.Fatalf("expected no stepType for registered flow-local step, got %#v", args["stepType"])
+	}
+}
+
+func TestFlowsStepsRunSendsFlowScopedCommandAndCompactsResult(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"stepType":   "function",
+				"stepId":     "tools/add-one",
+				"durationMs": 1,
+				"result": map[string]any{
+					"rows": []any{
+						map[string]any{"id": "row-1", "score": 0.92},
+						map[string]any{"id": "row-2", "score": 0.84},
+					},
+					"summary": "ready",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	resultFile := filepath.Join(t.TempDir(), "result.json")
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "steps", "run", "my-flow", "tools/add-one",
+		"--params", `{"input":{"n":2}}`,
+		"--result-path", "rows.0",
+		"--result-file", resultFile,
+	)
+	if err != nil {
+		t.Fatalf("flows steps run failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if got["command"] != "flows.steps.run" {
+		t.Fatalf("expected flows.steps.run, got %#v", got["command"])
+	}
+	args, _ := got["args"].(map[string]any)
+	if args["flowSlug"] != "my-flow" || args["source"] != "draft" || args["stepId"] != "tools/add-one" {
+		t.Fatalf("expected flow-scoped step args, got %#v", args)
+	}
+	if _, exists := args["stepType"]; exists {
+		t.Fatalf("expected no stepType for flow-scoped wrapper, got %#v", args["stepType"])
+	}
+	params, _ := args["params"].(map[string]any)
+	input, _ := params["input"].(map[string]any)
+	if input["n"] != float64(2) {
+		t.Fatalf("expected params to be forwarded, got %#v", args["params"])
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, exists := data["result"]; exists {
+		t.Fatalf("expected compact output to omit data.result, got %#v", data["result"])
+	}
+	preview, _ := data["resultPreview"].(map[string]any)
+	if found, _ := preview["pathFound"].(bool); !found {
+		t.Fatalf("expected result path to be found, got %#v", preview)
+	}
+	value, _ := preview["value"].(string)
+	if !strings.Contains(value, `:id "row-1"`) || strings.Contains(value, "row-2") {
+		t.Fatalf("expected focused first-row preview, got %q", value)
+	}
+	var fullResult map[string]any
+	if err := readJSONFile(resultFile, &fullResult); err != nil {
+		t.Fatalf("read result file: %v", err)
+	}
+	if _, ok := fullResult["rows"].([]any); !ok {
+		t.Fatalf("expected full result file to contain rows, got %#v", fullResult)
+	}
+}
+
 func TestStepsRunCompactsResultByDefault(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 

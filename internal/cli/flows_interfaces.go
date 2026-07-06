@@ -34,10 +34,198 @@ HTTP or MCP routes locally.
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(newFlowsInterfacesUpsertCmd(app))
+	cmd.AddCommand(newFlowsInterfacesValidateCmd(app))
+	cmd.AddCommand(newFlowsInterfacesRemoveCmd(app))
 	cmd.AddCommand(newFlowsInterfacesListCmd(app))
 	cmd.AddCommand(newFlowsInterfacesShowCmd(app))
 	cmd.AddCommand(newFlowsInterfacesCallCmd(app))
 	cmd.AddCommand(newFlowsInterfacesCurlCmd(app))
+	return cmd
+}
+
+func requireFlowsAuthoringAPI(cmd *cobra.Command, app *App, command string) error {
+	if !isAPIMode(app) {
+		return writeErr(cmd, fmt.Errorf("%s requires API mode", command))
+	}
+	return requireAPI(app)
+}
+
+func readOptionalLiteralFile(path string, flagName string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	b, err := readExplicitFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", flagName, err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func applyLiteralOrFile(payload map[string]any, key string, literal string, file string, literalFlag string, fileFlag string) error {
+	literal = strings.TrimSpace(literal)
+	file = strings.TrimSpace(file)
+	if literal != "" && file != "" {
+		return fmt.Errorf("%s cannot be combined with %s", literalFlag, fileFlag)
+	}
+	if literal != "" {
+		payload[key] = literal
+		return nil
+	}
+	fromFile, err := readOptionalLiteralFile(file, fileFlag)
+	if err != nil {
+		return err
+	}
+	if fromFile != "" {
+		payload[key] = fromFile
+	}
+	return nil
+}
+
+func newFlowsInterfacesUpsertCmd(app *App) *cobra.Command {
+	var source string
+	var kind string
+	var toolName string
+	var invocation string
+	var label string
+	var description string
+	var enabled bool
+	var inputSchemaFile string
+	var inputSchemaLiteral string
+	var outputSchemaFile string
+	var outputSchemaLiteral string
+	var responseFile string
+	var responseLiteral string
+	var path string
+	var method string
+	var auth string
+	var trustedMetadata bool
+
+	cmd := &cobra.Command{
+		Use:   "upsert <flow-slug> <interface-id>",
+		Short: "Upsert a draft flow interface and backing invocation",
+		Long: strings.TrimSpace(`
+Upsert a draft interface and generated invocation contract. Input schema files
+are EDN literals using the invocation input shape.
+
+Examples:
+  breyta flows interfaces upsert my-flow run --kind manual --input-schema ./inputs.edn
+  breyta flows interfaces upsert my-flow summarize --kind mcp --tool-name summarize --input-schema ./inputs.edn --output-schema ./output.edn
+`),
+		Args: cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces upsert")
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resolvedKind := strings.TrimSpace(kind)
+			resolvedToolName := strings.TrimSpace(toolName)
+			if strings.EqualFold(resolvedKind, "mcp") && resolvedToolName == "" {
+				resolvedToolName = strings.TrimSpace(args[1])
+			}
+			payload := pruneEmptyStrings(map[string]any{
+				"flowSlug":    strings.TrimSpace(args[0]),
+				"interfaceId": strings.TrimSpace(args[1]),
+				"source":      strings.TrimSpace(source),
+				"kind":        resolvedKind,
+				"toolName":    resolvedToolName,
+				"invocation":  strings.TrimSpace(invocation),
+				"label":       strings.TrimSpace(label),
+				"description": strings.TrimSpace(description),
+				"path":        strings.TrimSpace(path),
+				"method":      strings.TrimSpace(method),
+				"auth":        strings.TrimSpace(auth),
+			})
+			payload["enabled"] = enabled
+			if cmd.Flags().Changed("trusted-metadata") {
+				payload["trustedMetadata"] = trustedMetadata
+			}
+			if err := applyLiteralOrFile(payload, "inputSchema", inputSchemaLiteral, inputSchemaFile, "--input-schema-literal", "--input-schema"); err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := applyLiteralOrFile(payload, "outputSchema", outputSchemaLiteral, outputSchemaFile, "--output-schema-literal", "--output-schema"); err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := applyLiteralOrFile(payload, "responseLiteral", responseLiteral, responseFile, "--response-literal", "--response"); err != nil {
+				return writeErr(cmd, err)
+			}
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.upsert", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	cmd.Flags().StringVar(&kind, "kind", "manual", "Interface kind (manual|api|http|mcp)")
+	cmd.Flags().StringVar(&toolName, "tool-name", "", "MCP tool name; defaults to interface id for --kind mcp")
+	cmd.Flags().StringVar(&invocation, "invocation", "", "Backing invocation id; defaults to interface id/tool name")
+	cmd.Flags().StringVar(&label, "label", "", "Display label")
+	cmd.Flags().StringVar(&description, "description", "", "Interface and invocation description")
+	cmd.Flags().BoolVar(&enabled, "enabled", true, "Enable the interface")
+	cmd.Flags().StringVar(&inputSchemaFile, "input-schema", "", "Read invocation input schema EDN from file")
+	cmd.Flags().StringVar(&inputSchemaLiteral, "input-schema-literal", "", "Invocation input schema EDN literal")
+	cmd.Flags().StringVar(&outputSchemaFile, "output-schema", "", "Read interface output schema EDN from file")
+	cmd.Flags().StringVar(&outputSchemaLiteral, "output-schema-literal", "", "Interface output schema EDN literal")
+	cmd.Flags().StringVar(&responseFile, "response", "", "Read invocation response EDN from file")
+	cmd.Flags().StringVar(&responseLiteral, "response-literal", "", "Invocation response EDN literal")
+	cmd.Flags().StringVar(&path, "path", "", "HTTP interface path for --kind api/http")
+	cmd.Flags().StringVar(&method, "method", "", "HTTP interface method for --kind api/http")
+	cmd.Flags().StringVar(&auth, "auth", "", "Interface auth mode")
+	cmd.Flags().BoolVar(&trustedMetadata, "trusted-metadata", false, "Expose authored MCP metadata as trusted")
+	return cmd
+}
+
+func newFlowsInterfacesValidateCmd(app *App) *cobra.Command {
+	var source string
+	cmd := &cobra.Command{
+		Use:   "validate <flow-slug> <interface-id-or-tool-name>",
+		Short: "Validate a draft flow interface",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces validate")
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug":    strings.TrimSpace(args[0]),
+				"interfaceId": strings.TrimSpace(args[1]),
+				"source":      strings.TrimSpace(source),
+			}
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.validate", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	return cmd
+}
+
+func newFlowsInterfacesRemoveCmd(app *App) *cobra.Command {
+	var source string
+	cmd := &cobra.Command{
+		Use:   "remove <flow-slug> <interface-id-or-tool-name>",
+		Short: "Remove a draft flow interface",
+		Args:  cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces remove")
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug":    strings.TrimSpace(args[0]),
+				"interfaceId": strings.TrimSpace(args[1]),
+				"source":      strings.TrimSpace(source),
+			}
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.remove", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
 	return cmd
 }
 

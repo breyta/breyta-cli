@@ -113,7 +113,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta flows templates search \"<query>\" --limit 5`",
 		"`breyta resources search \"<query>\" --limit 5`",
 		"`--keyword-mode balanced` for natural-language questions over small resource sets",
-		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
+		"Build in small slices: contract -> `flows init` -> one `flows steps create/update` boundary -> `flows steps run` -> target checks -> scoped connection status -> interface run -> inspect output.",
 		"Persist large or unknown payloads with `:persist`",
 		"`:tier :ephemeral` on streaming `:http` steps",
 		"Keep functions map-oriented",
@@ -133,8 +133,8 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Say `draft verified` when only draft was exercised.") {
 		t.Fatalf("unexpected agents content (missing draft verified wording): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`") {
-		t.Fatalf("unexpected agents content (missing focused run-step proof guidance): %s", string(agents))
+	if !strings.Contains(string(agents), "`breyta flows steps run <slug> <step-id> --source draft`") {
+		t.Fatalf("unexpected agents content (missing focused step-first proof guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "verify live/install-shaped behavior or report `web UI not verified`") {
 		t.Fatalf("unexpected agents content (missing web UI risk wording): %s", string(agents))
@@ -229,8 +229,8 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only") {
 		t.Fatalf("unexpected readme content (missing configure-check run gate): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`") {
-		t.Fatalf("unexpected readme content (missing focused run-step proof guidance): %s", string(readme))
+	if !strings.Contains(string(readme), "`breyta flows steps run <slug> <step-id> --source draft`") {
+		t.Fatalf("unexpected readme content (missing focused step-first proof guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "`breyta flows run <slug> --input-file ./input.json`") ||
 		!strings.Contains(string(readme), "shell or OS argument limits") {

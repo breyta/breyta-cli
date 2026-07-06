@@ -327,8 +327,12 @@ Public discover notes:
 	cmd.AddCommand(newFlowsReleaseCheckCmd(app))
 	cmd.AddCommand(newFlowsPublicCmd(app))
 	cmd.AddCommand(newFlowsShowCmd(app))
+	cmd.AddCommand(newFlowsStatusCmd(app))
 	cmd.AddCommand(newFlowsDiffCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
+	cmd.AddCommand(newFlowsInitCmd(app))
+	cmd.AddCommand(newFlowsChecksCmd(app))
+	cmd.AddCommand(newFlowsConnectionsCmd(app))
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
@@ -337,6 +341,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsRunStepCmd(app))
 	cmd.AddCommand(newFlowsMetricsCmd(app))
 	cmd.AddCommand(newFlowsInterfacesCmd(app))
+	cmd.AddCommand(newFlowsSchedulesCmd(app))
 	cmd.AddCommand(newFlowsActivateCmd(app))
 	cmd.AddCommand(newFlowsInstallationsCmd(app))
 	cmd.AddCommand(newFlowsDiscoverCmd(app))
@@ -360,7 +365,13 @@ Public discover notes:
 	steps := &cobra.Command{Use: "steps", Short: "Manage flow steps"}
 	steps.AddCommand(newFlowsStepsListCmd(app))
 	steps.AddCommand(newFlowsStepsShowCmd(app))
+	steps.AddCommand(newFlowsStepsCreateCmd(app))
+	steps.AddCommand(newFlowsStepsUpdateCmd(app))
+	steps.AddCommand(newFlowsStepsRemoveCmd(app))
+	steps.AddCommand(newFlowsStepsRunCmd(app))
+	steps.AddCommand(newFlowsStepsChecksCmd(app))
 	cmd.AddCommand(steps)
+	cmd.AddCommand(newFlowsAgentsCmd(app))
 
 	versions := &cobra.Command{Use: "versions", Short: "Manage flow versions"}
 	versions.AddCommand(newFlowsVersionsListCmd(app))
@@ -1934,6 +1945,260 @@ func newFlowsStepsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition)")
+	return cmd
+}
+
+func newFlowsStepsCreateCmd(app *App) *cobra.Command {
+	var source string
+	var stepFile string
+	var stepType string
+	var title string
+	var description string
+
+	cmd := &cobra.Command{
+		Use:   "create <flow-slug> <step-id>",
+		Short: "Create a draft flow-local step (API mode)",
+		Long: strings.TrimSpace(`
+Create a packaged step entry in a flow draft. Pass a full step definition with
+--file, or scaffold the first draft entry with --type and --title.
+
+Examples:
+  breyta flows steps create my-flow tools/make-output --type function --title "Make output"
+  breyta flows steps create my-flow tools/make-output --file ./steps/make-output.edn
+`),
+		Args: cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows steps create requires API mode"))
+			}
+			return requireAPI(app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+				"stepId":   strings.TrimSpace(args[1]),
+				"source":   strings.TrimSpace(source),
+			}
+
+			if strings.TrimSpace(stepFile) != "" {
+				b, err := readExplicitFile(strings.TrimSpace(stepFile))
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
+				}
+				payload["stepLiteral"] = strings.TrimSpace(string(b))
+			} else {
+				if strings.TrimSpace(stepType) == "" {
+					return writeErr(cmd, errors.New("missing --type or --file"))
+				}
+				if strings.TrimSpace(title) == "" {
+					return writeErr(cmd, errors.New("missing --title or --file"))
+				}
+				payload["type"] = strings.TrimSpace(stepType)
+				payload["title"] = strings.TrimSpace(title)
+				if strings.TrimSpace(description) != "" {
+					payload["description"] = strings.TrimSpace(description)
+				}
+			}
+
+			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.create", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	cmd.Flags().StringVar(&stepFile, "file", "", "Read a full packaged step EDN literal from file")
+	cmd.Flags().StringVar(&stepType, "type", "", "Step type for scaffold mode")
+	cmd.Flags().StringVar(&title, "title", "", "Step title for scaffold mode")
+	cmd.Flags().StringVar(&description, "description", "", "Step description for scaffold mode")
+	return cmd
+}
+
+func newFlowsStepsUpdateCmd(app *App) *cobra.Command {
+	var source string
+	var stepFile string
+
+	cmd := &cobra.Command{
+		Use:   "update <flow-slug> <step-id> [path value]...",
+		Short: "Update a draft flow-local step (API mode)",
+		Long: strings.TrimSpace(`
+Update a packaged step entry in a flow draft. Pass a full step definition with
+--file, or provide dotted path/value pairs.
+
+Examples:
+  breyta flows steps update my-flow tools/make-output --file ./steps/make-output.edn
+  breyta flows steps update my-flow tools/make-output defaults.input.n 3 tool.description "Make output"
+`),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 2 {
+				return fmt.Errorf("accepts at least 2 arg(s), received %d", len(args))
+			}
+			if strings.TrimSpace(stepFile) != "" {
+				if len(args) != 2 {
+					return errors.New("--file cannot be combined with path/value edits")
+				}
+				return nil
+			}
+			editArgCount := len(args) - 2
+			if editArgCount == 0 {
+				return errors.New("missing path/value edits or --file")
+			}
+			if editArgCount%2 != 0 {
+				return errors.New("path/value edits must be provided in pairs")
+			}
+			return nil
+		},
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows steps update requires API mode"))
+			}
+			return requireAPI(app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+				"stepId":   strings.TrimSpace(args[1]),
+				"source":   strings.TrimSpace(source),
+			}
+
+			if strings.TrimSpace(stepFile) != "" {
+				b, err := readExplicitFile(strings.TrimSpace(stepFile))
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
+				}
+				payload["stepLiteral"] = strings.TrimSpace(string(b))
+			} else {
+				edits := make([]any, 0, (len(args)-2)/2)
+				for i := 2; i < len(args); i += 2 {
+					path := strings.TrimSpace(args[i])
+					value := args[i+1]
+					edit := map[string]any{
+						"path":  strings.TrimSpace(args[i]),
+						"value": args[i+1],
+					}
+					if path == "result.fnFile" {
+						b, err := readExplicitFile(strings.TrimSpace(value))
+						if err != nil {
+							return writeErr(cmd, fmt.Errorf("read result.fnFile: %w", err))
+						}
+						edit["fileContents"] = strings.TrimSpace(string(b))
+					}
+					edits = append(edits, edit)
+				}
+				payload["edits"] = edits
+			}
+
+			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.update", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	cmd.Flags().StringVar(&stepFile, "file", "", "Read a full packaged step EDN literal from file")
+	return cmd
+}
+
+func newFlowsStepsRemoveCmd(app *App) *cobra.Command {
+	var source string
+
+	cmd := &cobra.Command{
+		Use:   "remove <flow-slug> <step-id>",
+		Short: "Remove a draft flow-local step (API mode)",
+		Long: strings.TrimSpace(`
+Remove a packaged step entry from a flow draft. The backend rejects removal
+while the flow literal or another step toolset still references the step.
+
+Examples:
+  breyta flows steps remove my-flow tools/make-output --source draft
+`),
+		Args: cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, errors.New("flows steps remove requires API mode"))
+			}
+			return requireAPI(app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+				"stepId":   strings.TrimSpace(args[1]),
+				"source":   strings.TrimSpace(source),
+			}
+			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.remove", payload)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			return writeAPIResult(cmd, app, out, status)
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	return cmd
+}
+
+func newFlowsStepsRunCmd(app *App) *cobra.Command {
+	var source string
+	var version int
+	var paramsJSON string
+	var paramsFile string
+	var traceID string
+	var installationID string
+	var legacyProfileID string
+	var previewOpts stepResultPreviewOptions
+
+	cmd := &cobra.Command{
+		Use:   "run <flow-slug> <step-id>",
+		Short: "Run a registered flow step (API mode)",
+		Long: strings.TrimSpace(`
+Run a registered step from a selected flow definition without restating the step
+type or authored defaults.
+
+Examples:
+  breyta flows steps run my-flow make-output --source draft
+  breyta flows steps run my-flow make-output --params '{"input":{"n":2}}' --result-path rows.0
+  breyta flows steps run my-flow make-output --params-file ./params.json --result-file ./tmp/make-output-result.json
+`),
+		Args: cobra.ExactArgs(2),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return requireStepsAPI(cmd, app)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStepsRunCommand(cmd, app, stepsRunInvocation{
+				CommandName:       "flows.steps.run",
+				StepID:            args[1],
+				FlowSlug:          args[0],
+				Source:            source,
+				Version:           version,
+				ParamsJSON:        paramsJSON,
+				ParamsFile:        paramsFile,
+				TraceID:           traceID,
+				InstallationID:    installationID,
+				LegacyProfileID:   legacyProfileID,
+				Preview:           previewOpts,
+				RequireFlowForRun: true,
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow definition source (draft|latest|active)")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version")
+	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object; overrides authored defaults")
+	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
+	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
+	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
+	_ = cmd.Flags().MarkHidden("profile-id")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().StringVar(&previewOpts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
+	cmd.Flags().StringVar(&previewOpts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
+	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
+	cmd.Flags().IntVar(&previewOpts.MaxItems, "preview-items", stepResultPreviewDefaultItems, "Max map entries or vector items per resultPreview level")
+	cmd.Flags().IntVar(&previewOpts.MaxRunes, "preview-runes", stepResultPreviewDefaultRunes, "Max runes for resultPreview.value")
 	return cmd
 }
 
