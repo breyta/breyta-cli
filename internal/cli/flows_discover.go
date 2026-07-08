@@ -8,21 +8,29 @@ import (
 )
 
 func newFlowsDiscoverCmd(app *App) *cobra.Command {
+	return newDiscoverCmdWithPath(app, "breyta flows discover")
+}
+
+func newDiscoverCmd(app *App) *cobra.Command {
+	return newDiscoverCmdWithPath(app, "breyta discover")
+}
+
+func newDiscoverCmdWithPath(app *App, commandPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "discover",
 		Short: "Manage flow public discover metadata",
 		Long: `Public discover is the catalog of installable public flows shown in the web app discover surface.
 
-Use ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + ` to browse installables.
-Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` to control whether your own public flow
+Use ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + ` to browse installables.
+Use ` + "`" + commandPath + " update <slug> --public=true|false`" + ` to control whether your own public flow
 appears there.
 Add ` + "`--include-own`" + ` to list/search only when debugging whether your own public flow is indexed.
 
 Checklist to make your flow show up in Discover:
-1. Add ` + "`:discover {:public true}`" + ` to the flow definition (or run ` + "`breyta flows discover update <slug> --public=true`" + ` after push)
+1. Add ` + "`:discover {:public true}`" + ` to the flow definition (or run ` + "`" + commandPath + " update <slug> --public=true`" + ` after push)
 2. Push the flow
 3. Release/promote it so there is an installable live version
-4. Verify from another workspace with ` + "`breyta flows discover list`" + ` or ` + "`breyta flows discover search <query>`" + `
+4. Verify from another workspace with ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + `
 5. Open the Discover install dialog and run an installed target when install behavior matters;
    ` + "`/activate`" + ` only proves owner setup, not end-user installability
 
@@ -31,7 +39,7 @@ copy from. Approved examples are not the same thing as public installables.`,
 	}
 	cmd.AddCommand(newFlowsDiscoverListCmd(app))
 	cmd.AddCommand(newFlowsDiscoverSearchCmd(app))
-	cmd.AddCommand(newFlowsDiscoverUpdateCmd(app))
+	cmd.AddCommand(newFlowsDiscoverUpdateCmd(app, commandPath))
 	return cmd
 }
 
@@ -54,7 +62,7 @@ It is different from ` + "`breyta flows search`" + `, which only returns approve
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows discover list requires API mode"))
+				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
 			}
 			payload := map[string]any{
 				"limit":             limit,
@@ -99,7 +107,7 @@ Use ` + "`--include-own`" + ` only to debug whether your own public flow is inde
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows discover search requires API mode"))
+				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
 			}
 			payload := map[string]any{
 				"query":             strings.TrimSpace(args[0]),
@@ -127,7 +135,7 @@ Use ` + "`--include-own`" + ` only to debug whether your own public flow is inde
 	return cmd
 }
 
-func newFlowsDiscoverUpdateCmd(app *App) *cobra.Command {
+func newFlowsDiscoverUpdateCmd(app *App, commandPath string) *cobra.Command {
 	var public bool
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> --public <true|false>",
@@ -142,7 +150,7 @@ Typical authoring flow:
 1. add ` + "`:discover {:public true}`" + ` in the source file
 2. ` + "`breyta flows push --file ...`" + `
 3. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
-4. ` + "`breyta flows discover list`" + ` from another workspace to verify visibility
+4. ` + "`" + commandPath + " list`" + ` from another workspace to verify visibility
 5. Open the marketing app page at ` + "`https://breyta.ai/apps/<flow-slug>`" + `
 
 Use ` + "`breyta flows show <slug>`" + ` after updating to confirm stored metadata includes
@@ -152,7 +160,7 @@ Only a privileged workspace member can change this metadata.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("flows discover update requires API mode"))
+				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
 			}
 			return doAPICommand(cmd, app, "flows.discover.update", map[string]any{
 				"flowSlug": args[0],
@@ -163,4 +171,18 @@ Only a privileged workspace member can change this metadata.`,
 	cmd.Flags().BoolVar(&public, "public", false, "Public discover visibility state")
 	_ = cmd.MarkFlagRequired("public")
 	return cmd
+}
+
+func discoverRequiresAPIModeError(cmd *cobra.Command) error {
+	path := ""
+	if cmd != nil {
+		path = strings.TrimSpace(cmd.CommandPath())
+		if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
+			path = strings.TrimSpace(strings.TrimPrefix(path, strings.TrimSpace(root.Name())))
+		}
+	}
+	if path == "" {
+		path = "discover"
+	}
+	return errors.New(path + " requires API mode")
 }

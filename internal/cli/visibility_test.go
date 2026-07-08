@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDefaultRootHelpIncludesFeedback(t *testing.T) {
+func TestDefaultRootHelpIncludesPublicCommands(t *testing.T) {
 	cmd := NewRootCmd()
 	out := new(bytes.Buffer)
 	errOut := new(bytes.Buffer)
@@ -21,6 +21,9 @@ func TestDefaultRootHelpIncludesFeedback(t *testing.T) {
 	help := out.String()
 	if !strings.Contains(help, "Send feedback and issue reports") {
 		t.Fatalf("root help missing feedback command:\n%s", help)
+	}
+	if !strings.Contains(help, "Manage flow public discover metadata") {
+		t.Fatalf("root help missing discover command:\n%s", help)
 	}
 }
 

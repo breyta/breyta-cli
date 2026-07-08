@@ -76,6 +76,86 @@ func TestFlowsDiscoverList_UsesAPICommand(t *testing.T) {
 	}
 }
 
+func TestDiscoverListAlias_UsesAPICommand(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawIncludeOwn atomic.Value
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.discover.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if includeOwn, _ := args["includeOwn"].(bool); includeOwn {
+			sawIncludeOwn.Store(includeOwn)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"result": map[string]any{"hits": []any{}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"discover", "list",
+		"--include-own",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("discover list alias failed: %v\n%s", err, stdout)
+	}
+	if got, _ := sawIncludeOwn.Load().(bool); !got {
+		t.Fatalf("expected discover list alias includeOwn to be forwarded")
+	}
+}
+
+func TestDiscoverListAlias_RequiresAPIModeUsesAliasPath(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	_, stderr, err := runCLIArgs(t,
+		"--api", "",
+		"--api-key", "bsa_sak-test_secret",
+		"discover", "list",
+	)
+	if err == nil {
+		t.Fatalf("expected discover list alias without API mode to fail")
+	}
+	if !strings.Contains(stderr, "discover list requires API mode") {
+		t.Fatalf("expected discover alias API-mode error, got:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "flows discover list requires API mode") {
+		t.Fatalf("discover alias error should not use nested command path, got:\n%s", stderr)
+	}
+}
+
 func TestFlowsDiscoverSearch_UsesAPICommand(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -322,5 +402,46 @@ func TestFlowsDiscoverHelp_IncludesPublicFlowChecklist(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected flows discover help to include %q, got:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestDiscoverHelp_IncludesTopLevelCommands(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	stdout, _, err := runCLIArgs(t, "discover", "--help")
+	if err != nil {
+		t.Fatalf("discover --help failed: %v\n%s", err, stdout)
+	}
+	for _, want := range []string{
+		"Usage:\n  breyta discover [command]",
+		"breyta discover list",
+		"breyta discover search <query>",
+		"breyta discover update <slug> --public=true",
+		"list",
+		"search",
+		"update",
+		"More: breyta docs show playbook-public-and-marketplace",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected discover help to include %q, got:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "breyta flows discover list") {
+		t.Fatalf("top-level discover help should prefer the top-level command path, got:\n%s", stdout)
+	}
+
+	updateHelp, _, err := runCLIArgs(t, "discover", "update", "--help")
+	if err != nil {
+		t.Fatalf("discover update --help failed: %v\n%s", err, updateHelp)
+	}
+	if !strings.Contains(updateHelp, "breyta discover list") {
+		t.Fatalf("expected discover update help to use top-level list path, got:\n%s", updateHelp)
+	}
+	if strings.Contains(updateHelp, "breyta flows discover list") {
+		t.Fatalf("discover update help should not use nested list path, got:\n%s", updateHelp)
 	}
 }
