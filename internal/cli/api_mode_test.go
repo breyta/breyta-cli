@@ -1252,7 +1252,10 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 
 func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 	const resourceURI = "res://v1/ws/ws-acme/file/uploaded-hero"
+	const uploadSessionID = "sess-hero-card"
 	var sawInit, sawDirect, sawComplete bool
+	var directUploadSession string
+	var completeBody map[string]any
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/files/uploads/init":
@@ -1268,12 +1271,13 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 			if body["replace-existing"] != true {
 				t.Fatalf("expected stable --name upload to request replacement, got %#v", body["replace-existing"])
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"uri": resourceURI, "upload-session-id": uploadSessionID}})
 		case "/api/files/uploads/direct":
 			sawDirect = true
 			if got := r.URL.Query().Get("uri"); got != resourceURI {
 				t.Fatalf("expected direct upload uri %s, got %q", resourceURI, got)
 			}
+			directUploadSession = r.URL.Query().Get("upload-session-id")
 			body, _ := io.ReadAll(r.Body)
 			if string(body) != "png-bytes" {
 				t.Fatalf("expected uploaded body, got %q", string(body))
@@ -1281,10 +1285,9 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		case "/api/files/uploads/complete":
 			sawComplete = true
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["uri"] != resourceURI {
-				t.Fatalf("expected complete uri %s, got %#v", resourceURI, body["uri"])
+			_ = json.NewDecoder(r.Body).Decode(&completeBody)
+			if completeBody["uri"] != resourceURI {
+				t.Fatalf("expected complete uri %s, got %#v", resourceURI, completeBody["uri"])
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"contentType": "image/png", "sizeBytes": 9}})
 		default:
@@ -1316,6 +1319,12 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 	}
 	if !sawInit || !sawDirect || !sawComplete {
 		t.Fatalf("expected init/direct/complete calls, got init=%v direct=%v complete=%v", sawInit, sawDirect, sawComplete)
+	}
+	if directUploadSession != uploadSessionID {
+		t.Fatalf("expected direct upload-session-id %q, got %q", uploadSessionID, directUploadSession)
+	}
+	if got, _ := completeBody["upload-session-id"].(string); got != uploadSessionID {
+		t.Fatalf("expected complete upload-session-id %q, got %#v", uploadSessionID, completeBody["upload-session-id"])
 	}
 }
 

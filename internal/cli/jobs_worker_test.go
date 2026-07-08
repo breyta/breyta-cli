@@ -1246,8 +1246,10 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 	t.Setenv("BREYTA_JOB_ID", "job-1")
 	t.Setenv("BREYTA_JOB_RESULT_FILE", resultFile)
 
+	const uploadSessionID = "sess-attach-file"
 	var directUploadBody string
 	var directUploadQuery string
+	var directUploadSession string
 	var directUploadAuth string
 	var directUploadWorkspace string
 	var initCalled bool
@@ -1257,11 +1259,13 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 		case "/api/files/uploads/init":
 			initCalled = true
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"uri":        "res://v1/ws/ws-acme/file/file-1",
-				"upload-url": "",
+				"uri":               "res://v1/ws/ws-acme/file/file-1",
+				"upload-url":        "",
+				"upload-session-id": uploadSessionID,
 			})
 		case "/api/files/uploads/direct":
 			directUploadQuery = r.URL.Query().Get("uri")
+			directUploadSession = r.URL.Query().Get("upload-session-id")
 			directUploadAuth = r.Header.Get("Authorization")
 			directUploadWorkspace = r.Header.Get("X-Breyta-Workspace")
 			body, _ := io.ReadAll(r.Body)
@@ -1270,9 +1274,9 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 				t.Fatalf("expected markdown content type, got %q", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"uploaded":   true,
-				"uri":        "res://v1/ws/ws-acme/file/file-1",
-				"size-bytes": len(reportBody),
+				"uri":          "res://v1/ws/ws-acme/file/file-1",
+				"content-type": "text/markdown",
+				"size-bytes":   len(reportBody),
 			})
 		case "/api/files/uploads/complete":
 			completeCalled = true
@@ -1302,14 +1306,17 @@ func TestJobsWorkerAttachFile_FallsBackToAPIDirectUploadWhenSignedURLUnavailable
 		t.Fatalf("jobs worker attach-file failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	if !initCalled || !completeCalled {
-		t.Fatalf("expected init+complete upload flow, got init=%v complete=%v", initCalled, completeCalled)
+	if !initCalled || completeCalled {
+		t.Fatalf("expected init and direct-complete upload flow, got init=%v complete=%v", initCalled, completeCalled)
 	}
 	if directUploadBody != reportBody {
 		t.Fatalf("expected direct upload body %q, got %q", reportBody, directUploadBody)
 	}
 	if directUploadQuery != "res://v1/ws/ws-acme/file/file-1" {
 		t.Fatalf("expected direct upload uri query, got %q", directUploadQuery)
+	}
+	if directUploadSession != uploadSessionID {
+		t.Fatalf("expected direct upload-session-id %q, got %q", uploadSessionID, directUploadSession)
 	}
 	if directUploadAuth != "Bearer user-dev" {
 		t.Fatalf("expected bearer auth on direct upload, got %q", directUploadAuth)

@@ -1085,42 +1085,53 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 		return nil, errors.New("upload init response missing resource uri")
 	}
 
+	var completeData map[string]any
 	if jobsWorkerSupportsSignedUploadURL(uploadURL) {
 		if err := jobsWorkerUploadWithSignedURL(ctx, uploadURL, contentType, file, fileInfo.Size()); err != nil {
 			if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 				return nil, fmt.Errorf("signed upload failed (%v); reset upload file for direct upload fallback: %w", err, seekErr)
 			}
-			if directErr := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, file, fileInfo.Size()); directErr != nil {
+			directData, directComplete, directErr := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, uploadSessionID, contentType, file, fileInfo.Size())
+			if directErr != nil {
 				return nil, fmt.Errorf("signed upload failed (%v); direct upload fallback failed: %w", err, directErr)
+			}
+			if directComplete {
+				completeData = directData
 			}
 		}
 	} else {
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			return nil, fmt.Errorf("reset upload file for direct upload: %w", err)
 		}
-		if err := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, file, fileInfo.Size()); err != nil {
+		directData, directComplete, err := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, uploadSessionID, contentType, file, fileInfo.Size())
+		if err != nil {
 			return nil, err
+		}
+		if directComplete {
+			completeData = directData
 		}
 	}
 
-	completeBody := map[string]any{
-		"uri": resourceURI,
+	if completeData == nil {
+		completeBody := map[string]any{
+			"uri": resourceURI,
+		}
+		// Forward the init-issued upload session id so the server can locate the
+		// staged upload when replace-existing routes bytes through a staging path.
+		// Without it, complete cannot find the session and reports 404 "Uploaded
+		// object not found" for --name/--folder/--replace uploads.
+		if strings.TrimSpace(uploadSessionID) != "" {
+			completeBody["upload-session-id"] = uploadSessionID
+		}
+		completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, completeBody)
+		if err != nil {
+			return nil, err
+		}
+		if status >= 400 {
+			return nil, jobsWorkerRESTError(status, completeResp)
+		}
+		completeData = jobsWorkerRESTPayload(completeResp)
 	}
-	// Forward the init-issued upload session id so the server can locate the
-	// staged upload when replace-existing routes bytes through a staging path.
-	// Without it, complete cannot find the session and reports 404 "Uploaded
-	// object not found" for --name/--folder/--replace uploads.
-	if strings.TrimSpace(uploadSessionID) != "" {
-		completeBody["upload-session-id"] = uploadSessionID
-	}
-	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, completeBody)
-	if err != nil {
-		return nil, err
-	}
-	if status >= 400 {
-		return nil, jobsWorkerRESTError(status, completeResp)
-	}
-	completeData := jobsWorkerRESTPayload(completeResp)
 	result := map[string]any{
 		"resourceUri": resourceURI,
 		"contentType": firstNonBlankString(completeData["content-type"], completeData["contentType"], contentType),
@@ -1192,15 +1203,38 @@ func jobsWorkerUploadWithSignedURL(ctx context.Context, uploadURL string, conten
 	return nil
 }
 
-func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, contentType string, body io.Reader, contentLength int64) error {
+func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, uploadSessionID string, contentType string, body io.Reader, contentLength int64) (map[string]any, bool, error) {
 	query := url.Values{}
 	query.Set("uri", resourceURI)
+	if strings.TrimSpace(uploadSessionID) != "" {
+		query.Set("upload-session-id", strings.TrimSpace(uploadSessionID))
+	}
 	out, status, err := apiClient(app).DoRootRESTReader(ctx, http.MethodPut, "/api/files/uploads/direct", query, body, contentType, contentLength, nil)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	if status >= 400 {
-		return jobsWorkerRESTError(status, out)
+		return nil, false, jobsWorkerRESTError(status, out)
 	}
-	return nil
+	data := jobsWorkerRESTPayload(out)
+	return data, jobsWorkerDirectUploadCompleted(data), nil
+}
+
+func jobsWorkerDirectUploadCompleted(data map[string]any) bool {
+	if len(data) == 0 {
+		return false
+	}
+	if strings.TrimSpace(toString(data["content-type"])) != "" || strings.TrimSpace(toString(data["contentType"])) != "" {
+		return true
+	}
+	if _, ok := data["adapter"]; ok {
+		return true
+	}
+	if _, ok := data["type"]; ok {
+		return true
+	}
+	if _, ok := data["resource"]; ok {
+		return true
+	}
+	return false
 }
