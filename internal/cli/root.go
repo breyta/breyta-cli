@@ -340,6 +340,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newFlowsCmd(app))
+	cmd.AddCommand(newDiscoverCmd(app))
 	cmd.AddCommand(newRunsCmd(app))
 	cmd.AddCommand(newStepsCmd(app))
 	cmd.AddCommand(newConnectionsCmd(app))
@@ -549,6 +550,8 @@ func moreHintForCommand(cmd *cobra.Command) string {
 		return ""
 	}
 	switch parts[0] {
+	case "discover":
+		return rootName + " docs show playbook-public-and-marketplace"
 	case "flows":
 		if len(parts) == 1 {
 			return rootName + " docs show playbook-author-flows"
