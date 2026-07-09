@@ -2546,6 +2546,65 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 	}
 }
 
+func TestFlowsInstallations_List_AllWithoutFlowSlugSendsAllFlowsFlag(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.installations.list" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if _, ok := args["flowSlug"]; ok {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flowSlug"}})
+			return
+		}
+		if args["allFlows"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing allFlows"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"scope": "workspace",
+				"items": []any{
+					map[string]any{
+						"profileId":                "prof-public",
+						"flowSlug":                 "public-flow",
+						"sourceWorkspaceId":        "ws-public",
+						"sourceFlowSlug":           "public-flow",
+						"sourceAppId":              "suite",
+						"sourceAppFlowSlugs":       []any{"public-flow"},
+						"sourceProfileId":          "prof-source",
+						"sourceAppPrimaryFlowSlug": "public-flow",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "list",
+		"--all",
+	)
+	if err != nil {
+		t.Fatalf("flows installations list --all without flow slug failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

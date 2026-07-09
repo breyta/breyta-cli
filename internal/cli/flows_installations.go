@@ -47,27 +47,40 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 	var sourceWorkspaceID string
 	var sourceFlowSlug string
 	cmd := &cobra.Command{
-		Use:   "list <flow-slug>",
-		Short: "List installations for a flow",
-		Args:  cobra.ExactArgs(1),
+		Use:   "list [flow-slug]",
+		Short: "List flow installations",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows installations list requires API mode"))
+			}
+			sourceWorkspaceID = strings.TrimSpace(sourceWorkspaceID)
+			sourceFlowSlug = strings.TrimSpace(sourceFlowSlug)
+			if len(args) == 0 {
+				if !all {
+					return writeErr(cmd, errors.New("flows installations list requires <flow-slug> unless --all is set"))
+				}
+				if sourceWorkspaceID != "" || sourceFlowSlug != "" {
+					return writeErr(cmd, errors.New("--source-workspace-id and --source-flow-slug require <flow-slug>"))
+				}
+				return doAPICommand(cmd, app, "flows.installations.list", map[string]any{
+					"allFlows": true,
+				})
 			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if all {
 				payload["all"] = true
 			}
-			if strings.TrimSpace(sourceWorkspaceID) != "" {
-				payload["sourceWorkspaceId"] = strings.TrimSpace(sourceWorkspaceID)
+			if sourceWorkspaceID != "" {
+				payload["sourceWorkspaceId"] = sourceWorkspaceID
 			}
-			if strings.TrimSpace(sourceFlowSlug) != "" {
-				payload["sourceFlowSlug"] = strings.TrimSpace(sourceFlowSlug)
+			if sourceFlowSlug != "" {
+				payload["sourceFlowSlug"] = sourceFlowSlug
 			}
 			return doAPICommand(cmd, app, "flows.installations.list", payload)
 		},
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "List all installations for the flow (creator-only)")
+	cmd.Flags().BoolVar(&all, "all", false, "List all workspace installations when no flow is provided; with a flow, list all users for that flow (creator-only)")
 	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id for cross-workspace listing")
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override")
 	return cmd
