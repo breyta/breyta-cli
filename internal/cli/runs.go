@@ -568,23 +568,21 @@ Use runs start only when integrating with older scripts.
 						// Important UX: still return the workflowId so callers can continue
 						// with `breyta runs show <workflow-id>` or inspect waits.
 						timeoutOut := map[string]any{
-							"ok": false,
-							"error": map[string]any{
-								"message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
-								"details": map[string]any{
-									"workflowId": workflowID,
-									"timeoutMs":  timeout.Milliseconds(),
-									"pollMs":     poll.Milliseconds(),
-								},
-							},
+							"ok": true,
 							"meta": map[string]any{
 								"timedOut": true,
-								"hint":     "Run may still be active. Check runs show or waits list.",
+								"hint":     "The wait deadline was reached before the run became terminal. The run may still complete; check runs show or waits list.",
 							},
 							"data": map[string]any{
 								"workflowId": workflowID,
-								"start":      startResp,
-								"lastPoll":   execResp,
+								"status":     statusStr,
+								"wait": map[string]any{
+									"timedOut":  true,
+									"timeoutMs": timeout.Milliseconds(),
+									"pollMs":    poll.Milliseconds(),
+								},
+								"start":    startResp,
+								"lastPoll": execResp,
 							},
 						}
 						return writeFinal(timeoutOut, 200)
@@ -617,7 +615,7 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Named invocation input contract (API mode only)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout (API mode only)")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout (API mode only); use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
 	must(cmd.MarkFlagRequired("flow"))
 	cmd.Hidden = true

@@ -404,6 +404,62 @@ func TestRunsStart_WaitForwardsInstallationIDToPollAndFinalHydration(t *testing.
 	}
 }
 
+func TestRunsStart_WaitTimeoutReturnsInProgressEnvelope(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-start-slow",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-runs-start-slow",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err != nil {
+		t.Fatalf("expected runs start --wait timeout to return an in-progress envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"ok":true`) ||
+		!strings.Contains(stdout, `"timedOut":true`) ||
+		!strings.Contains(stdout, `"workflowId":"wf-runs-start-slow"`) {
+		t.Fatalf("expected in-progress timeout envelope, got:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_SendsInvocation(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -3624,13 +3680,16 @@ func TestFlowsRun_BuyerTestWaitTimeoutPreservesRetryIntent(t *testing.T) {
 		"--poll", "1ms",
 		"--timeout", "1ms",
 	)
-	if err == nil {
-		t.Fatalf("expected flows run --buyer-test --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	if err != nil {
+		t.Fatalf("expected flows run --buyer-test --wait timeout to return an in-progress envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"ok":true`) {
+		t.Fatalf("expected timeout envelope to remain ok=true while run is still active, got:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, `"timedOut":true`) {
 		t.Fatalf("expected timeout metadata, got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run paid-public-flow --buyer-test --installation-id prof-buyer-test --wait --timeout 5m") {
+	if !strings.Contains(stdout, "breyta flows run paid-public-flow --buyer-test --installation-id prof-buyer-test --wait --timeout 15m") {
 		t.Fatalf("expected buyer-test retry command to preserve explicit intent, got:\n%s", stdout)
 	}
 }
@@ -4228,13 +4287,16 @@ func TestFlowsRunStep_WaitTimeoutSuggestsRunStep(t *testing.T) {
 		"--poll", "1ms",
 		"--timeout", "1ms",
 	)
-	if err == nil {
-		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	if err != nil {
+		t.Fatalf("expected flows run-step --wait timeout to return an in-progress envelope, got err=%v\nstdout=%s", err, stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 5m") {
+	if !strings.Contains(stdout, `"ok":true`) || !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected ok timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --target draft --wait --timeout 15m") {
 		t.Fatalf("expected run-step longer-timeout next command, got:\n%s", stdout)
 	}
-	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 5m") {
+	if strings.Contains(stdout, "breyta flows run ai-social-publisher --wait --timeout 15m") {
 		t.Fatalf("did not expect unsafe whole-flow retry hint, got:\n%s", stdout)
 	}
 }
@@ -4287,10 +4349,13 @@ func TestFlowsRunStep_WaitTimeoutPreservesInputInRetryHint(t *testing.T) {
 		"--poll", "1ms",
 		"--timeout", "1ms",
 	)
-	if err == nil {
-		t.Fatalf("expected flows run-step --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	if err != nil {
+		t.Fatalf("expected flows run-step --wait timeout to return an in-progress envelope, got err=%v\nstdout=%s", err, stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 5m") {
+	if !strings.Contains(stdout, `"ok":true`) || !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected ok timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta flows run-step ai-social-publisher draft-platform-posts --invocation manual-test --input '{\\\"count\\\":2,\\\"topic\\\":\\\"launch\\\"}' --target live --wait --timeout 15m") {
 		t.Fatalf("expected run-step retry command to preserve invocation and input, got:\n%s", stdout)
 	}
 }
@@ -6056,11 +6121,17 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 		"--poll", "1ms",
 		"--timeout", "1ms",
 	)
-	if err == nil {
-		t.Fatalf("expected flows run --wait to exit nonzero when the wait times out\nstdout=%s", stdout)
+	if err != nil {
+		t.Fatalf("expected flows run --wait timeout to return an in-progress envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"ok":true`) {
+		t.Fatalf("expected timeout envelope to remain ok=true while run is still active, got:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, `"timedOut":true`) {
 		t.Fatalf("expected timeout metadata, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"wait":{"pollMs":1,"timedOut":true,"timeoutMs":1}`) {
+		t.Fatalf("expected structured wait timeout data, got:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, `"stepId":"slow-step"`) {
 		t.Fatalf("expected hydrated compact step snapshot, got:\n%s", stdout)
@@ -6068,7 +6139,7 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 	if strings.Contains(stdout, "resultPreview") {
 		t.Fatalf("expected timeout snapshot to strip verbose step details, got:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 5m") {
+	if !strings.Contains(stdout, "breyta flows run flow-slow --target draft --wait --timeout 15m") {
 		t.Fatalf("expected longer-timeout next command, got:\n%s", stdout)
 	}
 }

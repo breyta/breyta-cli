@@ -294,7 +294,7 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	}
 }
 
-func TestFlowRunWaitTimeoutDefaultsToFiveMinutes(t *testing.T) {
+func TestFlowRunWaitTimeoutDefaultsToFifteenMinutes(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {

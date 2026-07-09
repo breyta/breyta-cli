@@ -14,7 +14,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultFlowRunWaitTimeout = 5 * time.Minute
+const (
+	defaultFlowRunWaitTimeout     = 15 * time.Minute
+	defaultFlowRunWaitTimeoutFlag = "15m"
+)
 
 func asInt(v any) int {
 	switch t := v.(type) {
@@ -153,7 +156,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any, e
 	if version := asInt(payload["version"]); version > 0 {
 		parts = append(parts, "--version", strconv.Itoa(version))
 	}
-	parts = append(parts, "--wait", "--timeout", "5m")
+	parts = append(parts, "--wait", "--timeout", defaultFlowRunWaitTimeoutFlag)
 	return strings.Join(parts, " ")
 }
 
@@ -351,24 +354,22 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				nextCommands = append(nextCommands, retryCommand)
 			}
 			timeoutOut := map[string]any{
-				"ok": false,
-				"error": map[string]any{
-					"message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
-					"details": map[string]any{
-						"workflowId": workflowID,
-						"timeoutMs":  timeout.Milliseconds(),
-						"pollMs":     poll.Milliseconds(),
-					},
-				},
+				"ok": true,
 				"meta": map[string]any{
 					"timedOut":     true,
-					"hint":         "The run may still be in progress. Inspect the workflow id, or use a longer --timeout on the next waited run.",
+					"hint":         "The wait deadline was reached before the run became terminal. The run may still complete; inspect the workflow id, or use a longer --timeout on the next waited run.",
 					"nextCommands": nextCommands,
 				},
 				"data": map[string]any{
 					"workflowId": workflowID,
-					"start":      startResp,
-					"lastPoll":   lastPoll,
+					"status":     s,
+					"wait": map[string]any{
+						"timedOut":  true,
+						"timeoutMs": timeout.Milliseconds(),
+						"pollMs":    poll.Milliseconds(),
+					},
+					"start":    startResp,
+					"lastPoll": lastPoll,
 				},
 			}
 			if err := writeFinal(timeoutOut, 200); err != nil {
@@ -622,7 +623,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
 	cmd.Flags().BoolVar(&buyerTest, "buyer-test", false, "Buyer Test Mode: run the specified Buyer Test installation id")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout; use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
@@ -726,7 +727,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().StringVar(&inputFile, "input-file", "", "Read JSON object input from file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout; use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
