@@ -405,6 +405,34 @@ func TestFlowsPublicCommand_VisibleInDefaultHelp(t *testing.T) {
 	}
 }
 
+func TestPublicVisibilityHelpHidesBareFlagSentinelAndShowsPlaybook(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	for _, args := range [][]string{
+		{"flows", "discover", "update", "--help"},
+		{"flows", "marketplace", "update", "--help"},
+		{"flows", "public", "publish", "--help"},
+	} {
+		stdout, _, err := runCLIArgs(t, args...)
+		if err != nil {
+			t.Fatalf("help failed for %v: %v\n%s", args, err, stdout)
+		}
+		if strings.Contains(stdout, "__breyta_bare_true__") {
+			t.Fatalf("help for %v leaked bare flag sentinel:\n%s", args, stdout)
+		}
+		if args[1] != "public" && !strings.Contains(stdout, "true|false") {
+			t.Fatalf("expected true|false guidance for %v:\n%s", args, stdout)
+		}
+		if !strings.Contains(stdout, "playbook-public-and-marketplace") {
+			t.Fatalf("expected public playbook hint for %v:\n%s", args, stdout)
+		}
+	}
+}
+
 func TestFlowsPublicDelist_UpdatesAllPublicSurfaces(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

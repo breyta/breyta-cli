@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type App struct {
@@ -43,6 +44,28 @@ type guidedCLIError struct {
 }
 
 const allowAPIEnvOverrideAnnotation = "allow_api_env_override"
+
+func withPublicFlagHelpValues(cmd *cobra.Command, help func(*cobra.Command, []string), args []string) {
+	if cmd == nil || help == nil {
+		help(cmd, args)
+		return
+	}
+	originals := map[string]string{}
+	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		if flag.NoOptDefVal == cliBareTrueValue {
+			originals[flag.Name] = flag.NoOptDefVal
+			flag.NoOptDefVal = "true"
+		}
+	})
+	defer func() {
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			if original, ok := originals[flag.Name]; ok {
+				flag.NoOptDefVal = original
+			}
+		})
+	}()
+	help(cmd, args)
+}
 
 func (e *guidedCLIError) Error() string {
 	return strings.TrimSpace(e.message)
@@ -93,7 +116,7 @@ func NewRootCmd() *cobra.Command {
 		}
 		configureVisibility(target, app)
 		configureFlagVisibility(target, app)
-		defaultHelp(c, args)
+		withPublicFlagHelpValues(c, defaultHelp, args)
 		more := moreHintForCommand(c)
 		if more != "" {
 			_, _ = fmt.Fprintf(c.OutOrStdout(), "\nDocs: %s\nMore: %s\nHelp: %s\n", docsHintForCommand(c), more, helpHintForCommand(c))
@@ -561,7 +584,7 @@ func moreHintForCommand(cmd *cobra.Command) string {
 			return rootName + " docs show playbook-debug-and-verify"
 		case "release", "promote", "installations", "configure":
 			return rootName + " docs show playbook-release-and-install"
-		case "discover", "marketplace":
+		case "discover", "marketplace", "public":
 			return rootName + " docs show playbook-public-and-marketplace"
 		case "lint", "push", "pull", "show", "search", "grep", "templates", "validate", "diff", "update":
 			return rootName + " docs show playbook-author-flows"
