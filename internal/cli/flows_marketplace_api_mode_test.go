@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -85,7 +86,7 @@ func TestFlowsMarketplaceUpdate_UsesAPICommand(t *testing.T) {
 		"--api", srv.URL,
 		"--api-key", "sa-dev",
 		"flows", "marketplace", "update", "market-flow",
-		"--visible=true",
+		"--visible",
 		"--pretty",
 	)
 	if err != nil {
@@ -191,6 +192,23 @@ func TestFlowsMarketplaceUpdate_AcceptsSpaceSeparatedVisibleFalse(t *testing.T) 
 	}
 }
 
+func TestFlowsPublicCommand_VisibleInDefaultHelp(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	stdout, _, err := runCLIArgs(t, "flows", "--help")
+	if err != nil {
+		t.Fatalf("flows help failed: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "public") ||
+		!strings.Contains(stdout, "Inspect and manage public-flow visibility") {
+		t.Fatalf("expected flows help to expose public command, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsPublicDelist_UpdatesAllPublicSurfaces(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -267,6 +285,61 @@ func TestFlowsPublicDelist_UpdatesAllPublicSurfaces(t *testing.T) {
 	meta, _ := out["meta"].(map[string]any)
 	if meta != nil && meta["publicAppUrl"] != nil {
 		t.Fatalf("did not expect public app URL hint while delisting, got %#v", meta)
+	}
+}
+
+func TestFlowsPublicDelist_FailsOnPartialUpdateWarning(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"public": map[string]any{
+					"discoverPublic":     false,
+					"marketplaceVisible": false,
+				},
+			},
+			"meta": map[string]any{
+				"publish": map[string]any{
+					"ok":        false,
+					"warning":   "publish_failed",
+					"eventName": "flow.marketplace.published",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "delist", "market-flow",
+		"--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected partial public update warning to fail\n%s", stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	if out["ok"] != false {
+		t.Fatalf("expected transformed ok=false, got %#v", out["ok"])
+	}
+	errMap, _ := out["error"].(map[string]any)
+	if errMap["code"] != "partial_public_update_failed" {
+		t.Fatalf("expected partial failure error, got %#v", errMap)
 	}
 }
 

@@ -303,13 +303,16 @@ Advanced install lifecycle:
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Browse public installables for this workspace: breyta flows discover list
 - Search public installables for this workspace: breyta flows discover search <query>
-- Update public discover visibility explicitly: breyta flows discover update <slug> --public=true
+- Publish all public surfaces explicitly after approval: breyta flows public publish <slug>
+- Delist all public surfaces together: breyta flows public delist <slug>
+- Lower-level Discover-only visibility update: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List legacy installation triggers: breyta flows installations triggers <installation-id>
 
 Public discover notes:
 - :discover {:public true} authored in a flow file persists as stored metadata on push.
-- Use breyta flows discover update <slug> --public=true|false to change it explicitly later.
+- Use breyta flows public publish <slug> or breyta flows public delist <slug> to change marketplace, Discover, and public app-page visibility together.
+- Use breyta flows discover update <slug> --public=true|false only when intentionally changing the lower-level Discover flag.
 - Public discover requires explicit discover visibility and a released/installable flow.
 - Public app marketing pages use https://breyta.ai/apps/<flow-slug>.
 - breyta flows search "<query>" --limit 5 searches actual workspace flow metadata. Approved reusable templates live under breyta flows templates search "<query>" --limit 5, and public installables use breyta flows discover search "<query>".
@@ -1413,7 +1416,8 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Update mutable flow metadata such as name, description, publish description, discover card media, tags, grouping, and display icon selection.
 
-Public discover visibility is managed separately with ` + "`breyta flows discover update <slug> --public=true|false`" + `.
+Public visibility across marketplace, Discover, and the public app page is managed with ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + `.
+Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` only for lower-level Discover-only changes.
 Use ` + "`tags`" + ` here for ordinary metadata/category labels.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through

@@ -897,6 +897,34 @@ func newFlowsPublicDelistCmd(app *App) *cobra.Command {
 	)
 }
 
+func markPublicUpdatePartialFailure(out map[string]any) {
+	if out == nil || !isOK(out) {
+		return
+	}
+	meta := mapStringAny(out["meta"])
+	if meta == nil {
+		return
+	}
+	failed := make([]string, 0, 2)
+	for _, key := range []string{"index", "publish"} {
+		warning := mapStringAny(meta[key])
+		if ok, okType := warning["ok"].(bool); okType && !ok {
+			failed = append(failed, key)
+		}
+	}
+	if len(failed) == 0 {
+		return
+	}
+	out["ok"] = false
+	out["error"] = map[string]any{
+		"code":    "partial_public_update_failed",
+		"message": "Public visibility metadata changed, but " + strings.Join(failed, " and ") + " follow-up failed. Retry the command.",
+		"details": map[string]any{
+			"failed": failed,
+		},
+	}
+}
+
 func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short string, public bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     use,
@@ -904,10 +932,17 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 		Short:   short,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return doAPICommand(cmd, app, "flows.public.update", map[string]any{
-				"flowSlug": strings.TrimSpace(args[0]),
-				"public":   public,
-			})
+			return dispatchFlowAPICommandWithTransform(
+				cmd,
+				app,
+				"flows.public.update",
+				map[string]any{
+					"flowSlug": strings.TrimSpace(args[0]),
+					"public":   public,
+				},
+				false,
+				markPublicUpdatePartialFailure,
+			)
 		},
 	}
 	return cmd

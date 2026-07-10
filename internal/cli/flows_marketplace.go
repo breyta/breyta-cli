@@ -25,22 +25,25 @@ func newFlowsMarketplaceUpdateCmd(app *App) *cobra.Command {
 To publish or delist a flow across all public surfaces at once, use
 ` + "`breyta flows public publish <flow-slug>`" + ` or
 ` + "`breyta flows public delist <flow-slug>`" + `.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows marketplace update requires API mode"))
 			}
-			visibleValue, err := parseCLITrueFalseFlag("visible", visible)
+			flowSlug, visibleValue, err := parseFlowSlugAndCLITrueFalseFlag("visible", visible, args, cmd.Flags().Changed("visible"))
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			return doAPICommand(cmd, app, "flows.marketplace.update", map[string]any{
-				"flowSlug": args[0],
+				"flowSlug": flowSlug,
 				"visible":  visibleValue,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&visible, "visible", "", "Marketplace visibility state (true|false)")
+	if f := cmd.Flags().Lookup("visible"); f != nil {
+		f.NoOptDefVal = "true"
+	}
 	_ = cmd.MarkFlagRequired("visible")
 	return cmd
 }

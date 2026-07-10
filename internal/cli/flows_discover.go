@@ -162,22 +162,25 @@ Use ` + "`breyta flows show <slug>`" + ` after updating to confirm stored metada
 ` + "`discover.public`" + `.
 
 Only a privileged workspace member can change this metadata.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
 			}
-			publicValue, err := parseCLITrueFalseFlag("public", public)
+			flowSlug, publicValue, err := parseFlowSlugAndCLITrueFalseFlag("public", public, args, cmd.Flags().Changed("public"))
 			if err != nil {
 				return writeErr(cmd, err)
 			}
 			return doAPICommand(cmd, app, "flows.discover.update", map[string]any{
-				"flowSlug": args[0],
+				"flowSlug": flowSlug,
 				"public":   publicValue,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&public, "public", "", "Public discover visibility state (true|false)")
+	if f := cmd.Flags().Lookup("public"); f != nil {
+		f.NoOptDefVal = "true"
+	}
 	_ = cmd.MarkFlagRequired("public")
 	return cmd
 }

@@ -217,16 +217,19 @@ If the flow should appear in public discover/install surfaces, make that explici
 ```bash
 # Either author this in the flow file:
 # :discover {:public true}
+# :marketplace {:visible true}
 #
-# Or set it explicitly after push/release:
-breyta discover update <slug> --public=true
+# Or set all public surfaces explicitly after push:
+breyta flows public publish <slug>
 ```
 
-Public discover visibility is stored flow metadata. A released version with an
-installable interface is required before the flow can be exposed in discover.
-This discover catalog is separate from `breyta flows search`, which searches
-actual workspace flow metadata, and from `breyta flows templates search`, which
-searches approved reusable templates to inspect and copy from.
+Use `breyta flows public delist <slug>` to remove the flow from marketplace,
+Discover, and public app-page surfaces together. Public visibility is stored flow
+metadata. A released version with an installable interface is required before the
+flow can be exposed in Discover. This Discover catalog is separate from
+`breyta flows search`, which searches actual workspace flow metadata, and from
+`breyta flows templates search`, which searches approved reusable templates to
+inspect and copy from.
 
 Installable-flow smoke path:
 

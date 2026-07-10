@@ -298,7 +298,7 @@ func TestFlowsDiscoverUpdate_UsesAPICommand(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "discover", "update", "discover-flow",
-		"--public=true",
+		"--public",
 		"--pretty",
 	)
 	if err != nil {

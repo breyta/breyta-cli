@@ -393,7 +393,8 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
 - do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
 - for installable/public flows, verify Discover install plus an installed run when install behavior matters
-- installable checklist: explicit author approval, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- installable checklist: explicit author approval, public visibility via ` + "`breyta flows public publish <slug>`" + ` or both source flags, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- delist all public surfaces together with ` + "`breyta flows public delist <slug>`" + `; use lower-level Discover/marketplace update commands only for intentional single-flag changes
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
