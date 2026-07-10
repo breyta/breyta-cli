@@ -226,6 +226,121 @@ func TestFlowsMarketplaceUpdate_RejectsAmbiguousBooleanLikeSlugAndSpaceSeparated
 	}
 }
 
+func TestFlowsMarketplaceUpdate_RejectsExplicitVisibleFalseWithExtraBooleanValue(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var calledAPI atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledAPI.Store(true)
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "market-flow",
+		"--visible=false", "true",
+		"--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected duplicate boolean command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if calledAPI.Load() {
+		t.Fatalf("duplicate flag value command should not reach API")
+	}
+	if !strings.Contains(stderr, "extra boolean argument") &&
+		!strings.Contains(stdout, "extra boolean argument") {
+		t.Fatalf("expected extra boolean error, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestFlowsMarketplaceUpdate_RejectsExplicitVisibleTrueWithExtraBooleanValue(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var calledAPI atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledAPI.Store(true)
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "market-flow",
+		"--visible=true", "false",
+		"--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected duplicate boolean command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if calledAPI.Load() {
+		t.Fatalf("duplicate flag value command should not reach API")
+	}
+	if !strings.Contains(stderr, "extra boolean argument") &&
+		!strings.Contains(stdout, "extra boolean argument") {
+		t.Fatalf("expected extra boolean error, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestFlowsMarketplaceUpdate_AllowsSingleLetterSlugWithSpaceSeparatedVisibleFalse(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawPayload atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if slug, _ := args["flowSlug"].(string); slug == "t" {
+			if v, ok := args["visible"].(bool); ok && !v {
+				sawPayload.Store(true)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"marketplace": map[string]any{"visible": false},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "t",
+		"--visible", "false",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows marketplace update failed: %v\n%s", err, stdout)
+	}
+	if !sawPayload.Load() {
+		t.Fatalf("expected flowSlug=t and visible=false to be sent in command args")
+	}
+}
+
 func TestFlowsMarketplaceUpdate_AcceptsBooleanLikeSlugWithExplicitVisibleValue(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

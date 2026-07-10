@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -175,6 +176,23 @@ func dispatchFlowAPICommandWithTransform(cmd *cobra.Command, app *App, command s
 		return writeErr(cmd, err)
 	}
 	transform(out)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, err)
+	}
+	return nil
+}
+
+func dispatchFlowAPICommandWithTransformAndTimeout(cmd *cobra.Command, app *App, command string, payload map[string]any, timeout time.Duration, transform func(map[string]any)) error {
+	if useDoAPICommandFn {
+		return doAPICommandFn(cmd, app, command, payload)
+	}
+	out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, command, payload, timeout)
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	if transform != nil {
+		transform(out)
+	}
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)
 	}

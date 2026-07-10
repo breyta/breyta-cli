@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -854,8 +855,9 @@ func newFlowsPublicCmd(app *App) *cobra.Command {
 		Long: `Inspect public-flow readiness and manage all public listing surfaces.
 
 Use publish or delist when you want marketplace visibility, Discover listing,
-and the public app page to move together. Delist disables free linked public
-installs; paid buyer entitlements remain active.`,
+and the public app page to move together. Push and release a flow before
+publishing it. Delist disables free linked public installs; paid buyer
+entitlements remain active.`,
 	}
 	cmd.AddCommand(newFlowsPublicPreflightCmd(app))
 	cmd.AddCommand(newFlowsPublicPublishCmd(app))
@@ -931,9 +933,15 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 		Use:     use,
 		Aliases: aliases,
 		Short:   short,
-		Args:    cobra.ExactArgs(1),
+		Long: func() string {
+			if public {
+				return "Publish a flow across all public surfaces. Push and release the flow before publishing it."
+			}
+			return "Remove a flow from all public surfaces."
+		}(),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return dispatchFlowAPICommandWithTransform(
+			return dispatchFlowAPICommandWithTransformAndTimeout(
 				cmd,
 				app,
 				"flows.public.update",
@@ -941,7 +949,7 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 					"flowSlug": strings.TrimSpace(args[0]),
 					"public":   public,
 				},
-				false,
+				5*time.Minute,
 				markPublicUpdatePartialFailure,
 			)
 		},

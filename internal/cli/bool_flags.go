@@ -2,15 +2,21 @@ package cli
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
+const cliBareTrueValue = "__breyta_bare_true__"
+
 func parseCLITrueFalseFlag(name, raw string) (bool, error) {
 	value := strings.TrimSpace(raw)
-	if parsed, err := strconv.ParseBool(value); err == nil {
-		return parsed, nil
-	} else {
+	switch {
+	case strings.EqualFold(value, cliBareTrueValue):
+		return true, nil
+	case strings.EqualFold(value, "true"):
+		return true, nil
+	case strings.EqualFold(value, "false"):
+		return false, nil
+	default:
 		return false, fmt.Errorf("invalid --%s %q (use true or false)", name, raw)
 	}
 }
@@ -37,6 +43,9 @@ func parseFlowSlugAndCLITrueFalseFlag(name, raw string, args []string, flagChang
 			flowSlug = strings.TrimSpace(args[1])
 			value = args[0]
 		case secondIsBool:
+			if !strings.EqualFold(strings.TrimSpace(raw), cliBareTrueValue) {
+				return "", false, fmt.Errorf("ambiguous --%s value and extra boolean argument %q (use --%s=true or --%s=false)", name, args[1], name, name)
+			}
 			value = args[1]
 		default:
 			return "", false, fmt.Errorf("unexpected extra argument %q", args[1])
@@ -50,6 +59,6 @@ func parseFlowSlugAndCLITrueFalseFlag(name, raw string, args []string, flagChang
 }
 
 func isCLITrueFalseLiteral(raw string) bool {
-	_, err := strconv.ParseBool(strings.TrimSpace(raw))
-	return err == nil
+	value := strings.TrimSpace(raw)
+	return strings.EqualFold(value, "true") || strings.EqualFold(value, "false")
 }

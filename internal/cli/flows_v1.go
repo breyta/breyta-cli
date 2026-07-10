@@ -303,7 +303,7 @@ Advanced install lifecycle:
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Browse public installables for this workspace: breyta flows discover list
 - Search public installables for this workspace: breyta flows discover search <query>
-- Publish all public surfaces explicitly after approval: breyta flows public publish <slug>
+- Publish all public surfaces explicitly after approval and release: breyta flows public publish <slug>
 - Delist all public surfaces together: breyta flows public delist <slug>
 - Lower-level Discover-only visibility update: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'

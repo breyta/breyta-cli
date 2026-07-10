@@ -42,7 +42,7 @@ To publish or delist a flow across all public surfaces at once, use
 	}
 	cmd.Flags().StringVar(&visible, "visible", "", "Marketplace visibility state (true|false)")
 	if f := cmd.Flags().Lookup("visible"); f != nil {
-		f.NoOptDefVal = "true"
+		f.NoOptDefVal = cliBareTrueValue
 	}
 	_ = cmd.MarkFlagRequired("visible")
 	return cmd

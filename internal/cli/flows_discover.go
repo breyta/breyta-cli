@@ -179,7 +179,7 @@ Only a privileged workspace member can change this metadata.`,
 	}
 	cmd.Flags().StringVar(&public, "public", "", "Public discover visibility state (true|false)")
 	if f := cmd.Flags().Lookup("public"); f != nil {
-		f.NoOptDefVal = "true"
+		f.NoOptDefVal = cliBareTrueValue
 	}
 	_ = cmd.MarkFlagRequired("public")
 	return cmd

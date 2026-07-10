@@ -225,7 +225,7 @@ If the flow should appear in public discover/install surfaces, make that explici
 # :discover {:public true}
 # :marketplace {:visible true}
 #
-# Or set all public surfaces explicitly after push:
+# Or set all public surfaces explicitly after push and release:
 breyta flows public publish <slug>
 ```
 
