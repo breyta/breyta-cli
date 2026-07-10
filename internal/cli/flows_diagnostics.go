@@ -854,7 +854,8 @@ func newFlowsPublicCmd(app *App) *cobra.Command {
 		Long: `Inspect public-flow readiness and manage all public listing surfaces.
 
 Use publish or delist when you want marketplace visibility, Discover listing,
-and the public app page to move together.`,
+and the public app page to move together. Delist disables free linked public
+installs; paid buyer entitlements remain active.`,
 	}
 	cmd.AddCommand(newFlowsPublicPreflightCmd(app))
 	cmd.AddCommand(newFlowsPublicPublishCmd(app))
@@ -905,8 +906,8 @@ func markPublicUpdatePartialFailure(out map[string]any) {
 	if meta == nil {
 		return
 	}
-	failed := make([]string, 0, 2)
-	for _, key := range []string{"index", "publish"} {
+	failed := make([]string, 0, 4)
+	for _, key := range []string{"publicCatalog", "linkedInstallCleanup", "index", "publish"} {
 		warning := mapStringAny(meta[key])
 		if ok, okType := warning["ok"].(bool); okType && !ok {
 			failed = append(failed, key)

@@ -192,6 +192,87 @@ func TestFlowsMarketplaceUpdate_AcceptsSpaceSeparatedVisibleFalse(t *testing.T) 
 	}
 }
 
+func TestFlowsMarketplaceUpdate_RejectsAmbiguousBooleanLikeSlugAndSpaceSeparatedValue(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var calledAPI atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledAPI.Store(true)
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update",
+		"--visible", "true", "false",
+		"--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected ambiguous boolean-like slug command to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if calledAPI.Load() {
+		t.Fatalf("ambiguous flag/slug command should not reach API")
+	}
+	if !strings.Contains(stderr, "ambiguous --visible value and flow slug") &&
+		!strings.Contains(stdout, "ambiguous --visible value and flow slug") {
+		t.Fatalf("expected ambiguous slug/value error, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestFlowsMarketplaceUpdate_AcceptsBooleanLikeSlugWithExplicitVisibleValue(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawPayload atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if slug, _ := args["flowSlug"].(string); slug == "false" {
+			if v, ok := args["visible"].(bool); ok && v {
+				sawPayload.Store(true)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"marketplace": map[string]any{"visible": true},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "false",
+		"--visible=true",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows marketplace update failed: %v\n%s", err, stdout)
+	}
+	if !sawPayload.Load() {
+		t.Fatalf("expected flowSlug=false and visible=true to be sent in command args")
+	}
+}
+
 func TestFlowsPublicCommand_VisibleInDefaultHelp(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -310,6 +391,11 @@ func TestFlowsPublicDelist_FailsOnPartialUpdateWarning(t *testing.T) {
 				},
 			},
 			"meta": map[string]any{
+				"publicCatalog": map[string]any{
+					"ok":      false,
+					"warning": "public_catalog_refresh_failed",
+					"action":  "sync",
+				},
 				"publish": map[string]any{
 					"ok":        false,
 					"warning":   "publish_failed",
@@ -340,6 +426,11 @@ func TestFlowsPublicDelist_FailsOnPartialUpdateWarning(t *testing.T) {
 	errMap, _ := out["error"].(map[string]any)
 	if errMap["code"] != "partial_public_update_failed" {
 		t.Fatalf("expected partial failure error, got %#v", errMap)
+	}
+	details, _ := errMap["details"].(map[string]any)
+	failed, _ := details["failed"].([]any)
+	if len(failed) != 2 || failed[0] != "publicCatalog" || failed[1] != "publish" {
+		t.Fatalf("expected publicCatalog and publish failed details, got %#v", failed)
 	}
 }
 

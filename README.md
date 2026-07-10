@@ -104,7 +104,8 @@ from another workspace.
 Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
 when a flow should move onto or off marketplace, Discover, and public app-page
 surfaces together. Use the lower-level marketplace/discover update commands
-only when intentionally changing one visibility flag.
+only when intentionally changing one visibility flag. Delisting disables free
+linked public installs; paid buyer entitlements remain active.
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
@@ -224,9 +225,10 @@ breyta flows public publish <slug>
 ```
 
 Use `breyta flows public delist <slug>` to remove the flow from marketplace,
-Discover, and public app-page surfaces together. Public visibility is stored flow
-metadata. A released version with an installable interface is required before the
-flow can be exposed in Discover. This Discover catalog is separate from
+Discover, and public app-page surfaces together. Delisting disables free linked
+public installs; paid buyer entitlements remain active. Public visibility is
+stored flow metadata. A released version with an installable interface is
+required before the flow can be exposed in Discover. This Discover catalog is separate from
 `breyta flows search`, which searches actual workspace flow metadata, and from
 `breyta flows templates search`, which searches approved reusable templates to
 inspect and copy from.

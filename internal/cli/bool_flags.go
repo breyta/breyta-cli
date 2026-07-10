@@ -28,13 +28,17 @@ func parseFlowSlugAndCLITrueFalseFlag(name, raw string, args []string, flagChang
 		if !flagChanged {
 			return "", false, fmt.Errorf("unexpected extra argument %q", args[1])
 		}
-		if _, err := strconv.ParseBool(strings.TrimSpace(args[1])); err == nil {
-			flowSlug = strings.TrimSpace(args[0])
-			value = args[1]
-		} else if _, err := strconv.ParseBool(strings.TrimSpace(args[0])); err == nil {
+		firstIsBool := isCLITrueFalseLiteral(args[0])
+		secondIsBool := isCLITrueFalseLiteral(args[1])
+		switch {
+		case firstIsBool && secondIsBool:
+			return "", false, fmt.Errorf("ambiguous --%s value and flow slug %q (use --%s=true or --%s=false)", name, args[1], name, name)
+		case firstIsBool:
 			flowSlug = strings.TrimSpace(args[1])
 			value = args[0]
-		} else {
+		case secondIsBool:
+			value = args[1]
+		default:
 			return "", false, fmt.Errorf("unexpected extra argument %q", args[1])
 		}
 	}
@@ -43,4 +47,9 @@ func parseFlowSlugAndCLITrueFalseFlag(name, raw string, args []string, flagChang
 		return "", false, err
 	}
 	return flowSlug, parsed, nil
+}
+
+func isCLITrueFalseLiteral(raw string) bool {
+	_, err := strconv.ParseBool(strings.TrimSpace(raw))
+	return err == nil
 }
