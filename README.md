@@ -196,6 +196,11 @@ breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' 
 breyta flows run-step <slug> <step-id> --target live --input-file ./input.json --wait
 ```
 
+For every side-effectful `breyta steps run`, pass
+`--idempotency-key <stable-key>` on the first attempt and reuse that exact key
+after a timeout, dropped response, or 5xx. Do not switch to a fresh key until
+the external side effect has been reconciled.
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
