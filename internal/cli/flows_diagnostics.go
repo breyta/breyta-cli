@@ -919,6 +919,22 @@ func markPublicUpdatePartialFailure(out map[string]any) {
 		return
 	}
 	out["ok"] = false
+	if meta != nil {
+		delete(meta, "publicAppUrl")
+		actions := sliceAny(meta["nextActions"])
+		filtered := make([]any, 0, len(actions))
+		for _, item := range actions {
+			if action := mapStringAny(item); action != nil && firstNonBlankString(action["id"]) == "open-public-app" {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			delete(meta, "nextActions")
+		} else {
+			meta["nextActions"] = filtered
+		}
+	}
 	out["error"] = map[string]any{
 		"code":    "partial_public_update_failed",
 		"message": "Public visibility metadata changed, but " + strings.Join(failed, " and ") + " follow-up failed. Retry the command.",
