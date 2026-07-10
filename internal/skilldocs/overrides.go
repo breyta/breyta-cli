@@ -462,6 +462,7 @@ Goal: make side effects safe, runs replayable, and runtime behavior predictable 
   - pass signed URLs/blob refs for large artifacts instead of moving large bodies through many steps
 - failure-safety defaults
   - retries only for transient failures with bounded attempts/backoff
+  - for every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx; do not switch to a fresh key until the external side effect has been reconciled
   - never advance cursors/checkpoints past failed work
   - resume/replay behavior should be explicit for partial success paths
 - anti-patterns to avoid
