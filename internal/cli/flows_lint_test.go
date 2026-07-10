@@ -105,6 +105,36 @@ func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyReportsReaderShapeErrors(t *testing.T) {
+	flowLiteral := `{:slug :bad
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	data, _ := body["data"].(map[string]any)
+	if valid, _ := data["valid"].(bool); valid {
+		t.Fatalf("expected valid=false, got %#v", data)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid")
+	items, _ := data["diagnostics"].([]any)
+	first, _ := items[0].(map[string]any)
+	if message, _ := first["message"].(string); !strings.Contains(message, "missing map value") {
+		t.Fatalf("expected missing map value message, got %#v", first)
+	}
+	meta, _ := body["meta"].(map[string]any)
+	if _, ok := meta["nextCommands"]; ok {
+		t.Fatalf("malformed source should not suggest nextCommands, got %#v", meta)
+	}
+}
+
 func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

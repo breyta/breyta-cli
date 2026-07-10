@@ -84,14 +84,16 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 			flowLiteral := string(b)
 			diagnostics := localFlowLintDiagnostics(file, flowLiteral)
 			expandedLiteral := flowLiteral
-			if expanded, err := expandFlowSourceIncludes(file, flowLiteral); err != nil {
-				diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
-			} else {
-				expandedLiteral = expanded
-				diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
-				diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
-				diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
-				diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
+			if !lintHasErrors(diagnostics) {
+				if expanded, err := expandFlowSourceIncludes(file, flowLiteral); err != nil {
+					diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
+				} else {
+					expandedLiteral = expanded
+					diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
+					diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
+					diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
+					diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
+				}
 			}
 
 			meta := map[string]any{
@@ -202,6 +204,21 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 			hint = "Run: breyta flows paren-repair --write --file " + file
 		}
 		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
+		return diagnostics
+	}
+	if readerEvalDiagnostics := localReaderEvalDiagnostics(flowLiteral); lintHasErrors(readerEvalDiagnostics) {
+		diagnostics = append(diagnostics, readerEvalDiagnostics...)
+		return diagnostics
+	}
+	if err := validateLocalClojureReaderShape(flowLiteral); err != nil {
+		diagnostics = append(diagnostics, lintDiagnostic(
+			"error",
+			"clojure_reader_invalid",
+			[]string{":flow"},
+			"Flow source is not readable Clojure/EDN: "+err.Error(),
+			"Fix malformed source before pushing. For delimiter repairs, try `breyta flows paren-repair --write --file "+file+"`.",
+			"local",
+		))
 		return diagnostics
 	}
 
@@ -377,6 +394,153 @@ func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
 		i++
 	}
 	return nil
+}
+
+func validateLocalClojureReaderShape(src string) error {
+	start := skipClojureWhitespaceCommaAndComments(src, 0)
+	if start >= len(src) {
+		return fmt.Errorf("expected Clojure form")
+	}
+	end, err := validateLocalClojureReaderForm(src, start)
+	if err != nil {
+		return err
+	}
+	next := skipClojureWhitespaceCommaAndComments(src, end)
+	if next < len(src) {
+		return fmt.Errorf("unexpected trailing form near byte %d", next)
+	}
+	return nil
+}
+
+func validateLocalClojureReaderForm(src string, start int) (int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	for strings.HasPrefix(src[i:], "#_") {
+		discardEnd, err := validateLocalClojureReaderForm(src, i+2)
+		if err != nil {
+			return 0, fmt.Errorf("parse discarded form near byte %d: %w", i, err)
+		}
+		i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+	}
+	if i >= len(src) {
+		return 0, fmt.Errorf("expected Clojure form")
+	}
+
+	switch src[i] {
+	case '"':
+		_, _, next, err := readClojureStringToken(src, i)
+		return next, err
+	case '(':
+		return validateLocalClojureDelimitedReaderForms(src, i, ')', false)
+	case '[':
+		return validateLocalClojureDelimitedReaderForms(src, i, ']', false)
+	case '{':
+		return validateLocalClojureDelimitedReaderForms(src, i, '}', true)
+	case '\'', '`', '@':
+		return validateLocalClojureReaderForm(src, i+1)
+	case '~':
+		if i+1 < len(src) && src[i+1] == '@' {
+			return validateLocalClojureReaderForm(src, i+2)
+		}
+		return validateLocalClojureReaderForm(src, i+1)
+	case '^':
+		metaEnd, err := validateLocalClojureReaderForm(src, i+1)
+		if err != nil {
+			return 0, err
+		}
+		return validateLocalClojureReaderForm(src, metaEnd)
+	case '#':
+		if i+1 >= len(src) {
+			return 0, fmt.Errorf("incomplete reader macro near byte %d", i)
+		}
+		switch src[i+1] {
+		case '\'':
+			return validateLocalClojureReaderForm(src, i+2)
+		case '^':
+			metaEnd, err := validateLocalClojureReaderForm(src, i+2)
+			if err != nil {
+				return 0, err
+			}
+			return validateLocalClojureReaderForm(src, metaEnd)
+		case '#':
+			next := readClojureTokenEnd(src, i)
+			switch src[i:next] {
+			case "##Inf", "##-Inf", "##NaN":
+				return next, nil
+			default:
+				return 0, fmt.Errorf("unsupported symbolic value near byte %d", i)
+			}
+		case '=':
+			return 0, fmt.Errorf("reader eval is not supported near byte %d", i)
+		case '{':
+			return validateLocalClojureDelimitedReaderForms(src, i+1, '}', false)
+		case '(':
+			return validateLocalClojureDelimitedReaderForms(src, i+1, ')', false)
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i+1)
+			return next, err
+		case '?':
+			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
+			if !ok {
+				return 0, fmt.Errorf("invalid reader conditional near byte %d", i)
+			}
+			if formStart >= 0 {
+				parsedEnd, err := validateLocalClojureReaderForm(src, formStart)
+				if err != nil {
+					return 0, err
+				}
+				if parsedEnd != formEnd {
+					return 0, fmt.Errorf("invalid reader conditional form near byte %d", formStart)
+				}
+			}
+			return next, nil
+		default:
+			tagEnd := readClojureTokenEnd(src, i+1)
+			if tagEnd == i+1 {
+				return 0, fmt.Errorf("unsupported reader macro near byte %d", i)
+			}
+			return validateLocalClojureReaderForm(src, tagEnd)
+		}
+	default:
+		next := readClojureTokenEnd(src, i)
+		if next <= i {
+			return 0, fmt.Errorf("could not read form near byte %d", i)
+		}
+		return next, nil
+	}
+}
+
+func validateLocalClojureDelimitedReaderForms(src string, start int, closeCh byte, requireEvenForms bool) (int, error) {
+	i := start + 1
+	formCount := 0
+	lastFormStart := -1
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return 0, fmt.Errorf("unterminated collection near byte %d", start)
+		}
+		if src[i] == closeCh {
+			if requireEvenForms && formCount%2 != 0 {
+				return 0, fmt.Errorf("missing map value for form near byte %d", lastFormStart)
+			}
+			return i + 1, nil
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := validateLocalClojureReaderForm(src, i+2)
+			if err != nil {
+				return 0, fmt.Errorf("parse discarded form near byte %d: %w", i, err)
+			}
+			i = next
+			continue
+		}
+		lastFormStart = i
+		next, err := validateLocalClojureReaderForm(src, i)
+		if err != nil {
+			return 0, err
+		}
+		formCount++
+		i = next
+	}
+	return 0, fmt.Errorf("unterminated collection near byte %d", start)
 }
 
 func topLevelConcurrencyValueIsNil(src string) bool {
