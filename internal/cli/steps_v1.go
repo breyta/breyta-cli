@@ -695,6 +695,7 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
+	var idempotencyKey string
 	var installationID string
 	var legacyProfileID string
 	var recordExample bool
@@ -726,6 +727,7 @@ Examples:
   breyta steps run --type search --id kb-search --params '{"query":"summarize the user testing session","targets":["resources"],"mode":"hybrid","hydrate":{"enabled":true}}'
   breyta steps run --type llm --id summarize --params-file ./params.json
   breyta steps run --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
+  breyta steps run --type http --id create-issue --params-file ./create-issue.json --idempotency-key turn-123:create-issue
   breyta steps run --flow my-flow --source draft --type code --id make-output --params-file ./params.json --result-path rows.0
 `),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
@@ -784,6 +786,9 @@ Examples:
 			if strings.TrimSpace(traceID) != "" {
 				payload["traceId"] = strings.TrimSpace(traceID)
 			}
+			if strings.TrimSpace(idempotencyKey) != "" {
+				payload["idempotencyKey"] = strings.TrimSpace(idempotencyKey)
+			}
 			effectiveInstallationID := strings.TrimSpace(installationID)
 			if effectiveInstallationID == "" {
 				effectiveInstallationID = strings.TrimSpace(legacyProfileID)
@@ -816,6 +821,7 @@ Examples:
 	cmd.Flags().StringVar(&source, "source", "", "Flow definition source when --flow is provided (draft|latest|active)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version when --flow is provided")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key to replay the stored outcome instead of repeating side effects")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")

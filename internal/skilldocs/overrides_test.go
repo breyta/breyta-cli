@@ -527,6 +527,9 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "name the idempotency or duplicate-protection key") {
 		t.Fatalf("expected idempotency guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "--idempotency-key <stable-key>") || !strings.Contains(body, "reuse that exact key") {
+		t.Fatalf("expected steps.run retry idempotency guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "use `sequential` when order matters") {
 		t.Fatalf("expected explicit sequential guidance, got:\n%s", body)
 	}
