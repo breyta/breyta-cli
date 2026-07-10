@@ -22,8 +22,8 @@ func newDiscoverCmdWithPath(app *App, commandPath string) *cobra.Command {
 		Long: `Public discover is the catalog of installable public flows shown in the web app discover surface.
 
 Use ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + ` to browse installables.
-Use ` + "`" + commandPath + " update <slug> --public=true|false`" + ` to control whether your own public flow
-appears there.
+Use ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + ` to change all public surfaces together.
+Use ` + "`" + commandPath + " update <slug> --public=true|false`" + ` only when you need to control the Discover flag directly.
 Add ` + "`--include-own`" + ` to list/search only when debugging whether your own public flow is indexed.
 
 Checklist to make your flow show up in Discover:
@@ -136,11 +136,16 @@ Use ` + "`--include-own`" + ` only to debug whether your own public flow is inde
 }
 
 func newFlowsDiscoverUpdateCmd(app *App, commandPath string) *cobra.Command {
-	var public bool
+	var public string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> --public <true|false>",
 		Short: "Set public discover visibility for a flow",
 		Long: `Set whether a flow is visible in public discover/install surfaces.
+
+This is the lower-level Discover flag. To publish or delist a flow across
+marketplace, Discover, and the public app page together, use
+` + "`breyta flows public publish <flow-slug>`" + ` or
+` + "`breyta flows public delist <flow-slug>`" + `.
 
 Requirements for ` + "`--public=true`" + `:
 - the flow must have explicit public Discover visibility
@@ -162,13 +167,17 @@ Only a privileged workspace member can change this metadata.`,
 			if !isAPIMode(app) {
 				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
 			}
+			publicValue, err := parseCLITrueFalseFlag("public", public)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			return doAPICommand(cmd, app, "flows.discover.update", map[string]any{
 				"flowSlug": args[0],
-				"public":   public,
+				"public":   publicValue,
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&public, "public", false, "Public discover visibility state")
+	cmd.Flags().StringVar(&public, "public", "", "Public discover visibility state (true|false)")
 	_ = cmd.MarkFlagRequired("public")
 	return cmd
 }

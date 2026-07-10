@@ -16,22 +16,31 @@ func newFlowsMarketplaceCmd(app *App) *cobra.Command {
 }
 
 func newFlowsMarketplaceUpdateCmd(app *App) *cobra.Command {
-	var visible bool
+	var visible string
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> --visible <true|false>",
 		Short: "Set marketplace visibility for a flow",
-		Args:  cobra.ExactArgs(1),
+		Long: `Set the lower-level marketplace visibility flag for a flow.
+
+To publish or delist a flow across all public surfaces at once, use
+` + "`breyta flows public publish <flow-slug>`" + ` or
+` + "`breyta flows public delist <flow-slug>`" + `.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows marketplace update requires API mode"))
 			}
+			visibleValue, err := parseCLITrueFalseFlag("visible", visible)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			return doAPICommand(cmd, app, "flows.marketplace.update", map[string]any{
 				"flowSlug": args[0],
-				"visible":  visible,
+				"visible":  visibleValue,
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&visible, "visible", false, "Marketplace visibility state")
+	cmd.Flags().StringVar(&visible, "visible", "", "Marketplace visibility state (true|false)")
 	_ = cmd.MarkFlagRequired("visible")
 	return cmd
 }

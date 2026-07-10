@@ -627,6 +627,8 @@ func publicAppHintRelevant(command string, args map[string]any) bool {
 		return boolValue(args["public"])
 	case "flows.marketplace.update":
 		return boolValue(args["visible"])
+	case "flows.public.update":
+		return boolValue(args["public"])
 	default:
 		return false
 	}

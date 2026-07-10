@@ -850,9 +850,15 @@ func boolValue(v any) bool {
 func newFlowsPublicCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "public",
-		Short: "Inspect public-flow readiness",
+		Short: "Inspect and manage public-flow visibility",
+		Long: `Inspect public-flow readiness and manage all public listing surfaces.
+
+Use publish or delist when you want marketplace visibility, Discover listing,
+and the public app page to move together.`,
 	}
 	cmd.AddCommand(newFlowsPublicPreflightCmd(app))
+	cmd.AddCommand(newFlowsPublicPublishCmd(app))
+	cmd.AddCommand(newFlowsPublicDelistCmd(app))
 	return cmd
 }
 
@@ -866,6 +872,42 @@ func newFlowsPublicPreflightCmd(app *App) *cobra.Command {
 				"flowSlug": strings.TrimSpace(args[0]),
 			}
 			return doAPICommand(cmd, app, "flows.public.preflight", payload)
+		},
+	}
+	return cmd
+}
+
+func newFlowsPublicPublishCmd(app *App) *cobra.Command {
+	return newFlowsPublicVisibilityCmd(
+		app,
+		"publish <slug>",
+		nil,
+		"Publish a flow across all public surfaces",
+		true,
+	)
+}
+
+func newFlowsPublicDelistCmd(app *App) *cobra.Command {
+	return newFlowsPublicVisibilityCmd(
+		app,
+		"delist <slug>",
+		[]string{"unpublish", "make-private", "private"},
+		"Remove a flow from all public surfaces",
+		false,
+	)
+}
+
+func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short string, public bool) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     use,
+		Aliases: aliases,
+		Short:   short,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doAPICommand(cmd, app, "flows.public.update", map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+				"public":   public,
+			})
 		},
 	}
 	return cmd

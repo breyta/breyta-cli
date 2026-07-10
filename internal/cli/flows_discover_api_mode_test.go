@@ -360,6 +360,52 @@ func TestFlowsDiscoverUpdate_ForwardsPublicFalse(t *testing.T) {
 	}
 }
 
+func TestFlowsDiscoverUpdate_AcceptsSpaceSeparatedPublicFalse(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawPublicFalse atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if v, ok := args["public"].(bool); ok && !v {
+			sawPublicFalse.Store(true)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"discover": map[string]any{"public": false},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "discover", "update", "discover-flow",
+		"--public", "false",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows discover update failed: %v\n%s", err, stdout)
+	}
+	if !sawPublicFalse.Load() {
+		t.Fatalf("expected public=false to be sent in command args")
+	}
+}
+
 func TestFlowsSearchHelp_ClarifiesWorkspaceAndTemplateSearch(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

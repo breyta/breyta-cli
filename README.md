@@ -101,6 +101,11 @@ because it shows what this workspace can install. Add `--include-own` only when
 debugging whether your own public flow is indexed; verify buyer/install behavior
 from another workspace.
 
+Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
+when a flow should move onto or off marketplace, Discover, and public app-page
+surfaces together. Use the lower-level marketplace/discover update commands
+only when intentionally changing one visibility flag.
+
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
 The skill bundle can include `SKILL.md` plus bundled `references/` files; agents

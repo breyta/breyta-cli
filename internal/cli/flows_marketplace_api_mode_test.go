@@ -145,3 +145,194 @@ func TestFlowsMarketplaceUpdate_ForwardsVisibleFalse(t *testing.T) {
 		t.Fatalf("expected visible=false to be sent in command args")
 	}
 }
+
+func TestFlowsMarketplaceUpdate_AcceptsSpaceSeparatedVisibleFalse(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawVisibleFalse atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if v, ok := args["visible"].(bool); ok && !v {
+			sawVisibleFalse.Store(true)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"marketplace": map[string]any{"visible": false},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "marketplace", "update", "market-flow",
+		"--visible", "false",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows marketplace update failed: %v\n%s", err, stdout)
+	}
+	if !sawVisibleFalse.Load() {
+		t.Fatalf("expected visible=false to be sent in command args")
+	}
+}
+
+func TestFlowsPublicDelist_UpdatesAllPublicSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawPublicFalse atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.public.update" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if got, _ := args["flowSlug"].(string); got != "market-flow" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "missing flowSlug",
+				},
+			})
+			return
+		}
+		if v, ok := args["public"].(bool); ok && !v {
+			sawPublicFalse.Store(true)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"public": map[string]any{
+					"discoverPublic":     false,
+					"marketplaceVisible": false,
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "delist", "market-flow",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows public delist failed: %v\n%s", err, stdout)
+	}
+	if !sawPublicFalse.Load() {
+		t.Fatalf("expected public=false to be sent in command args")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if meta != nil && meta["publicAppUrl"] != nil {
+		t.Fatalf("did not expect public app URL hint while delisting, got %#v", meta)
+	}
+}
+
+func TestFlowsPublicPublish_UpdatesAllPublicSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var sawPublicTrue atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.public.update" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error": map[string]any{
+					"code":    "bad_request",
+					"message": "unexpected command",
+				},
+			})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if v, ok := args["public"].(bool); ok && v {
+			sawPublicTrue.Store(true)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"public": map[string]any{
+					"discoverPublic":     true,
+					"marketplaceVisible": true,
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("flows public publish failed: %v\n%s", err, stdout)
+	}
+	if !sawPublicTrue.Load() {
+		t.Fatalf("expected public=true to be sent in command args")
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	meta, _ := out["meta"].(map[string]any)
+	if meta["publicAppUrl"] != srv.URL+"/apps/market-flow" {
+		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
+	}
+}
