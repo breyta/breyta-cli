@@ -86,6 +86,15 @@ func TestFlowsCreate_AddsCompactProvenanceCountFromConsultedFlows(t *testing.T) 
 	}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/proactive-agent/activity":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			return
+		case "/api/commands":
+		default:
+			http.NotFound(w, r)
+			return
+		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -146,6 +155,15 @@ func TestFlowsPush_ProvenanceFlagIncludesCandidateList(t *testing.T) {
 	}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/proactive-agent/activity":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			return
+		case "/api/commands":
+		default:
+			http.NotFound(w, r)
+			return
+		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request: %v", err)

@@ -1240,6 +1240,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					}
 				}
 			}
+			recordProactiveFlowActivity(cmd.Context(), app, "flow-push", flowSlug, map[string]any{
+				"summary": "flows push",
+			})
 			if !validate {
 				if flowSlug != "" {
 					_ = appendProvenanceHintsWithOptions(out, workspaceIDFromEnvelope(out, app.WorkspaceID), flowSlug, includeProvenance)
@@ -1769,7 +1772,19 @@ func newFlowsArchiveCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0]}
-				return doAPICommand(cmd, app, "flows.archive", payload)
+				out, status, err := runAPICommandWithContext(cmd.Context(), app, "flows.archive", payload)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				if status < 400 && isOK(out) {
+					recordProactiveFlowActivity(cmd.Context(), app, "flow-archive", args[0], map[string]any{
+						"summary": "flows archive",
+					})
+				}
+				if err := writeAPIResult(cmd, app, out, status); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
 			}
 			st, store, err := appStore(app)
 			if err != nil {

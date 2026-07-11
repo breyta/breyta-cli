@@ -185,6 +185,11 @@ func doRunCommandWithOptionalWait(cmd *cobra.Command, app *App, command string, 
 	enrichCommandHints(app, command, payload, status, startResp)
 	flowSlug, _ := payload["flowSlug"].(string)
 	if startOK {
+		data, _ := startResp["data"].(map[string]any)
+		recordProactiveFlowActivity(cmd.Context(), app, "flow-run", flowSlug, map[string]any{
+			"workflowId": workflowIDFromRunData(data),
+			"summary":    strings.TrimSpace(command),
+		})
 		trackCLIEvent(app, "cli_flow_run_started", nil, app.Token, map[string]any{
 			"product":   "flows",
 			"channel":   "cli",
@@ -828,6 +833,9 @@ version carries operator-facing context:
 				}
 				return nil
 			}
+			recordProactiveFlowActivity(cmd.Context(), app, "flow-release", args[0], map[string]any{
+				"summary": "flows release",
+			})
 
 			activeVersion := asInt(releaseData["activeVersion"])
 			promoteData := mapStringAny(promoteOut["data"])
