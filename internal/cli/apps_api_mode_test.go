@@ -4792,7 +4792,7 @@ func TestFlowsInstallationsInterfaces_ResolvesInstallationFlowSlugAndVersion(t *
 				},
 			})
 		case "flows.get":
-			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) || args["includeFlowLiteral"] != false || args["sourceWorkspaceId"] != "ws-provider" || args["sourceFlowSlug"] != "flow-release" {
+			if args["flowSlug"] != "flow-release" || args["source"] != "active" || args["version"] != float64(9) || args["includeFlowLiteral"] != false || args["sourceWorkspaceId"] != "ws-provider" || args["sourceFlowSlug"] != "flow-release" || args["installationId"] != "prof-live" {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected flows.get args"}})
 				return
