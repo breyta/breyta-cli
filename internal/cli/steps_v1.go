@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -187,12 +188,33 @@ func extractStepsRunStepType(out map[string]any) string {
 	return ""
 }
 
-func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, stepID string, stepType string, params map[string]any, resultAny any, note string, testName string, traceID string, profileID string, recordExample bool, recordTest bool) {
+func extractStepsRunWorkflowID(out map[string]any) string {
+	if out == nil {
+		return ""
+	}
+	if data, ok := out["data"].(map[string]any); ok {
+		if workflowID, ok := data["workflowId"].(string); ok {
+			return strings.TrimSpace(workflowID)
+		}
+	}
+	return ""
+}
+
+func deterministicStepSidecarID(prefix string, executionIdentity string, flowSlug string, stepID string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{executionIdentity, flowSlug, stepID, prefix}, "\x00")))
+	return fmt.Sprintf("%s-%x", prefix, sum[:16])
+}
+
+func recordStepSidecars(ctx context.Context, client api.Client, out map[string]any, flowSlug string, stepID string, stepType string, params map[string]any, resultAny any, note string, testName string, traceID string, idempotencyKey string, profileID string, recordExample bool, recordTest bool) {
 	if !isOK(out) || (!recordExample && !recordTest) {
 		return
 	}
 
 	meta := ensureMeta(out)
+	executionIdentity := extractStepsRunWorkflowID(out)
+	if executionIdentity == "" {
+		executionIdentity = strings.TrimSpace(idempotencyKey)
+	}
 
 	if recordExample {
 		exPayload := map[string]any{
@@ -204,7 +226,10 @@ func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, 
 		if strings.TrimSpace(note) != "" {
 			exPayload["note"] = strings.TrimSpace(note)
 		}
-		exOut, _, exErr := client.DoCommand(context.Background(), "steps.examples.add", exPayload)
+		if executionIdentity != "" {
+			exPayload["exampleId"] = deterministicStepSidecarID("ex", executionIdentity, flowSlug, stepID)
+		}
+		exOut, _, exErr := client.DoCommand(ctx, "steps.examples.add", exPayload)
 		if exErr != nil {
 			if meta != nil {
 				meta["recordExampleSaved"] = false
@@ -237,7 +262,10 @@ func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, 
 				delete(testPayload, k)
 			}
 		}
-		testOut, _, testErr := client.DoCommand(context.Background(), "steps.tests.add", testPayload)
+		if executionIdentity != "" {
+			testPayload["testId"] = deterministicStepSidecarID("tst", executionIdentity, flowSlug, stepID)
+		}
+		testOut, _, testErr := client.DoCommand(ctx, "steps.tests.add", testPayload)
 		if testErr != nil {
 			if meta != nil {
 				meta["recordTestSaved"] = false
@@ -265,6 +293,7 @@ type stepsRunInvocation struct {
 	ParamsFile          string
 	TraceID             string
 	IdempotencyKey      string
+	ExpectedStepType    string
 	InstallationID      string
 	LegacyProfileID     string
 	RecordExample       bool
@@ -301,14 +330,29 @@ func runStepsRunCommand(cmd *cobra.Command, app *App, inv stepsRunInvocation) er
 	if (inv.RecordExample || inv.RecordTest) && fs == "" {
 		return writeErr(cmd, errors.New("missing --flow (required for --record-example/--record-test)"))
 	}
+	if cmd.Flags().Changed("version") && inv.Version < 1 {
+		return writeErr(cmd, errors.New("--version must be at least 1"))
+	}
 
 	paramsRaw := strings.TrimSpace(inv.ParamsJSON)
-	if strings.TrimSpace(inv.ParamsFile) != "" {
-		b, err := readExplicitFile(strings.TrimSpace(inv.ParamsFile))
+	paramsSet := cmd.Flags().Changed("params")
+	paramsFileSet := cmd.Flags().Changed("params-file")
+	if paramsSet && paramsRaw == "" {
+		return writeErr(cmd, errors.New("--params cannot be empty"))
+	}
+	paramsFile := strings.TrimSpace(inv.ParamsFile)
+	if paramsFileSet && paramsFile == "" {
+		return writeErr(cmd, errors.New("--params-file cannot be empty"))
+	}
+	if paramsFile != "" {
+		b, err := readExplicitFile(paramsFile)
 		if err != nil {
 			return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
 		}
 		paramsRaw = strings.TrimSpace(string(b))
+		if paramsRaw == "" {
+			return writeErr(cmd, errors.New("--params-file must contain a JSON object"))
+		}
 	}
 
 	params := map[string]any{}
@@ -343,19 +387,37 @@ func runStepsRunCommand(cmd *cobra.Command, app *App, inv stepsRunInvocation) er
 	if strings.TrimSpace(inv.TraceID) != "" {
 		payload["traceId"] = strings.TrimSpace(inv.TraceID)
 	}
+	if cmd.Flags().Changed("idempotency-key") && strings.TrimSpace(inv.IdempotencyKey) == "" {
+		return writeErr(cmd, errors.New("--idempotency-key cannot be empty"))
+	}
 	if strings.TrimSpace(inv.IdempotencyKey) != "" {
 		payload["idempotencyKey"] = strings.TrimSpace(inv.IdempotencyKey)
 	}
+	if strings.TrimSpace(inv.ExpectedStepType) != "" {
+		payload["expectedStepType"] = strings.TrimSpace(inv.ExpectedStepType)
+	}
 	effectiveInstallationID := strings.TrimSpace(inv.InstallationID)
+	legacyProfileID := strings.TrimSpace(inv.LegacyProfileID)
+	installationIDSet := cmd.Flags().Changed("installation-id")
+	legacyProfileIDSet := cmd.Flags().Changed("profile-id")
+	if installationIDSet && effectiveInstallationID == "" {
+		return writeErr(cmd, errors.New("--installation-id cannot be empty"))
+	}
+	if legacyProfileIDSet && legacyProfileID == "" {
+		return writeErr(cmd, errors.New("--profile-id cannot be empty"))
+	}
+	if installationIDSet && legacyProfileIDSet {
+		return writeErr(cmd, errors.New("--installation-id cannot be combined with --profile-id"))
+	}
 	if effectiveInstallationID == "" {
-		effectiveInstallationID = strings.TrimSpace(inv.LegacyProfileID)
+		effectiveInstallationID = legacyProfileID
 	}
 	if effectiveInstallationID != "" {
 		payload["profileId"] = effectiveInstallationID
 	}
 
 	client := apiClient(app)
-	out, status, err := client.DoCommand(context.Background(), commandName, payload)
+	out, status, err := client.DoCommand(cmd.Context(), commandName, payload)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
@@ -363,7 +425,7 @@ func runStepsRunCommand(cmd *cobra.Command, app *App, inv stepsRunInvocation) er
 	if effectiveStepType == "" {
 		effectiveStepType = extractStepsRunStepType(out)
 	}
-	recordStepSidecars(client, out, fs, id, effectiveStepType, params, extractStepsRunResult(out), inv.RecordNote, inv.RecordTestName, inv.TraceID, effectiveInstallationID, inv.RecordExample, inv.RecordTest)
+	recordStepSidecars(cmd.Context(), client, out, fs, id, effectiveStepType, params, extractStepsRunResult(out), inv.RecordNote, inv.RecordTestName, inv.TraceID, inv.IdempotencyKey, effectiveInstallationID, inv.RecordExample, inv.RecordTest)
 	if isOK(out) {
 		addStepSidecarHint(out, fs, id)
 	}
@@ -397,7 +459,7 @@ func newStepsShowCmd(app *App) *cobra.Command {
 				"stepId":   args[1],
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.artifacts.get", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.artifacts.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -406,7 +468,7 @@ func newStepsShowCmd(app *App) *cobra.Command {
 			if status == 400 && !isOK(out) {
 				if errAny, ok := out["error"].(map[string]any); ok {
 					if code, _ := errAny["code"].(string); code == "unknown_command" {
-						docsOut, docsStatus, docsErr := client.DoCommand(context.Background(), "steps.docs.get", payload)
+						docsOut, docsStatus, docsErr := client.DoCommand(cmd.Context(), "steps.docs.get", payload)
 						if docsErr != nil {
 							return writeErr(cmd, docsErr)
 						}
@@ -414,7 +476,7 @@ func newStepsShowCmd(app *App) *cobra.Command {
 							return writeAPIResult(cmd, app, docsOut, docsStatus)
 						}
 
-						exOut, exStatus, exErr := client.DoCommand(context.Background(), "steps.examples.list", payload)
+						exOut, exStatus, exErr := client.DoCommand(cmd.Context(), "steps.examples.list", payload)
 						if exErr != nil {
 							return writeErr(cmd, exErr)
 						}
@@ -422,7 +484,7 @@ func newStepsShowCmd(app *App) *cobra.Command {
 							return writeAPIResult(cmd, app, exOut, exStatus)
 						}
 
-						testsOut, testsStatus, testsErr := client.DoCommand(context.Background(), "steps.tests.list", payload)
+						testsOut, testsStatus, testsErr := client.DoCommand(cmd.Context(), "steps.tests.list", payload)
 						if testsErr != nil {
 							return writeErr(cmd, testsErr)
 						}
@@ -510,7 +572,7 @@ func newStepsDocsGetCmd(app *App) *cobra.Command {
 				"stepId":   args[1],
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.docs.get", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.docs.get", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -561,7 +623,7 @@ Examples:
 				"docs":     md, // fallback alias for older servers
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.docs.put", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.docs.put", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -627,7 +689,7 @@ func newStepsExamplesAddCmd(app *App) *cobra.Command {
 			}
 
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.examples.add", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.examples.add", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -658,7 +720,7 @@ func newStepsExamplesListCmd(app *App) *cobra.Command {
 				"stepId":   args[1],
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.examples.list", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.examples.list", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -726,7 +788,7 @@ func newStepsTestsAddCmd(app *App) *cobra.Command {
 			}
 
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.tests.add", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.tests.add", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -759,7 +821,7 @@ func newStepsTestsListCmd(app *App) *cobra.Command {
 				"stepId":   args[1],
 			}
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.tests.list", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.tests.list", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -807,7 +869,7 @@ Use --source active or --version <n> when verifying released behavior.
 			}
 
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.tests.verify", payload)
+			out, status, err := client.DoCommand(cmd.Context(), "steps.tests.verify", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -934,6 +996,7 @@ func newStepsRecordCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
+	var idempotencyKey string
 	var installationID string
 	var legacyProfileID string
 	var note string
@@ -954,7 +1017,7 @@ This is a convenience wrapper around steps run + steps examples add + steps test
 
 Examples:
   breyta steps record --flow my-flow --type code --id make-output --params '{"input":{"n":2},"code":"(fn [input] {:nPlusOne (inc (:n input))})"}'
-  breyta steps record --flow my-flow --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}' --note 'happy path'
+  breyta steps record --flow my-flow --type http --id fetch --params '{"url":"https://api.example.com","method":"get"}' --idempotency-key turn-123:fetch --note 'happy path'
   breyta steps record --flow my-flow --type llm --id summarize --params-file ./params.json
   breyta steps record --flow my-flow --source draft --type code --id make-output --params '{"input":{"n":2}}'
   breyta steps record --flow my-flow --source draft --type code --id make-output --params-file ./params.json --result-file ./tmp/make-output-result.json
@@ -963,77 +1026,32 @@ Examples:
 			return requireStepsAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fs := strings.TrimSpace(flowSlug)
-			if fs == "" {
+			if strings.TrimSpace(flowSlug) == "" {
 				return writeErr(cmd, errors.New("missing --flow"))
 			}
-			t := strings.TrimSpace(stepType)
-			if t == "" {
+			if strings.TrimSpace(stepType) == "" {
 				return writeErr(cmd, errors.New("missing --type"))
 			}
-			id := strings.TrimSpace(stepID)
-			if id == "" {
-				return writeErr(cmd, errors.New("missing --id"))
-			}
-
-			paramsRaw := strings.TrimSpace(paramsJSON)
-			if strings.TrimSpace(paramsFile) != "" {
-				b, err := readExplicitFile(strings.TrimSpace(paramsFile))
-				if err != nil {
-					return writeErr(cmd, fmt.Errorf("read --params-file: %w", err))
-				}
-				paramsRaw = strings.TrimSpace(string(b))
-			}
-
-			params := map[string]any{}
-			if paramsRaw != "" {
-				var v any
-				if err := json.Unmarshal([]byte(paramsRaw), &v); err != nil {
-					return writeErr(cmd, fmt.Errorf("invalid --params JSON: %w", err))
-				}
-				m, ok := v.(map[string]any)
-				if !ok {
-					return writeErr(cmd, errors.New("--params must be a JSON object"))
-				}
-				params = m
-			}
-
-			payload := map[string]any{
-				"flowSlug": fs,
-				"stepType": t,
-				"stepId":   id,
-				"params":   params,
-			}
-			if strings.TrimSpace(source) != "" {
-				payload["source"] = strings.TrimSpace(source)
-			}
-			if version > 0 {
-				payload["version"] = version
-			}
-			if strings.TrimSpace(traceID) != "" {
-				payload["traceId"] = strings.TrimSpace(traceID)
-			}
-			effectiveInstallationID := strings.TrimSpace(installationID)
-			if effectiveInstallationID == "" {
-				effectiveInstallationID = strings.TrimSpace(legacyProfileID)
-			}
-			if effectiveInstallationID != "" {
-				payload["profileId"] = effectiveInstallationID
-			}
-
-			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.run", payload)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), note, testName, traceID, effectiveInstallationID, !noExample, !noTest)
-			if isOK(out) {
-				addStepSidecarHint(out, fs, id)
-			}
-			if err := compactStepsRunResult(out, id, legacyStepsRunPreviewOptions(cmd, previewOpts)); err != nil {
-				return writeErr(cmd, err)
-			}
-			return writeAPIResult(cmd, app, out, status)
+			return runStepsRunCommand(cmd, app, stepsRunInvocation{
+				CommandName:       "steps.run",
+				StepType:          stepType,
+				StepID:            stepID,
+				FlowSlug:          flowSlug,
+				Source:            source,
+				Version:           version,
+				ParamsJSON:        paramsJSON,
+				ParamsFile:        paramsFile,
+				TraceID:           traceID,
+				IdempotencyKey:    idempotencyKey,
+				InstallationID:    installationID,
+				LegacyProfileID:   legacyProfileID,
+				RecordExample:     !noExample,
+				RecordTest:        !noTest,
+				RecordNote:        note,
+				RecordTestName:    testName,
+				Preview:           legacyStepsRunPreviewOptions(cmd, previewOpts),
+				RequireFlowForRun: true,
+			})
 		},
 	}
 
@@ -1045,6 +1063,7 @@ Examples:
 	cmd.Flags().StringVar(&source, "source", "", "Flow definition source (draft|latest|active)")
 	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key to replay the stored outcome instead of repeating side effects")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")

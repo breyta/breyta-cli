@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var flowAgentStepIDRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}(?:/[a-zA-Z][a-zA-Z0-9_-]{0,127})?$`)
+var flowAgentStepIDRe = regexp.MustCompile(`^(?:[a-zA-Z][a-zA-Z0-9_-]{0,127}|[a-zA-Z][a-zA-Z0-9_-]{0,127}(?:\.[a-zA-Z][a-zA-Z0-9_-]{0,127})*/[a-zA-Z][a-zA-Z0-9_-]{0,127})$`)
 
 func newFlowsAgentsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -45,6 +44,12 @@ func flowAgentBasePayload(flowSlug string, agentStepID string, source string) ma
 	}
 }
 
+func flowAgentMutationPayload(flowSlug string, agentStepID string, source string) map[string]any {
+	payload := flowAgentBasePayload(flowSlug, agentStepID, source)
+	payload["expectedStepType"] = "agent"
+	return payload
+}
+
 func newFlowsAgentsCreateCmd(app *App) *cobra.Command {
 	var source string
 	var title string
@@ -74,7 +79,7 @@ Examples:
 			if strings.TrimSpace(description) != "" {
 				payload["description"] = strings.TrimSpace(description)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.create", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.create", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -101,16 +106,19 @@ API. Pass a full step definition with --file, or provide dotted path/value
 pairs.
 
 Examples:
-  breyta flows agents update my-flow agents/reviewer runner.model gpt-5.4 limits.maxIterations 8
+  breyta flows agents update my-flow agents/reviewer defaults.model gpt-5.4 defaults.maxIterations 8
   breyta flows agents update my-flow agents/reviewer --file ./steps/reviewer.edn
 `),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return fmt.Errorf("accepts at least 2 arg(s), received %d", len(args))
 			}
-			if strings.TrimSpace(stepFile) != "" {
+			if cmd.Flags().Changed("file") {
 				if len(args) != 2 {
 					return errors.New("--file cannot be combined with path/value edits")
+				}
+				if strings.TrimSpace(stepFile) == "" {
+					return errors.New("--file requires a non-empty path")
 				}
 				return nil
 			}
@@ -127,24 +135,25 @@ Examples:
 			return requireFlowsAgentsAPI(cmd, app, "update")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload := flowAgentBasePayload(args[0], args[1], source)
-			if strings.TrimSpace(stepFile) != "" {
+			payload := flowAgentMutationPayload(args[0], args[1], source)
+			if cmd.Flags().Changed("file") {
 				b, err := readExplicitFile(strings.TrimSpace(stepFile))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
 				}
-				payload["stepLiteral"] = strings.TrimSpace(string(b))
+				stepLiteral := strings.TrimSpace(string(b))
+				if stepLiteral == "" {
+					return writeErr(cmd, errors.New("--file must contain a non-empty packaged agent step literal"))
+				}
+				payload["stepLiteral"] = stepLiteral
 			} else {
-				edits := make([]any, 0, (len(args)-2)/2)
-				for i := 2; i < len(args); i += 2 {
-					edits = append(edits, map[string]any{
-						"path":  strings.TrimSpace(args[i]),
-						"value": args[i+1],
-					})
+				edits, err := buildFlowStepEdits(args, 2)
+				if err != nil {
+					return writeErr(cmd, err)
 				}
 				payload["edits"] = edits
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.update", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.update", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -172,6 +181,7 @@ func newFlowsAgentsToolsCmd(app *App) *cobra.Command {
 func newFlowsAgentsToolsSetCmd(app *App) *cobra.Command {
 	var source string
 	var stepIDs []string
+	var clear bool
 
 	cmd := &cobra.Command{
 		Use:   "set <flow-slug> <agent-step-id>",
@@ -182,24 +192,31 @@ flows.steps.update API.
 
 Examples:
   breyta flows agents tools set my-flow agents/reviewer --step tools/search --step tools/load
+  breyta flows agents tools set my-flow agents/reviewer --clear
 `),
 		Args: cobra.ExactArgs(2),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return requireFlowsAgentsAPI(cmd, app, "tools set")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if clear && len(stepIDs) > 0 {
+				return writeErr(cmd, errors.New("--clear cannot be combined with --step"))
+			}
+			if !clear && len(stepIDs) == 0 {
+				return writeErr(cmd, errors.New("pass at least one --step, or use --clear to revoke all tools"))
+			}
 			valueLiteral, err := flowAgentToolStepsLiteral(stepIDs)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			payload := flowAgentBasePayload(args[0], args[1], source)
+			payload := flowAgentMutationPayload(args[0], args[1], source)
 			payload["edits"] = []any{
 				map[string]any{
 					"path":         "defaults.tools.steps",
 					"valueLiteral": valueLiteral,
 				},
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.update", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.update", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -209,12 +226,13 @@ Examples:
 
 	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
 	cmd.Flags().StringArrayVar(&stepIDs, "step", nil, "Flow-local step id to make available; repeat for multiple steps")
+	cmd.Flags().BoolVar(&clear, "clear", false, "Revoke all flow-local tools")
 	return cmd
 }
 
 func flowAgentToolStepsLiteral(stepIDs []string) (string, error) {
 	if len(stepIDs) == 0 {
-		return "", errors.New("at least one --step is required")
+		return "[]", nil
 	}
 	tokens := make([]string, 0, len(stepIDs))
 	for _, raw := range stepIDs {
@@ -236,6 +254,7 @@ func newFlowsAgentsRunCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
+	var idempotencyKey string
 	var installationID string
 	var legacyProfileID string
 	var previewOpts stepResultPreviewOptions
@@ -265,6 +284,8 @@ Examples:
 				ParamsJSON:        paramsJSON,
 				ParamsFile:        paramsFile,
 				TraceID:           traceID,
+				IdempotencyKey:    idempotencyKey,
+				ExpectedStepType:  "agent",
 				InstallationID:    installationID,
 				LegacyProfileID:   legacyProfileID,
 				Preview:           previewOpts,
@@ -278,6 +299,7 @@ Examples:
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Agent step params as JSON object; overrides authored defaults")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read agent step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for safely retrying a side-effectful agent step run")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
@@ -309,8 +331,8 @@ Examples:
 			return requireFlowsAgentsAPI(cmd, app, "remove")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload := flowAgentBasePayload(args[0], args[1], source)
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.remove", payload)
+			payload := flowAgentMutationPayload(args[0], args[1], source)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.remove", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

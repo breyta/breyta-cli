@@ -16,12 +16,13 @@ import (
 func newFlowsInterfacesCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "interfaces",
-		Short: "Inspect flow interfaces backed by invocations",
+		Short: "Inspect and author flow interfaces backed by invocations",
 		Long: strings.TrimSpace(`
-Inspect callable surfaces declared under :interfaces.
+Inspect or author callable surfaces declared under :interfaces.
 
-These commands read interface metadata from the API. They do not construct runtime
-HTTP or MCP routes locally.
+List, show, call, and curl read interface metadata from the API. Upsert and remove
+modify the draft flow definition. These commands do not construct runtime HTTP or
+MCP routes locally.
 `),
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,36 +52,103 @@ func requireFlowsAuthoringAPI(cmd *cobra.Command, app *App, command string) erro
 	return requireAPI(app)
 }
 
-func readOptionalLiteralFile(path string, flagName string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", nil
-	}
-	b, err := readExplicitFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", flagName, err)
-	}
-	return strings.TrimSpace(string(b)), nil
-}
-
-func applyLiteralOrFile(payload map[string]any, key string, literal string, file string, literalFlag string, fileFlag string) error {
+func applyLiteralOrFile(cmd *cobra.Command, payload map[string]any, key string, literal string, file string, literalFlag string, fileFlag string) error {
 	literal = strings.TrimSpace(literal)
 	file = strings.TrimSpace(file)
-	if literal != "" && file != "" {
+	literalSet := cmd.Flags().Changed(strings.TrimPrefix(literalFlag, "--"))
+	fileSet := cmd.Flags().Changed(strings.TrimPrefix(fileFlag, "--"))
+	if literalSet && fileSet {
 		return fmt.Errorf("%s cannot be combined with %s", literalFlag, fileFlag)
 	}
-	if literal != "" {
+	if literalSet {
+		if literal == "" {
+			return fmt.Errorf("%s cannot be empty", literalFlag)
+		}
 		payload[key] = literal
 		return nil
 	}
-	fromFile, err := readOptionalLiteralFile(file, fileFlag)
-	if err != nil {
-		return err
-	}
-	if fromFile != "" {
+	if fileSet {
+		if file == "" {
+			return fmt.Errorf("%s cannot be empty", fileFlag)
+		}
+		b, err := readExplicitFile(file)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", fileFlag, err)
+		}
+		fromFile := strings.TrimSpace(string(b))
+		if fromFile == "" {
+			return fmt.Errorf("%s must contain a non-empty literal", fileFlag)
+		}
 		payload[key] = fromFile
 	}
 	return nil
+}
+
+func interfaceAuthValue(auth string, authJSON string, authFile string, authSet bool, authJSONSet bool, authFileSet bool) (any, error) {
+	auth = strings.TrimSpace(auth)
+	authJSON = strings.TrimSpace(authJSON)
+	authFile = strings.TrimSpace(authFile)
+	if authSet && auth == "" {
+		return nil, errors.New("--auth cannot be empty")
+	}
+	if authJSONSet && authJSON == "" {
+		return nil, errors.New("--auth-json cannot be empty")
+	}
+	if authFileSet && authFile == "" {
+		return nil, errors.New("--auth-file cannot be empty")
+	}
+	if authSet && (authJSONSet || authFileSet) {
+		return nil, errors.New("--auth cannot be combined with --auth-json or --auth-file")
+	}
+	if authJSONSet && authFileSet {
+		return nil, errors.New("--auth-json cannot be combined with --auth-file")
+	}
+	if auth != "" {
+		return auth, nil
+	}
+	if authFile != "" {
+		b, err := readExplicitFile(authFile)
+		if err != nil {
+			return nil, fmt.Errorf("read --auth-file: %w", err)
+		}
+		authJSON = strings.TrimSpace(string(b))
+		if authJSON == "" {
+			return nil, errors.New("--auth-file must contain a JSON object")
+		}
+	}
+	if authJSON == "" {
+		return nil, nil
+	}
+	var structured map[string]any
+	if err := json.Unmarshal([]byte(authJSON), &structured); err != nil {
+		return nil, fmt.Errorf("invalid structured auth JSON: %w", err)
+	}
+	if structured == nil {
+		return nil, errors.New("structured auth must be a JSON object")
+	}
+	return structured, nil
+}
+
+func authoringClearFields(cmd *cobra.Command, raw []string, allowed map[string][]string) ([]string, error) {
+	clearFields := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, value := range raw {
+		field := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
+		conflictingFlags, ok := allowed[field]
+		if !ok {
+			return nil, fmt.Errorf("unsupported --clear field %q", value)
+		}
+		for _, flag := range conflictingFlags {
+			if cmd.Flags().Changed(flag) {
+				return nil, fmt.Errorf("--clear %s cannot be combined with --%s", field, flag)
+			}
+		}
+		if !seen[field] {
+			seen[field] = true
+			clearFields = append(clearFields, field)
+		}
+	}
+	return clearFields, nil
 }
 
 func newFlowsInterfacesUpsertCmd(app *App) *cobra.Command {
@@ -99,8 +167,12 @@ func newFlowsInterfacesUpsertCmd(app *App) *cobra.Command {
 	var responseLiteral string
 	var path string
 	var method string
+	var eventName string
 	var auth string
+	var authJSON string
+	var authFile string
 	var trustedMetadata bool
+	var clearFields []string
 
 	cmd := &cobra.Command{
 		Use:   "upsert <flow-slug> <interface-id>",
@@ -111,6 +183,7 @@ are EDN literals using the invocation input shape.
 
 Examples:
   breyta flows interfaces upsert my-flow run --kind manual --input-schema ./inputs.edn
+  breyta flows interfaces upsert my-flow events --kind webhook --event-name orders.updated
   breyta flows interfaces upsert my-flow summarize --kind mcp --tool-name summarize --input-schema ./inputs.edn --output-schema ./output.edn
 `),
 		Args: cobra.ExactArgs(2),
@@ -118,11 +191,38 @@ Examples:
 			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces upsert")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolvedKind := strings.TrimSpace(kind)
-			resolvedToolName := strings.TrimSpace(toolName)
-			if strings.EqualFold(resolvedKind, "mcp") && resolvedToolName == "" {
-				resolvedToolName = strings.TrimSpace(args[1])
+			clearFields, err := authoringClearFields(cmd, clearFields, map[string][]string{
+				"label":            {"label"},
+				"description":      {"description"},
+				"invocation":       {"invocation"},
+				"auth":             {"auth", "auth-json", "auth-file"},
+				"input-schema":     {"input-schema", "input-schema-literal"},
+				"output-schema":    {"output-schema", "output-schema-literal"},
+				"response":         {"response", "response-literal"},
+				"path":             {"path"},
+				"method":           {"method"},
+				"event-name":       {"event-name"},
+				"trusted-metadata": {"trusted-metadata"},
+			})
+			if err != nil {
+				return writeErr(cmd, err)
 			}
+			authValue, err := interfaceAuthValue(
+				auth,
+				authJSON,
+				authFile,
+				cmd.Flags().Changed("auth"),
+				cmd.Flags().Changed("auth-json"),
+				cmd.Flags().Changed("auth-file"),
+			)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			resolvedKind := strings.TrimSpace(kind)
+			if resolvedKind == "" {
+				return writeErr(cmd, errors.New("missing --kind (manual|api|http|webhook|mcp)"))
+			}
+			resolvedToolName := strings.TrimSpace(toolName)
 			payload := pruneEmptyStrings(map[string]any{
 				"flowSlug":    strings.TrimSpace(args[0]),
 				"interfaceId": strings.TrimSpace(args[1]),
@@ -134,19 +234,27 @@ Examples:
 				"description": strings.TrimSpace(description),
 				"path":        strings.TrimSpace(path),
 				"method":      strings.TrimSpace(method),
-				"auth":        strings.TrimSpace(auth),
+				"eventName":   strings.TrimSpace(eventName),
 			})
-			payload["enabled"] = enabled
+			if authValue != nil {
+				payload["auth"] = authValue
+			}
+			if len(clearFields) > 0 {
+				payload["clearFields"] = clearFields
+			}
+			if cmd.Flags().Changed("enabled") {
+				payload["enabled"] = enabled
+			}
 			if cmd.Flags().Changed("trusted-metadata") {
 				payload["trustedMetadata"] = trustedMetadata
 			}
-			if err := applyLiteralOrFile(payload, "inputSchema", inputSchemaLiteral, inputSchemaFile, "--input-schema-literal", "--input-schema"); err != nil {
+			if err := applyLiteralOrFile(cmd, payload, "inputSchema", inputSchemaLiteral, inputSchemaFile, "--input-schema-literal", "--input-schema"); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := applyLiteralOrFile(payload, "outputSchema", outputSchemaLiteral, outputSchemaFile, "--output-schema-literal", "--output-schema"); err != nil {
+			if err := applyLiteralOrFile(cmd, payload, "outputSchema", outputSchemaLiteral, outputSchemaFile, "--output-schema-literal", "--output-schema"); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := applyLiteralOrFile(payload, "responseLiteral", responseLiteral, responseFile, "--response-literal", "--response"); err != nil {
+			if err := applyLiteralOrFile(cmd, payload, "responseLiteral", responseLiteral, responseFile, "--response-literal", "--response"); err != nil {
 				return writeErr(cmd, err)
 			}
 			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.upsert", payload)
@@ -158,7 +266,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
-	cmd.Flags().StringVar(&kind, "kind", "manual", "Interface kind (manual|api|http|mcp)")
+	cmd.Flags().StringVar(&kind, "kind", "", "Interface kind (manual|api|http|webhook|mcp); required")
 	cmd.Flags().StringVar(&toolName, "tool-name", "", "MCP tool name; defaults to interface id for --kind mcp")
 	cmd.Flags().StringVar(&invocation, "invocation", "", "Backing invocation id; defaults to interface id/tool name")
 	cmd.Flags().StringVar(&label, "label", "", "Display label")
@@ -172,13 +280,18 @@ Examples:
 	cmd.Flags().StringVar(&responseLiteral, "response-literal", "", "Invocation response EDN literal")
 	cmd.Flags().StringVar(&path, "path", "", "HTTP interface path for --kind api/http")
 	cmd.Flags().StringVar(&method, "method", "", "HTTP interface method for --kind api/http")
-	cmd.Flags().StringVar(&auth, "auth", "", "Interface auth mode")
+	cmd.Flags().StringVar(&eventName, "event-name", "", "External event name for --kind webhook")
+	cmd.Flags().StringVar(&auth, "auth", "", "Simple interface auth mode")
+	cmd.Flags().StringVar(&authJSON, "auth-json", "", "Structured interface auth as a JSON object")
+	cmd.Flags().StringVar(&authFile, "auth-file", "", "Read structured interface auth JSON from file")
 	cmd.Flags().BoolVar(&trustedMetadata, "trusted-metadata", false, "Expose authored MCP metadata as trusted")
+	cmd.Flags().StringSliceVar(&clearFields, "clear", nil, "Clear optional fields (label, description, invocation, auth, input-schema, output-schema, response, path, method, event-name, trusted-metadata); repeat as needed")
 	return cmd
 }
 
 func newFlowsInterfacesValidateCmd(app *App) *cobra.Command {
 	var source string
+	var kind string
 	cmd := &cobra.Command{
 		Use:   "validate <flow-slug> <interface-id-or-tool-name>",
 		Short: "Validate a draft flow interface",
@@ -187,11 +300,12 @@ func newFlowsInterfacesValidateCmd(app *App) *cobra.Command {
 			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces validate")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload := map[string]any{
+			payload := pruneEmptyStrings(map[string]any{
 				"flowSlug":    strings.TrimSpace(args[0]),
 				"interfaceId": strings.TrimSpace(args[1]),
 				"source":      strings.TrimSpace(source),
-			}
+				"kind":        strings.TrimSpace(kind),
+			})
 			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.validate", payload)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -200,11 +314,13 @@ func newFlowsInterfacesValidateCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	cmd.Flags().StringVar(&kind, "kind", "", "Interface kind used to disambiguate validation (manual|api|http|webhook|mcp)")
 	return cmd
 }
 
 func newFlowsInterfacesRemoveCmd(app *App) *cobra.Command {
 	var source string
+	var kind string
 	cmd := &cobra.Command{
 		Use:   "remove <flow-slug> <interface-id-or-tool-name>",
 		Short: "Remove a draft flow interface",
@@ -213,11 +329,12 @@ func newFlowsInterfacesRemoveCmd(app *App) *cobra.Command {
 			return requireFlowsAuthoringAPI(cmd, app, "flows interfaces remove")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload := map[string]any{
+			payload := pruneEmptyStrings(map[string]any{
 				"flowSlug":    strings.TrimSpace(args[0]),
 				"interfaceId": strings.TrimSpace(args[1]),
 				"source":      strings.TrimSpace(source),
-			}
+				"kind":        strings.TrimSpace(kind),
+			})
 			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.remove", payload)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -226,6 +343,7 @@ func newFlowsInterfacesRemoveCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
+	cmd.Flags().StringVar(&kind, "kind", "", "Interface kind used to disambiguate removal (manual|api|http|webhook|mcp)")
 	return cmd
 }
 
@@ -526,7 +644,7 @@ func newFlowsInterfacesCurlCmd(app *App) *cobra.Command {
 				"curl",
 				"-X", "POST",
 				shellSingleQuote(url),
-				"-H", shellSingleQuote("Authorization: Bearer ${BREYTA_TOKEN}"),
+				"-H", `"Authorization: Bearer ${BREYTA_TOKEN}"`,
 				"-H", shellSingleQuote("Content-Type: application/json"),
 				"--data", shellSingleQuote(string(body)),
 			}, " ")

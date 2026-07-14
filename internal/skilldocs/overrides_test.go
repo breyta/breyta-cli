@@ -109,6 +109,26 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	}
 }
 
+func TestApplyCLIOverrides_BreytaSkillMigratesPreviousRunGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Default Loop",
+			"",
+			legacyFocusedStepRunProofBullet,
+			legacyInputFilePayloadGuidance,
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if strings.Contains(body, legacyFocusedStepRunProofBullet) || strings.Contains(body, legacyInputFilePayloadGuidance) {
+		t.Fatalf("expected previous run guidance to be replaced, got:\n%s", body)
+	}
+	if !strings.Contains(body, focusedStepRunProofBullet) || !strings.Contains(body, inputFilePayloadGuidance) {
+		t.Fatalf("expected current run guidance after migration, got:\n%s", body)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaSkillAddsKeyedScheduleGuard(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
@@ -436,8 +456,8 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingInputFilePayl
 
 	got := ApplyCLIOverrides("breyta", input)
 	body := string(got["SKILL.md"])
-	if strings.Count(body, "--input-file ./input.json") != 1 {
-		t.Fatalf("expected existing input-file payload guidance to remain singular, got:\n%s", body)
+	if strings.Count(body, inputFilePayloadGuidance) != 1 || strings.Contains(body, legacySimpleInputFilePayloadGuidance) {
+		t.Fatalf("expected existing input-file payload guidance to migrate once, got:\n%s", body)
 	}
 }
 
@@ -527,8 +547,11 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "name the idempotency or duplicate-protection key") {
 		t.Fatalf("expected idempotency guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "--idempotency-key <stable-key>") || !strings.Contains(body, "reuse that exact key") {
-		t.Fatalf("expected steps.run retry idempotency guidance, got:\n%s", body)
+	if !strings.Contains(body, "--idempotency-key <stable-key>") ||
+		!strings.Contains(body, "breyta flows steps run") ||
+		!strings.Contains(body, "breyta flows agents run") ||
+		!strings.Contains(body, "reuse that exact key") {
+		t.Fatalf("expected isolated-run retry idempotency guidance, got:\n%s", body)
 	}
 	if !strings.Contains(body, "use `sequential` when order matters") {
 		t.Fatalf("expected explicit sequential guidance, got:\n%s", body)
@@ -578,6 +601,19 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "OpenAI, Anthropic/Claude, Google/Gemini, OpenAI-compatible providers") {
 		t.Fatalf("expected broad provider guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "for agent-typed packaged steps in this section") ||
+		!strings.Contains(body, "those commands target agent-typed packaged steps under `:steps`") {
+		t.Fatalf("expected agent CLI guidance to distinguish packaged steps from named agents, got:\n%s", body)
+	}
+	agentsPos := strings.Index(body, "5. `:agents`")
+	flowPos := strings.Index(body, "6. `:flow`")
+	if agentsPos == -1 || flowPos <= agentsPos {
+		t.Fatalf("expected agents and flow solution-surface sections, got:\n%s", body)
+	}
+	if strings.Contains(body[agentsPos:flowPos], "breyta flows agents tools set") ||
+		strings.Contains(body[agentsPos:flowPos], "breyta flows agents checks run") {
+		t.Fatalf("expected named-agent guidance not to advertise packaged-step commands, got:\n%s", body[agentsPos:flowPos])
 	}
 	workflowPos := strings.Index(body, "## Workflow architecture planning (Required before build)")
 	reliabilityPos := strings.Index(body, "## Reliability + determinism planning (Required before push)")

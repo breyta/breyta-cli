@@ -12,11 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/breyta/breyta-cli/internal/clojure/parenrepair"
 	"github.com/breyta/breyta-cli/internal/clojure/parinfer"
 	"github.com/breyta/breyta-cli/internal/state"
 	"github.com/breyta/breyta-cli/internal/tools"
 	"github.com/spf13/cobra"
+	"olympos.io/encoding/edn"
 )
 
 var apiValidFlowSlugRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
@@ -671,7 +673,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 						payload["cursor"] = cur
 					}
 
-					out, status, err := client.DoCommand(context.Background(), "flows.list", payload)
+					out, status, err := client.DoCommand(cmd.Context(), "flows.list", payload)
 					if err != nil {
 						return writeErr(cmd, err)
 					}
@@ -1279,7 +1281,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			}
 
 			client := apiClient(app)
-			validateOut, validateStatus, err := client.DoCommand(context.Background(), "flows.validate", map[string]any{
+			validateOut, validateStatus, err := client.DoCommand(cmd.Context(), "flows.validate", map[string]any{
 				"flowSlug": flowSlug,
 				"source":   "draft",
 			})
@@ -1808,7 +1810,128 @@ func newFlowsArchiveCmd(app *App) *cobra.Command {
 
 // --- Steps ------------------------------------------------------------------
 
+func readFlowStepProjections(ctx context.Context, client api.Client, payload map[string]any, fullAuthored bool) (
+	map[string]any, int, error,
+	map[string]any, int, error,
+) {
+	getPayload := make(map[string]any, len(payload)+4)
+	for key, value := range payload {
+		getPayload[key] = value
+	}
+	getPayload["includeFlowLiteral"] = false
+	getPayload["includeTemplates"] = false
+	getPayload["includeFunctions"] = false
+	if !fullAuthored {
+		getPayload["view"] = "summary"
+	}
+
+	type projectionResult struct {
+		resp   map[string]any
+		status int
+		err    error
+	}
+	getCh := make(chan projectionResult, 1)
+	compileCh := make(chan projectionResult, 1)
+	go func() {
+		resp, status, err := client.DoCommand(ctx, "flows.get", getPayload)
+		getCh <- projectionResult{resp: resp, status: status, err: err}
+	}()
+	go func() {
+		resp, status, err := client.DoCommand(ctx, "flows.compile", payload)
+		compileCh <- projectionResult{resp: resp, status: status, err: err}
+	}()
+	getResult := <-getCh
+	compileResult := <-compileCh
+	getResp, getCode, getErr := getResult.resp, getResult.status, getResult.err
+	compileResp, compileCode, compileErr := compileResult.resp, compileResult.status, compileResult.err
+	if flowStepProjectionOK(getResp, getCode, getErr) && flowStepProjectionOK(compileResp, compileCode, compileErr) {
+		getHash := flowStepProjectionContentHash(getResp)
+		compileHash := flowStepProjectionContentHash(compileResp)
+		if getHash != "" && compileHash != "" && getHash != compileHash {
+			revisionErr := errors.New("flow changed while reading step projections; retry the command")
+			return getResp, getCode, revisionErr, compileResp, compileCode, revisionErr
+		}
+	}
+	return getResp, getCode, getErr, compileResp, compileCode, compileErr
+}
+
+func flowStepProjectionContentHash(resp map[string]any) string {
+	data := mapStringAny(resp["data"])
+	meta := mapStringAny(resp["meta"])
+	return firstNonBlankString(data["contentHash"], data["content-hash"], meta["contentHash"], meta["content-hash"])
+}
+
+func flowStepsFromGetResponse(resp map[string]any) []any {
+	data := mapStringAny(resp["data"])
+	flow := mapStringAny(data["flow"])
+	steps, _ := flow["steps"].([]any)
+	return steps
+}
+
+func flowStepFromGetResponse(resp map[string]any, stepID string) map[string]any {
+	for _, raw := range flowStepsFromGetResponse(resp) {
+		step := mapStringAny(raw)
+		if firstNonBlankString(step["id"]) == stepID {
+			return step
+		}
+	}
+	return nil
+}
+
+func flowStepProjectionOK(resp map[string]any, status int, err error) bool {
+	return err == nil && status < 400 && isOK(resp)
+}
+
+func writeFlowStepProjectionFailure(cmd *cobra.Command, app *App, resp map[string]any, status int, err error) error {
+	if err != nil {
+		return writeErr(cmd, err)
+	}
+	return writeAPIResult(cmd, app, resp, status)
+}
+
+func flowStepProjectionMeta(authoredOK, compileOK bool) map[string]any {
+	if authoredOK && compileOK {
+		return nil
+	}
+	failed := make([]string, 0, 2)
+	if !authoredOK {
+		failed = append(failed, "authored")
+	}
+	if !compileOK {
+		failed = append(failed, "compiled")
+	}
+	return map[string]any{
+		"partial":           true,
+		"failedProjections": failed,
+		"warning":           "Step results are partial because one source projection was unavailable.",
+	}
+}
+
+func compiledFlowStepConfig(raw any) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	if config := mapStringAny(raw); config != nil {
+		return config
+	}
+	configLiteral, ok := raw.(string)
+	if !ok || strings.TrimSpace(configLiteral) == "" {
+		return nil
+	}
+	var parsed any
+	if err := edn.Unmarshal([]byte(configLiteral), &parsed); err != nil {
+		return nil
+	}
+	config, err := normalizeEDNMap(parsed)
+	if err != nil {
+		return nil
+	}
+	return config
+}
+
 func newFlowsStepsListCmd(app *App) *cobra.Command {
+	var source string
+	var version int
 	cmd := &cobra.Command{
 		Use:   "list <flow-slug>",
 		Short: "List steps",
@@ -1818,18 +1941,37 @@ func newFlowsStepsListCmd(app *App) *cobra.Command {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
 				}
+				if cmd.Flags().Changed("version") && version < 1 {
+					return writeErr(cmd, errors.New("--version must be at least 1"))
+				}
+				payload := map[string]any{
+					"flowSlug": args[0],
+					"source":   strings.TrimSpace(source),
+				}
+				if version > 0 {
+					payload["source"] = "version"
+					payload["version"] = version
+				}
 				client := apiClient(app)
-				resp, status, err := client.DoCommand(context.Background(), "flows.compile", map[string]any{"flowSlug": args[0]})
-				if err != nil {
-					return writeErr(cmd, err)
+				authoredResp, authoredCode, authoredErr, compileResp, compileCode, compileErr := readFlowStepProjections(cmd.Context(), client, payload, false)
+				authoredOK := flowStepProjectionOK(authoredResp, authoredCode, authoredErr)
+				compileOK := flowStepProjectionOK(compileResp, compileCode, compileErr)
+				if !authoredOK && !compileOK {
+					return writeFlowStepProjectionFailure(cmd, app, compileResp, compileCode, compileErr)
 				}
-				if status >= 400 {
-					return writeAPIResult(cmd, app, resp, status)
+				authoredSteps := flowStepsFromGetResponse(authoredResp)
+				compileData, _ := compileResp["data"].(map[string]any)
+				analysis, _ := compileData["analysis"].(map[string]any)
+				compiledSteps, _ := analysis["steps"].([]any)
+				if !authoredOK {
+					authoredSteps = nil
 				}
-				data, _ := resp["data"].(map[string]any)
-				analysis, _ := data["analysis"].(map[string]any)
-				rawSteps, _ := analysis["steps"].([]any)
+				if !compileOK {
+					compiledSteps = nil
+				}
+				rawSteps := append(append(make([]any, 0, len(compiledSteps)+len(authoredSteps)), compiledSteps...), authoredSteps...)
 				items := make([]map[string]any, 0, len(rawSteps))
+				seen := map[string]bool{}
 				for _, raw := range rawSteps {
 					step, ok := raw.(map[string]any)
 					if !ok {
@@ -1837,12 +1979,16 @@ func newFlowsStepsListCmd(app *App) *cobra.Command {
 					}
 					id, _ := step["id"].(string)
 					typ, _ := step["type"].(string)
-					if id == "" && typ == "" {
+					if (id == "" && typ == "") || seen[id] {
 						continue
 					}
+					seen[id] = true
 					items = append(items, map[string]any{"id": id, "type": typ})
 				}
-				return writeData(cmd, app, nil, map[string]any{"flowSlug": args[0], "items": items})
+				return writeData(cmd, app, flowStepProjectionMeta(authoredOK, compileOK), map[string]any{"flowSlug": args[0], "items": items})
+			}
+			if cmd.Flags().Changed("source") || cmd.Flags().Changed("version") {
+				return writeErr(cmd, errors.New("--source and --version require API mode for flows steps list"))
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1859,11 +2005,15 @@ func newFlowsStepsListCmd(app *App) *cobra.Command {
 			return writeData(cmd, app, nil, map[string]any{"flowSlug": f.Slug, "items": items})
 		},
 	}
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow definition source (draft|latest|active|version); defaults to draft")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version (selects source=version)")
 	return cmd
 }
 
 func newFlowsStepsShowCmd(app *App) *cobra.Command {
 	var include string
+	var source string
+	var version int
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug> <step-id>",
 		Short: "Show step",
@@ -1873,17 +2023,38 @@ func newFlowsStepsShowCmd(app *App) *cobra.Command {
 				if err := requireAPI(app); err != nil {
 					return writeErr(cmd, err)
 				}
+				if cmd.Flags().Changed("version") && version < 1 {
+					return writeErr(cmd, errors.New("--version must be at least 1"))
+				}
+				payload := map[string]any{
+					"flowSlug": args[0],
+					"source":   strings.TrimSpace(source),
+				}
+				if version > 0 {
+					payload["source"] = "version"
+					payload["version"] = version
+				}
+				inc := parseCSV(include)
 				client := apiClient(app)
-				resp, status, err := client.DoCommand(context.Background(), "flows.compile", map[string]any{"flowSlug": args[0]})
-				if err != nil {
-					return writeErr(cmd, err)
+				authoredResp, authoredCode, authoredErr, compileResp, compileCode, compileErr := readFlowStepProjections(
+					cmd.Context(), client, payload, inc["definition"] || inc["schema"] || inc["schemas"],
+				)
+				authoredOK := flowStepProjectionOK(authoredResp, authoredCode, authoredErr)
+				compileOK := flowStepProjectionOK(compileResp, compileCode, compileErr)
+				if !authoredOK && !compileOK {
+					return writeFlowStepProjectionFailure(cmd, app, compileResp, compileCode, compileErr)
 				}
-				if status >= 400 {
-					return writeAPIResult(cmd, app, resp, status)
+				authoredSteps := flowStepsFromGetResponse(authoredResp)
+				compileData, _ := compileResp["data"].(map[string]any)
+				analysis, _ := compileData["analysis"].(map[string]any)
+				compiledSteps, _ := analysis["steps"].([]any)
+				if !authoredOK {
+					authoredSteps = nil
 				}
-				data, _ := resp["data"].(map[string]any)
-				analysis, _ := data["analysis"].(map[string]any)
-				rawSteps, _ := analysis["steps"].([]any)
+				if !compileOK {
+					compiledSteps = nil
+				}
+				rawSteps := append(append(make([]any, 0, len(compiledSteps)+len(authoredSteps)), compiledSteps...), authoredSteps...)
 				var matched map[string]any
 				for _, raw := range rawSteps {
 					step, ok := raw.(map[string]any)
@@ -1897,24 +2068,65 @@ func newFlowsStepsShowCmd(app *App) *cobra.Command {
 					}
 				}
 				if matched == nil {
+					if !authoredOK {
+						return writeFlowStepProjectionFailure(cmd, app, authoredResp, authoredCode, authoredErr)
+					}
+					if !compileOK {
+						return writeFlowStepProjectionFailure(cmd, app, compileResp, compileCode, compileErr)
+					}
 					return writeErr(cmd, errors.New("step not found"))
 				}
 				out := map[string]any{
 					"id":   matched["id"],
 					"type": matched["type"],
 				}
-				inc := parseCSV(include)
 				if include != "" || inc["definition"] || inc["schemas"] {
 					out["config"] = matched["config"]
 					out["hasRetry"] = matched["hasRetry"]
 					out["hasErrorHandling"] = matched["hasErrorHandling"]
 					out["hasPersist"] = matched["hasPersist"]
 				}
-				meta := map[string]any{"hint": "Use --include definition to show config"}
+				if inc["definition"] || inc["schema"] || inc["schemas"] {
+					definition := flowStepFromGetResponse(authoredResp, args[1])
+					config := compiledFlowStepConfig(matched["config"])
+					if inc["definition"] {
+						if definition != nil {
+							out["definition"] = definition
+						} else if config != nil {
+							out["definition"] = config
+						} else {
+							out["definition"] = matched
+						}
+					}
+					if inc["schema"] || inc["schemas"] {
+						out["inputSchema"] = lookupAny(definition, "inputSchema", "input-schema")
+						if out["inputSchema"] == nil {
+							out["inputSchema"] = lookupAny(matched, "inputSchema", "input-schema")
+						}
+						if out["inputSchema"] == nil {
+							out["inputSchema"] = lookupAny(config, "inputSchema", "input-schema")
+						}
+						out["outputSchema"] = lookupAny(definition, "outputSchema", "output-schema")
+						if out["outputSchema"] == nil {
+							out["outputSchema"] = lookupAny(matched, "outputSchema", "output-schema")
+						}
+						if out["outputSchema"] == nil {
+							out["outputSchema"] = lookupAny(config, "outputSchema", "output-schema")
+						}
+					}
+				}
+				meta := flowStepProjectionMeta(authoredOK, compileOK)
+				if meta == nil {
+					meta = map[string]any{}
+				}
+				meta["hint"] = "Use --include definition to show config"
 				if include != "" {
 					delete(meta, "hint")
 				}
 				return writeData(cmd, app, meta, map[string]any{"flowSlug": args[0], "step": out})
+			}
+			if cmd.Flags().Changed("source") || cmd.Flags().Changed("version") {
+				return writeErr(cmd, errors.New("--source and --version require API mode for flows steps show"))
 			}
 			st, store, err := appStore(app)
 			if err != nil {
@@ -1945,6 +2157,8 @@ func newFlowsStepsShowCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&include, "include", "", "Comma-separated include list (schemas,definition)")
+	cmd.Flags().StringVar(&source, "source", "draft", "Flow definition source (draft|latest|active|version); defaults to draft")
+	cmd.Flags().IntVar(&version, "version", 0, "Specific flow version (selects source=version)")
 	return cmd
 }
 
@@ -1974,18 +2188,29 @@ Examples:
 			return requireAPI(app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fileChanged := cmd.Flags().Changed("file")
+			if fileChanged && strings.TrimSpace(stepFile) == "" {
+				return writeErr(cmd, errors.New("--file requires a non-empty path"))
+			}
+			if fileChanged && (cmd.Flags().Changed("type") || cmd.Flags().Changed("title") || cmd.Flags().Changed("description")) {
+				return writeErr(cmd, errors.New("--file cannot be combined with --type, --title, or --description"))
+			}
 			payload := map[string]any{
 				"flowSlug": strings.TrimSpace(args[0]),
 				"stepId":   strings.TrimSpace(args[1]),
 				"source":   strings.TrimSpace(source),
 			}
 
-			if strings.TrimSpace(stepFile) != "" {
+			if fileChanged {
 				b, err := readExplicitFile(strings.TrimSpace(stepFile))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
 				}
-				payload["stepLiteral"] = strings.TrimSpace(string(b))
+				stepLiteral := strings.TrimSpace(string(b))
+				if stepLiteral == "" {
+					return writeErr(cmd, errors.New("--file must contain a non-empty packaged step literal"))
+				}
+				payload["stepLiteral"] = stepLiteral
 			} else {
 				if strings.TrimSpace(stepType) == "" {
 					return writeErr(cmd, errors.New("missing --type or --file"))
@@ -2000,7 +2225,7 @@ Examples:
 				}
 			}
 
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.create", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.create", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -2014,6 +2239,27 @@ Examples:
 	cmd.Flags().StringVar(&title, "title", "", "Step title for scaffold mode")
 	cmd.Flags().StringVar(&description, "description", "", "Step description for scaffold mode")
 	return cmd
+}
+
+func buildFlowStepEdits(args []string, start int) ([]any, error) {
+	edits := make([]any, 0, (len(args)-start)/2)
+	for i := start; i < len(args); i += 2 {
+		path := strings.TrimSpace(args[i])
+		value := args[i+1]
+		edit := map[string]any{
+			"path":  path,
+			"value": value,
+		}
+		if path == "result.fnFile" {
+			b, err := readExplicitFile(strings.TrimSpace(value))
+			if err != nil {
+				return nil, fmt.Errorf("read result.fnFile: %w", err)
+			}
+			edit["fileContents"] = strings.TrimSpace(string(b))
+		}
+		edits = append(edits, edit)
+	}
+	return edits, nil
 }
 
 func newFlowsStepsUpdateCmd(app *App) *cobra.Command {
@@ -2035,9 +2281,12 @@ Examples:
 			if len(args) < 2 {
 				return fmt.Errorf("accepts at least 2 arg(s), received %d", len(args))
 			}
-			if strings.TrimSpace(stepFile) != "" {
+			if cmd.Flags().Changed("file") {
 				if len(args) != 2 {
 					return errors.New("--file cannot be combined with path/value edits")
+				}
+				if strings.TrimSpace(stepFile) == "" {
+					return errors.New("--file requires a non-empty path")
 				}
 				return nil
 			}
@@ -2063,34 +2312,25 @@ Examples:
 				"source":   strings.TrimSpace(source),
 			}
 
-			if strings.TrimSpace(stepFile) != "" {
+			if cmd.Flags().Changed("file") {
 				b, err := readExplicitFile(strings.TrimSpace(stepFile))
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("read --file: %w", err))
 				}
-				payload["stepLiteral"] = strings.TrimSpace(string(b))
+				stepLiteral := strings.TrimSpace(string(b))
+				if stepLiteral == "" {
+					return writeErr(cmd, errors.New("--file must contain a non-empty packaged step literal"))
+				}
+				payload["stepLiteral"] = stepLiteral
 			} else {
-				edits := make([]any, 0, (len(args)-2)/2)
-				for i := 2; i < len(args); i += 2 {
-					path := strings.TrimSpace(args[i])
-					value := args[i+1]
-					edit := map[string]any{
-						"path":  strings.TrimSpace(args[i]),
-						"value": args[i+1],
-					}
-					if path == "result.fnFile" {
-						b, err := readExplicitFile(strings.TrimSpace(value))
-						if err != nil {
-							return writeErr(cmd, fmt.Errorf("read result.fnFile: %w", err))
-						}
-						edit["fileContents"] = strings.TrimSpace(string(b))
-					}
-					edits = append(edits, edit)
+				edits, err := buildFlowStepEdits(args, 2)
+				if err != nil {
+					return writeErr(cmd, err)
 				}
 				payload["edits"] = edits
 			}
 
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.update", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.update", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -2129,7 +2369,7 @@ Examples:
 				"stepId":   strings.TrimSpace(args[1]),
 				"source":   strings.TrimSpace(source),
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.steps.remove", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.steps.remove", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -2147,6 +2387,7 @@ func newFlowsStepsRunCmd(app *App) *cobra.Command {
 	var paramsJSON string
 	var paramsFile string
 	var traceID string
+	var idempotencyKey string
 	var installationID string
 	var legacyProfileID string
 	var previewOpts stepResultPreviewOptions
@@ -2177,6 +2418,7 @@ Examples:
 				ParamsJSON:        paramsJSON,
 				ParamsFile:        paramsFile,
 				TraceID:           traceID,
+				IdempotencyKey:    idempotencyKey,
 				InstallationID:    installationID,
 				LegacyProfileID:   legacyProfileID,
 				Preview:           previewOpts,
@@ -2190,6 +2432,7 @@ Examples:
 	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step params as JSON object; overrides authored defaults")
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step params JSON from file (overrides --params)")
 	cmd.Flags().StringVar(&traceID, "trace-id", "", "Optional trace id")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for safely retrying a side-effectful step run")
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")

@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -126,6 +127,192 @@ func TestStepsRunAllowsRegisteredFlowStepWithoutType(t *testing.T) {
 	}
 }
 
+func TestStepsRunRejectsExplicitlyBlankParamsBeforeRequest(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	emptyParamsFile := filepath.Join(t.TempDir(), "empty-params.json")
+	if err := os.WriteFile(emptyParamsFile, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("write empty params file: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "blank params", args: []string{"--params", ""}},
+		{name: "empty params file", args: []string{"--params-file", emptyParamsFile}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{
+				"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+				"steps", "run", "--type", "code", "--id", "make-output",
+			}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected validation failure\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
+func TestStepsRecordRejectsInvalidExplicitInputsBeforeRequest(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	emptyParamsFile := filepath.Join(t.TempDir(), "empty-params.json")
+	if err := os.WriteFile(emptyParamsFile, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("write empty params file: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "blank params", args: []string{"--params", ""}, want: "--params cannot be empty"},
+		{name: "blank params file", args: []string{"--params-file", ""}, want: "--params-file cannot be empty"},
+		{name: "empty params file", args: []string{"--params-file", emptyParamsFile}, want: "--params-file must contain a JSON object"},
+		{name: "invalid version", args: []string{"--version", "0"}, want: "--version must be at least 1"},
+		{name: "conflicting installation aliases", args: []string{"--installation-id", "inst-a", "--profile-id", "inst-b"}, want: "--installation-id cannot be combined with --profile-id"},
+		{name: "blank installation", args: []string{"--installation-id", ""}, want: "--installation-id cannot be empty"},
+		{name: "blank legacy profile", args: []string{"--profile-id", ""}, want: "--profile-id cannot be empty"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{
+				"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+				"steps", "record", "--flow", "my-flow", "--type", "code", "--id", "make-output",
+			}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected validation failure\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("expected %q in stderr, got %q", tc.want, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
+func TestStepRunCommandsRejectExplicitlyBlankIdempotencyKeysBeforeRequest(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "direct step", args: []string{"steps", "run", "--type", "code", "--id", "make-output", "--idempotency-key", ""}},
+		{name: "recorded step", args: []string{"steps", "record", "--flow", "my-flow", "--type", "code", "--id", "make-output", "--idempotency-key", ""}},
+		{name: "flow step", args: []string{"flows", "steps", "run", "my-flow", "tools/add-one", "--idempotency-key", ""}},
+		{name: "agent step", args: []string{"flows", "agents", "run", "my-flow", "agents/reviewer", "--idempotency-key", ""}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected validation failure\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
+func TestStepRunCommandsRejectInvalidExplicitVersionsBeforeRequest(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "direct step", args: []string{"steps", "run", "--type", "code", "--id", "make-output", "--version", "0"}},
+		{name: "flow step", args: []string{"flows", "steps", "run", "my-flow", "tools/add-one", "--version", "-1"}},
+		{name: "agent step", args: []string{"flows", "agents", "run", "my-flow", "agents/reviewer", "--version", "0"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected invalid version to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
+func TestStepRunCommandsRejectConflictingOrBlankInstallationAliasesBeforeRequest(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "direct conflict", args: []string{"steps", "run", "--type", "code", "--id", "make-output", "--installation-id", "inst-a", "--profile-id", "inst-b"}},
+		{name: "flow conflict", args: []string{"flows", "steps", "run", "my-flow", "tools/add-one", "--installation-id", "inst-a", "--profile-id", "inst-b"}},
+		{name: "agent conflict", args: []string{"flows", "agents", "run", "my-flow", "agents/reviewer", "--installation-id", "inst-a", "--profile-id", "inst-b"}},
+		{name: "blank installation", args: []string{"flows", "steps", "run", "my-flow", "tools/add-one", "--installation-id", ""}},
+		{name: "blank profile", args: []string{"flows", "agents", "run", "my-flow", "agents/reviewer", "--profile-id", ""}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected installation targeting validation to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
 func TestFlowsStepsRunSendsFlowScopedCommandAndCompactsResult(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
@@ -163,6 +350,7 @@ func TestFlowsStepsRunSendsFlowScopedCommandAndCompactsResult(t *testing.T) {
 		"--token", "user-dev",
 		"flows", "steps", "run", "my-flow", "tools/add-one",
 		"--params", `{"input":{"n":2}}`,
+		"--idempotency-key", "add-one-123",
 		"--result-path", "rows.0",
 		"--result-file", resultFile,
 	)
@@ -178,6 +366,9 @@ func TestFlowsStepsRunSendsFlowScopedCommandAndCompactsResult(t *testing.T) {
 	}
 	if _, exists := args["stepType"]; exists {
 		t.Fatalf("expected no stepType for flow-scoped wrapper, got %#v", args["stepType"])
+	}
+	if args["idempotencyKey"] != "add-one-123" {
+		t.Fatalf("expected idempotency key to be forwarded, got %#v", args)
 	}
 	params, _ := args["params"].(map[string]any)
 	input, _ := params["input"].(map[string]any)
@@ -417,10 +608,14 @@ func TestStepsRunFullPreservesResult(t *testing.T) {
 	}
 }
 
-func TestStepsRecordSendsFlowSourceAndVersionToStepRun(t *testing.T) {
+func TestStepsRecordSendsFlowSourceVersionAndIdempotencyToStepRun(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	var runArgs map[string]any
+	var exampleArgs map[string]any
+	var testArgs map[string]any
+	var exampleIDs []string
+	var testIDs []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -437,11 +632,18 @@ func TestStepsRecordSendsFlowSourceAndVersionToStepRun(t *testing.T) {
 				"data": map[string]any{
 					"stepType":   "code",
 					"stepId":     "make-output",
+					"workflowId": "wf-user-dev-record",
 					"durationMs": 1,
 					"result":     map[string]any{"ok": true},
 				},
 			})
-		case "steps.examples.add", "steps.tests.add":
+		case "steps.examples.add":
+			exampleArgs, _ = body["args"].(map[string]any)
+			exampleIDs = append(exampleIDs, fmt.Sprint(exampleArgs["exampleId"]))
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"saved": true}})
+		case "steps.tests.add":
+			testArgs, _ = body["args"].(map[string]any)
+			testIDs = append(testIDs, fmt.Sprint(testArgs["testId"]))
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"saved": true}})
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -462,12 +664,33 @@ func TestStepsRecordSendsFlowSourceAndVersionToStepRun(t *testing.T) {
 		"--type", "code",
 		"--id", "make-output",
 		"--params", `{"input":{"n":2}}`,
+		"--idempotency-key", "turn-123:make-output",
 	)
 	if err != nil {
 		t.Fatalf("steps record failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
+	_, retryStderr, retryErr := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"steps", "record", "--flow", "my-flow", "--source", "draft", "--version", "4",
+		"--type", "code", "--id", "make-output", "--params", `{"input":{"n":2}}`,
+		"--idempotency-key", "turn-123:make-output",
+	)
+	if retryErr != nil {
+		t.Fatalf("steps record retry failed: %v\nstderr=%s", retryErr, retryStderr)
+	}
 	if runArgs["flowSlug"] != "my-flow" || runArgs["source"] != "draft" || runArgs["version"] != float64(4) {
 		t.Fatalf("expected source/version on steps.run args, got %#v", runArgs)
+	}
+	if runArgs["idempotencyKey"] != "turn-123:make-output" {
+		t.Fatalf("expected idempotency key on steps.run args, got %#v", runArgs)
+	}
+	exampleID, _ := exampleArgs["exampleId"].(string)
+	testID, _ := testArgs["testId"].(string)
+	if !strings.HasPrefix(exampleID, "ex-") || !strings.HasPrefix(testID, "tst-") || exampleID == testID {
+		t.Fatalf("expected stable distinct sidecar identities, example=%#v test=%#v", exampleArgs, testArgs)
+	}
+	if len(exampleIDs) != 2 || exampleIDs[0] != exampleIDs[1] || len(testIDs) != 2 || testIDs[0] != testIDs[1] {
+		t.Fatalf("expected retry-stable sidecar identities, examples=%#v tests=%#v", exampleIDs, testIDs)
 	}
 	var out map[string]any
 	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
@@ -479,6 +702,58 @@ func TestStepsRecordSendsFlowSourceAndVersionToStepRun(t *testing.T) {
 	}
 	if _, exists := data["resultPreview"]; exists {
 		t.Fatalf("expected legacy steps record to omit resultPreview by default, got %#v", data["resultPreview"])
+	}
+}
+
+func TestStepsRecordScopesSidecarIdentityToWorkflowExecution(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	exampleIDs := map[string]string{}
+	testIDs := map[string]string{}
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		principal := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch body["command"] {
+		case "steps.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"stepType":   "code",
+					"stepId":     "make-output",
+					"workflowId": "wf-" + principal,
+					"result":     map[string]any{"principal": principal},
+				},
+			})
+		case "steps.examples.add":
+			args, _ := body["args"].(map[string]any)
+			exampleIDs[principal] = fmt.Sprint(args["exampleId"])
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "steps.tests.add":
+			args, _ := body["args"].(map[string]any)
+			testIDs[principal] = fmt.Sprint(args["testId"])
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.Error(w, "unexpected command", http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	for _, token := range []string{"user-a", "user-b"} {
+		stdout, stderr, err := runCLIArgs(t,
+			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", token,
+			"steps", "record", "--flow", "my-flow", "--type", "code", "--id", "make-output",
+			"--idempotency-key", "shared-key",
+		)
+		if err != nil {
+			t.Fatalf("steps record for %s failed: %v\nstdout=%s\nstderr=%s", token, err, stdout, stderr)
+		}
+	}
+	if exampleIDs["user-a"] == "" || exampleIDs["user-b"] == "" || exampleIDs["user-a"] == exampleIDs["user-b"] {
+		t.Fatalf("expected principal-scoped example IDs, got %#v", exampleIDs)
+	}
+	if testIDs["user-a"] == "" || testIDs["user-b"] == "" || testIDs["user-a"] == testIDs["user-b"] {
+		t.Fatalf("expected principal-scoped test IDs, got %#v", testIDs)
 	}
 }
 

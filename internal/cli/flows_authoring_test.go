@@ -72,8 +72,168 @@ func TestFlowsInterfacesUpsertSendsEntrypointPayload(t *testing.T) {
 	if args["outputSchema"] != "[:map [:summary :string]]" {
 		t.Fatalf("expected outputSchema file literal, got %#v", args["outputSchema"])
 	}
-	if args["trustedMetadata"] != true || args["enabled"] != true {
-		t.Fatalf("expected boolean flags, got %#v", args)
+	if args["trustedMetadata"] != true {
+		t.Fatalf("expected trustedMetadata flag, got %#v", args)
+	}
+	if _, exists := args["enabled"]; exists {
+		t.Fatalf("expected omitted --enabled to preserve existing state, got %#v", args)
+	}
+}
+
+func TestFlowsInterfacesUpsertSendsStructuredAuthPayload(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "my-flow", "interfaceId": "events"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "interfaces", "upsert", "my-flow", "events",
+		"--kind", "webhook",
+		"--event-name", "orders.updated",
+		"--path", "/events",
+		"--auth-json", `{"type":"hmac-sha256","secretRef":"res://secret/webhook-key","header":"X-Signature"}`,
+	)
+	if err != nil {
+		t.Fatalf("flows interfaces upsert failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	args, _ := got["args"].(map[string]any)
+	auth, _ := args["auth"].(map[string]any)
+	if args["eventName"] != "orders.updated" {
+		t.Fatalf("expected webhook eventName payload, got %#v", args)
+	}
+	if auth["type"] != "hmac-sha256" || auth["secretRef"] != "res://secret/webhook-key" || auth["header"] != "X-Signature" {
+		t.Fatalf("expected structured auth payload, got %#v", args["auth"])
+	}
+}
+
+func TestFlowsInterfacesUpsertDoesNotInferMCPToolNameOnPartialUpdate(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"flowSlug": "my-flow"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"flows", "interfaces", "upsert", "my-flow", "summarize-company",
+		"--kind", "mcp", "--description", "Updated description",
+	)
+	if err != nil {
+		t.Fatalf("MCP partial upsert failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	args, _ := got["args"].(map[string]any)
+	if _, exists := args["toolName"]; exists {
+		t.Fatalf("expected omitted --tool-name to stay omitted, got %#v", args)
+	}
+	if args["interfaceId"] != "summarize-company" {
+		t.Fatalf("expected positional MCP tool target, got %#v", args)
+	}
+}
+
+func TestFlowsAuthoringUpsertsRejectIncompleteSafetyFlags(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	emptyAuthFile := filepath.Join(t.TempDir(), "empty-auth.json")
+	if err := os.WriteFile(emptyAuthFile, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("write empty auth file: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing kind", args: []string{"flows", "interfaces", "upsert", "my-flow", "events"}},
+		{name: "blank auth json", args: []string{"flows", "interfaces", "upsert", "my-flow", "events", "--kind", "webhook", "--auth-json", ""}},
+		{name: "empty auth file", args: []string{"flows", "interfaces", "upsert", "my-flow", "events", "--kind", "webhook", "--auth-file", emptyAuthFile}},
+		{name: "interface empty input schema file", args: []string{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--input-schema", emptyAuthFile}},
+		{name: "interface empty output schema file", args: []string{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--output-schema", emptyAuthFile}},
+		{name: "interface empty response file", args: []string{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--response", emptyAuthFile}},
+		{name: "interface blank input schema literal", args: []string{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--input-schema-literal", ""}},
+		{name: "schedule empty input schema file", args: []string{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--input-schema", emptyAuthFile}},
+		{name: "schedule empty response file", args: []string{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--response", emptyAuthFile}},
+		{name: "schedule blank response literal", args: []string{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--response-literal", ""}},
+		{name: "interface clear conflict", args: []string{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--label", "Run", "--clear", "label"}},
+		{name: "schedule clear conflict", args: []string{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--timezone", "UTC", "--clear", "timezone"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Error(w, "unexpected request", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+			stdout, stderr, err := runCLIArgs(t, append(baseArgs, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected validation failure\nstdout=%s\nstderr=%s", stdout, stderr)
+			}
+			if calls != 0 {
+				t.Fatalf("expected validation before the API request, got %d calls", calls)
+			}
+		})
+	}
+}
+
+func TestFlowsAuthoringUpsertsForwardExplicitClearFields(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var payloads []map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		args, _ := got["args"].(map[string]any)
+		payloads = append(payloads, args)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true, "workspaceId": "ws-acme", "data": map[string]any{"flowSlug": "my-flow"},
+		})
+	}))
+	defer srv.Close()
+
+	baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+	commands := [][]string{
+		{"flows", "interfaces", "upsert", "my-flow", "events", "--kind", "webhook", "--clear", "auth", "--clear", "description", "--clear", "event-name"},
+		{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--clear", "timezone", "--clear", "response"},
+	}
+	for _, cliArgs := range commands {
+		stdout, stderr, err := runCLIArgs(t, append(baseArgs, cliArgs...)...)
+		if err != nil {
+			t.Fatalf("%v failed: %v\nstdout=%s\nstderr=%s", cliArgs, err, stdout, stderr)
+		}
+	}
+
+	if len(payloads) != 2 {
+		t.Fatalf("expected two payloads, got %#v", payloads)
+	}
+	interfaceClear, _ := payloads[0]["clearFields"].([]any)
+	if len(interfaceClear) != 3 || interfaceClear[0] != "auth" || interfaceClear[1] != "description" || interfaceClear[2] != "event-name" {
+		t.Fatalf("expected interface clear fields, got %#v", payloads[0])
+	}
+	scheduleClear, _ := payloads[1]["clearFields"].([]any)
+	if len(scheduleClear) != 2 || scheduleClear[0] != "timezone" || scheduleClear[1] != "response" {
+		t.Fatalf("expected schedule clear fields, got %#v", payloads[1])
 	}
 }
 
@@ -101,8 +261,8 @@ func TestFlowsInterfacesValidateAndRemoveSendEntrypointPayload(t *testing.T) {
 	defer srv.Close()
 
 	for _, cliArgs := range [][]string{
-		{"flows", "interfaces", "validate", "my-flow", "run"},
-		{"flows", "interfaces", "remove", "my-flow", "run"},
+		{"flows", "interfaces", "validate", "my-flow", "run", "--kind", "manual"},
+		{"flows", "interfaces", "remove", "my-flow", "run", "--kind", "mcp"},
 	} {
 		stdout, stderr, err := runCLIArgs(t,
 			append([]string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}, cliArgs...)...,
@@ -118,6 +278,12 @@ func TestFlowsInterfacesValidateAndRemoveSendEntrypointPayload(t *testing.T) {
 		if args["flowSlug"] != "my-flow" || args["interfaceId"] != "run" || args["source"] != "draft" {
 			t.Fatalf("expected interface target args, got %#v", args)
 		}
+	}
+	if payloads[0]["kind"] != "manual" {
+		t.Fatalf("expected validate payload to forward disambiguating kind, got %#v", payloads[0])
+	}
+	if payloads[1]["kind"] != "mcp" {
+		t.Fatalf("expected remove payload to forward disambiguating kind, got %#v", payloads[1])
 	}
 }
 
@@ -172,8 +338,55 @@ func TestFlowsSchedulesUpsertSendsEntrypointPayload(t *testing.T) {
 	if args["cron"] != "0 9 * * 1-5" || args["timezone"] != "Europe/Oslo" || args["label"] != "Weekday" {
 		t.Fatalf("expected schedule metadata, got %#v", args)
 	}
-	if args["inputSchema"] != "[{:name :limit :type :number}]" || args["enabled"] != true {
-		t.Fatalf("expected schedule schema/enabled args, got %#v", args)
+	if args["inputSchema"] != "[{:name :limit :type :number}]" {
+		t.Fatalf("expected schedule schema args, got %#v", args)
+	}
+	if _, exists := args["enabled"]; exists {
+		t.Fatalf("expected omitted --enabled to preserve existing state, got %#v", args)
+	}
+}
+
+func TestFlowsAuthoringForwardsExplicitDisabledState(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var payloads []map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		args, _ := got["args"].(map[string]any)
+		payloads = append(payloads, args)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowSlug": "my-flow"},
+		})
+	}))
+	defer srv.Close()
+
+	commands := [][]string{
+		{"flows", "interfaces", "upsert", "my-flow", "run", "--kind", "manual", "--enabled=false"},
+		{"flows", "schedules", "upsert", "my-flow", "weekday", "--cron", "0 9 * * 1-5", "--enabled=false"},
+		{"flows", "checks", "create", "my-flow", "security-policy", "--enabled=false"},
+	}
+	for _, cliArgs := range commands {
+		stdout, stderr, err := runCLIArgs(t,
+			append([]string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}, cliArgs...)...,
+		)
+		if err != nil {
+			t.Fatalf("%v failed: %v\nstdout=%s\nstderr=%s", cliArgs, err, stdout, stderr)
+		}
+	}
+	if len(payloads) != len(commands) {
+		t.Fatalf("expected %d payloads, got %#v", len(commands), payloads)
+	}
+	for _, args := range payloads {
+		if enabled, exists := args["enabled"]; !exists || enabled != false {
+			t.Fatalf("expected explicit enabled=false, got %#v", args)
+		}
 	}
 }
 

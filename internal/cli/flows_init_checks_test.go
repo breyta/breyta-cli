@@ -1,11 +1,15 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFlowsInitSendsEmptyDraftPayload(t *testing.T) {
@@ -52,6 +56,46 @@ func TestFlowsInitSendsEmptyDraftPayload(t *testing.T) {
 	}
 	if args["name"] != "My Flow" || args["description"] != "Step-first draft" {
 		t.Fatalf("expected name/description args, got %#v", args)
+	}
+}
+
+func TestFlowAuthoringStatusCommandsHonorCommandCancellation(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "init", args: []string{"flows", "init", "my-flow", "--empty"}},
+		{name: "status", args: []string{"flows", "status", "my-flow"}},
+		{name: "connections status", args: []string{"flows", "connections", "status", "my-flow"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			}))
+			defer srv.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			start := time.Now()
+			args := append([]string{
+				"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			}, tc.args...)
+			_, stderr, err := runCLIArgsWithContext(t, ctx, args...)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expected context deadline exceeded, got %v\n%s", err, stderr)
+			}
+			if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+				t.Fatalf("expected command to stop promptly on cancellation, took %s", elapsed)
+			}
+		})
 	}
 }
 
@@ -115,10 +159,50 @@ func TestFlowsChecksCreateRunAndStatusSendPayloads(t *testing.T) {
 	if createArgs["checkLiteral"] != "{:policy {:secrets :redacted}}" {
 		t.Fatalf("expected check literal file content, got %#v", createArgs["checkLiteral"])
 	}
+	if _, exists := createArgs["enabled"]; exists {
+		t.Fatalf("expected omitted --enabled to preserve existing state, got %#v", createArgs)
+	}
 	for _, args := range payloads[1:] {
 		if args["flowSlug"] != "my-flow" || args["source"] != "draft" || args["category"] != "security" {
 			t.Fatalf("expected check run/status args, got %#v", args)
 		}
+	}
+}
+
+func TestFlowsChecksCreateRejectsBlankOrEmptyFile(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	emptyFile := filepath.Join(t.TempDir(), "empty-check.edn")
+	if err := os.WriteFile(emptyFile, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("write empty check file: %v", err)
+	}
+
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "request should not be sent", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	baseArgs := []string{"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev"}
+	for _, tc := range []struct {
+		name    string
+		file    string
+		wantErr string
+	}{
+		{name: "blank path", file: "", wantErr: "--file requires a non-empty path"},
+		{name: "empty contents", file: emptyFile, wantErr: "--file must contain a non-empty check definition"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append(baseArgs, "flows", "checks", "create", "my-flow", "definition-of-done", "--file", tc.file)
+			stdout, stderr, err := runCLIArgs(t, args...)
+			if err == nil || !strings.Contains(stdout+stderr+err.Error(), tc.wantErr) {
+				t.Fatalf("expected %q, err=%v\nstdout=%s\nstderr=%s", tc.wantErr, err, stdout, stderr)
+			}
+		})
+	}
+	if requests != 0 {
+		t.Fatalf("expected validation before API request, got %d request(s)", requests)
 	}
 }
 

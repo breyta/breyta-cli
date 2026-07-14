@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -44,7 +43,7 @@ Examples:
 				payload["check"] = true
 			}
 
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.status", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.status", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

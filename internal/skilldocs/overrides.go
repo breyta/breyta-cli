@@ -309,13 +309,15 @@ Default authoring order:
 - use ` + "`breyta flows steps checks run <slug> <step-id> --category eval`" + ` before wiring them into agents or full orchestration
 - use ` + "`result.fn`" + ` or ` + "`result.fnFile`" + ` for reusable result projection
 - prefer packaged step tools over exposing raw broad built-in surfaces to agents
+- for agent-typed packaged steps in this section, set tool access with ` + "`breyta flows agents tools set <slug> <agent-step-id>`" + `
+- run ` + "`breyta flows agents checks run <slug> <agent-step-id> --category security`" + ` for agent-typed packaged steps; security checks fail closed until a policy check exists
+- referenced tool steps must have input schemas and current isolated output-shape evidence
 
 5. ` + "`:agents`" + `
 - define reusable named agent roles here when the behavior is agent-shaped
 - put objective, instructions, memory, cost/evaluate/trace, and delegation config in the named agent definition
-- set tool access with ` + "`breyta flows agents tools set`" + `
-- run ` + "`breyta flows agents checks run <slug> <agent-step-id> --category security`" + `; security checks fail closed until a policy check exists
-- referenced tool steps must have input schemas and current isolated output-shape evidence
+- configure named agents in the top-level definition and reference them from orchestration
+- do not pass a top-level named agent id to ` + "`breyta flows agents ...`" + ` commands; those commands target agent-typed packaged steps under ` + "`:steps`" + `
 
 6. ` + "`:flow`" + `
 - only after the reusable surfaces are in place, wire them together in deterministic orchestration
@@ -468,7 +470,7 @@ Goal: make side effects safe, runs replayable, and runtime behavior predictable 
   - pass signed URLs/blob refs for large artifacts instead of moving large bodies through many steps
 - failure-safety defaults
   - retries only for transient failures with bounded attempts/backoff
-  - for every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx; do not switch to a fresh key until the external side effect has been reconciled
+  - for every side-effectful isolated run (` + "`breyta steps run`" + `, ` + "`breyta steps record`" + `, ` + "`breyta flows steps run`" + `, or ` + "`breyta flows agents run`" + `), pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx; do not switch to a fresh key until the external side effect has been reconciled
   - never advance cursors/checkpoints past failed work
   - resume/replay behavior should be explicit for partial success paths
 - anti-patterns to avoid
@@ -604,12 +606,19 @@ const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flow
 
 const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows steps run <slug> <step-id> --source draft` for authored draft steps before a full-flow proof. Use `breyta flows run-step <slug> <step-id> --target live --wait` only when you need an existing live step with configured bindings."
 
+const legacyFocusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+
 const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json`, `breyta flows run-step <slug> <step-id> --input-file ./input.json`, or `breyta flows steps run <slug> <step-id> --params-file ./params.json` instead of inline payload flags when payloads may hit shell or OS argument limits."
+
+const legacyInputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
+
+const legacySimpleInputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` for large payloads that may hit shell or OS argument limits."
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
 func hasInputFilePayloadGuidance(body string) bool {
 	return strings.Contains(body, "--input-file ./input.json") &&
+		strings.Contains(body, "flows steps run <slug> <step-id> --params-file ./params.json") &&
 		strings.Contains(body, "shell or OS argument limits")
 }
 
@@ -655,6 +664,7 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 }
 
 func ensureFocusedStepRunGuidance(body string) string {
+	body = strings.ReplaceAll(body, legacyFocusedStepRunProofBullet, focusedStepRunProofBullet)
 	if strings.Contains(body, "breyta flows steps run <slug> <step-id>") {
 		return body
 	}
@@ -684,6 +694,8 @@ func ensureFocusedStepRunGuidance(body string) string {
 }
 
 func ensureInputFilePayloadGuidance(body string) string {
+	body = strings.ReplaceAll(body, legacyInputFilePayloadGuidance, inputFilePayloadGuidance)
+	body = strings.ReplaceAll(body, legacySimpleInputFilePayloadGuidance, inputFilePayloadGuidance)
 	if hasInputFilePayloadGuidance(body) {
 		return body
 	}

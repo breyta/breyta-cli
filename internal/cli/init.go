@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -88,7 +87,7 @@ breyta init --dir ./my-breyta-workspace --force
 					}
 					fmt.Fprintln(cmd.ErrOrStderr(), "warning: missing api base url; skipped skill install (try `breyta auth login`, then `breyta skills install`)")
 				} else {
-					_, files, err := skilldocs.FetchBundle(context.Background(), nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
+					_, files, err := skilldocs.FetchBundle(cmd.Context(), nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
 					if err != nil {
 						if noWorkspace {
 							return err
@@ -319,7 +318,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - A flow is unreleased until a version is released/activated and the live path is verified.
 - Say ` + "`draft verified`" + ` when only draft was exercised.
 - When a whole-flow proof could trigger unsafe downstream side effects, verify the authored draft step first with ` + "`breyta flows steps run <slug> <step-id> --source draft`" + `. Use ` + "`breyta flows run-step <slug> <step-id> --target live --wait`" + ` only for an existing live step with configured bindings.
-- For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
+- For every side-effectful isolated run (` + "`breyta steps run`" + `, ` + "`breyta steps record`" + `, ` + "`breyta flows steps run`" + `, or ` + "`breyta flows agents run`" + `), pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
 - Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.
 - Release/promote only after draft proof, explicit sign-off, and a release note.
 - For public/end-user work, verify live/install-shaped behavior or report ` + "`web UI not verified`" + `.
@@ -419,9 +418,9 @@ Advanced ideas:
 - For first proof, inline small one-off transform bodies when that is fastest; before release, extract repeated or bulky content into ` + "`:templates`" + `, ` + "`:functions`" + `, packaged ` + "`:steps`" + `, or reusable ` + "`:agents`" + `
 - Shape ` + "`:requires`" + ` around stable capability slots before binding reusable surfaces and the final ` + "`:flow`" + `
 - Keep editable flow source files in ` + "`./flows/`" + `
-- Iterate in draft with the step-first API first: ` + "`breyta flows init`" + `, ` + "`breyta flows steps create/update/run`" + `, ` + "`breyta flows steps checks run`" + `, ` + "`breyta flows connections status --step <step-id>`" + `, interface/schedule commands, then full source lint/push only when a whole-definition edit is intended
+- Iterate in draft with the step-first API first: ` + "`breyta flows init`" + `, ` + "`breyta flows steps create/update/run`" + `, ` + "`breyta flows steps checks run`" + `, ` + "`breyta flows connections status <slug> --source draft --step <step-id>`" + `, interface/schedule commands, then full source lint/push only when a whole-definition edit is intended
 - When a provider/model or primitive change only needs one authored draft step, use ` + "`breyta flows steps run <slug> <step-id> --source draft`" + ` to avoid triggering downstream flow side effects. Use ` + "`breyta flows run-step <slug> <step-id> --target live --wait`" + ` only for an existing live step with configured bindings.
-- For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
+- For every side-effectful isolated run (` + "`breyta steps run`" + `, ` + "`breyta steps record`" + `, ` + "`breyta flows steps run`" + `, or ` + "`breyta flows agents run`" + `), pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
 - Use ` + "`breyta flows run <slug> --input-file ./input.json`" + `, ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + `, or ` + "`breyta flows steps run <slug> <step-id> --params-file ./params.json`" + ` instead of inline payload flags when payloads may hit shell or OS argument limits.
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only

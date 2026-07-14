@@ -32,6 +32,7 @@ func newFlowsSchedulesUpsertCmd(app *App) *cobra.Command {
 	var inputSchemaLiteral string
 	var responseFile string
 	var responseLiteral string
+	var clearFields []string
 
 	cmd := &cobra.Command{
 		Use:   "upsert <flow-slug> <schedule-id>",
@@ -47,6 +48,17 @@ Example:
 			return requireFlowsAuthoringAPI(cmd, app, "flows schedules upsert")
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			clearFields, err := authoringClearFields(cmd, clearFields, map[string][]string{
+				"timezone":     {"timezone"},
+				"label":        {"label"},
+				"description":  {"description"},
+				"invocation":   {"invocation"},
+				"input-schema": {"input-schema", "input-schema-literal"},
+				"response":     {"response", "response-literal"},
+			})
+			if err != nil {
+				return writeErr(cmd, err)
+			}
 			payload := pruneEmptyStrings(map[string]any{
 				"flowSlug":    strings.TrimSpace(args[0]),
 				"scheduleId":  strings.TrimSpace(args[1]),
@@ -57,11 +69,16 @@ Example:
 				"label":       strings.TrimSpace(label),
 				"description": strings.TrimSpace(description),
 			})
-			payload["enabled"] = enabled
-			if err := applyLiteralOrFile(payload, "inputSchema", inputSchemaLiteral, inputSchemaFile, "--input-schema-literal", "--input-schema"); err != nil {
+			if cmd.Flags().Changed("enabled") {
+				payload["enabled"] = enabled
+			}
+			if len(clearFields) > 0 {
+				payload["clearFields"] = clearFields
+			}
+			if err := applyLiteralOrFile(cmd, payload, "inputSchema", inputSchemaLiteral, inputSchemaFile, "--input-schema-literal", "--input-schema"); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := applyLiteralOrFile(payload, "responseLiteral", responseLiteral, responseFile, "--response-literal", "--response"); err != nil {
+			if err := applyLiteralOrFile(cmd, payload, "responseLiteral", responseLiteral, responseFile, "--response-literal", "--response"); err != nil {
 				return writeErr(cmd, err)
 			}
 			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.schedules.upsert", payload)
@@ -83,6 +100,7 @@ Example:
 	cmd.Flags().StringVar(&inputSchemaLiteral, "input-schema-literal", "", "Invocation input schema EDN literal")
 	cmd.Flags().StringVar(&responseFile, "response", "", "Read invocation response EDN from file")
 	cmd.Flags().StringVar(&responseLiteral, "response-literal", "", "Invocation response EDN literal")
+	cmd.Flags().StringSliceVar(&clearFields, "clear", nil, "Clear optional fields (timezone, label, description, invocation, input-schema, response); repeat as needed")
 	return cmd
 }
 

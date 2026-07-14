@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -79,7 +78,7 @@ func newFlowsTargetChecksRunCmd(app *App, use string, short string, commandName 
 			if strings.TrimSpace(category) != "" {
 				payload["category"] = strings.TrimSpace(category)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), commandName, payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), commandName, payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -122,7 +121,9 @@ Examples:
 				"flowSlug": strings.TrimSpace(args[0]),
 				"checkId":  strings.TrimSpace(args[1]),
 				"source":   strings.TrimSpace(source),
-				"enabled":  enabled,
+			}
+			if cmd.Flags().Changed("enabled") {
+				payload["enabled"] = enabled
 			}
 			if strings.TrimSpace(category) != "" {
 				payload["category"] = strings.TrimSpace(category)
@@ -130,14 +131,21 @@ Examples:
 			if strings.TrimSpace(description) != "" {
 				payload["description"] = strings.TrimSpace(description)
 			}
-			if strings.TrimSpace(file) != "" {
-				b, err := readExplicitFile(strings.TrimSpace(file))
+			if cmd.Flags().Changed("file") {
+				filePath := strings.TrimSpace(file)
+				if filePath == "" {
+					return writeErr(cmd, errors.New("--file requires a non-empty path"))
+				}
+				b, err := readExplicitFile(filePath)
 				if err != nil {
 					return writeErr(cmd, err)
 				}
+				if strings.TrimSpace(string(b)) == "" {
+					return writeErr(cmd, errors.New("--file must contain a non-empty check definition"))
+				}
 				payload["checkLiteral"] = string(b)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.checks.create", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.checks.create", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -183,7 +191,7 @@ Examples:
 			if strings.TrimSpace(category) != "" {
 				payload["category"] = strings.TrimSpace(category)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.checks.run", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.checks.run", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -218,7 +226,7 @@ func newFlowsChecksStatusCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(category) != "" {
 				payload["category"] = strings.TrimSpace(category)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.checks.status", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.checks.status", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

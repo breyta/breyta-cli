@@ -135,7 +135,24 @@ breyta skills install --provider <codex|cursor|claude|gemini>
 
 ## First Workflow
 
-Pull a flow into a local workspace, edit it, push it back to draft, and run it:
+Build or update a draft in small slices before running the whole flow. For a new
+flow, initialize an empty draft, create one packaged step, and prove that step in
+isolation:
+
+```bash
+breyta flows init <slug> --empty --name "My flow"
+breyta flows steps create <slug> <step-id> --file ./steps/<step-id>.edn
+breyta flows steps run <slug> <step-id> --source draft
+breyta flows steps checks run <slug> <step-id> --category eval
+breyta flows connections status <slug> --source draft
+breyta flows status <slug> --source draft
+```
+
+Use `breyta flows steps update` for narrow edits, and the interface, schedule,
+agent, and connection authoring commands for their corresponding draft
+surfaces. Pull, lint, and push the complete source only when editing the whole
+definition. Run `breyta flows status <slug> --source draft --check` after adding
+an interface or schedule when the draft is expected to be runnable:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj
@@ -145,8 +162,12 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
-Use `--input-file ./input.json` instead of `--input '<json>'` when the per-run
-payload is large enough to hit shell or OS argument limits.
+Use `breyta flows steps run` for draft step proof. Use
+`breyta flows run-step <slug> <step-id> --target live --wait` only when
+validating an existing live step with configured bindings. Use
+`--input-file ./input.json` for whole-flow runs or `--params-file ./params.json`
+for isolated step runs when the payload is large enough to hit shell or OS
+argument limits.
 
 Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
@@ -190,7 +211,8 @@ breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' 
 breyta flows run-step <slug> <step-id> --target live --input-file ./input.json --wait
 ```
 
-For every side-effectful `breyta steps run`, pass
+For every side-effectful isolated run—`breyta steps run`, `breyta steps record`,
+`breyta flows steps run`, or `breyta flows agents run`—pass
 `--idempotency-key <stable-key>` on the first attempt and reuse that exact key
 after a timeout, dropped response, or 5xx. Do not switch to a fresh key until
 the external side effect has been reconciled.

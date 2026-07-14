@@ -137,8 +137,11 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		t.Fatalf("unexpected agents content (missing focused step-first proof guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "`--idempotency-key <stable-key>`") ||
+		!strings.Contains(string(agents), "`breyta steps record`") ||
+		!strings.Contains(string(agents), "`breyta flows steps run`") ||
+		!strings.Contains(string(agents), "`breyta flows agents run`") ||
 		!strings.Contains(string(agents), "reuse that exact key after a timeout, dropped response, or 5xx") {
-		t.Fatalf("unexpected agents content (missing steps.run idempotency guidance): %s", string(agents))
+		t.Fatalf("unexpected agents content (missing isolated-run idempotency guidance): %s", string(agents))
 	}
 	if !strings.Contains(string(agents), "verify live/install-shaped behavior or report `web UI not verified`") {
 		t.Fatalf("unexpected agents content (missing web UI risk wording): %s", string(agents))
@@ -236,17 +239,31 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`breyta flows steps run <slug> <step-id> --source draft`") {
 		t.Fatalf("unexpected readme content (missing focused step-first proof guidance): %s", string(readme))
 	}
+	if !strings.Contains(string(readme), "`breyta flows connections status <slug> --source draft --step <step-id>`") {
+		t.Fatalf("unexpected readme content (missing valid scoped connection readiness command): %s", string(readme))
+	}
 	if !strings.Contains(string(readme), "`--idempotency-key <stable-key>`") ||
+		!strings.Contains(string(readme), "`breyta steps record`") ||
+		!strings.Contains(string(readme), "`breyta flows steps run`") ||
+		!strings.Contains(string(readme), "`breyta flows agents run`") ||
 		!strings.Contains(string(readme), "reuse that exact key after a timeout, dropped response, or 5xx") {
-		t.Fatalf("unexpected readme content (missing steps.run idempotency guidance): %s", string(readme))
+		t.Fatalf("unexpected readme content (missing isolated-run idempotency guidance): %s", string(readme))
 	}
 	repoReadme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatalf("read repo README.md: %v", err)
 	}
 	if !strings.Contains(string(repoReadme), "`--idempotency-key <stable-key>`") ||
+		!strings.Contains(string(repoReadme), "`breyta steps record`") ||
+		!strings.Contains(string(repoReadme), "`breyta flows steps run`") ||
+		!strings.Contains(string(repoReadme), "`breyta flows agents run`") ||
 		!strings.Contains(string(repoReadme), "reuse that exact key") {
-		t.Fatalf("repo README.md is missing aligned steps.run idempotency guidance")
+		t.Fatalf("repo README.md is missing aligned isolated-run idempotency guidance")
+	}
+	if !strings.Contains(string(repoReadme), "breyta flows init <slug> --empty") ||
+		!strings.Contains(string(repoReadme), "breyta flows steps create <slug> <step-id>") ||
+		!strings.Contains(string(repoReadme), "breyta flows steps checks run <slug> <step-id>") {
+		t.Fatalf("repo README.md is missing the step-first draft workflow")
 	}
 	if !strings.Contains(string(readme), "`breyta flows run <slug> --input-file ./input.json`") ||
 		!strings.Contains(string(readme), "shell or OS argument limits") {

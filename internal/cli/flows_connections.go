@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -57,7 +56,7 @@ func newFlowsConnectionsAPICommand(
 				payload["step"] = strings.TrimSpace(step)
 			}
 
-			out, status, err := apiClient(app).DoCommand(context.Background(), apiCommand, payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), apiCommand, payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

@@ -27,6 +27,27 @@ func TestDefaultRootHelpIncludesPublicCommands(t *testing.T) {
 	}
 }
 
+func TestDefaultFlowsHelpIncludesStepFirstAuthoringCommands(t *testing.T) {
+	t.Setenv("BREYTA_DEV", "")
+	cmd := NewRootCmd()
+	out := new(bytes.Buffer)
+	errOut := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"flows", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute flows help: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	help := out.String()
+	for _, command := range []string{"init", "status", "steps", "agents", "checks", "connections", "interfaces", "schedules"} {
+		if !strings.Contains(help, "\n  "+command) {
+			t.Fatalf("flows help missing public %s command:\n%s", command, help)
+		}
+	}
+}
+
 func TestHelpSubcommandHidesMockSurface(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

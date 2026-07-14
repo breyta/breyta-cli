@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -5067,6 +5068,28 @@ func TestFlowsInterfacesCurl_InstallationBuildsRuntimeCommand(t *testing.T) {
 	}
 	if strings.Contains(curl, "user-dev") {
 		t.Fatalf("curl command leaked token: %s", curl)
+	}
+	binDir := t.TempDir()
+	argsFile := filepath.Join(t.TempDir(), "curl-args.txt")
+	stubPath := filepath.Join(binDir, "curl")
+	if err := os.WriteFile(stubPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CURL_ARGS_FILE\"\n"), 0o700); err != nil {
+		t.Fatalf("write curl stub: %v", err)
+	}
+	generated := exec.Command("sh", "-c", curl)
+	generated.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"BREYTA_TOKEN=expanded-token",
+		"CURL_ARGS_FILE="+argsFile,
+	)
+	if output, err := generated.CombinedOutput(); err != nil {
+		t.Fatalf("execute generated curl command: %v\n%s", err, output)
+	}
+	stubArgs, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read curl stub args: %v", err)
+	}
+	if !strings.Contains(string(stubArgs), "Authorization: Bearer expanded-token") || strings.Contains(string(stubArgs), "${BREYTA_TOKEN}") {
+		t.Fatalf("expected generated curl to expand BREYTA_TOKEN, got %s", stubArgs)
 	}
 }
 

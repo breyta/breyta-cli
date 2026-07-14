@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -45,7 +44,7 @@ Examples:
 			if strings.TrimSpace(description) != "" {
 				payload["description"] = strings.TrimSpace(description)
 			}
-			out, status, err := apiClient(app).DoCommand(context.Background(), "flows.init", payload)
+			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.init", payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
