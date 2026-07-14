@@ -152,7 +152,7 @@ func newJobsWorkerAttachFileCmd(app *App) *cobra.Command {
 				return writeErr(cmd, fmt.Errorf("invalid --file path %q", trimmedPath))
 			}
 
-			uploadResult, err := jobsWorkerUploadFileResource(cmd.Context(), app, trimmedPath, filename, contentType)
+			uploadResult, err := jobsWorkerUploadFileResource(cmd.Context(), app, trimmedPath, filename, contentType, "", false)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1043,7 +1043,7 @@ func detectJobsWorkerContentType(path string, explicit string, file *os.File) (s
 	return http.DetectContentType(header[:n]), nil
 }
 
-func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string) (map[string]any, error) {
+func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string, folder string, replaceExisting bool) (map[string]any, error) {
 	file, err := openExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open upload file: %w", err)
@@ -1059,10 +1059,17 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 		return nil, err
 	}
 
-	initResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/init", nil, map[string]any{
+	initBody := map[string]any{
 		"filename":     filename,
 		"content-type": contentType,
-	})
+	}
+	if strings.TrimSpace(folder) != "" {
+		initBody["folder"] = folder
+	}
+	if replaceExisting {
+		initBody["replace-existing"] = true
+	}
+	initResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/init", nil, initBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1073,13 +1080,19 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 	initData := jobsWorkerRESTPayload(initResp)
 	resourceURI := firstNonBlankString(initData["uri"])
 	uploadURL := firstNonBlankString(initData["upload-url"], initData["uploadUrl"])
+	uploadSessionID := firstNonBlankString(initData["upload-session-id"], initData["uploadSessionId"])
 	if resourceURI == "" {
 		return nil, errors.New("upload init response missing resource uri")
 	}
 
 	if jobsWorkerSupportsSignedUploadURL(uploadURL) {
 		if err := jobsWorkerUploadWithSignedURL(ctx, uploadURL, contentType, file, fileInfo.Size()); err != nil {
-			return nil, err
+			if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+				return nil, fmt.Errorf("signed upload failed (%v); reset upload file for direct upload fallback: %w", err, seekErr)
+			}
+			if directErr := jobsWorkerUploadWithAPIDirect(ctx, app, resourceURI, contentType, file, fileInfo.Size()); directErr != nil {
+				return nil, fmt.Errorf("signed upload failed (%v); direct upload fallback failed: %w", err, directErr)
+			}
 		}
 	} else {
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -1090,9 +1103,17 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 		}
 	}
 
-	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, map[string]any{
+	completeBody := map[string]any{
 		"uri": resourceURI,
-	})
+	}
+	// Forward the init-issued upload session id so the server can locate the
+	// staged upload when replace-existing routes bytes through a staging path.
+	// Without it, complete cannot find the session and reports 404 "Uploaded
+	// object not found" for --name/--folder/--replace uploads.
+	if strings.TrimSpace(uploadSessionID) != "" {
+		completeBody["upload-session-id"] = uploadSessionID
+	}
+	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, completeBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1151,7 +1172,7 @@ func jobsWorkerSupportsSignedUploadURL(uploadURL string) bool {
 }
 
 func jobsWorkerUploadWithSignedURL(ctx context.Context, uploadURL string, contentType string, body io.Reader, contentLength int64) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, io.NopCloser(body))
 	if err != nil {
 		return fmt.Errorf("create upload request: %w", err)
 	}

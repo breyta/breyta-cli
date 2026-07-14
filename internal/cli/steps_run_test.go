@@ -49,6 +49,7 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 		"--version", "3",
 		"--type", "code",
 		"--id", "make-output",
+		"--idempotency-key", "turn-123:make-output",
 		"--params", `{"input":{"n":2}}`,
 	)
 	if err != nil {
@@ -60,6 +61,9 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 	args, _ := got["args"].(map[string]any)
 	if args["flowSlug"] != "my-flow" || args["source"] != "draft" || args["version"] != float64(3) {
 		t.Fatalf("expected flow source/version args, got %#v", args)
+	}
+	if args["idempotencyKey"] != "turn-123:make-output" {
+		t.Fatalf("expected idempotency key, got %#v", args)
 	}
 }
 

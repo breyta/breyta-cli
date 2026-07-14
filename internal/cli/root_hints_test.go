@@ -43,6 +43,7 @@ func TestMoreHintForCommandRoutesToPlaybooks(t *testing.T) {
 	root := NewRootCmd()
 
 	cases := map[string]string{
+		"discover":          "breyta docs show playbook-public-and-marketplace",
 		"flows lint":        "breyta docs show playbook-author-flows",
 		"flows run":         "breyta docs show playbook-debug-and-verify",
 		"flows release":     "breyta docs show playbook-release-and-install",

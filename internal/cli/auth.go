@@ -513,6 +513,9 @@ func newAuthAPIConnectionCmd(app *App) *cobra.Command {
 	var secretID string
 	var connectionID string
 	var baseURL string
+	var capabilities string
+	var oauthMode bool
+	var forceNew bool
 
 	cmd := &cobra.Command{
 		Use:   "api-connection",
@@ -520,12 +523,24 @@ func newAuthAPIConnectionCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Create or update a secret-backed Breyta API connection that flows can use at runtime.
 
-This takes the refresh token from your current ` + "`breyta auth login`" + ` session and asks
-flows-api to provision a normal ` + "`http-api`" + ` connection configured for Breyta API OAuth
-refresh. The resulting connection can be bound to flow ` + "`:http-api`" + ` slots and reused
+By default this provisions a service-account-backed connection: flows-api mints a
+durable workspace service-account key that keeps working after web logouts, can be
+revoked, and is capability-scoped (default: resources.write, flows.run, runs.read;
+override with --capabilities). Re-running the command updates the workspace's
+existing Breyta runtime connection in place; pass --new to force a fresh connection.
+
+Pass --oauth for the legacy mode that stores the refresh token from your current
+` + "`breyta auth login`" + ` session. Legacy connections stop working when that login is
+revoked (e.g. logging out of the web UI). --oauth implies force: it overwrites an
+existing service-account-backed connection.
+
+The resulting connection can be bound to flow ` + "`:http-api`" + ` slots and reused
 across workspaces without embedding refresh tokens directly in flow activation forms.
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if oauthMode && strings.TrimSpace(capabilities) != "" {
+				return writeErr(cmd, errors.New("--capabilities requires service-account mode"))
+			}
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
@@ -544,7 +559,7 @@ across workspaces without embedding refresh tokens directly in flow activation f
 			if !ok {
 				return writeErr(cmd, errors.New("no stored auth record for current API URL; run `breyta auth login` first"))
 			}
-			if strings.TrimSpace(rec.RefreshToken) == "" {
+			if oauthMode && strings.TrimSpace(rec.RefreshToken) == "" {
 				return writeErr(cmd, errors.New("current login does not have a refresh token; run `breyta auth login` again"))
 			}
 
@@ -565,6 +580,25 @@ across workspaces without embedding refresh tokens directly in flow activation f
 			if strings.TrimSpace(connectionID) != "" {
 				body["connectionId"] = strings.TrimSpace(connectionID)
 			}
+			if oauthMode {
+				// An operator explicitly asking for legacy mode is an intentional
+				// downgrade; the server guard exists to stop unaware old CLIs.
+				body["force"] = true
+			} else {
+				body["authMode"] = "service-account"
+				var caps []string
+				for _, c := range strings.Split(capabilities, ",") {
+					if c = strings.TrimSpace(c); c != "" {
+						caps = append(caps, c)
+					}
+				}
+				if len(caps) > 0 {
+					body["capabilities"] = caps
+				}
+			}
+			if forceNew {
+				body["new"] = true
+			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 			defer cancel()
@@ -581,6 +615,9 @@ across workspaces without embedding refresh tokens directly in flow activation f
 	cmd.Flags().StringVar(&secretID, "secret-id", "", "Secret id to store refreshed auth under")
 	cmd.Flags().StringVar(&connectionID, "connection-id", "", "Update an existing connection instead of creating a new one")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "Breyta API base URL (default: current --api value)")
+	cmd.Flags().StringVar(&capabilities, "capabilities", "", "Comma-separated service-account capabilities (default: resources.write,flows.run,runs.read)")
+	cmd.Flags().BoolVar(&oauthMode, "oauth", false, "Use the legacy OAuth refresh-token mode (stops working on web logout; implies force)")
+	cmd.Flags().BoolVar(&forceNew, "new", false, "Force creating a fresh connection instead of updating the existing one in place")
 
 	return cmd
 }

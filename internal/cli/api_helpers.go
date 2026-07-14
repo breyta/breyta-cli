@@ -724,6 +724,11 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 			} else {
 				addActivationHint(app, out, slug)
 			}
+		} else if command == "runs.start" || command == "flows.run" {
+			// On a successful run start, surface the flow's historical average
+			// runtime to JSON/--pretty consumers so agents know roughly how
+			// long to wait. No-op when the server omits avgDurationMs.
+			addRunStartETAHint(out)
 		}
 	case "flows.deploy":
 		if status >= 400 || !isOK(out) {

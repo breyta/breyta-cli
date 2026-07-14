@@ -92,8 +92,8 @@ To browse public installable end-user flows for your current workspace instead,
 use:
 
 ```bash
-breyta flows discover list
-breyta flows discover search "<idea>"
+breyta discover list
+breyta discover search "<idea>"
 ```
 
 Discover list/search excludes flows owned by the current workspace by default
@@ -190,6 +190,11 @@ breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' 
 breyta flows run-step <slug> <step-id> --target live --input-file ./input.json --wait
 ```
 
+For every side-effectful `breyta steps run`, pass
+`--idempotency-key <stable-key>` on the first attempt and reuse that exact key
+after a timeout, dropped response, or 5xx. Do not switch to a fresh key until
+the external side effect has been reconciled.
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
@@ -214,7 +219,7 @@ If the flow should appear in public discover/install surfaces, make that explici
 # :discover {:public true}
 #
 # Or set it explicitly after push/release:
-breyta flows discover update <slug> --public=true
+breyta discover update <slug> --public=true
 ```
 
 Public discover visibility is stored flow metadata. A released version with an
@@ -294,7 +299,7 @@ Paid app smoke path:
 breyta flows push --file ./flows/<slug>.clj
 breyta flows diff <slug>
 breyta flows release <slug> --release-note-file ./release-note.md
-breyta flows discover search "<app name>" --include-own
+breyta discover search "<app name>" --include-own
 breyta flows show <slug> --target live
 ```
 
