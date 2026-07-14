@@ -21,6 +21,7 @@ func newAgentCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAgentSettingsCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
 	cmd.AddCommand(newAgentContextCmd(app))
+	cmd.AddCommand(newAgentInitiativeCmd(app))
 	return cmd
 }
 
