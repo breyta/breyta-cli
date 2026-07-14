@@ -64,3 +64,30 @@ func TestProactiveAgentInitiativeParkIsPublicAndRejectsArguments(t *testing.T) {
 		t.Fatalf("expected argument error, got %s", stderr)
 	}
 }
+
+func TestProactiveAgentInitiativeParkRejectsServiceAccountCredential(t *testing.T) {
+	t.Setenv("BREYTA_API_KEY", "bsa_sak-test_secret")
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"proactive-agent", "initiative", "park",
+	)
+	if err == nil {
+		t.Fatal("expected service-account credential to be rejected")
+	}
+	if requests != 0 {
+		t.Fatalf("expected no API request, got %d", requests)
+	}
+	if !strings.Contains(stderr, "requires signed-in user authentication") ||
+		!strings.Contains(stderr, "unset BREYTA_API_KEY") {
+		t.Fatalf("expected user-auth recovery hint, got %s", stderr)
+	}
+}
