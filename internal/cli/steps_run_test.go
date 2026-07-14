@@ -65,6 +65,17 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 	if args["idempotencyKey"] != "turn-123:make-output" {
 		t.Fatalf("expected idempotency key, got %#v", args)
 	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, exists := data["result"]; !exists {
+		t.Fatalf("expected legacy steps run to preserve data.result by default, got %#v", data)
+	}
+	if _, exists := data["resultPreview"]; exists {
+		t.Fatalf("expected legacy steps run to omit resultPreview by default, got %#v", data["resultPreview"])
+	}
 }
 
 func TestStepsRunAllowsRegisteredFlowStepWithoutType(t *testing.T) {
@@ -199,7 +210,7 @@ func TestFlowsStepsRunSendsFlowScopedCommandAndCompactsResult(t *testing.T) {
 	}
 }
 
-func TestStepsRunCompactsResultByDefault(t *testing.T) {
+func TestStepsRunCompactsResultWhenExplicitlyRequested(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +253,7 @@ func TestStepsRunCompactsResultByDefault(t *testing.T) {
 		"--type", "code",
 		"--id", "make-output",
 		"--params", `{"input":{"n":2}}`,
+		"--full=false",
 	)
 	if err != nil {
 		t.Fatalf("steps run failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
@@ -456,6 +468,17 @@ func TestStepsRecordSendsFlowSourceAndVersionToStepRun(t *testing.T) {
 	}
 	if runArgs["flowSlug"] != "my-flow" || runArgs["source"] != "draft" || runArgs["version"] != float64(4) {
 		t.Fatalf("expected source/version on steps.run args, got %#v", runArgs)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	if _, exists := data["result"]; !exists {
+		t.Fatalf("expected legacy steps record to preserve data.result by default, got %#v", data)
+	}
+	if _, exists := data["resultPreview"]; exists {
+		t.Fatalf("expected legacy steps record to omit resultPreview by default, got %#v", data["resultPreview"])
 	}
 }
 

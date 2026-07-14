@@ -373,6 +373,16 @@ func runStepsRunCommand(cmd *cobra.Command, app *App, inv stepsRunInvocation) er
 	return writeAPIResult(cmd, app, out, status)
 }
 
+func legacyStepsRunPreviewOptions(cmd *cobra.Command, opts stepResultPreviewOptions) stepResultPreviewOptions {
+	for _, name := range []string{"full", "result-path", "result-file", "preview-depth", "preview-items", "preview-runes"} {
+		if cmd.Flags().Changed(name) {
+			return opts
+		}
+	}
+	opts.Full = true
+	return opts
+}
+
 func newStepsShowCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <flow-slug> <step-id>",
@@ -884,7 +894,7 @@ Examples:
 				RecordTest:          recordTest,
 				RecordNote:          recordNote,
 				RecordTestName:      recordTestName,
-				Preview:             previewOpts,
+				Preview:             legacyStepsRunPreviewOptions(cmd, previewOpts),
 				MissingTypeHelpText: "missing --type (or pass --flow for a registered flow-local step)",
 			})
 		},
@@ -906,7 +916,7 @@ Examples:
 	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
 	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")
 	cmd.Flags().StringVar(&recordTestName, "record-test-name", "", "Optional test name for --record-test")
-	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Preserve full data.result (the legacy default unless a result preview flag is used)")
 	cmd.Flags().StringVar(&previewOpts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
 	cmd.Flags().StringVar(&previewOpts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
 	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
@@ -1020,7 +1030,7 @@ Examples:
 			if isOK(out) {
 				addStepSidecarHint(out, fs, id)
 			}
-			if err := compactStepsRunResult(out, id, previewOpts); err != nil {
+			if err := compactStepsRunResult(out, id, legacyStepsRunPreviewOptions(cmd, previewOpts)); err != nil {
 				return writeErr(cmd, err)
 			}
 			return writeAPIResult(cmd, app, out, status)
@@ -1042,7 +1052,7 @@ Examples:
 	cmd.Flags().StringVar(&testName, "test-name", "", "Optional test name for the recorded snapshot test")
 	cmd.Flags().BoolVar(&noExample, "no-example", false, "Do not record an example")
 	cmd.Flags().BoolVar(&noTest, "no-test", false, "Do not record a snapshot test")
-	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().BoolVar(&previewOpts.Full, "full", false, "Preserve full data.result (the legacy default unless a result preview flag is used)")
 	cmd.Flags().StringVar(&previewOpts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
 	cmd.Flags().StringVar(&previewOpts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
 	cmd.Flags().IntVar(&previewOpts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
