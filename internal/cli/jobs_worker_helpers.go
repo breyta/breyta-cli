@@ -32,6 +32,12 @@ type jobsWorkerStatePaths struct {
 	ResultFile  string
 }
 
+var jobsWorkerUploadRetryBackoffs = []time.Duration{
+	2 * time.Second,
+	5 * time.Second,
+	10 * time.Second,
+}
+
 func newJobsWorkerStateCmd(app *App) *cobra.Command {
 	var jobDir string
 
@@ -1069,7 +1075,11 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 	if replaceExisting {
 		initBody["replace-existing"] = true
 	}
-	initResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/init", nil, initBody)
+	var initRetryBackoffs []time.Duration
+	if replaceExisting {
+		initRetryBackoffs = jobsWorkerUploadRetryBackoffs
+	}
+	initResp, status, err := jobsWorkerUploadREST(ctx, app, "/api/files/uploads/init", initBody, initRetryBackoffs)
 	if err != nil {
 		return nil, err
 	}
@@ -1113,7 +1123,7 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 	if strings.TrimSpace(uploadSessionID) != "" {
 		completeBody["upload-session-id"] = uploadSessionID
 	}
-	completeResp, status, err := apiClient(app).DoREST(ctx, http.MethodPost, "/api/files/uploads/complete", nil, completeBody)
+	completeResp, status, err := jobsWorkerUploadREST(ctx, app, "/api/files/uploads/complete", completeBody, jobsWorkerUploadRetryBackoffs)
 	if err != nil {
 		return nil, err
 	}
@@ -1158,6 +1168,42 @@ func jobsWorkerRESTError(status int, resp any) error {
 	return fmt.Errorf("api error (status=%d): %s", status, msg)
 }
 
+func jobsWorkerUploadREST(ctx context.Context, app *App, path string, body map[string]any, backoffs []time.Duration) (any, int, error) {
+	for attempt := 0; ; attempt++ {
+		out, status, err := apiClient(app).DoREST(ctx, http.MethodPost, path, nil, body)
+		if err != nil || !jobsWorkerRetryableUploadStatus(status) || attempt >= len(backoffs) {
+			return out, status, err
+		}
+		if !jobsWorkerWaitForUploadRetry(ctx, backoffs[attempt]) {
+			return out, status, ctx.Err()
+		}
+	}
+}
+
+func jobsWorkerRetryableUploadStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func jobsWorkerWaitForUploadRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func jobsWorkerSupportsSignedUploadURL(uploadURL string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(uploadURL))
 	if err != nil {
@@ -1192,15 +1238,30 @@ func jobsWorkerUploadWithSignedURL(ctx context.Context, uploadURL string, conten
 	return nil
 }
 
-func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, contentType string, body io.Reader, contentLength int64) error {
+func jobsWorkerUploadWithAPIDirect(ctx context.Context, app *App, resourceURI string, contentType string, body io.ReadSeeker, contentLength int64) error {
 	query := url.Values{}
 	query.Set("uri", resourceURI)
-	out, status, err := apiClient(app).DoRootRESTReader(ctx, http.MethodPut, "/api/files/uploads/direct", query, body, contentType, contentLength, nil)
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			if _, err := body.Seek(0, io.SeekStart); err != nil {
+				return fmt.Errorf("reset upload file for retry: %w", err)
+			}
+		}
+		// Hide the file's io.Closer from http.NewRequest. The upload command owns
+		// the file lifetime; a failed attempt must leave it open for Seek + retry.
+		reader := struct{ io.Reader }{Reader: body}
+		out, status, err := apiClient(app).DoRootRESTReader(ctx, http.MethodPut, "/api/files/uploads/direct", query, reader, contentType, contentLength, nil)
+		if err != nil {
+			return err
+		}
+		if !jobsWorkerRetryableUploadStatus(status) || attempt >= len(jobsWorkerUploadRetryBackoffs) {
+			if status >= 400 {
+				return jobsWorkerRESTError(status, out)
+			}
+			return nil
+		}
+		if !jobsWorkerWaitForUploadRetry(ctx, jobsWorkerUploadRetryBackoffs[attempt]) {
+			return ctx.Err()
+		}
 	}
-	if status >= 400 {
-		return jobsWorkerRESTError(status, out)
-	}
-	return nil
 }
