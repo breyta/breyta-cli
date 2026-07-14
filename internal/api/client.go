@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,6 +25,8 @@ const (
 	clientName      = "cli"
 	clientUserAgent = "breyta-cli"
 )
+
+var readCommandRetryBackoffs = []time.Duration{150 * time.Millisecond, 450 * time.Millisecond}
 
 func setClientHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", clientUserAgent)
@@ -240,8 +243,41 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
 		return nil, 0, err
 	}
+	payloadBytes := buf.Bytes()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
+	backoffs := commandRetryBackoffs(command)
+	for attempt := 0; ; attempt++ {
+		out, status, err := c.doCommandRequest(ctx, endpoint, payloadBytes, includeWorkspace)
+		if shouldRetryCommandAttempt(ctx, status, err, attempt, backoffs) {
+			if !waitBeforeRetry(ctx, backoffs[attempt]) {
+				if err != nil {
+					return nil, status, err
+				}
+				return out, status, nil
+			}
+			continue
+		}
+		if err != nil {
+			return nil, status, err
+		}
+		if allowLocalBootstrap && includeWorkspace && c.shouldAutoBootstrapLocalWorkspace(out, status) {
+			bootstrapOut, bootstrapStatus, bootstrapErr := c.bootstrapLocalWorkspace(ctx)
+			if bootstrapErr == nil && bootstrapStatus < 400 {
+				retryOut, retryStatus, retryErr := c.doCommandWithEndpoint(ctx, endpoint, command, args, includeWorkspace, false)
+				if retryErr != nil {
+					return nil, 0, retryErr
+				}
+				annotateAutoBootstrappedLocalWorkspace(retryOut, c.WorkspaceID, bootstrapOut)
+				return retryOut, retryStatus, nil
+			}
+			annotateLocalBootstrapError(out, bootstrapStatus, bootstrapErr)
+		}
+		return out, status, nil
+	}
+}
+
+func (c Client) doCommandRequest(ctx context.Context, endpoint string, payloadBytes []byte, includeWorkspace bool) (map[string]any, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -269,19 +305,93 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
 	}
-	if allowLocalBootstrap && includeWorkspace && c.shouldAutoBootstrapLocalWorkspace(out, resp.StatusCode) {
-		bootstrapOut, bootstrapStatus, bootstrapErr := c.bootstrapLocalWorkspace(ctx)
-		if bootstrapErr == nil && bootstrapStatus < 400 {
-			retryOut, retryStatus, retryErr := c.doCommandWithEndpoint(ctx, endpoint, command, args, includeWorkspace, false)
-			if retryErr != nil {
-				return nil, 0, retryErr
-			}
-			annotateAutoBootstrappedLocalWorkspace(retryOut, c.WorkspaceID, bootstrapOut)
-			return retryOut, retryStatus, nil
-		}
-		annotateLocalBootstrapError(out, bootstrapStatus, bootstrapErr)
-	}
 	return out, resp.StatusCode, nil
+}
+
+func commandRetryBackoffs(command string) []time.Duration {
+	if !retryableCommand(command) {
+		return nil
+	}
+	return readCommandRetryBackoffs
+}
+
+func retryableCommand(command string) bool {
+	switch strings.TrimSpace(command) {
+	case "flows.discover.list", "flows.discover.search":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldRetryCommandAttempt(ctx context.Context, status int, err error, attempt int, backoffs []time.Duration) bool {
+	if attempt >= len(backoffs) {
+		return false
+	}
+	if err != nil {
+		return retryableCommandError(ctx, err) || retryableCommandStatusIfContextActive(ctx, status)
+	}
+	return retryableCommandStatus(status)
+}
+
+func retryableCommandStatusIfContextActive(ctx context.Context, status int) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	return retryableCommandStatus(status)
+}
+
+func retryableCommandStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryableCommandError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "client.timeout") ||
+		strings.Contains(msg, "timeout awaiting response headers") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "unexpected eof")
+}
+
+func waitBeforeRetry(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	if ctx == nil {
+		<-timer.C
+		return true
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (c Client) shouldAutoBootstrapLocalWorkspace(out map[string]any, status int) bool {
