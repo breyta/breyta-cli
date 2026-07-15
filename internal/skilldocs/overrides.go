@@ -397,6 +397,7 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
+- treat ` + "`ok=true`" + ` responses with ` + "`meta.timedOut=true`" + ` or ` + "`data.wait.timedOut=true`" + ` as pending rather than proof of completion; inspect the workflow or rerun with a longer ` + "`--timeout`" + `
 - for installed flows, inspect installation setup/config and run with ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `
 - for Buyer Test Mode author smoke tests, run from the paired Buyer Test workspace: create the source install with ` + "`breyta flows installations create <slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <slug>`" + ` and run it with ` + "`breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait`" + `
 - when browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page

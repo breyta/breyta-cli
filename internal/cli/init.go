@@ -318,6 +318,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - ` + "`draft`" + ` is staging/current authoring; ` + "`live`" + ` is released/runtime.
 - A flow is unreleased until a version is released/activated and the live path is verified.
 - Say ` + "`draft verified`" + ` when only draft was exercised.
+- Treat ` + "`ok=true`" + ` with ` + "`meta.timedOut=true`" + ` or ` + "`data.wait.timedOut=true`" + ` as still in progress, not as completed proof; inspect the workflow or rerun with a longer ` + "`--timeout`" + `.
 - When a whole-flow proof could trigger unsafe downstream side effects, verify one existing step with ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + `.
 - For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
 - Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.

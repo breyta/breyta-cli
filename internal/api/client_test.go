@@ -301,6 +301,43 @@ func TestClient_DoCommand_RetriesDiscoverSearchOnTimeoutError(t *testing.T) {
 	}
 }
 
+func TestClient_DoCommand_RetriesRunsGetAfterTransientGatewayHTML(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0, 0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		commandCalls++
+		if commandCalls == 1 {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = io.WriteString(w, "<html><body>temporary gateway error</body></html>")
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   true,
+			"data": map[string]any{"run": map[string]any{"status": "running"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", Token: "tok", HTTP: srv.Client()}
+	out, status, err := c.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": "run-123"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected retry status 200, got %d", status)
+	}
+	if commandCalls != 2 {
+		t.Fatalf("expected one retry after transient gateway response, got %d calls", commandCalls)
+	}
+	if out["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
 func TestClient_DoCommand_DoesNotRetryMutatingCommandOnTransientStatus(t *testing.T) {
 	origBackoffs := readCommandRetryBackoffs
 	readCommandRetryBackoffs = []time.Duration{0, 0}
