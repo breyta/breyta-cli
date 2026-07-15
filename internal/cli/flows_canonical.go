@@ -289,6 +289,12 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			}
 			return nil
 		}
+		if !isOK(execResp) {
+			if err := writeFinal(execResp, execStatus); err != nil {
+				return writeErr(cmd, err)
+			}
+			return nil
+		}
 
 		execData, _ := execResp["data"].(map[string]any)
 		run, _ := execData["run"].(map[string]any)
