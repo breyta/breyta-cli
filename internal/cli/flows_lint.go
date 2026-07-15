@@ -209,6 +209,16 @@ func localFlowLintPreExpansionDiagnostics(file string, flowLiteral string) []flo
 
 func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
+	if err := parenrepair.Check(flowLiteral); err != nil {
+		code := "clojure_syntax_invalid"
+		hint := "Fix malformed Clojure/EDN before pushing."
+		if errors.Is(err, parenrepair.ErrUnbalancedDelimiters) {
+			code = "clojure_delimiters_invalid"
+			hint = "Run: breyta flows paren-repair --write --file " + file
+		}
+		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
+		return diagnostics
+	}
 	if readerEvalDiagnostics := localReaderEvalDiagnostics(flowLiteral); lintHasErrors(readerEvalDiagnostics) {
 		diagnostics = append(diagnostics, readerEvalDiagnostics...)
 		return diagnostics
