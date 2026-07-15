@@ -150,6 +150,34 @@ line two")}
 	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
 }
 
+func TestFlowsLintLocalOnlyAcceptsReaderConditionalSpliceInMap(t *testing.T) {
+	flowLiteral := `{:slug :reader-conditional-splice
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] {:base true #?@(:clj [:extra 1])})}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid reader-conditional splice should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
+func TestFlowsLintLocalOnlyAcceptsDelimiterCharacterLiteral(t *testing.T) {
+	flowLiteral := `{:slug :delimiter-character
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] \])}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid delimiter character literal should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
 func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

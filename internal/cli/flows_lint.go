@@ -426,6 +426,8 @@ func validateLocalClojureReaderForm(src string, start int) (int, error) {
 	}
 
 	switch src[i] {
+	case '\\':
+		return readClojureCharLiteralEnd(src, i)
 	case '"':
 		_, _, next, err := readClojureStringToken(src, i)
 		return next, err
@@ -513,13 +515,14 @@ func validateLocalClojureDelimitedReaderForms(src string, start int, closeCh byt
 	i := start + 1
 	formCount := 0
 	lastFormStart := -1
+	hasReaderConditionalSplice := false
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
 		if i >= len(src) {
 			return 0, fmt.Errorf("unterminated collection near byte %d", start)
 		}
 		if src[i] == closeCh {
-			if requireEvenForms && formCount%2 != 0 {
+			if requireEvenForms && !hasReaderConditionalSplice && formCount%2 != 0 {
 				return 0, fmt.Errorf("missing map value for form near byte %d", lastFormStart)
 			}
 			return i + 1, nil
@@ -533,6 +536,9 @@ func validateLocalClojureDelimitedReaderForms(src string, start int, closeCh byt
 			continue
 		}
 		lastFormStart = i
+		if strings.HasPrefix(src[i:], "#?@") {
+			hasReaderConditionalSplice = true
+		}
 		next, err := validateLocalClojureReaderForm(src, i)
 		if err != nil {
 			return 0, err

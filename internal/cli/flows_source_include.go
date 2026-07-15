@@ -115,6 +115,8 @@ func readClojureFormEnd(src string, start int) (int, error) {
 	}
 
 	switch src[i] {
+	case '\\':
+		return readClojureCharLiteralEnd(src, i)
 	case '"':
 		_, _, next, err := readClojureStringToken(src, i)
 		return next, err
@@ -185,6 +187,23 @@ func readClojureFormEnd(src string, start int) (int, error) {
 	default:
 		return readClojureTokenEnd(src, i), nil
 	}
+}
+
+func readClojureCharLiteralEnd(src string, start int) (int, error) {
+	if start < 0 || start >= len(src) || src[start] != '\\' {
+		return start, fmt.Errorf("expected character literal")
+	}
+	if start+1 >= len(src) || isClojureWhitespaceOrComma(src[start+1]) {
+		return start, fmt.Errorf("unterminated character literal")
+	}
+	if isClojureTokenDelimiter(src[start+1]) {
+		return start + 2, nil
+	}
+	i := start + 2
+	for i < len(src) && !isClojureTokenDelimiter(src[i]) {
+		i++
+	}
+	return i, nil
 }
 
 func expandFlowSourceIncludes(sourcePath, flowLiteral string) (string, error) {
