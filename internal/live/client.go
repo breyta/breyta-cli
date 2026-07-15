@@ -205,6 +205,9 @@ func emitSnapshotSSEEvent(ctx context.Context, event string, data []byte, snapsh
 	if err != nil {
 		return err
 	}
+	if snapshotIsZero(snapshot) {
+		return nil
+	}
 	select {
 	case snapshots <- snapshot:
 		return nil
@@ -215,11 +218,14 @@ func emitSnapshotSSEEvent(ctx context.Context, event string, data []byte, snapsh
 
 func decodeStreamSnapshot(data []byte) (Snapshot, error) {
 	var wrapped struct {
-		Type     string   `json:"type"`
-		Snapshot Snapshot `json:"snapshot"`
+		Type     string    `json:"type"`
+		Snapshot *Snapshot `json:"snapshot"`
 	}
-	if err := json.Unmarshal(data, &wrapped); err == nil && !snapshotIsZero(wrapped.Snapshot) {
-		return wrapped.Snapshot, nil
+	if err := json.Unmarshal(data, &wrapped); err == nil && strings.TrimSpace(wrapped.Type) != "" {
+		if wrapped.Snapshot == nil {
+			return Snapshot{}, nil
+		}
+		return *wrapped.Snapshot, nil
 	}
 	var snapshot Snapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {

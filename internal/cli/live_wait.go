@@ -258,12 +258,13 @@ func (r *liveWaitRenderer) ensureStream(ctx context.Context, now time.Time) {
 	r.streamErrors = make(chan error, 1)
 	r.streamRunning = true
 	bootstrap := r.bootstrap
+	streamErrors := r.streamErrors
 	go func() {
 		err := r.streamClient.Stream(streamCtx, bootstrap, r.streamSnapshots)
 		if err != nil && errors.Is(err, context.Canceled) {
 			err = nil
 		}
-		r.streamErrors <- err
+		streamErrors <- err
 	}()
 }
 
