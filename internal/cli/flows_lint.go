@@ -82,15 +82,15 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 			}
 
 			flowLiteral := string(b)
-			diagnostics := localFlowLintDiagnostics(file, flowLiteral)
+			diagnostics := localFlowLintPreExpansionDiagnostics(file, flowLiteral)
 			expandedLiteral := flowLiteral
 			if !lintHasErrors(diagnostics) {
 				if expanded, err := expandFlowSourceIncludes(file, flowLiteral); err != nil {
 					diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
 				} else {
 					expandedLiteral = expanded
+					diagnostics = append(diagnostics, localFlowLintDiagnostics(file, expandedLiteral)...)
 					diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
-					diagnostics = append(diagnostics, localReaderEvalDiagnostics(expandedLiteral)...)
 					diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
 					diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 				}
@@ -194,8 +194,7 @@ func lintDiagnostic(severity string, code string, path []string, message string,
 	return out
 }
 
-func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnostic {
-	var diagnostics []flowLintDiagnostic
+func localFlowLintPreExpansionDiagnostics(file string, flowLiteral string) []flowLintDiagnostic {
 	if err := parenrepair.Check(flowLiteral); err != nil {
 		code := "clojure_syntax_invalid"
 		hint := "Fix malformed Clojure/EDN before pushing."
@@ -203,9 +202,13 @@ func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnos
 			code = "clojure_delimiters_invalid"
 			hint = "Run: breyta flows paren-repair --write --file " + file
 		}
-		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
-		return diagnostics
+		return []flowLintDiagnostic{lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local")}
 	}
+	return nil
+}
+
+func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnostic {
+	var diagnostics []flowLintDiagnostic
 	if readerEvalDiagnostics := localReaderEvalDiagnostics(flowLiteral); lintHasErrors(readerEvalDiagnostics) {
 		diagnostics = append(diagnostics, readerEvalDiagnostics...)
 		return diagnostics
@@ -515,14 +518,13 @@ func validateLocalClojureDelimitedReaderForms(src string, start int, closeCh byt
 	i := start + 1
 	formCount := 0
 	lastFormStart := -1
-	hasReaderConditionalSplice := false
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
 		if i >= len(src) {
 			return 0, fmt.Errorf("unterminated collection near byte %d", start)
 		}
 		if src[i] == closeCh {
-			if requireEvenForms && !hasReaderConditionalSplice && formCount%2 != 0 {
+			if requireEvenForms && formCount%2 != 0 {
 				return 0, fmt.Errorf("missing map value for form near byte %d", lastFormStart)
 			}
 			return i + 1, nil
@@ -536,17 +538,71 @@ func validateLocalClojureDelimitedReaderForms(src string, start int, closeCh byt
 			continue
 		}
 		lastFormStart = i
+		next, err := validateLocalClojureReaderForm(src, i)
+		if err != nil {
+			return 0, err
+		}
+		formsAdded := 1
 		if strings.HasPrefix(src[i:], "#?@") {
-			hasReaderConditionalSplice = true
+			formsAdded, err = readerConditionalSpliceFormCount(src, i)
+			if err != nil {
+				return 0, err
+			}
+		}
+		formCount += formsAdded
+		i = next
+	}
+	return 0, fmt.Errorf("unterminated collection near byte %d", start)
+}
+
+func readerConditionalSpliceFormCount(src string, start int) (int, error) {
+	formStart, formEnd, _, ok := activeReaderConditionalForm(src, start)
+	if !ok {
+		return 0, fmt.Errorf("invalid reader conditional splice near byte %d", start)
+	}
+	if formStart < 0 {
+		return 0, nil
+	}
+	if formStart >= formEnd || formStart >= len(src) {
+		return 0, fmt.Errorf("invalid reader conditional splice form near byte %d", start)
+	}
+	closeCh := byte(0)
+	switch src[formStart] {
+	case '(':
+		closeCh = ')'
+	case '[':
+		closeCh = ']'
+	case '{':
+		closeCh = '}'
+	default:
+		return 1, nil
+	}
+
+	count := 0
+	for i := formStart + 1; i < formEnd; {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= formEnd {
+			break
+		}
+		if src[i] == closeCh {
+			return count, nil
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			next, err := validateLocalClojureReaderForm(src, i+2)
+			if err != nil {
+				return 0, err
+			}
+			i = next
+			continue
 		}
 		next, err := validateLocalClojureReaderForm(src, i)
 		if err != nil {
 			return 0, err
 		}
-		formCount++
+		count++
 		i = next
 	}
-	return 0, fmt.Errorf("unterminated collection near byte %d", start)
+	return count, nil
 }
 
 func topLevelConcurrencyValueIsNil(src string) bool {

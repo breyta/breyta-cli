@@ -164,6 +164,55 @@ func TestFlowsLintLocalOnlyAcceptsReaderConditionalSpliceInMap(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
 }
 
+func TestFlowsLintLocalOnlyPreservesMapParityAroundReaderConditionalSplice(t *testing.T) {
+	flowLiteral := `{:slug :reader-conditional-splice-odd
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] {:base true #?@(:clj [:extra 1]) :unmatched})}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected odd map after reader-conditional splice to fail\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid")
+}
+
+func TestFlowsLintLocalOnlyExpandsIncludesBeforeReaderShapeValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includeFile := filepath.Join(tmpDir, "common-fields.edn")
+	if err := os.WriteFile(includeFile, []byte(`:slug :included-reader-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}`), 0o644); err != nil {
+		t.Fatalf("write include file: %v", err)
+	}
+	flowLiteral := `{:flow '(identity) #flow/include "common-fields.edn"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("valid included flow should pass local lint: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
 func TestFlowsLintLocalOnlyAcceptsDelimiterCharacterLiteral(t *testing.T) {
 	flowLiteral := `{:slug :delimiter-character
  :concurrency {:type :singleton :on-new-version :coexist}
