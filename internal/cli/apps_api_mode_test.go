@@ -880,7 +880,8 @@ func TestFlowsInstallations_Get_UsesFlowsInstallationsGetCommand(t *testing.T) {
 	}
 }
 
-func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
+func TestFlowsInstallationsSurfaces_UsesInstallationMetadataSurfaces(t *testing.T) {
+	var commands []string
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -888,7 +889,9 @@ func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "flows.installations.surfaces.list" {
+		command, _ := body["command"].(string)
+		commands = append(commands, command)
+		if command != "flows.installations.get" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
 			return
@@ -904,28 +907,32 @@ func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
 			"workspaceId": "ws-acme",
 			"data": map[string]any{
 				"profileId":      "prof-abc",
-				"installationId": "prof-abc",
 				"flowSlug":       "receipt-flow",
-				"items": []any{
-					map[string]any{
-						"id":          "receipt-inbox",
-						"kind":        "email",
-						"surfaceType": "installation",
-						"status":      "ready",
-						"email": map[string]any{
-							"address":  "receipt-demo@receipts.breyta.ai",
-							"domain":   "receipts.breyta.ai",
-							"provider": "sendgrid",
+				"sourceFlowSlug": "receipt-flow",
+				"surfaces": map[string]any{
+					"hasMore":    false,
+					"nextCursor": nil,
+					"items": []any{
+						map[string]any{
+							"id":          "receipt-inbox",
+							"kind":        "email",
+							"surfaceType": "installation",
+							"status":      "ready",
+							"email": map[string]any{
+								"address":  "receipt-demo@receipts.breyta.ai",
+								"domain":   "receipts.breyta.ai",
+								"provider": "sendgrid",
+							},
 						},
-					},
-					map[string]any{
-						"id":           "parse_receipt",
-						"kind":         "mcp",
-						"surfaceType":  "interface",
-						"status":       "ready",
-						"protocol":     "mcp",
-						"transport":    "streamable-http",
-						"endpointPath": "/api/workspaces/ws-acme/flows/receipt-flow/installations/prof-abc/interfaces/parse_receipt",
+						map[string]any{
+							"id":           "parse_receipt",
+							"kind":         "mcp",
+							"surfaceType":  "interface",
+							"status":       "ready",
+							"protocol":     "mcp",
+							"transport":    "streamable-http",
+							"endpointPath": "/api/workspaces/ws-acme/flows/receipt-flow/installations/prof-abc/interfaces/parse_receipt",
+						},
 					},
 				},
 			},
@@ -943,6 +950,9 @@ func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flows installations surfaces failed: %v\n%s", err, stdout)
 	}
+	if strings.Join(commands, ",") != "flows.installations.get" {
+		t.Fatalf("unexpected command sequence: %#v", commands)
+	}
 	out := decodeEnvelope(t, stdout)
 	if out.Data["installationId"] != "prof-abc" || out.Data["flowSlug"] != "receipt-flow" {
 		t.Fatalf("expected installation surface metadata, got %#v", out.Data)
@@ -959,6 +969,73 @@ func TestFlowsInstallationsSurfaces_UsesCanonicalSurfacesCommand(t *testing.T) {
 	mcp, _ := items[1].(map[string]any)
 	if mcp["kind"] != "mcp" || mcp["transport"] != "streamable-http" {
 		t.Fatalf("expected MCP surface, got %#v", mcp)
+	}
+}
+
+func TestFlowsInstallationsSurfaces_FallsBackToCanonicalSurfacesCommand(t *testing.T) {
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		commands = append(commands, command)
+		args, _ := body["args"].(map[string]any)
+		if args["profileId"] != "prof-abc" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing profileId"}})
+			return
+		}
+		switch command {
+		case "flows.installations.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"profileId": "prof-abc",
+					"flowSlug":  "receipt-flow",
+				},
+			})
+		case "flows.installations.surfaces.list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"profileId":      "prof-abc",
+					"installationId": "prof-abc",
+					"flowSlug":       "receipt-flow",
+					"items": []any{
+						map[string]any{"id": "receipt-inbox", "kind": "email"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "surfaces", "prof-abc",
+	)
+	if err != nil {
+		t.Fatalf("flows installations surfaces failed: %v\n%s", err, stdout)
+	}
+	if strings.Join(commands, ",") != "flows.installations.get,flows.installations.surfaces.list" {
+		t.Fatalf("unexpected command sequence: %#v", commands)
+	}
+	out := decodeEnvelope(t, stdout)
+	items, _ := out.Data["items"].([]any)
+	if len(items) != 1 || out.Data["installationId"] != "prof-abc" {
+		t.Fatalf("expected fallback surfaces payload, got %#v", out.Data)
 	}
 }
 
