@@ -89,7 +89,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 					diagnostics = append(diagnostics, lintDiagnostic("error", "flow_include_invalid", []string{":flow"}, err.Error(), "Fix #flow/include paths before linting or pushing.", "local"))
 				} else {
 					expandedLiteral = expanded
-					diagnostics = append(diagnostics, localFlowLintDiagnostics(file, expandedLiteral)...)
+					diagnostics = append(diagnostics, localFlowLintDiagnostics(file, expandedLiteral, expandedLiteral != flowLiteral)...)
 					diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
 					diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
 					diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
@@ -207,14 +207,18 @@ func localFlowLintPreExpansionDiagnostics(file string, flowLiteral string) []flo
 	return nil
 }
 
-func localFlowLintDiagnostics(file string, flowLiteral string) []flowLintDiagnostic {
+func localFlowLintDiagnostics(file string, flowLiteral string, expandedFromInclude bool) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
 	if err := parenrepair.Check(flowLiteral); err != nil {
 		code := "clojure_syntax_invalid"
 		hint := "Fix malformed Clojure/EDN before pushing."
 		if errors.Is(err, parenrepair.ErrUnbalancedDelimiters) {
 			code = "clojure_delimiters_invalid"
-			hint = "Run: breyta flows paren-repair --write --file " + file
+			if expandedFromInclude {
+				hint = "Fix the unbalanced included source before linting or pushing."
+			} else {
+				hint = "Run: breyta flows paren-repair --write --file " + file
+			}
 		}
 		diagnostics = append(diagnostics, lintDiagnostic("error", code, []string{":flow"}, err.Error(), hint, "local"))
 		return diagnostics

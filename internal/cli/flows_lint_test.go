@@ -213,6 +213,47 @@ func TestFlowsLintLocalOnlyExpandsIncludesBeforeReaderShapeValidation(t *testing
 	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
 }
 
+func TestFlowsLintLocalOnlyDoesNotSuggestRootRepairForUnbalancedInclude(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includeFile := filepath.Join(tmpDir, "broken-fields.edn")
+	if err := os.WriteFile(includeFile, []byte(":slug :broken\n :concurrency {"), 0o644); err != nil {
+		t.Fatalf("write include file: %v", err)
+	}
+	flowLiteral := `{:flow '(identity) #flow/include "broken-fields.edn"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected unbalanced included source to fail\n%s", out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	if len(items) == 0 {
+		t.Fatalf("expected included-source diagnostic, got %#v", body)
+	}
+	first, _ := items[0].(map[string]any)
+	hint, _ := first["hint"].(string)
+	if !strings.Contains(hint, "included source") {
+		t.Fatalf("expected included-source hint, got %#v", first)
+	}
+	if strings.Contains(hint, "paren-repair --write --file "+flowFile) {
+		t.Fatalf("must not suggest repairing the root file for an included-source error: %#v", first)
+	}
+}
+
 func TestFlowsLintLocalOnlyAcceptsDelimiterCharacterLiteral(t *testing.T) {
 	flowLiteral := `{:slug :delimiter-character
  :concurrency {:type :singleton :on-new-version :coexist}
