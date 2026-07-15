@@ -12,8 +12,9 @@ import (
 
 func newAgentCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "agent",
-		Short: "Manage your Breyta agent",
+		Use:     "agent",
+		Aliases: []string{"proactive-agent"},
+		Short:   "Manage your Breyta agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -21,6 +22,7 @@ func newAgentCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAgentSettingsCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
 	cmd.AddCommand(newAgentContextCmd(app))
+	cmd.AddCommand(newAgentInitiativeCmd(app))
 	return cmd
 }
 

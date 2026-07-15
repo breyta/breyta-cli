@@ -30,6 +30,7 @@ func configureVisibility(root *cobra.Command, app *App) {
 		"resources":  true,
 		"docs":       true,
 		"feedback":   true,
+		"agent":      true,
 		"auth":       true,
 		"skills":     true,
 		"workspaces": true,
