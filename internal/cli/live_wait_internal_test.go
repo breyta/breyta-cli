@@ -97,7 +97,7 @@ func TestLiveWaitRendererRendersChangedSnapshotsAndInteractiveHeartbeat(t *testi
 }
 
 func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T) {
-	interactive := &liveWaitRenderer{interactive: true}
+	interactive := &liveWaitRenderer{interactive: true, stdoutInteractive: true}
 	if !interactive.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
 		t.Fatalf("expected interactive successful live run to suppress final JSON")
 	}
@@ -111,5 +111,10 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	nonInteractive := &liveWaitRenderer{interactive: false}
 	if nonInteractive.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
 		t.Fatalf("expected non-interactive output to keep final JSON")
+	}
+
+	redirectedStdout := &liveWaitRenderer{interactive: true, stdoutInteractive: false}
+	if redirectedStdout.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
+		t.Fatalf("expected redirected stdout to keep final JSON while live UI uses stderr")
 	}
 }

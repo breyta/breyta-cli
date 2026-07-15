@@ -53,6 +53,7 @@ type liveWaitRenderer struct {
 	frame                     int
 	warnedUnavailable         bool
 	interactive               bool
+	stdoutInteractive         bool
 	color                     bool
 	out                       io.Writer
 	diagnostics               *liveDiagnostics
@@ -68,19 +69,24 @@ func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, 
 	if f, ok := out.(*os.File); ok {
 		interactive = isatty.IsTerminal(f.Fd())
 	}
+	stdoutInteractive := false
+	if f, ok := cmd.OutOrStdout().(*os.File); ok {
+		stdoutInteractive = isatty.IsTerminal(f.Fd())
+	}
 	color := interactive && strings.TrimSpace(os.Getenv("NO_COLOR")) == ""
 	return &liveWaitRenderer{
-		app:              app,
-		cmd:              cmd,
-		apiClient:        client,
-		snapshotClient:   live.SnapshotClient{HTTP: &http.Client{Timeout: 10 * time.Second}},
-		streamClient:     live.StreamClient{HTTP: &http.Client{Timeout: 0}},
-		workflowID:       strings.TrimSpace(workflowID),
-		interactive:      interactive,
-		color:            color,
-		out:              out,
-		graphsByWorkflow: map[string]live.FlowGraphDocument{},
-		diagnostics:      newLiveDiagnostics(out, interactive),
+		app:               app,
+		cmd:               cmd,
+		apiClient:         client,
+		snapshotClient:    live.SnapshotClient{HTTP: &http.Client{Timeout: 10 * time.Second}},
+		streamClient:      live.StreamClient{HTTP: &http.Client{Timeout: 0}},
+		workflowID:        strings.TrimSpace(workflowID),
+		interactive:       interactive,
+		stdoutInteractive: stdoutInteractive,
+		color:             color,
+		out:               out,
+		graphsByWorkflow:  map[string]live.FlowGraphDocument{},
+		diagnostics:       newLiveDiagnostics(out, interactive),
 	}
 }
 
@@ -170,7 +176,7 @@ func (r *liveWaitRenderer) WaitForExit(ctx context.Context) {
 }
 
 func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status int) bool {
-	if r == nil || !r.interactive || status >= 400 || out == nil {
+	if r == nil || !r.interactive || !r.stdoutInteractive || status >= 400 || out == nil {
 		return false
 	}
 	if ok, exists := out["ok"].(bool); exists && !ok {
