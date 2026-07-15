@@ -308,6 +308,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
    - source/config: ` + "`breyta flows grep \"<literal>\" --limit 5`" + `
    - templates: ` + "`breyta flows templates search \"<query>\" --limit 5`" + `
    - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
+   - workspace-wide installed-app inventory: ` + "`breyta flows installations list --all`" + `; for one flow, use ` + "`breyta flows installations list <flow-slug> --all`" + `
 6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
 7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
 8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
@@ -438,6 +439,7 @@ Advanced ideas:
 - Release once to live after draft is verified and approved, using ` + "`breyta flows release <slug> --release-note-file ./release-note.md`" + `
 - Do not call a public/end-user flow "ready for UI" from draft CLI proof alone; verify live/install-shaped behavior or report ` + "`web UI not verified`" + ` in the risk ledger
 - For installable/public flows, do not stop at activation; verify Discover install plus an installed run. The CLI path is installation create/configure/enable plus ` + "`breyta flows run <slug> --installation-id <installation-id> --wait`" + `.
+- For workspace-wide installed-app inventory, use ` + "`breyta flows installations list --all`" + `; for one flow, use ` + "`breyta flows installations list <flow-slug> --all`" + `.
 - For author dogfood of paid/public apps through Buyer Test Mode, run from the paired Buyer Test workspace: create the source install with ` + "`breyta flows installations create <slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <slug>`" + ` and run it with ` + "`breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait`" + `.
 - For paid apps, draft runs and owner activation checks are not enough; verify checkout or trial entry, install handoff, installed run behavior, billing state, and exhausted/remediation state when relevant.
 - When browser/UI access is available, test the actual Discover install dialog, setup page, run form fields, upload CSV or file flow, resource picker, and output page

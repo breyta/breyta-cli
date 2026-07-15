@@ -2603,6 +2603,20 @@ func TestFlowsInstallations_List_AllWithoutFlowSlugSendsAllFlowsFlag(t *testing.
 	if err != nil {
 		t.Fatalf("flows installations list --all without flow slug failed: %v\n%s", err, stdout)
 	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	items, _ := data["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected one workspace installation item, got %#v", data["items"])
+	}
+	item, _ := items[0].(map[string]any)
+	wantWebURL := srv.URL + "/ws-acme/flows/public-flow/installations/prof-public"
+	if got, _ := item["webUrl"].(string); got != wantWebURL {
+		t.Fatalf("expected installation-specific webUrl %q, got %q", wantWebURL, got)
+	}
 }
 
 func TestFlowsInstallations_List_AllowsPublicInstallSourceRefs(t *testing.T) {

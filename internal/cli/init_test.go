@@ -142,6 +142,10 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(agents), "Include workspace/template queries run, chosen/rejected snippets or templates") {
 		t.Fatalf("unexpected agents content (missing discovery proof guidance): %s", string(agents))
 	}
+	if !strings.Contains(string(agents), "`breyta flows installations list --all`") ||
+		!strings.Contains(string(agents), "`breyta flows installations list <flow-slug> --all`") {
+		t.Fatalf("unexpected agents content (missing installed-app inventory guidance): %s", string(agents))
+	}
 	if !strings.Contains(string(agents), "Include full Breyta URLs from CLI JSON") {
 		t.Fatalf("unexpected agents content (missing URL proof guidance): %s", string(agents))
 	}
@@ -192,6 +196,10 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "`breyta flows grep \"<literal>\" --or \"<variant>\" --limit 5`") {
 		t.Fatalf("unexpected readme content (missing workspace source grep step): %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "`breyta flows installations list --all`") ||
+		!strings.Contains(string(readme), "`breyta flows installations list <flow-slug> --all`") {
+		t.Fatalf("unexpected readme content (missing installed-app inventory guidance): %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "`breyta flows workspace examples step <type> \"<query>\" --limit 3`") {
 		t.Fatalf("unexpected readme content (missing workspace snippets step): %s", string(readme))
