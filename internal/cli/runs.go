@@ -498,6 +498,13 @@ Use runs start only when integrating with older scripts.
 					return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 				}
 				waitInstallationID := installationIDFromRunData(data)
+				startRunStatus := canonicalRunStatus(data["status"])
+				if startRunStatus == "" {
+					startRunStatus = canonicalRunStatus(mapStringAny(data["run"])["status"])
+				}
+				if startRunStatus == "" {
+					startRunStatus = "running"
+				}
 
 				avgMs := avgDurationMsFromRunData(startResp)
 				// In --wait mode the start response is swallowed and one of the
@@ -509,6 +516,9 @@ Use runs start only when integrating with older scripts.
 					return writeAPIResult(cmd, app, resp, st)
 				}
 				writeTimeout := func(statusStr string, lastPoll map[string]any) error {
+					if strings.TrimSpace(statusStr) == "" {
+						statusStr = startRunStatus
+					}
 					// Important UX: still return the workflowId so callers can continue
 					// with `breyta runs show <workflow-id>` or inspect waits.
 					timeoutOut := map[string]any{

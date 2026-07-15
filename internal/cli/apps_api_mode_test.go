@@ -563,7 +563,8 @@ func TestRunsStart_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"ok":true`) ||
 		!strings.Contains(stdout, `"timedOut":true`) ||
-		!strings.Contains(stdout, `"workflowId":"wf-runs-start-404-timeout"`) {
+		!strings.Contains(stdout, `"workflowId":"wf-runs-start-404-timeout"`) ||
+		!strings.Contains(stdout, `"status":"running"`) {
 		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
 	}
 }
@@ -6353,7 +6354,8 @@ func TestFlowsRun_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"ok":true`) ||
 		!strings.Contains(stdout, `"timedOut":true`) ||
-		!strings.Contains(stdout, `"workflowId":"wf-flow-404-timeout"`) {
+		!strings.Contains(stdout, `"workflowId":"wf-flow-404-timeout"`) ||
+		!strings.Contains(stdout, `"status":"running"`) {
 		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
 	}
 }

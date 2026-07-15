@@ -223,6 +223,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")
 	}
+	startRunStatus := canonicalRunStatus(data["status"])
+	if startRunStatus == "" {
+		startRunStatus = canonicalRunStatus(mapStringAny(data["run"])["status"])
+	}
+	if startRunStatus == "" {
+		startRunStatus = "running"
+	}
 	deadline := time.Now().Add(timeout)
 	polls := 0
 	var nextTerminalFallback time.Time
@@ -258,6 +265,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	writeTimeout := func(status string, lastPoll map[string]any) error {
+		if strings.TrimSpace(status) == "" {
+			status = startRunStatus
+		}
 		trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
 			"product":     "flows",
 			"channel":     "cli",
