@@ -91,6 +91,9 @@ Supported query tokens:
   - installation:<installation-id>
   - version:<n>
 
+API list results are summaries. Inspect step details with:
+  breyta runs show <workflow-id> --include-steps
+
 Legacy discrete flags remain available and override matching --query tokens.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -144,7 +147,7 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 					payload["limit"] = limit
 				}
 				if includeSteps {
-					return writeNotImplemented(cmd, app, "--include-steps is not supported in API mode yet (use `runs show <workflow-id>`)")
+					return writeNotImplemented(cmd, app, "--include-steps is available only in local state mode (use `runs show <workflow-id> --include-steps` in API mode)")
 				}
 				if structuredQuery := buildRunsListQuery(runsListFilters{
 					Flow:           effectiveFlow,
@@ -228,6 +231,7 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 	cmd.Flags().IntVar(&limit, "limit", 10, "Limit results (0 = all)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in list results")
+	_ = cmd.Flags().MarkHidden("include-steps")
 	return cmd
 }
 
