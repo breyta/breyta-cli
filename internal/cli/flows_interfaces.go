@@ -757,6 +757,7 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 	} else if version > 0 {
 		payload["source"] = "version"
 		payload["version"] = version
+		resolvedTarget = "version"
 	}
 	resp, status, err := runAPICommandWithContext(ctx, app, "flows.get", payload)
 	if err != nil {
@@ -782,6 +783,9 @@ func withFlowInterfaceEndpointMetadata(app *App, items []any, flowSlug string, i
 	installationID = strings.TrimSpace(installationID)
 	flowSlug = strings.TrimSpace(flowSlug)
 	target = strings.TrimSpace(target)
+	if target == "version" {
+		return items
+	}
 	if flowSlug == "" || (installationID == "" && target == "") {
 		return items
 	}

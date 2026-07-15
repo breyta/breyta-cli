@@ -4564,8 +4564,11 @@ func TestFlowsInterfacesList_VersionUsesVersionSource(t *testing.T) {
 			"workspaceId": "ws-acme",
 			"data": map[string]any{
 				"flow": map[string]any{
-					"flowSlug":   "flow-release",
-					"interfaces": map[string]any{"manual": []any{map[string]any{"id": "run"}}},
+					"flowSlug": "flow-release",
+					"interfaces": map[string]any{
+						"manual": []any{map[string]any{"id": "run"}},
+						"http":   []any{map[string]any{"id": "enrich", "method": "post"}},
+					},
 				},
 			},
 		})
@@ -4582,6 +4585,18 @@ func TestFlowsInterfacesList_VersionUsesVersionSource(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows interfaces list --version failed: %v\n%s", err, stdout)
+	}
+	out := decodeEnvelope(t, stdout)
+	if out.Data["target"] != "version" {
+		t.Fatalf("expected version target metadata, got %#v", out.Data)
+	}
+	items, _ := out.Data["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected two versioned interface items, got %#v", out.Data["items"])
+	}
+	item, _ := items[1].(map[string]any)
+	if _, ok := item["endpoint"]; ok {
+		t.Fatalf("versioned interface metadata must not advertise draft runtime endpoints: %#v", item)
 	}
 }
 
