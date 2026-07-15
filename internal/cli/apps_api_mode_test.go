@@ -460,6 +460,63 @@ func TestRunsStart_WaitTimeoutReturnsInProgressEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunsStart_WaitPollErrorEnvelopeReturnsNonZero(t *testing.T) {
+	var runsGetCalls int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		switch command {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-poll-error",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "run_scope_error",
+					"message": "run is not visible in this workspace",
+				},
+			})
+		default:
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "poll-error-flow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "50ms",
+	)
+	if err == nil {
+		t.Fatalf("expected poll error envelope to exit nonzero\nstdout=%s", stdout)
+	}
+	if runsGetCalls != 1 {
+		t.Fatalf("expected one runs.get poll before returning the error, got %d", runsGetCalls)
+	}
+	if strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("poll error must not be converted into a timeout envelope:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_SendsInvocation(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
