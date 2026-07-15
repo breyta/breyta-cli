@@ -879,6 +879,9 @@ func ensurePublicFlowReuseDuringAuthoring(body string) string {
 		"Before wrapper smoke tests around paid public apps, inspect",
 		"`breyta flows installations get <installation-id>` and check",
 		"`data.runReadiness` for billing/trial blocks.",
+		"For workspace-wide installed-app inventory, use",
+		"`breyta flows installations list --all` without a flow slug; use",
+		"`breyta flows installations list <flow-slug> --all` for one flow.",
 	}, "\n")
 	internalCompositionGuidance := strings.Join([]string{
 		"Inside authored Breyta wrapper flows, call the installed public flow with",
