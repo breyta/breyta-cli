@@ -32,3 +32,17 @@ func TestDecodeSnapshotSSE_EmitsWrappedSnapshot(t *testing.T) {
 		t.Fatalf("expected wrapped snapshot, got %#v", snapshot)
 	}
 }
+
+func TestDecodeSnapshotSSE_NormalizesCRLFLineEndings(t *testing.T) {
+	ctx := context.Background()
+	snapshots := make(chan Snapshot, 1)
+	stream := "event: message\r\ndata: {\"type\":\"workspace_snapshot\",\"snapshot\":{\"workspace\":{\"workspace_id\":\"ws-crlf\"}}}\r\n\r\n"
+
+	if err := decodeSnapshotSSE(ctx, bytes.NewBufferString(stream), snapshots); err != nil {
+		t.Fatalf("decodeSnapshotSSE returned error: %v", err)
+	}
+	snapshot := <-snapshots
+	if snapshot.Workspace.WorkspaceID != "ws-crlf" {
+		t.Fatalf("expected CRLF snapshot, got %#v", snapshot)
+	}
+}

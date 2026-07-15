@@ -159,6 +159,7 @@ func decodeSnapshotSSE(ctx context.Context, r io.Reader, snapshots chan<- Snapsh
 		default:
 		}
 		line := scanner.Text()
+		line = strings.TrimSuffix(line, "\r")
 		if line == "" {
 			if err := emitSnapshotSSEEvent(ctx, event, data.Bytes(), snapshots); err != nil {
 				return err
