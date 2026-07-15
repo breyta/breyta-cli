@@ -4540,6 +4540,51 @@ func TestFlowsInterfacesList_TargetLiveUsesAuthorLiveEndpoint(t *testing.T) {
 	}
 }
 
+func TestFlowsInterfacesList_VersionUsesVersionSource(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "flow-release" || args["source"] != "version" || args["version"] != float64(6) || args["includeFlowLiteral"] != false {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "expected source=version and version=6", "details": args}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flow": map[string]any{
+					"flowSlug":   "flow-release",
+					"interfaces": map[string]any{"manual": []any{map[string]any{"id": "run"}}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "interfaces", "list", "flow-release",
+		"--version", "6",
+	)
+	if err != nil {
+		t.Fatalf("flows interfaces list --version failed: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsMetrics_CallsMetricsCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

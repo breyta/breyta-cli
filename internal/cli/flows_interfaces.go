@@ -755,6 +755,7 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 	} else if resolvedTarget == "live" {
 		payload["source"] = "active"
 	} else if version > 0 {
+		payload["source"] = "version"
 		payload["version"] = version
 	}
 	resp, status, err := runAPICommandWithContext(ctx, app, "flows.get", payload)
