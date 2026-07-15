@@ -135,6 +135,21 @@ func TestFlowsLintLocalOnlyReportsReaderShapeErrors(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyAcceptsMultilineClojureStrings(t *testing.T) {
+	flowLiteral := `{:slug :multiline
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] "line one
+line two")}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid multiline Clojure string should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
 func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

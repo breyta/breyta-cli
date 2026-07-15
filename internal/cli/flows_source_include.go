@@ -379,9 +379,9 @@ func readClojureStringToken(src string, start int) (token string, value string, 
 				continue
 			}
 			token = src[start : i+1]
-			value, err = strconv.Unquote(token)
+			value, err = unquoteClojureString(token)
 			if err != nil {
-				return "", "", start, fmt.Errorf("invalid include path string %s: %w", token, err)
+				return "", "", start, fmt.Errorf("invalid Clojure string %s: %w", token, err)
 			}
 			return token, value, i + 1, nil
 		default:
@@ -389,4 +389,27 @@ func readClojureStringToken(src string, start int) (token string, value string, 
 		}
 	}
 	return "", "", start, fmt.Errorf("unterminated string literal")
+}
+
+func unquoteClojureString(token string) (string, error) {
+	if !strings.ContainsAny(token, "\r\n") {
+		return strconv.Unquote(token)
+	}
+
+	var normalized strings.Builder
+	normalized.Grow(len(token))
+	for i := 0; i < len(token); i++ {
+		switch token[i] {
+		case '\r':
+			if i+1 < len(token) && token[i+1] == '\n' {
+				i++
+			}
+			normalized.WriteString(`\n`)
+		case '\n':
+			normalized.WriteString(`\n`)
+		default:
+			normalized.WriteByte(token[i])
+		}
+	}
+	return strconv.Unquote(normalized.String())
 }
