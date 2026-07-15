@@ -508,6 +508,29 @@ Use runs start only when integrating with older scripts.
 					addRunStartETAMeta(resp, avgMs)
 					return writeAPIResult(cmd, app, resp, st)
 				}
+				writeTimeout := func(statusStr string, lastPoll map[string]any) error {
+					// Important UX: still return the workflowId so callers can continue
+					// with `breyta runs show <workflow-id>` or inspect waits.
+					timeoutOut := map[string]any{
+						"ok": true,
+						"meta": map[string]any{
+							"timedOut": true,
+							"hint":     "The wait deadline was reached before the run became terminal. The run may still complete; check runs show or waits list.",
+						},
+						"data": map[string]any{
+							"workflowId": workflowID,
+							"status":     statusStr,
+							"wait": map[string]any{
+								"timedOut":  true,
+								"timeoutMs": timeout.Milliseconds(),
+								"pollMs":    poll.Milliseconds(),
+							},
+							"start":    startResp,
+							"lastPoll": lastPoll,
+						},
+					}
+					return writeFinal(timeoutOut, 200)
+				}
 
 				deadline := time.Now().Add(timeout)
 				polls := 0
@@ -532,7 +555,7 @@ Use runs start only when integrating with older scripts.
 							}
 						}
 						if time.Now().After(deadline) {
-							return writeFinal(execResp, execStatus)
+							return writeTimeout("", execResp)
 						}
 						time.Sleep(poll)
 						continue
@@ -568,27 +591,7 @@ Use runs start only when integrating with older scripts.
 						}
 					}
 					if time.Now().After(deadline) {
-						// Important UX: still return the workflowId so callers can continue
-						// with `breyta runs show <workflow-id>` or inspect waits.
-						timeoutOut := map[string]any{
-							"ok": true,
-							"meta": map[string]any{
-								"timedOut": true,
-								"hint":     "The wait deadline was reached before the run became terminal. The run may still complete; check runs show or waits list.",
-							},
-							"data": map[string]any{
-								"workflowId": workflowID,
-								"status":     statusStr,
-								"wait": map[string]any{
-									"timedOut":  true,
-									"timeoutMs": timeout.Milliseconds(),
-									"pollMs":    poll.Milliseconds(),
-								},
-								"start":    startResp,
-								"lastPoll": execResp,
-							},
-						}
-						return writeFinal(timeoutOut, 200)
+						return writeTimeout(statusStr, execResp)
 					}
 					time.Sleep(poll)
 				}

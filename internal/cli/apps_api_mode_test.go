@@ -517,6 +517,57 @@ func TestRunsStart_WaitPollErrorEnvelopeReturnsNonZero(t *testing.T) {
 	}
 }
 
+func TestRunsStart_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-start-404-timeout",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "not_found", "message": "Run not found"},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start",
+		"--flow", "my-flow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "0s",
+	)
+	if err != nil {
+		t.Fatalf("expected 404 wait deadline to return a timeout envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"ok":true`) ||
+		!strings.Contains(stdout, `"timedOut":true`) ||
+		!strings.Contains(stdout, `"workflowId":"wf-runs-start-404-timeout"`) {
+		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_SendsInvocation(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
@@ -6254,6 +6305,56 @@ func TestFlowsRun_WaitPollErrorEnvelopeReturnsNonZero(t *testing.T) {
 	}
 	if strings.Contains(stdout, `"timedOut":true`) {
 		t.Fatalf("poll error must not be converted into a timeout envelope:\n%s", stdout)
+	}
+}
+
+func TestFlowsRun_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-flow-404-timeout",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "not_found", "message": "Run not found"},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "my-flow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "0s",
+	)
+	if err != nil {
+		t.Fatalf("expected 404 wait deadline to return a timeout envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"ok":true`) ||
+		!strings.Contains(stdout, `"timedOut":true`) ||
+		!strings.Contains(stdout, `"workflowId":"wf-flow-404-timeout"`) {
+		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
 	}
 }
 

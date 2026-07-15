@@ -257,6 +257,51 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		}
 		return nil
 	}
+	writeTimeout := func(status string, lastPoll map[string]any) error {
+		trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
+			"product":     "flows",
+			"channel":     "cli",
+			"api_host":    apiHostname(app.APIURL),
+			"flow_slug":   flowSlug,
+			"command":     strings.TrimSpace(command),
+			"workflow_id": workflowID,
+			"wait":        true,
+		})
+		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+			lastPoll = snapshot
+		}
+		nextCommands := []string{
+			"breyta runs inspect " + workflowID,
+			"breyta runs show " + workflowID + " --include-steps",
+			"breyta resources workflow list " + workflowID,
+		}
+		if retryCommand := waitRetryCommand(command, flowSlug, payload, retryFlags); retryCommand != "" {
+			nextCommands = append(nextCommands, retryCommand)
+		}
+		timeoutOut := map[string]any{
+			"ok": true,
+			"meta": map[string]any{
+				"timedOut":     true,
+				"hint":         "The wait deadline was reached before the run became terminal. The run may still complete; inspect the workflow id, or use a longer --timeout on the next waited run.",
+				"nextCommands": nextCommands,
+			},
+			"data": map[string]any{
+				"workflowId": workflowID,
+				"status":     status,
+				"wait": map[string]any{
+					"timedOut":  true,
+					"timeoutMs": timeout.Milliseconds(),
+					"pollMs":    poll.Milliseconds(),
+				},
+				"start":    startResp,
+				"lastPoll": lastPoll,
+			},
+		}
+		if err := writeFinal(timeoutOut, 200); err != nil {
+			return writeErr(cmd, err)
+		}
+		return nil
+	}
 	for {
 		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
@@ -275,10 +320,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				}
 			}
 			if time.Now().After(deadline) {
-				if err := writeFinal(execResp, execStatus); err != nil {
-					return writeErr(cmd, err)
-				}
-				return nil
+				return writeTimeout("", execResp)
 			}
 			time.Sleep(poll)
 			continue
@@ -338,50 +380,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		}
 
 		if time.Now().After(deadline) {
-			trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
-				"product":     "flows",
-				"channel":     "cli",
-				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   flowSlug,
-				"command":     strings.TrimSpace(command),
-				"workflow_id": workflowID,
-				"wait":        true,
-			})
-			lastPoll := execResp
-			if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
-				lastPoll = snapshot
-			}
-			nextCommands := []string{
-				"breyta runs inspect " + workflowID,
-				"breyta runs show " + workflowID + " --include-steps",
-				"breyta resources workflow list " + workflowID,
-			}
-			if retryCommand := waitRetryCommand(command, flowSlug, payload, retryFlags); retryCommand != "" {
-				nextCommands = append(nextCommands, retryCommand)
-			}
-			timeoutOut := map[string]any{
-				"ok": true,
-				"meta": map[string]any{
-					"timedOut":     true,
-					"hint":         "The wait deadline was reached before the run became terminal. The run may still complete; inspect the workflow id, or use a longer --timeout on the next waited run.",
-					"nextCommands": nextCommands,
-				},
-				"data": map[string]any{
-					"workflowId": workflowID,
-					"status":     s,
-					"wait": map[string]any{
-						"timedOut":  true,
-						"timeoutMs": timeout.Milliseconds(),
-						"pollMs":    poll.Milliseconds(),
-					},
-					"start":    startResp,
-					"lastPoll": lastPoll,
-				},
-			}
-			if err := writeFinal(timeoutOut, 200); err != nil {
-				return writeErr(cmd, err)
-			}
-			return nil
+			return writeTimeout(s, execResp)
 		}
 		time.Sleep(poll)
 	}
