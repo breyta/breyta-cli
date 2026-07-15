@@ -294,6 +294,39 @@ func TestFlowsMarketplaceUpdate_RejectsExplicitVisibleTrueWithExtraBooleanValue(
 	}
 }
 
+func TestFlowsMarketplaceUpdate_RejectsExplicitValueBeforeBooleanSlugSwap(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var calledAPI atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledAPI.Store(true)
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	for _, flag := range []string{"--visible=maybe", "--visible=true"} {
+		calledAPI.Store(false)
+		stdout, stderr, err := runCLIArgs(t,
+			"--workspace", "ws-acme",
+			"--api", srv.URL,
+			"--api-key", "sa-dev",
+			"flows", "marketplace", "update",
+			flag, "false", "market-flow",
+			"--pretty",
+		)
+		if err == nil {
+			t.Fatalf("expected explicit %s with boolean-like positional arguments to fail\nstdout=%s\nstderr=%s", flag, stdout, stderr)
+		}
+		if calledAPI.Load() {
+			t.Fatalf("explicit %s should not reach API", flag)
+		}
+	}
+}
+
 func TestFlowsMarketplaceUpdate_AllowsSingleLetterSlugWithSpaceSeparatedVisibleFalse(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

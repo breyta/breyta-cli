@@ -40,6 +40,12 @@ func parseFlowSlugAndCLITrueFalseFlag(name, raw string, args []string, flagChang
 		case firstIsBool && secondIsBool:
 			return "", false, fmt.Errorf("ambiguous --%s value and flow slug %q (use --%s=true or --%s=false)", name, args[1], name, name)
 		case firstIsBool:
+			if !strings.EqualFold(strings.TrimSpace(raw), cliBareTrueValue) {
+				if _, err := parseCLITrueFalseFlag(name, raw); err != nil {
+					return "", false, err
+				}
+				return "", false, fmt.Errorf("ambiguous --%s value and extra boolean argument %q (use --%s=true or --%s=false)", name, args[0], name, name)
+			}
 			flowSlug = strings.TrimSpace(args[1])
 			value = args[0]
 		case secondIsBool:
