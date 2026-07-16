@@ -986,7 +986,8 @@ Examples:
 
 func newFlowsInitCmd(app *App) *cobra.Command {
 	var name, description, outPath string
-	var force, push bool
+	var stepID, stepFile, paramsJSON, paramsFile, idempotencyKey, profileID string
+	var force, push, run bool
 	cmd := &cobra.Command{
 		Use:   "init <flow-slug>",
 		Short: "Create a local canonical flow source file",
@@ -995,9 +996,13 @@ Create the local source of truth for a flow. Initialization is local by default;
 pass --push when you explicitly want the same source sent to the workspace.
 The generated definition includes a no-input manual Run interface and an empty
 schedules vector so later schedule edits stay in the same source file.
+When the first packaged step is already authored, pass --step-id and --step-file
+to seed it into the local literal in the same command. Add --run to prove that
+seeded step just in time on the server; this does not create a remote draft.
 
 Examples:
   breyta flows init order-sync --name "Order sync"
+  breyta flows init order-sync --step-id tools/fetch-order --step-file ./steps/fetch-order.edn --run
   breyta flows init order-sync --out ./flows/order-sync.clj --push
 `),
 		Args: cobra.ExactArgs(1),
@@ -1005,6 +1010,32 @@ Examples:
 			slug := strings.TrimSpace(args[0])
 			if !isAPIValidFlowSlug(slug) {
 				return writeErr(cmd, fmt.Errorf("invalid flow slug %q", slug))
+			}
+			stepID = strings.TrimSpace(stepID)
+			stepFile = strings.TrimSpace(stepFile)
+			if (stepID == "") != (stepFile == "") {
+				return writeErr(cmd, errors.New("--step-id and --step-file must be provided together"))
+			}
+			if run && stepFile == "" {
+				return writeErr(cmd, errors.New("--run requires --step-id with --step-file"))
+			}
+			var stepLiteral string
+			if stepFile != "" {
+				if !localStepIDValid(stepID) {
+					return writeErr(cmd, fmt.Errorf("invalid step id %q (use a qualified id such as tools/fetch-order)", stepID))
+				}
+				b, readErr := readExplicitFile(stepFile)
+				if readErr != nil {
+					return writeErr(cmd, fmt.Errorf("read --step-file: %w", readErr))
+				}
+				stepLiteral = strings.TrimSpace(string(b))
+				literalID, idErr := localStepLiteralID(stepLiteral)
+				if idErr != nil {
+					return writeErr(cmd, idErr)
+				}
+				if literalID != stepID {
+					return writeErr(cmd, fmt.Errorf("step literal id %q does not match %q", literalID, stepID))
+				}
 			}
 			path := resolveLocalFlowPath(slug, outPath)
 			if _, err := os.Stat(path); err == nil && !force {
@@ -1030,20 +1061,45 @@ Examples:
  :schedules []
  :flow '(let [input (flow/input)] input)}
 `, slug, flowName, strings.TrimSpace(description))
+			if stepLiteral != "" {
+				seeded, err := appendLocalStep(literal, stepLiteral)
+				if err != nil {
+					return writeErr(cmd, fmt.Errorf("seed local step: %w", err))
+				}
+				literal = seeded
+			}
 			if err := atomicWriteFile(path, []byte(literal), publicFileMode); err != nil {
 				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
 			}
+			var remote map[string]any
+			var remoteStatus int
 			if push {
-				remote, status, pushErr := pushLocalFlowLiteral(cmd, app, path, literal)
+				var pushErr error
+				remote, remoteStatus, pushErr = pushLocalFlowLiteral(cmd, app, path, literal)
 				if pushErr != nil {
 					return writeErr(cmd, pushErr)
 				}
-				if status >= 400 || !isOK(remote) {
-					return writeAPIResult(cmd, app, remote, status)
+				if remoteStatus >= 400 || !isOK(remote) {
+					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
-				return writeLocalAuthoringResult(cmd, app, path, remote, status, map[string]any{"flowSlug": slug})
 			}
-			return writeLocalAuthoringResult(cmd, app, path, nil, 0, map[string]any{"flowSlug": slug})
+			extra := map[string]any{"flowSlug": slug}
+			if stepLiteral != "" {
+				extra["stepId"] = stepID
+			}
+			if run {
+				params, paramsErr := readParamsJSON(paramsJSON, paramsFile)
+				if paramsErr != nil {
+					return writeErr(cmd, paramsErr)
+				}
+				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, params, idempotencyKey, profileID)
+				if runErr != nil {
+					return writeErr(cmd, runErr)
+				}
+				extra["run"] = runOut
+				extra["runStatus"] = runStatus
+			}
+			return writeLocalAuthoringResult(cmd, app, path, remote, remoteStatus, extra)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Flow display name (default: slug)")
@@ -1051,5 +1107,12 @@ Examples:
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path (default: flows/<flow-slug>.clj)")
 	cmd.Flags().BoolVar(&force, "force", false, "Replace an existing local source file")
 	cmd.Flags().BoolVar(&push, "push", false, "Push the generated source after saving")
+	cmd.Flags().StringVar(&stepID, "step-id", "", "Qualified first packaged step id to seed into the local source")
+	cmd.Flags().StringVar(&stepFile, "step-file", "", "Read the complete first packaged step map from this file")
+	cmd.Flags().BoolVar(&run, "run", false, "Run the seeded packaged step against the server after saving")
+	cmd.Flags().StringVar(&paramsJSON, "params", "", "Step input JSON object for --run")
+	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
 	return cmd
 }

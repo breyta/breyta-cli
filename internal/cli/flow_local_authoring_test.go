@@ -56,6 +56,102 @@ func TestFlowsInitCreatesLocalCanonicalSourceWithManualInterface(t *testing.T) {
 	}
 }
 
+func TestFlowsInitCanSeedPackagedStepIntoLocalSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "fetch-order.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/fetch-order
+ :type :http
+ :description "Fetch an order"
+ :input-schema [:map]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-test"}),
+		"order-sync", "--out", path, "--step-id", "tools/fetch-order", "--step-file", stepPath)
+	if got, _ := body["ok"].(bool); !got {
+		t.Fatalf("expected successful seeded init, got %#v", body)
+	}
+	if got, _ := body["data"].(map[string]any)["stepId"].(string); got != "tools/fetch-order" {
+		t.Fatalf("expected seeded step id in result, got %#v", body)
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seeded source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		":id :tools/fetch-order",
+		":type :http",
+		":interfaces {:manual [{:id :run",
+		":schedules []",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("seeded source missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestFlowsInitSeedRunUsesCompleteLocalLiteral(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "fetch-order.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/fetch-order
+ :type :function
+ :description "Fetch an order"
+ :input-schema [:map]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"stepId": "tools/fetch-order", "result": map[string]any{"orderId": "order-123"}},
+		})
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	var out bytes.Buffer
+	cmd := newFlowsInitCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"order-sync", "--out", path,
+		"--step-id", "tools/fetch-order", "--step-file", stepPath,
+		"--run", "--idempotency-key", "seed-proof-1",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("seeded init --run failed: %v\n%s", err, out.String())
+	}
+	if got["command"] != "steps.run" {
+		t.Fatalf("expected steps.run, got %#v", got["command"])
+	}
+	args, _ := got["args"].(map[string]any)
+	if args["flowSlug"] != "order-sync" || args["stepId"] != "tools/fetch-order" {
+		t.Fatalf("expected seeded step identity, got %#v", args)
+	}
+	if args["idempotencyKey"] != "seed-proof-1" {
+		t.Fatalf("expected seeded proof idempotency key, got %#v", args["idempotencyKey"])
+	}
+	params, _ := args["params"].(map[string]any)
+	if len(params) != 0 {
+		t.Fatalf("expected no-input proof params by default, got %#v", params)
+	}
+	flowLiteral, _ := args["flowLiteral"].(string)
+	if !strings.Contains(flowLiteral, ":id :tools/fetch-order") || !strings.Contains(flowLiteral, ":interfaces {:manual [{:id :run") {
+		t.Fatalf("expected complete seeded local literal, got %s", flowLiteral)
+	}
+	if !strings.Contains(out.String(), `"run"`) {
+		t.Fatalf("expected proof result in command output, got %s", out.String())
+	}
+}
+
 func TestLocalStepCRUDAndComposeOnlyRewriteOwnedSourceSections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "order-sync.clj")
 	stepPath := filepath.Join(t.TempDir(), "add-one.edn")

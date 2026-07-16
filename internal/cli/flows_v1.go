@@ -247,6 +247,7 @@ Advanced rollout workflow (optional):
 
 Quick commands:
 - breyta flows init <slug> --name "My flow"
+- breyta flows init <slug> --step-id tools/fetch --step-file ./steps/fetch.edn --run
 - breyta flows steps create <slug> <step-id> --step-file ./steps/step.edn
 - breyta flows schedules add <slug> <schedule-id> --cron "0 9 * * MON" --timezone UTC
 - breyta flows steps run <slug> <step-id> --params '{...}'
@@ -294,6 +295,9 @@ Notes:
   interfaces, schedules, and connection metadata remain intact.
 - Local lint catches qualified packaged-step references that are missing from
   :steps; the server remains the canonical validation stage before push.
+- flows init can seed one complete packaged step with --step-id and --step-file;
+  --run proves that local literal just in time, while --push is required for
+  remote persistence.
 - flows steps run sends the complete local literal for just-in-time server execution;
   it does not create or update a draft. Use flows push explicitly to persist it remotely.
 - Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
