@@ -141,22 +141,27 @@ isolation:
 
 ```bash
 breyta flows init <slug> --empty --name "My flow" --with-manual-interface
-breyta flows steps create <slug> <step-id> --file ./steps/<step-id>.edn
-breyta flows steps run <slug> <step-id> --source draft
+breyta flows steps create <slug> <step-id> --file ./steps/<step-id>.edn --run
 breyta flows steps checks run <slug> <step-id> --category eval
 breyta flows connections status <slug> --source draft
 breyta flows status <slug> --source draft
 ```
 
-Use `breyta flows steps update` for narrow edits, and the interface, schedule,
-agent, and connection authoring commands for their corresponding draft
-surfaces. `--with-manual-interface` adds the default invocation and enabled
-manual run button during initialization. For later interface edits, pass
-`--validate` to `flows interfaces upsert` to save and validate in one CLI
-command. Pull, lint, and push the complete source only when editing the whole
-definition. Run `breyta flows status <slug> --source draft --check` after
-authoring when the draft is expected to be runnable; failed entrypoint checks
-include an exact repair command in `nextCommands`:
+Use `breyta flows steps update` for narrow edits; add `--run` to update and
+prove the saved draft step in one command. The combined response keeps the
+write result under `data.write` and the compact proof under `data.run`. The
+proof uses authored defaults, so use standalone `flows steps run` when you need
+custom params or a different source. Pass `--run-idempotency-key` for a
+side-effectful proof. If proof fails, the command exits non-zero but preserves
+the successful write result. The interface, schedule, agent, and connection
+authoring commands cover their corresponding draft surfaces.
+`--with-manual-interface` adds the default invocation and enabled manual run
+button during initialization. For later interface edits, pass `--validate` to
+`flows interfaces upsert` to save and validate in one CLI command. Pull, lint,
+and push the complete source only when editing the whole definition. Run
+`breyta flows status <slug> --source draft --check` after authoring when the
+draft is expected to be runnable; failed entrypoint checks include an exact
+repair command in `nextCommands`:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj

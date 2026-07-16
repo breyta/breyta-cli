@@ -73,6 +73,88 @@ func TestFlowsStepsCreateSendsScaffoldPayload(t *testing.T) {
 	}
 }
 
+func TestFlowsStepsCreateCanRunAfterWrite(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		var got map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request %d: %v", requests, err)
+		}
+		switch requests {
+		case 1:
+			if got["command"] != "flows.steps.create" {
+				t.Fatalf("expected write command first, got %#v", got["command"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug": "my-flow",
+					"stepId":   "tools/make-output",
+				},
+			})
+		case 2:
+			if got["command"] != "flows.steps.run" {
+				t.Fatalf("expected proof command second, got %#v", got["command"])
+			}
+			args, _ := got["args"].(map[string]any)
+			if args["flowSlug"] != "my-flow" || args["stepId"] != "tools/make-output" || args["source"] != "draft" {
+				t.Fatalf("expected flow-scoped proof args, got %#v", args)
+			}
+			if args["idempotencyKey"] != "proof-1" {
+				t.Fatalf("expected proof idempotency key, got %#v", args["idempotencyKey"])
+			}
+			params, _ := args["params"].(map[string]any)
+			if len(params) != 0 {
+				t.Fatalf("expected proof to use authored defaults, got %#v", params)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"stepId": "tools/make-output",
+					"result": map[string]any{"value": "proved"},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"flows", "steps", "create", "my-flow", "tools/make-output",
+		"--type", "function", "--title", "Make output", "--run", "--run-idempotency-key", "proof-1",
+	)
+	if err != nil {
+		t.Fatalf("flows steps create --run failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if requests != 2 {
+		t.Fatalf("expected one write and one proof request, got %d", requests)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode combined output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	write, _ := data["write"].(map[string]any)
+	if write["stepId"] != "tools/make-output" {
+		t.Fatalf("expected write result in combined output, got %#v", data["write"])
+	}
+	run, _ := data["run"].(map[string]any)
+	if _, exists := run["resultPreview"]; !exists {
+		t.Fatalf("expected compact proof result in combined output, got %#v", run)
+	}
+}
+
 func TestFlowsStepsRunHonorsCommandCancellation(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
@@ -803,6 +885,81 @@ func TestFlowsStepsUpdateSendsDottedEdits(t *testing.T) {
 	}
 	if _, exists := args["stepLiteral"]; exists {
 		t.Fatalf("expected edit mode to omit stepLiteral, got %#v", args["stepLiteral"])
+	}
+}
+
+func TestFlowsStepsUpdateRunFailurePreservesWriteResult(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		var got map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request %d: %v", requests, err)
+		}
+		switch requests {
+		case 1:
+			if got["command"] != "flows.steps.update" {
+				t.Fatalf("expected write command first, got %#v", got["command"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug": "my-flow",
+					"stepId":   "tools/make-output",
+				},
+			})
+		case 2:
+			if got["command"] != "flows.steps.run" {
+				t.Fatalf("expected proof command second, got %#v", got["command"])
+			}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "step_invalid",
+					"message": "proof failed",
+				},
+			})
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"flows", "steps", "update", "my-flow", "tools/make-output",
+		"tool.description", "Updated", "--run",
+	)
+	if err == nil || !strings.Contains(err.Error(), "proof failed") {
+		t.Fatalf("expected proof failure, got %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if requests != 2 {
+		t.Fatalf("expected one write and one proof request, got %d", requests)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode failed proof output: %v\n%s", err, stdout)
+	}
+	if ok, _ := out["ok"].(bool); ok {
+		t.Fatalf("expected combined response to be failed, got %#v", out["ok"])
+	}
+	data, _ := out["data"].(map[string]any)
+	write, _ := data["write"].(map[string]any)
+	if write["stepId"] != "tools/make-output" {
+		t.Fatalf("expected saved write result to be preserved, got %#v", data["write"])
+	}
+	if details, _ := out["error"].(map[string]any); details != nil {
+		if got, _ := details["code"].(string); got != "step_invalid" {
+			t.Fatalf("expected proof error to be preserved, got %#v", details)
+		}
 	}
 }
 

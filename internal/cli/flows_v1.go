@@ -2168,6 +2168,8 @@ func newFlowsStepsCreateCmd(app *App) *cobra.Command {
 	var stepType string
 	var title string
 	var description string
+	var runAfterWrite bool
+	var runIdempotencyKey string
 
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug> <step-id>",
@@ -2175,10 +2177,13 @@ func newFlowsStepsCreateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Create a packaged step entry in a flow draft. Pass a full step definition with
 --file, or scaffold the first draft entry with --type and --title.
+Pass --run to prove the saved draft step with its authored defaults in the same
+command; the response retains both the write and proof results.
 
 Examples:
   breyta flows steps create my-flow tools/make-output --type function --title "Make output"
   breyta flows steps create my-flow tools/make-output --file ./steps/make-output.edn
+  breyta flows steps create my-flow tools/make-output --file ./steps/make-output.edn --run
 `),
 		Args: cobra.ExactArgs(2),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
@@ -2188,6 +2193,12 @@ Examples:
 			return requireAPI(app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("run-idempotency-key") && !runAfterWrite {
+				return writeErr(cmd, errors.New("--run-idempotency-key requires --run"))
+			}
+			if runAfterWrite && cmd.Flags().Changed("run-idempotency-key") && strings.TrimSpace(runIdempotencyKey) == "" {
+				return writeErr(cmd, errors.New("--run-idempotency-key cannot be empty"))
+			}
 			fileChanged := cmd.Flags().Changed("file")
 			if fileChanged && strings.TrimSpace(stepFile) == "" {
 				return writeErr(cmd, errors.New("--file requires a non-empty path"))
@@ -2229,6 +2240,9 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if runAfterWrite {
+				return runFlowStepAfterWrite(cmd, app, args[0], args[1], source, runIdempotencyKey, out, status)
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -2238,6 +2252,8 @@ Examples:
 	cmd.Flags().StringVar(&stepType, "type", "", "Step type for scaffold mode")
 	cmd.Flags().StringVar(&title, "title", "", "Step title for scaffold mode")
 	cmd.Flags().StringVar(&description, "description", "", "Step description for scaffold mode")
+	cmd.Flags().BoolVar(&runAfterWrite, "run", false, "Run the saved draft step with authored defaults and include the proof result")
+	cmd.Flags().StringVar(&runIdempotencyKey, "run-idempotency-key", "", "Stable key for retrying an optional proof run")
 	return cmd
 }
 
@@ -2265,6 +2281,8 @@ func buildFlowStepEdits(args []string, start int) ([]any, error) {
 func newFlowsStepsUpdateCmd(app *App) *cobra.Command {
 	var source string
 	var stepFile string
+	var runAfterWrite bool
+	var runIdempotencyKey string
 
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> <step-id> [path value]...",
@@ -2272,10 +2290,13 @@ func newFlowsStepsUpdateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Update a packaged step entry in a flow draft. Pass a full step definition with
 --file, or provide dotted path/value pairs.
+Pass --run to prove the saved draft step with its authored defaults in the same
+command; the response retains both the write and proof results.
 
 Examples:
   breyta flows steps update my-flow tools/make-output --file ./steps/make-output.edn
   breyta flows steps update my-flow tools/make-output defaults.input.n 3 tool.description "Make output"
+  breyta flows steps update my-flow tools/make-output defaults.input.n 3 --run
 `),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
@@ -2306,6 +2327,12 @@ Examples:
 			return requireAPI(app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("run-idempotency-key") && !runAfterWrite {
+				return writeErr(cmd, errors.New("--run-idempotency-key requires --run"))
+			}
+			if runAfterWrite && cmd.Flags().Changed("run-idempotency-key") && strings.TrimSpace(runIdempotencyKey) == "" {
+				return writeErr(cmd, errors.New("--run-idempotency-key cannot be empty"))
+			}
 			payload := map[string]any{
 				"flowSlug": strings.TrimSpace(args[0]),
 				"stepId":   strings.TrimSpace(args[1]),
@@ -2334,12 +2361,17 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if runAfterWrite {
+				return runFlowStepAfterWrite(cmd, app, args[0], args[1], source, runIdempotencyKey, out, status)
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
 
 	cmd.Flags().StringVar(&source, "source", "draft", "Flow source; only draft is currently supported")
 	cmd.Flags().StringVar(&stepFile, "file", "", "Read a full packaged step EDN literal from file")
+	cmd.Flags().BoolVar(&runAfterWrite, "run", false, "Run the saved draft step with authored defaults and include the proof result")
+	cmd.Flags().StringVar(&runIdempotencyKey, "run-idempotency-key", "", "Stable key for retrying an optional proof run")
 	return cmd
 }
 
