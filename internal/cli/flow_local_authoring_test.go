@@ -46,11 +46,13 @@ func TestFlowsInitCreatesLocalCanonicalSourceWithManualInterface(t *testing.T) {
 		":steps []",
 		":interfaces {:manual [{:id :run",
 		":schedules []",
-		":triggers [{:type :manual",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("initialized source missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, ":triggers") {
+		t.Fatalf("initialized source should use the interface surface without deprecated :triggers:\n%s", text)
 	}
 }
 
@@ -106,7 +108,6 @@ func TestFlowsStepsRunSendsFullLocalLiteralToEphemeralAPI(t *testing.T) {
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :invocations {:default {:label "Run" :inputs []}}
  :schedules []
- :triggers [{:type :manual :label "Run" :enabled true :config {}}]
  :flow '(flow/input)}
 `
 	if err := os.WriteFile(path, []byte(flowSource), 0o644); err != nil {

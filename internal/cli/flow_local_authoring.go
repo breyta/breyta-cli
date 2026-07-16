@@ -666,7 +666,6 @@ Examples:
  :invocations {:default {:label "Run" :inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :schedules []
- :triggers [{:type :manual :label "Run" :enabled true :config {}}]
  :flow '(let [input (flow/input)] input)}
 `, slug, flowName, strings.TrimSpace(description))
 			if err := atomicWriteFile(path, []byte(literal), publicFileMode); err != nil {

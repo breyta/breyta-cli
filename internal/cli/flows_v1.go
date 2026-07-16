@@ -279,7 +279,6 @@ Flow file format (minimal):
  :invocations {:default {:label "Run" :inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :schedules []
- :triggers [{:type :manual :label "Run" :enabled true :config {}}]
  :flow '(let [input (flow/input)]
           (flow/step :function :do {:code '(fn [input] input)
                                      :input {:input input}}))}
