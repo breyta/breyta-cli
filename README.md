@@ -135,7 +135,29 @@ breyta skills install --provider <codex|cursor|claude|gemini>
 
 ## First Workflow
 
-Pull a flow into a local workspace, edit it, push it back to draft, and run it:
+For a new flow, create the local source, compose it in small pieces, then push
+it explicitly when you want a workspace draft:
+
+```bash
+breyta flows init order-sync --name "Order sync"
+breyta flows steps create order-sync tools/fetch-order --step-file ./steps/fetch-order.edn
+breyta flows compose order-sync --body-file ./flows/order-sync.body.clj
+breyta flows lint --file ./flows/order-sync.clj --local-only
+breyta flows steps run order-sync tools/fetch-order --params '{"orderId":"order-123"}'
+breyta flows push --file ./flows/order-sync.clj
+breyta flows configure check order-sync
+breyta flows run order-sync --wait
+```
+
+`flows steps create/update/remove` edits only the local top-level `:steps`
+vector. `flows compose` edits only the quoted `:flow` body. The generated
+source includes a no-input manual `run` interface and an empty `:schedules`
+vector. `flows steps run` sends the complete literal for just-in-time server
+execution and does not create or update a draft. Use `flows push` (or an
+explicit command-level `--push`) for remote persistence.
+
+For an existing flow, pull it into a local workspace, edit it, push it back to
+draft, and run it:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj

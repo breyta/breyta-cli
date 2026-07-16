@@ -113,7 +113,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta flows templates search \"<query>\" --limit 5`",
 		"`breyta resources search \"<query>\" --limit 5`",
 		"`--keyword-mode balanced` for natural-language questions over small resource sets",
-		"Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.",
+		"For a new flow, create the local source with `breyta flows init <slug>`; for an existing flow, use `breyta flows pull <slug>`. Add packaged definitions with `breyta flows steps create/update/remove` and compose only the orchestration body with `breyta flows compose`.",
 		"Persist large or unknown payloads with `:persist`",
 		"`:tier :ephemeral` on streaming `:http` steps",
 		"Keep functions map-oriented",

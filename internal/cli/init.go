@@ -308,10 +308,11 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
    - source/config: ` + "`breyta flows grep \"<literal>\" --limit 5`" + `
    - templates: ` + "`breyta flows templates search \"<query>\" --limit 5`" + `
    - resources/data: ` + "`breyta resources search \"<query>\" --limit 5`" + `; add ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets
-6. Build in small slices: contract -> manual interface -> one boundary -> lint -> push -> configure-check -> run -> inspect output.
-7. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
-8. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
-9. Keep functions map-oriented; prefer Clojure map access plus ` + "`json/*`" + ` and ` + "`breyta.sandbox/*`" + ` helpers over custom parser/guard layers.
+6. For a new flow, create the local source with ` + "`breyta flows init <slug>`" + `; for an existing flow, use ` + "`breyta flows pull <slug>`" + `. Add packaged definitions with ` + "`breyta flows steps create/update/remove`" + ` and compose only the orchestration body with ` + "`breyta flows compose`" + `.
+7. Build in small slices: contract -> manual interface -> one boundary -> lint -> optional local step run -> explicit push -> configure-check -> run -> inspect output. ` + "`flows steps run`" + ` sends the complete local literal for just-in-time execution and does not persist a draft.
+8. Keep source installable-minded: no hardcoded workspace IDs, user emails, secrets, private URLs, or author-only resource IDs.
+9. Persist large or unknown payloads with ` + "`:persist`" + ` and pass resource refs, not large inline bodies. For blob persists, choose retained/default for durable or user-visible artifacts and ` + "`:tier :ephemeral`" + ` on streaming ` + "`:http`" + ` steps for temporary downloads, exports, generated media, or API response blobs that only need short-lived workflow consumption.
+10. Keep functions map-oriented; prefer Clojure map access plus ` + "`json/*`" + ` and ` + "`breyta.sandbox/*`" + ` helpers over custom parser/guard layers.
 
 ## Draft/live and release
 
