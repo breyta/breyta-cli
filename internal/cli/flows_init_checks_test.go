@@ -40,7 +40,6 @@ func TestFlowsInitSendsEmptyDraftPayload(t *testing.T) {
 		"--api", srv.URL,
 		"--token", "user-dev",
 		"flows", "init", "my-flow",
-		"--empty",
 		"--name", "My Flow",
 		"--description", "Step-first draft",
 	)
@@ -97,6 +96,101 @@ func TestFlowsInitCanRequestManualInterface(t *testing.T) {
 	args, _ := got["args"].(map[string]any)
 	if args["flowSlug"] != "my-flow" || args["empty"] != true || args["withManualInterface"] != true {
 		t.Fatalf("expected manual interface init args, got %#v", args)
+	}
+}
+
+func TestFlowsInitCanSeedAndRunFirstStep(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	stepFile := filepath.Join(t.TempDir(), "add-one.edn")
+	stepLiteral := `{:id :tools/add-one
+ :type :code
+ :description "Add one"
+ :input-schema [:map [:n :int]]
+ :output-schema [:map [:answer :int]]
+ :defaults {:code "(fn [input] {:answer (inc (:n input))})"
+            :input {:n 2}}}`
+	if err := os.WriteFile(stepFile, []byte(stepLiteral), 0o600); err != nil {
+		t.Fatalf("write step file: %v", err)
+	}
+
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		var got map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request %d: %v", requests, err)
+		}
+		switch requests {
+		case 1:
+			if got["command"] != "flows.init" {
+				t.Fatalf("expected init command first, got %#v", got["command"])
+			}
+			args, _ := got["args"].(map[string]any)
+			if args["flowSlug"] != "my-flow" || args["empty"] != true || args["stepId"] != "tools/add-one" {
+				t.Fatalf("expected seeded init args, got %#v", args)
+			}
+			if args["stepLiteral"] != stepLiteral {
+				t.Fatalf("expected step literal to be forwarded, got %#v", args["stepLiteral"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"flowSlug": "my-flow",
+					"stepId":   "tools/add-one",
+					"step":     map[string]any{"id": "tools/add-one"},
+				},
+			})
+		case 2:
+			if got["command"] != "flows.steps.run" {
+				t.Fatalf("expected seeded proof command second, got %#v", got["command"])
+			}
+			args, _ := got["args"].(map[string]any)
+			if args["flowSlug"] != "my-flow" || args["stepId"] != "tools/add-one" || args["source"] != "draft" {
+				t.Fatalf("expected proof args, got %#v", args)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data": map[string]any{
+					"stepId": "tools/add-one",
+					"result": map[string]any{"answer": 3},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"flows", "init", "my-flow",
+		"--step-id", "tools/add-one", "--step-file", stepFile, "--run", "--run-idempotency-key", "seed-1",
+	)
+	if err != nil {
+		t.Fatalf("seeded flows init failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if requests != 2 {
+		t.Fatalf("expected init and proof requests, got %d", requests)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("decode combined output: %v\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	write, _ := data["write"].(map[string]any)
+	if write["stepId"] != "tools/add-one" {
+		t.Fatalf("expected seeded write result, got %#v", data["write"])
+	}
+	run, _ := data["run"].(map[string]any)
+	if _, exists := run["resultPreview"]; !exists {
+		t.Fatalf("expected compact seeded proof, got %#v", run)
 	}
 }
 

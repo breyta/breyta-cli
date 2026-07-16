@@ -135,17 +135,36 @@ breyta skills install --provider <codex|cursor|claude|gemini>
 
 ## First Workflow
 
-Build or update a draft in small slices before running the whole flow. For a new
-flow, initialize an empty draft, create one packaged step, and prove that step in
-isolation:
+Build or update a draft in small slices before running the whole flow. `flows
+init` creates the empty draft, default invocation, and enabled manual `run`
+interface; `--empty` and `--with-manual-interface` remain accepted for older
+scripts but are not needed. For a new flow, initialize the draft, create one
+packaged step, and prove that step in isolation:
 
 ```bash
-breyta flows init <slug> --empty --name "My flow" --with-manual-interface
+breyta flows init <slug> --name "My flow"
 breyta flows steps create <slug> <step-id> --file ./steps/<step-id>.edn --run
 breyta flows steps checks run <slug> <step-id> --category eval
 breyta flows connections status <slug> --source draft
 breyta flows status <slug> --source draft
 ```
+
+When the first step is already a complete packaged EDN literal, initialize,
+write, and optionally prove it in one CLI command:
+
+```bash
+breyta flows init <slug> \
+  --step-id tools/<name> \
+  --step-file ./steps/<name>.edn \
+  --run
+```
+
+`--run` is explicit because it executes the authored defaults. The combined
+response keeps the initialization/step write under `data.write` and the proof
+under `data.run`; a failed proof does not hide the successful write. This seed
+path is for a self-contained packaged step. Use full source lint/push when the
+literal also needs top-level `:requires`, `:templates`, `:functions`, or a
+larger orchestration edit.
 
 Use `breyta flows steps update` for narrow edits; add `--run` to update and
 prove the saved draft step in one command. The combined response keeps the
@@ -153,10 +172,18 @@ write result under `data.write` and the compact proof under `data.run`. The
 proof uses authored defaults, so use standalone `flows steps run` when you need
 custom params or a different source. Pass `--run-idempotency-key` for a
 side-effectful proof. If proof fails, the command exits non-zero but preserves
-the successful write result. The interface, schedule, agent, and connection
-authoring commands cover their corresponding draft surfaces.
-`--with-manual-interface` adds the default invocation and enabled manual run
-button during initialization. For later interface edits, pass `--validate` to
+the successful write result. The default manual interface has no inputs; add a
+schedule only when the flow needs time-based execution:
+
+```bash
+breyta flows schedules upsert <slug> weekday \
+  --cron "0 9 * * 1-5" \
+  --timezone Europe/Oslo
+breyta flows schedules validate <slug> weekday
+```
+
+The interface, schedule, agent, and connection authoring commands cover their
+corresponding draft surfaces. For later interface edits, pass `--validate` to
 `flows interfaces upsert` to save and validate in one CLI command. Pull, lint,
 and push the complete source only when editing the whole definition. Run
 `breyta flows status <slug> --source draft --check` after authoring when the

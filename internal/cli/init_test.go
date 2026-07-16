@@ -260,7 +260,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		!strings.Contains(string(repoReadme), "reuse that exact key") {
 		t.Fatalf("repo README.md is missing aligned isolated-run idempotency guidance")
 	}
-	if !strings.Contains(string(repoReadme), "breyta flows init <slug> --empty") ||
+	if !strings.Contains(string(repoReadme), "breyta flows init <slug> --name \"My flow\"") ||
 		!strings.Contains(string(repoReadme), "breyta flows steps create <slug> <step-id>") ||
 		!strings.Contains(string(repoReadme), "breyta flows steps checks run <slug> <step-id>") {
 		t.Fatalf("repo README.md is missing the step-first draft workflow")
