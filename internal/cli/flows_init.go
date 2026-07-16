@@ -11,6 +11,7 @@ func newFlowsInitCmd(app *App) *cobra.Command {
 	var name string
 	var description string
 	var empty bool
+	var withManualInterface bool
 
 	cmd := &cobra.Command{
 		Use:   "init <flow-slug>",
@@ -22,6 +23,7 @@ checks, and later full source edits.
 Examples:
   breyta flows init company-profile --empty --name "Company profile"
   breyta flows init company-profile --empty --name "Company profile" --description "Marketing profile builder"
+  breyta flows init company-profile --empty --with-manual-interface
 `),
 		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
@@ -44,6 +46,9 @@ Examples:
 			if strings.TrimSpace(description) != "" {
 				payload["description"] = strings.TrimSpace(description)
 			}
+			if withManualInterface {
+				payload["withManualInterface"] = true
+			}
 			out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.init", payload)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -53,6 +58,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&empty, "empty", false, "Create an empty step-first draft")
+	cmd.Flags().BoolVar(&withManualInterface, "with-manual-interface", false, "Add an enabled manual run interface backed by a default invocation")
 	cmd.Flags().StringVar(&name, "name", "", "Flow display name")
 	cmd.Flags().StringVar(&description, "description", "", "Flow description")
 	return cmd

@@ -173,6 +173,7 @@ func newFlowsInterfacesUpsertCmd(app *App) *cobra.Command {
 	var authFile string
 	var trustedMetadata bool
 	var clearFields []string
+	var validate bool
 
 	cmd := &cobra.Command{
 		Use:   "upsert <flow-slug> <interface-id>",
@@ -183,6 +184,7 @@ are EDN literals using the invocation input shape.
 
 Examples:
   breyta flows interfaces upsert my-flow run --kind manual --input-schema ./inputs.edn
+  breyta flows interfaces upsert my-flow run --kind manual --validate
   breyta flows interfaces upsert my-flow events --kind webhook --event-name orders.updated
   breyta flows interfaces upsert my-flow summarize --kind mcp --tool-name summarize --input-schema ./inputs.edn --output-schema ./output.edn
 `),
@@ -261,6 +263,27 @@ Examples:
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if validate && status < 400 && isOK(out) {
+				validationPayload := pruneEmptyStrings(map[string]any{
+					"flowSlug":    strings.TrimSpace(args[0]),
+					"interfaceId": strings.TrimSpace(args[1]),
+					"source":      strings.TrimSpace(source),
+					"kind":        resolvedKind,
+				})
+				validationOut, validationStatus, validationErr := apiClient(app).DoCommand(cmd.Context(), "flows.interfaces.validate", validationPayload)
+				if validationErr != nil {
+					return writeErr(cmd, validationErr)
+				}
+				if validationStatus >= 400 || !isOK(validationOut) {
+					return writeAPIResult(cmd, app, validationOut, validationStatus)
+				}
+				data := mapStringAny(out["data"])
+				if data == nil {
+					data = map[string]any{}
+				}
+				data["validation"] = mapStringAny(validationOut["data"])
+				out["data"] = data
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -285,6 +308,7 @@ Examples:
 	cmd.Flags().StringVar(&authJSON, "auth-json", "", "Structured interface auth as a JSON object")
 	cmd.Flags().StringVar(&authFile, "auth-file", "", "Read structured interface auth JSON from file")
 	cmd.Flags().BoolVar(&trustedMetadata, "trusted-metadata", false, "Expose authored MCP metadata as trusted")
+	cmd.Flags().BoolVar(&validate, "validate", false, "Validate the saved interface in the same CLI command")
 	cmd.Flags().StringSliceVar(&clearFields, "clear", nil, "Clear optional fields (label, description, invocation, auth, input-schema, output-schema, response, path, method, event-name, trusted-metadata); repeat as needed")
 	return cmd
 }

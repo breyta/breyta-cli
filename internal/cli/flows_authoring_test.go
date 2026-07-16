@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,48 @@ func TestFlowsInterfacesUpsertSendsEntrypointPayload(t *testing.T) {
 	}
 	if _, exists := args["enabled"]; exists {
 		t.Fatalf("expected omitted --enabled to preserve existing state, got %#v", args)
+	}
+}
+
+func TestFlowsInterfacesUpsertCanValidateInOneCommand(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		command, _ := got["command"].(string)
+		commands = append(commands, command)
+		data := map[string]any{"flowSlug": "my-flow", "interfaceId": "run"}
+		if command == "flows.interfaces.validate" {
+			data["ready"] = true
+			data["checks"] = []any{map[string]any{"id": "interface", "pass": true}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        data,
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"flows", "interfaces", "upsert", "my-flow", "run",
+		"--kind", "manual", "--validate",
+	)
+	if err != nil {
+		t.Fatalf("flows interfaces upsert --validate failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if len(commands) != 2 || commands[0] != "flows.interfaces.upsert" || commands[1] != "flows.interfaces.validate" {
+		t.Fatalf("expected upsert followed by validation, got %#v", commands)
+	}
+	if !strings.Contains(stdout, `"validation"`) {
+		t.Fatalf("expected combined validation result, got stdout=%s", stdout)
 	}
 }
 

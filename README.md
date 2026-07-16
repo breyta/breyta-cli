@@ -140,7 +140,7 @@ flow, initialize an empty draft, create one packaged step, and prove that step i
 isolation:
 
 ```bash
-breyta flows init <slug> --empty --name "My flow"
+breyta flows init <slug> --empty --name "My flow" --with-manual-interface
 breyta flows steps create <slug> <step-id> --file ./steps/<step-id>.edn
 breyta flows steps run <slug> <step-id> --source draft
 breyta flows steps checks run <slug> <step-id> --category eval
@@ -150,9 +150,13 @@ breyta flows status <slug> --source draft
 
 Use `breyta flows steps update` for narrow edits, and the interface, schedule,
 agent, and connection authoring commands for their corresponding draft
-surfaces. Pull, lint, and push the complete source only when editing the whole
-definition. Run `breyta flows status <slug> --source draft --check` after adding
-an interface or schedule when the draft is expected to be runnable:
+surfaces. `--with-manual-interface` adds the default invocation and enabled
+manual run button during initialization. For later interface edits, pass
+`--validate` to `flows interfaces upsert` to save and validate in one CLI
+command. Pull, lint, and push the complete source only when editing the whole
+definition. Run `breyta flows status <slug> --source draft --check` after
+authoring when the draft is expected to be runnable; failed entrypoint checks
+include an exact repair command in `nextCommands`:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj
