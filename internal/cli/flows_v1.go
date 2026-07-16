@@ -329,6 +329,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsDiffCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
+	cmd.AddCommand(newFlowsInitCmd(app))
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
@@ -360,7 +361,12 @@ Public discover notes:
 	steps := &cobra.Command{Use: "steps", Short: "Manage flow steps"}
 	steps.AddCommand(newFlowsStepsListCmd(app))
 	steps.AddCommand(newFlowsStepsShowCmd(app))
+	steps.AddCommand(newFlowsStepsLocalCreateCmd(app))
+	steps.AddCommand(newFlowsStepsLocalUpdateCmd(app))
+	steps.AddCommand(newFlowsStepsLocalRemoveCmd(app))
+	steps.AddCommand(newFlowsStepsLocalRunCmd(app))
 	cmd.AddCommand(steps)
+	cmd.AddCommand(newFlowsComposeCmd(app))
 
 	versions := &cobra.Command{Use: "versions", Short: "Manage flow versions"}
 	versions.AddCommand(newFlowsVersionsListCmd(app))
