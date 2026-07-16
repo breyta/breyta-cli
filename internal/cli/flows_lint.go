@@ -566,6 +566,9 @@ func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	invocationIDs, foundInvocations, invocationDiagnostics := localInvocationShapeDiagnostics(flowLiteral, byKey["invocations"])
 	diagnostics = append(diagnostics, invocationDiagnostics...)
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
+	if stepsEntry, foundSteps := byKey["steps"]; foundSteps {
+		diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, stepsEntry)...)
+	}
 	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"))...)
 	return diagnostics
 }
@@ -722,6 +725,206 @@ func clojureFormToken(src string, span clojureFormSpan) string {
 		return ""
 	}
 	return strings.TrimSpace(src[span.Start:span.End])
+}
+
+type localFlowStepReference struct {
+	StepID     string
+	ByteOffset int
+}
+
+func localQualifiedStepIDFromForm(src string, span clojureFormSpan) (string, bool) {
+	i, ok := clojureActiveFormStart(src, span.Start)
+	if !ok || i >= span.End || i >= len(src) || src[i] != ':' {
+		return "", false
+	}
+	end, err := readClojureFormEnd(src, i)
+	if err != nil || end > span.End || end <= i {
+		return "", false
+	}
+	stepID := strings.TrimPrefix(strings.TrimSpace(src[i:end]), ":")
+	return stepID, localStepIDValid(stepID)
+}
+
+func localFlowStepReferences(flowLiteral string) ([]localFlowStepReference, error) {
+	flowSource, baseOffset, ok := topLevelFlowValueSource(flowLiteral)
+	if !ok {
+		return nil, errors.New("top-level :flow value could not be located")
+	}
+	flowSource, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	baseOffset += readerOffset
+	flowSource, quotedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
+	baseOffset += quotedOffset
+	return localFlowStepReferencesInRange(flowSource, 0, len(flowSource), baseOffset)
+}
+
+func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]localFlowStepReference, error) {
+	var references []localFlowStepReference
+	for i := skipClojureWhitespaceCommaAndComments(src, start); i < end; {
+		formEnd, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return references, err
+		}
+		if formEnd <= i || formEnd > end {
+			return references, fmt.Errorf("could not read flow form near byte %d", i)
+		}
+		found, err := localFlowStepReferencesForForm(src, clojureFormSpan{Start: i, End: formEnd}, baseOffset)
+		if err != nil {
+			return references, err
+		}
+		references = append(references, found...)
+		i = skipClojureWhitespaceCommaAndComments(src, formEnd)
+	}
+	return references, nil
+}
+
+func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int) ([]localFlowStepReference, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, span.Start)
+	if i >= span.End || i >= len(src) {
+		return nil, nil
+	}
+	if strings.HasPrefix(src[i:], "#_") {
+		return nil, nil
+	}
+	if strings.HasPrefix(src[i:], "#?") {
+		formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+		if !ok {
+			return nil, fmt.Errorf("could not read reader conditional near byte %d", i)
+		}
+		if formStart < 0 {
+			return nil, nil
+		}
+		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset)
+	}
+	if src[i] == '^' {
+		metaEnd, err := readClojureFormEnd(src, i+1)
+		if err != nil || metaEnd >= span.End {
+			return nil, err
+		}
+		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset)
+	}
+	switch src[i] {
+	case '\'', '`', '@':
+		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset)
+	case '~':
+		next := i + 1
+		if next < span.End && src[next] == '@' {
+			next++
+		}
+		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: next, End: span.End}, baseOffset)
+	case '"':
+		return nil, nil
+	case '(':
+		elements, _, err := parseClojureListElements(src, i)
+		if err != nil {
+			return nil, err
+		}
+		var references []localFlowStepReference
+		if len(elements) >= 2 && clojureFormToken(src, elements[0]) == "flow/step" {
+			if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
+				references = append(references, localFlowStepReference{StepID: stepID, ByteOffset: baseOffset + elements[1].Start})
+			}
+		}
+		for _, element := range elements {
+			found, err := localFlowStepReferencesForForm(src, element, baseOffset)
+			if err != nil {
+				return references, err
+			}
+			references = append(references, found...)
+		}
+		return references, nil
+	case '[':
+		elements, _, err := parseClojureVectorElements(src, i)
+		if err != nil {
+			return nil, err
+		}
+		var references []localFlowStepReference
+		for _, element := range elements {
+			found, err := localFlowStepReferencesForForm(src, element, baseOffset)
+			if err != nil {
+				return references, err
+			}
+			references = append(references, found...)
+		}
+		return references, nil
+	case '{':
+		entries, _, err := parseClojureMapEntries(src, i)
+		if err != nil {
+			return nil, err
+		}
+		var references []localFlowStepReference
+		for _, entry := range entries {
+			for _, element := range []clojureFormSpan{{Start: entry.KeyStart, End: entry.KeyEnd}, {Start: entry.ValueStart, End: entry.ValueEnd}} {
+				found, err := localFlowStepReferencesForForm(src, element, baseOffset)
+				if err != nil {
+					return references, err
+				}
+				references = append(references, found...)
+			}
+		}
+		return references, nil
+	default:
+		return nil, nil
+	}
+}
+
+func localPackagedStepReferenceDiagnostics(src string, stepsEntry clojureMapEntry) []flowLintDiagnostic {
+	spans, err := localFlowStepVector(src, stepsEntry)
+	if err != nil {
+		return []flowLintDiagnostic{lintDiagnostic(
+			"warning",
+			"step_reference_scan_incomplete",
+			[]string{":steps"},
+			fmt.Sprintf("Local lint could not scan packaged steps: %v", err),
+			"Use a top-level :steps vector or nil, then run `breyta flows lint --server` for canonical validation.",
+			"local",
+		)}
+	}
+	declared := map[string]bool{}
+	var diagnostics []flowLintDiagnostic
+	for _, span := range spans {
+		stepID, idErr := localStepIDFromMap(src, span)
+		if idErr != nil {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"warning",
+				"step_reference_scan_incomplete",
+				[]string{":steps"},
+				fmt.Sprintf("Local lint could not read one packaged step: %v", idErr),
+				"Fix the packaged step map or run `breyta flows lint --server` for canonical validation.",
+				"local",
+			))
+			continue
+		}
+		declared[strings.TrimPrefix(strings.TrimSpace(stepID), ":")] = true
+	}
+	references, scanErr := localFlowStepReferences(src)
+	if scanErr != nil {
+		return append(diagnostics, lintDiagnostic(
+			"warning",
+			"step_reference_scan_incomplete",
+			[]string{":flow"},
+			fmt.Sprintf("Local lint could not scan packaged step references: %v", scanErr),
+			"Fix the flow form or run `breyta flows lint --server` for canonical validation.",
+			"local",
+		))
+	}
+	seen := map[string]bool{}
+	for _, reference := range references {
+		if declared[reference.StepID] || seen[reference.StepID] {
+			continue
+		}
+		seen[reference.StepID] = true
+		diag := lintDiagnostic(
+			"error",
+			"missing_packaged_step_reference",
+			[]string{":flow", ":" + reference.StepID},
+			fmt.Sprintf("Flow body references packaged step :%s, but no matching top-level :steps entry exists.", reference.StepID),
+			"Add it with `breyta flows steps create ...` or update the flow body to use a declared step.",
+			"local",
+		)
+		diag["byteOffset"] = reference.ByteOffset
+		diagnostics = append(diagnostics, diag)
+	}
+	return diagnostics
 }
 
 func clojureIdentifierFromForm(src string, start int) (string, bool) {

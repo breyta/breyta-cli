@@ -13,10 +13,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var localQualifiedStepIDRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)*/[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
+var (
+	localQualifiedStepIDRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)*/[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
+	localScheduleIDRe      = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
+)
 
 func localStepIDValid(stepID string) bool {
 	return localQualifiedStepIDRe.MatchString(strings.TrimSpace(stepID))
+}
+
+func localScheduleIDValid(scheduleID string) bool {
+	return localScheduleIDRe.MatchString(strings.TrimSpace(scheduleID))
 }
 
 func defaultLocalFlowPath(slug string) string {
@@ -212,6 +219,152 @@ func removeLocalStep(source string, stepID string) (string, error) {
 	}
 	if index < 0 {
 		return "", fmt.Errorf("step %q not found", stepID)
+	}
+	if references, scanErr := localFlowStepReferences(source); scanErr == nil {
+		for _, reference := range references {
+			if reference.StepID == strings.TrimPrefix(strings.TrimSpace(stepID), ":") {
+				return "", fmt.Errorf("cannot remove step %q: flow body references it; update :flow first", stepID)
+			}
+		}
+	}
+	span := spans[index]
+	return source[:span.Start] + source[span.End:], nil
+}
+
+func localFlowScheduleVector(source string, schedulesEntry clojureMapEntry) ([]clojureFormSpan, error) {
+	value := strings.TrimSpace(source[schedulesEntry.ValueStart:schedulesEntry.ValueEnd])
+	if value == "nil" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(value, "[") {
+		return nil, fmt.Errorf("top-level :schedules must be a vector or nil")
+	}
+	spans, _, err := parseClojureVectorElements(source, schedulesEntry.ValueStart)
+	if err != nil {
+		return nil, err
+	}
+	return spans, nil
+}
+
+func localScheduleIDFromMap(source string, span clojureFormSpan) (string, error) {
+	entries, _, err := parseClojureMapEntries(source, span.Start)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.KeyName != "id" {
+			continue
+		}
+		token := strings.TrimSpace(source[entry.ValueStart:entry.ValueEnd])
+		if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
+			var decoded string
+			if err := json.Unmarshal([]byte(token), &decoded); err != nil {
+				return "", err
+			}
+			token = decoded
+		} else {
+			token = strings.TrimPrefix(token, ":")
+		}
+		if !localScheduleIDValid(token) {
+			return "", fmt.Errorf("schedule id %q must be an unqualified safe id", token)
+		}
+		return token, nil
+	}
+	return "", errors.New("schedule definition is missing :id")
+}
+
+func localScheduleLiteralID(scheduleLiteral string) (string, error) {
+	if strings.TrimSpace(scheduleLiteral) == "" {
+		return "", errors.New("schedule literal is empty")
+	}
+	if _, err := extractTopLevelMapEntries(scheduleLiteral); err != nil {
+		return "", fmt.Errorf("read schedule literal: %w", err)
+	}
+	return localScheduleIDFromMap(scheduleLiteral, clojureFormSpan{Start: 0, End: len(scheduleLiteral)})
+}
+
+func localScheduleSpansForID(source string, scheduleID string) (clojureMapEntry, []clojureFormSpan, int, error) {
+	schedulesEntry, found, err := localTopLevelEntry(source, "schedules")
+	if err != nil {
+		return clojureMapEntry{}, nil, -1, err
+	}
+	if !found {
+		return clojureMapEntry{}, nil, -1, nil
+	}
+	spans, err := localFlowScheduleVector(source, schedulesEntry)
+	if err != nil {
+		return clojureMapEntry{}, nil, -1, err
+	}
+	for i, span := range spans {
+		id, idErr := localScheduleIDFromMap(source, span)
+		if idErr != nil {
+			return clojureMapEntry{}, nil, -1, idErr
+		}
+		if id == strings.TrimPrefix(strings.TrimSpace(scheduleID), ":") {
+			return schedulesEntry, spans, i, nil
+		}
+	}
+	return schedulesEntry, spans, -1, nil
+}
+
+func appendLocalSchedule(source, scheduleLiteral string) (string, error) {
+	schedulesEntry, found, err := localTopLevelEntry(source, "schedules")
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		flowEntry, hasFlow, err := localTopLevelEntry(source, "flow")
+		if err != nil {
+			return "", err
+		}
+		mapStart, err := topLevelFlowMapStart(source)
+		if err != nil || mapStart < 0 {
+			return "", fmt.Errorf("locate top-level flow map: %w", err)
+		}
+		insertAt := len(source)
+		if hasFlow {
+			insertAt = flowEntry.KeyStart
+		} else {
+			mapEnd, endErr := readClojureFormEnd(source, mapStart)
+			if endErr != nil {
+				return "", endErr
+			}
+			insertAt = mapEnd - 1
+		}
+		prefix := "\n :schedules [\n  " + scheduleLiteral + "\n ]\n "
+		return source[:insertAt] + prefix + source[insertAt:], nil
+	}
+
+	value := strings.TrimSpace(source[schedulesEntry.ValueStart:schedulesEntry.ValueEnd])
+	if value == "nil" {
+		return replaceLocalFlowValue(source, schedulesEntry, "[\n  "+scheduleLiteral+"\n ]"), nil
+	}
+	if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+		return "", errors.New("top-level :schedules must be a vector or nil")
+	}
+	insertAt := schedulesEntry.ValueEnd - 1
+	return source[:insertAt] + "\n  " + scheduleLiteral + "\n " + source[insertAt:], nil
+}
+
+func replaceLocalSchedule(source string, scheduleID, scheduleLiteral string) (string, error) {
+	_, spans, index, err := localScheduleSpansForID(source, scheduleID)
+	if err != nil {
+		return "", err
+	}
+	if index < 0 {
+		return "", fmt.Errorf("schedule %q not found", scheduleID)
+	}
+	span := spans[index]
+	return source[:span.Start] + scheduleLiteral + source[span.End:], nil
+}
+
+func removeLocalSchedule(source string, scheduleID string) (string, error) {
+	_, spans, index, err := localScheduleSpansForID(source, scheduleID)
+	if err != nil {
+		return "", err
+	}
+	if index < 0 {
+		return "", fmt.Errorf("schedule %q not found", scheduleID)
 	}
 	span := spans[index]
 	return source[:span.Start] + source[span.End:], nil
@@ -559,6 +712,215 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for retrying side-effectful runs")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id")
+	return cmd
+}
+
+func newFlowsSchedulesLocalAddCmd(app *App) *cobra.Command {
+	var flowFile, scheduleFile, label, invocation, cron, timezone string
+	var enabled, push bool
+	cmd := &cobra.Command{
+		Use:   "add <flow-slug> <schedule-id>",
+		Short: "Add a schedule to the local flow source",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug, scheduleID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
+			if !isAPIValidFlowSlug(slug) {
+				return writeErr(cmd, fmt.Errorf("invalid flow slug %q", slug))
+			}
+			if !localScheduleIDValid(scheduleID) {
+				return writeErr(cmd, fmt.Errorf("invalid schedule id %q (use an unqualified id such as daily-review)", scheduleID))
+			}
+			path, source, err := readLocalFlowSource(slug, flowFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if _, _, index, findErr := localScheduleSpansForID(source, scheduleID); findErr != nil {
+				return writeErr(cmd, findErr)
+			} else if index >= 0 {
+				return writeErr(cmd, fmt.Errorf("schedule %q already exists; use update", scheduleID))
+			}
+
+			var scheduleLiteral string
+			if strings.TrimSpace(scheduleFile) != "" {
+				b, readErr := readExplicitFile(scheduleFile)
+				if readErr != nil {
+					return writeErr(cmd, fmt.Errorf("read --schedule-file: %w", readErr))
+				}
+				scheduleLiteral = strings.TrimSpace(string(b))
+				literalID, idErr := localScheduleLiteralID(scheduleLiteral)
+				if idErr != nil {
+					return writeErr(cmd, idErr)
+				}
+				if literalID != scheduleID {
+					return writeErr(cmd, fmt.Errorf("schedule literal id %q does not match %q", literalID, scheduleID))
+				}
+			} else {
+				if strings.TrimSpace(cron) == "" {
+					return writeErr(cmd, errors.New("missing --cron or --schedule-file"))
+				}
+				if strings.TrimSpace(label) == "" {
+					label = scheduleID
+				}
+				invocation = strings.TrimPrefix(strings.TrimSpace(invocation), ":")
+				if invocation == "" {
+					invocation = "default"
+				}
+				if !localScheduleIDValid(invocation) {
+					return writeErr(cmd, fmt.Errorf("invalid invocation %q (use an unqualified id such as default)", invocation))
+				}
+				scheduleLiteral = fmt.Sprintf("{:id :%s\n  :label %q\n  :invocation :%s\n  :enabled %t\n  :cron %q", scheduleID, label, invocation, enabled, strings.TrimSpace(cron))
+				if strings.TrimSpace(timezone) != "" {
+					scheduleLiteral += fmt.Sprintf("\n  :timezone %q", strings.TrimSpace(timezone))
+				}
+				scheduleLiteral += "}"
+			}
+			updated, err := appendLocalSchedule(source, scheduleLiteral)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := atomicWriteFile(path, []byte(updated), publicFileMode); err != nil {
+				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
+			}
+			if push {
+				remote, status, pushErr := pushLocalFlowLiteral(cmd, app, path, updated)
+				if pushErr != nil {
+					return writeErr(cmd, pushErr)
+				}
+				if status >= 400 || !isOK(remote) {
+					return writeAPIResult(cmd, app, remote, status)
+				}
+				return writeLocalAuthoringResult(cmd, app, path, remote, status, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+			}
+			return writeLocalAuthoringResult(cmd, app, path, nil, 0, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+		},
+	}
+	cmd.Flags().StringVar(&flowFile, "flow-file", "", "Local flow source path (default: flows/<flow-slug>.clj)")
+	cmd.Flags().StringVar(&scheduleFile, "schedule-file", "", "Read the complete schedule map from this file")
+	cmd.Flags().StringVar(&label, "label", "", "Schedule display label (default: schedule id)")
+	cmd.Flags().StringVar(&invocation, "invocation", "default", "Invocation id to call (default: default)")
+	cmd.Flags().StringVar(&cron, "cron", "", "Cron expression for the schedule")
+	cmd.Flags().StringVar(&timezone, "timezone", "", "IANA timezone such as UTC or Europe/Oslo")
+	cmd.Flags().BoolVar(&enabled, "enabled", true, "Enable the authored schedule by default")
+	cmd.Flags().BoolVar(&push, "push", false, "Push the edited local source after saving")
+	return cmd
+}
+
+func newFlowsSchedulesLocalUpdateCmd(app *App) *cobra.Command {
+	var flowFile, scheduleFile string
+	var push bool
+	cmd := &cobra.Command{
+		Use:   "update <flow-slug> <schedule-id>",
+		Short: "Replace a schedule in the local flow source",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug, scheduleID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
+			if !localScheduleIDValid(scheduleID) {
+				return writeErr(cmd, fmt.Errorf("invalid schedule id %q", scheduleID))
+			}
+			if strings.TrimSpace(scheduleFile) == "" {
+				return writeErr(cmd, errors.New("update requires --schedule-file; use add flags for a new schedule"))
+			}
+			path, source, err := readLocalFlowSource(slug, flowFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			b, err := readExplicitFile(scheduleFile)
+			if err != nil {
+				return writeErr(cmd, fmt.Errorf("read --schedule-file: %w", err))
+			}
+			scheduleLiteral := strings.TrimSpace(string(b))
+			literalID, err := localScheduleLiteralID(scheduleLiteral)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if literalID != scheduleID {
+				return writeErr(cmd, fmt.Errorf("schedule literal id %q does not match %q", literalID, scheduleID))
+			}
+			updated, err := replaceLocalSchedule(source, scheduleID, scheduleLiteral)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := atomicWriteFile(path, []byte(updated), publicFileMode); err != nil {
+				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
+			}
+			if push {
+				remote, status, pushErr := pushLocalFlowLiteral(cmd, app, path, updated)
+				if pushErr != nil {
+					return writeErr(cmd, pushErr)
+				}
+				if status >= 400 || !isOK(remote) {
+					return writeAPIResult(cmd, app, remote, status)
+				}
+				return writeLocalAuthoringResult(cmd, app, path, remote, status, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+			}
+			return writeLocalAuthoringResult(cmd, app, path, nil, 0, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+		},
+	}
+	cmd.Flags().StringVar(&flowFile, "flow-file", "", "Local flow source path (default: flows/<flow-slug>.clj)")
+	cmd.Flags().StringVar(&scheduleFile, "schedule-file", "", "Read the complete replacement schedule map from this file")
+	cmd.Flags().BoolVar(&push, "push", false, "Push the edited local source after saving")
+	return cmd
+}
+
+func newFlowsSchedulesLocalRemoveCmd(app *App) *cobra.Command {
+	var flowFile string
+	var push bool
+	cmd := &cobra.Command{
+		Use:   "remove <flow-slug> <schedule-id>",
+		Short: "Remove a schedule from the local flow source",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			slug, scheduleID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
+			if !localScheduleIDValid(scheduleID) {
+				return writeErr(cmd, fmt.Errorf("invalid schedule id %q", scheduleID))
+			}
+			path, source, err := readLocalFlowSource(slug, flowFile)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			updated, err := removeLocalSchedule(source, scheduleID)
+			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := atomicWriteFile(path, []byte(updated), publicFileMode); err != nil {
+				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
+			}
+			if push {
+				remote, status, pushErr := pushLocalFlowLiteral(cmd, app, path, updated)
+				if pushErr != nil {
+					return writeErr(cmd, pushErr)
+				}
+				if status >= 400 || !isOK(remote) {
+					return writeAPIResult(cmd, app, remote, status)
+				}
+				return writeLocalAuthoringResult(cmd, app, path, remote, status, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+			}
+			return writeLocalAuthoringResult(cmd, app, path, nil, 0, map[string]any{"flowSlug": slug, "scheduleId": scheduleID})
+		},
+	}
+	cmd.Flags().StringVar(&flowFile, "flow-file", "", "Local flow source path (default: flows/<flow-slug>.clj)")
+	cmd.Flags().BoolVar(&push, "push", false, "Push the edited local source after saving")
+	return cmd
+}
+
+func newFlowsSchedulesLocalCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "schedules",
+		Short: "Edit top-level schedules in local flow source",
+		Long: strings.TrimSpace(`
+Edit the top-level :schedules vector in the local flow source. These commands
+only write the local file unless --push is passed; flows configure remains the
+remote author/install schedule-settings surface.
+
+Examples:
+  breyta flows schedules add order-sync daily-review --cron "0 9 * * MON" --timezone UTC
+  breyta flows schedules update order-sync daily-review --schedule-file ./schedules/daily-review.edn
+  breyta flows schedules remove order-sync daily-review
+`),
+	}
+	cmd.AddCommand(newFlowsSchedulesLocalAddCmd(app))
+	cmd.AddCommand(newFlowsSchedulesLocalUpdateCmd(app))
+	cmd.AddCommand(newFlowsSchedulesLocalRemoveCmd(app))
 	return cmd
 }
 

@@ -90,10 +90,85 @@ func TestLocalStepCRUDAndComposeOnlyRewriteOwnedSourceSections(t *testing.T) {
 		t.Fatalf("expected updated step in source:\n%s", source)
 	}
 
+	executeLocalAuthoringJSON(t, newFlowsComposeCmd(app), "order-sync", "--flow-file", path, "--body", "(flow/input)")
 	executeLocalAuthoringJSON(t, newFlowsStepsLocalRemoveCmd(app), "order-sync", "--flow-file", path, "tools/add-one")
 	source, _ = os.ReadFile(path)
 	if strings.Contains(string(source), ":id :tools/add-one") {
 		t.Fatalf("expected removed step to be absent:\n%s", source)
+	}
+}
+
+func TestLocalStepRemoveRejectsReferencedPackagedStep(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	stepPath := filepath.Join(t.TempDir(), "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one" :input-schema [:map]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+	executeLocalAuthoringJSON(t, newFlowsComposeCmd(app), "order-sync", "--flow-file", path, "--body", "(flow/step :tools/add-one :run {})")
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalRemoveCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected referenced step removal to fail\n%s", out.String())
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), ":id :tools/add-one") {
+		t.Fatalf("failed removal should preserve step definition:\n%s", source)
+	}
+}
+
+func TestLocalScheduleCRUDPreservesFlowDefinition(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	updatedSchedulePath := filepath.Join(t.TempDir(), "daily-review.edn")
+	if err := os.WriteFile(updatedSchedulePath, []byte(`{:id :daily-review
+ :label "Daily review"
+ :invocation :default
+ :enabled false
+ :cron "0 10 * * MON-FRI"
+ :timezone "Europe/Oslo"
+ :overlap-policy :queue}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	executeLocalAuthoringJSON(t, newFlowsSchedulesLocalAddCmd(app), "order-sync", "daily-review", "--flow-file", path, "--cron", "0 9 * * MON", "--timezone", "UTC", "--label", "Weekly review")
+
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	for _, want := range []string{":id :daily-review", `:label "Weekly review"`, `:cron "0 9 * * MON"`, `:timezone "UTC"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("schedule add missing %q:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(text, ":interfaces {:manual [{:id :run") || !strings.Contains(text, ":invocations {:default") {
+		t.Fatalf("schedule add rewrote unrelated definition surfaces:\n%s", text)
+	}
+
+	executeLocalAuthoringJSON(t, newFlowsSchedulesLocalUpdateCmd(app), "order-sync", "daily-review", "--flow-file", path, "--schedule-file", updatedSchedulePath)
+	source, _ = os.ReadFile(path)
+	text = string(source)
+	for _, want := range []string{`:label "Daily review"`, `:enabled false`, `:cron "0 10 * * MON-FRI"`, `:timezone "Europe/Oslo"`, ":overlap-policy :queue"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("schedule update missing %q:\n%s", want, text)
+		}
+	}
+
+	executeLocalAuthoringJSON(t, newFlowsSchedulesLocalRemoveCmd(app), "order-sync", "daily-review", "--flow-file", path)
+	source, _ = os.ReadFile(path)
+	if strings.Contains(string(source), ":id :daily-review") {
+		t.Fatalf("expected removed schedule to be absent:\n%s", source)
 	}
 }
 

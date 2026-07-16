@@ -69,6 +69,40 @@ func rejectFlowLintDiagnosticCodes(t *testing.T, body map[string]any, reject ...
 	}
 }
 
+func TestFlowsLintLocalOnlyReportsMissingPackagedStepReference(t *testing.T) {
+	flowLiteral := `{:slug :missing-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [declared (flow/step :tools/declared :run {})
+              missing (flow/step :tools/missing :run {})]
+          [declared missing])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged step lint error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyAcceptsDeclaredPackagedStepReference(t *testing.T) {
+	flowLiteral := `{:slug :declared-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("declared packaged step should lint successfully: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
