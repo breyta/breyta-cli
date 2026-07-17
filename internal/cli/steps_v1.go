@@ -175,6 +175,20 @@ func extractStepsRunResult(out map[string]any) any {
 	return nil
 }
 
+const stepSidecarRequestTimeout = 30 * time.Second
+
+func clientWithRequestTimeout(client api.Client, timeout time.Duration) api.Client {
+	configured := client
+	if configured.HTTP == nil {
+		configured.HTTP = &http.Client{Timeout: timeout}
+		return configured
+	}
+	httpClient := *configured.HTTP
+	httpClient.Timeout = timeout
+	configured.HTTP = &httpClient
+	return configured
+}
+
 func recordStepSidecars(client api.Client, out map[string]any, flowSlug string, stepID string, stepType string, params map[string]any, resultAny any, note string, testName string, traceID string, profileID string, recordExample bool, recordTest bool) {
 	if !isOK(out) || (!recordExample && !recordTest) {
 		return
@@ -821,7 +835,8 @@ Examples:
 				}
 				return writeErr(cmd, err)
 			}
-			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, effectiveInstallationID, recordExample, recordTest)
+			sidecarClient := clientWithRequestTimeout(client, stepSidecarRequestTimeout)
+			recordStepSidecars(sidecarClient, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, effectiveInstallationID, recordExample, recordTest)
 			if isOK(out) {
 				addStepSidecarHint(out, flowSlug, id)
 			}
