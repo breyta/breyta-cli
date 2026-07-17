@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -850,9 +851,17 @@ func boolValue(v any) bool {
 func newFlowsPublicCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "public",
-		Short: "Inspect public-flow readiness",
+		Short: "Inspect and manage public-flow visibility",
+		Long: `Inspect public-flow readiness and manage all public listing surfaces.
+
+Use publish or delist when you want marketplace visibility, Discover listing,
+and the public app page to move together. Push and release a flow before
+publishing it. Delist disables free linked public installs; paid buyer
+entitlements remain active.`,
 	}
 	cmd.AddCommand(newFlowsPublicPreflightCmd(app))
+	cmd.AddCommand(newFlowsPublicPublishCmd(app))
+	cmd.AddCommand(newFlowsPublicDelistCmd(app))
 	return cmd
 }
 
@@ -866,6 +875,99 @@ func newFlowsPublicPreflightCmd(app *App) *cobra.Command {
 				"flowSlug": strings.TrimSpace(args[0]),
 			}
 			return doAPICommand(cmd, app, "flows.public.preflight", payload)
+		},
+	}
+	return cmd
+}
+
+func newFlowsPublicPublishCmd(app *App) *cobra.Command {
+	return newFlowsPublicVisibilityCmd(
+		app,
+		"publish <slug>",
+		nil,
+		"Publish a flow across all public surfaces",
+		true,
+	)
+}
+
+func newFlowsPublicDelistCmd(app *App) *cobra.Command {
+	return newFlowsPublicVisibilityCmd(
+		app,
+		"delist <slug>",
+		[]string{"unpublish", "make-private", "private"},
+		"Remove a flow from all public surfaces",
+		false,
+	)
+}
+
+func markPublicUpdatePartialFailure(out map[string]any) {
+	if out == nil || !isOK(out) {
+		return
+	}
+	meta := mapStringAny(out["meta"])
+	if meta == nil {
+		return
+	}
+	failed := make([]string, 0, 4)
+	for _, key := range []string{"publicCatalog", "linkedInstallCleanup", "index", "publish"} {
+		warning := mapStringAny(meta[key])
+		if ok, okType := warning["ok"].(bool); okType && !ok {
+			failed = append(failed, key)
+		}
+	}
+	if len(failed) == 0 {
+		return
+	}
+	out["ok"] = false
+	if meta != nil {
+		delete(meta, "publicAppUrl")
+		actions := sliceAny(meta["nextActions"])
+		filtered := make([]any, 0, len(actions))
+		for _, item := range actions {
+			if action := mapStringAny(item); action != nil && firstNonBlankString(action["id"]) == "open-public-app" {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			delete(meta, "nextActions")
+		} else {
+			meta["nextActions"] = filtered
+		}
+	}
+	out["error"] = map[string]any{
+		"code":    "partial_public_update_failed",
+		"message": "Public visibility metadata changed, but " + strings.Join(failed, " and ") + " follow-up failed. Retry the command.",
+		"details": map[string]any{
+			"failed": failed,
+		},
+	}
+}
+
+func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short string, public bool) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     use,
+		Aliases: aliases,
+		Short:   short,
+		Long: func() string {
+			if public {
+				return "Publish a flow across all public surfaces. Push and release the flow before publishing it."
+			}
+			return "Remove a flow from all public surfaces."
+		}(),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return dispatchFlowAPICommandWithTransformAndTimeout(
+				cmd,
+				app,
+				"flows.public.update",
+				map[string]any{
+					"flowSlug": strings.TrimSpace(args[0]),
+					"public":   public,
+				},
+				5*time.Minute,
+				markPublicUpdatePartialFailure,
+			)
 		},
 	}
 	return cmd
