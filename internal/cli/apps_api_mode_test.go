@@ -561,12 +561,7 @@ func TestRunsStart_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected 404 wait deadline to return a timeout envelope, got err=%v\nstdout=%s", err, stdout)
 	}
-	if !strings.Contains(stdout, `"ok":true`) ||
-		!strings.Contains(stdout, `"timedOut":true`) ||
-		!strings.Contains(stdout, `"workflowId":"wf-runs-start-404-timeout"`) ||
-		!strings.Contains(stdout, `"status":"running"`) {
-		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
-	}
+	assertWaitTimeoutEnvelope(t, stdout, "wf-runs-start-404-timeout")
 }
 
 func TestRunsStart_SendsInvocation(t *testing.T) {
@@ -6352,11 +6347,27 @@ func TestFlowsRun_Wait404DeadlineReturnsTimeoutEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected 404 wait deadline to return a timeout envelope, got err=%v\nstdout=%s", err, stdout)
 	}
-	if !strings.Contains(stdout, `"ok":true`) ||
-		!strings.Contains(stdout, `"timedOut":true`) ||
-		!strings.Contains(stdout, `"workflowId":"wf-flow-404-timeout"`) ||
-		!strings.Contains(stdout, `"status":"running"`) {
-		t.Fatalf("expected 404 timeout envelope, got:\n%s", stdout)
+	assertWaitTimeoutEnvelope(t, stdout, "wf-flow-404-timeout")
+}
+
+func assertWaitTimeoutEnvelope(t *testing.T, stdout string, workflowID string) {
+	t.Helper()
+	e := decodeEnvelope(t, stdout)
+	if !e.OK {
+		t.Fatalf("expected timeout envelope to remain ok=true, got:\n%s", stdout)
+	}
+	if e.Meta["timedOut"] != true {
+		t.Fatalf("expected meta.timedOut=true, got %#v\nstdout=%s", e.Meta["timedOut"], stdout)
+	}
+	if e.Data["workflowId"] != workflowID {
+		t.Fatalf("expected data.workflowId=%q, got %#v\nstdout=%s", workflowID, e.Data["workflowId"], stdout)
+	}
+	if e.Data["status"] != "running" {
+		t.Fatalf("expected timeout envelope data.status=running, got %#v\nstdout=%s", e.Data["status"], stdout)
+	}
+	wait, ok := e.Data["wait"].(map[string]any)
+	if !ok || wait["timedOut"] != true {
+		t.Fatalf("expected data.wait.timedOut=true, got %#v\nstdout=%s", e.Data["wait"], stdout)
 	}
 }
 
