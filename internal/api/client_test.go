@@ -338,6 +338,34 @@ func TestClient_DoCommand_RetriesRunsGetAfterTransientGatewayHTML(t *testing.T) 
 	}
 }
 
+func TestClient_DoCommand_DoesNotRetryRunsGetAfterWaitContextDeadline(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0, 0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	c := Client{
+		BaseURL:     "https://flows.example.test",
+		WorkspaceID: "ws-acme",
+		Token:       "tok",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			commandCalls++
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		})},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	_, _, err := c.DoCommand(ctx, "runs.get", map[string]any{"workflowId": "run-123"})
+	if err == nil {
+		t.Fatal("expected wait context deadline error")
+	}
+	if commandCalls != 1 {
+		t.Fatalf("expected deadline to prevent retries, got %d calls", commandCalls)
+	}
+}
+
 func TestClient_DoCommand_DoesNotRetryMutatingCommandOnTransientStatus(t *testing.T) {
 	origBackoffs := readCommandRetryBackoffs
 	readCommandRetryBackoffs = []time.Duration{0, 0}

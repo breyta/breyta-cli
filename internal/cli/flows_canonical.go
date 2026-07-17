@@ -231,6 +231,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		startRunStatus = "running"
 	}
 	deadline := time.Now().Add(timeout)
+	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
+	defer cancelWait()
 	polls := 0
 	var nextTerminalFallback time.Time
 	avgMs := avgDurationMsFromRunData(startResp)
@@ -277,6 +279,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"workflow_id": workflowID,
 			"wait":        true,
 		})
+		// The polling deadline has elapsed, but one best-effort final hydration
+		// still preserves the existing timeout snapshot behavior.
 		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
 			if run := runFromCommandResponse(snapshot); run != nil {
 				snapshotRunStatus := canonicalRunStatus(run["status"])
@@ -323,15 +327,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		if installationID != "" {
 			runsGetPayload["installationId"] = installationID
 		}
-		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", runsGetPayload)
+		execResp, execStatus, err := client.DoCommand(waitCtx, "runs.get", runsGetPayload)
 		if err != nil {
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return writeTimeout("", nil)
+			}
 			return writeErr(cmd, err)
 		}
 		if execStatus == 404 {
 			polls++
 			if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 				nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, installationID); err == nil && ok {
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
 			}
@@ -368,7 +375,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"run_status":  s,
 				"wait":        true,
 			})
-			finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, installationID)
+			finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, installationID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -390,7 +397,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		polls++
 		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 			nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, installationID); err == nil && ok {
 				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 			}
 		}

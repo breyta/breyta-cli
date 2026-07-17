@@ -59,7 +59,11 @@ func shouldCheckTerminalWaitFallback(polls int, next time.Time) bool {
 }
 
 func terminalRunFallback(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, string, bool, error) {
-	fullResp, fullStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID)
+	return terminalRunFallbackWithContext(context.Background(), client, workflowID, installationID)
+}
+
+func terminalRunFallbackWithContext(ctx context.Context, client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, string, bool, error) {
+	fullResp, fullStatus, err := hydrateWaitRunSnapshotWithContext(ctx, client, workflowID, installationID)
 	if err != nil {
 		return nil, fullStatus, "", false, err
 	}
@@ -71,7 +75,7 @@ func terminalRunFallback(client apiCommandRunner, workflowID string, installatio
 		}
 	}
 
-	if snapshot, ok, err := fetchTerminalRunSnapshotFromEvents(client, workflowID, installationID); err == nil && ok {
+	if snapshot, ok, err := fetchTerminalRunSnapshotFromEventsWithContext(ctx, client, workflowID, installationID); err == nil && ok {
 		if fullResp == nil || fullStatus >= 400 {
 			fullResp = map[string]any{
 				"ok": true,
@@ -140,6 +144,10 @@ func applyTerminalRunSnapshot(out map[string]any, snapshot *terminalRunSnapshot)
 }
 
 func fetchTerminalRunSnapshotFromEvents(client apiCommandRunner, workflowID string, installationID string) (*terminalRunSnapshot, bool, error) {
+	return fetchTerminalRunSnapshotFromEventsWithContext(context.Background(), client, workflowID, installationID)
+}
+
+func fetchTerminalRunSnapshotFromEventsWithContext(ctx context.Context, client apiCommandRunner, workflowID string, installationID string) (*terminalRunSnapshot, bool, error) {
 	payload := map[string]any{
 		"workflowId": strings.TrimSpace(workflowID),
 		"limit":      500,
@@ -147,7 +155,7 @@ func fetchTerminalRunSnapshotFromEvents(client apiCommandRunner, workflowID stri
 	if strings.TrimSpace(installationID) != "" {
 		payload["installationId"] = strings.TrimSpace(installationID)
 	}
-	out, status, err := client.DoCommand(context.Background(), "runs.events", payload)
+	out, status, err := client.DoCommand(ctx, "runs.events", payload)
 	if err != nil {
 		return nil, false, err
 	}

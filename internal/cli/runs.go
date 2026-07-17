@@ -515,10 +515,15 @@ Use runs start only when integrating with older scripts.
 					addRunStartETAMeta(resp, avgMs)
 					return writeAPIResult(cmd, app, resp, st)
 				}
+				deadline := time.Now().Add(timeout)
+				waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
+				defer cancelWait()
 				writeTimeout := func(statusStr string, lastPoll map[string]any) error {
 					if strings.TrimSpace(statusStr) == "" {
 						statusStr = startRunStatus
 					}
+					// The polling deadline has elapsed, but one best-effort final
+					// hydration still preserves the existing timeout snapshot behavior.
 					if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, waitInstallationID); err == nil && snapshotStatus < 400 {
 						if run := runFromCommandResponse(snapshot); run != nil {
 							snapshotRunStatus := canonicalRunStatus(run["status"])
@@ -551,7 +556,6 @@ Use runs start only when integrating with older scripts.
 					return writeFinal(timeoutOut, 200)
 				}
 
-				deadline := time.Now().Add(timeout)
 				polls := 0
 				var nextTerminalFallback time.Time
 				for {
@@ -559,8 +563,11 @@ Use runs start only when integrating with older scripts.
 					if waitInstallationID != "" {
 						pollPayload["installationId"] = waitInstallationID
 					}
-					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", pollPayload)
+					execResp, execStatus, err := client.DoCommand(waitCtx, "runs.get", pollPayload)
 					if err != nil {
+						if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+							return writeTimeout("", nil)
+						}
 						return writeErr(cmd, err)
 					}
 					// The execution store may lag slightly after runs.start returns.
@@ -569,7 +576,7 @@ Use runs start only when integrating with older scripts.
 						polls++
 						if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 							nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-							if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+							if finalResp, finalStatus, _, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, waitInstallationID); err == nil && ok {
 								return writeFinal(finalResp, finalStatus)
 							}
 						}
@@ -592,7 +599,7 @@ Use runs start only when integrating with older scripts.
 					statusStr := canonicalRunStatus(run["status"])
 
 					if isTerminalRunStatus(statusStr) {
-						finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, waitInstallationID)
+						finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, waitInstallationID)
 						if err != nil {
 							return writeErr(cmd, err)
 						}
@@ -605,7 +612,7 @@ Use runs start only when integrating with older scripts.
 					polls++
 					if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 						nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-						if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+						if finalResp, finalStatus, _, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, waitInstallationID); err == nil && ok {
 							return writeFinal(finalResp, finalStatus)
 						}
 					}
