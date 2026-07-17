@@ -289,6 +289,12 @@ func TestFlowsRunHelpHighlightsDefaultVsAdvancedTargeting(t *testing.T) {
 	if !strings.Contains(help, "--interface-id") {
 		t.Fatalf("flows run help missing interface selector guidance:\n%s", help)
 	}
+	if !strings.Contains(help, "one enabled legacy manual trigger is selected automatically") {
+		t.Fatalf("flows run help missing legacy single-trigger guidance:\n%s", help)
+	}
+	if !strings.Contains(help, "multiple legacy manual triggers require --trigger-id <id>") {
+		t.Fatalf("flows run help missing legacy trigger selector guidance:\n%s", help)
+	}
 	if !strings.Contains(help, "--buyer-test") {
 		t.Fatalf("flows run help missing buyer test guidance:\n%s", help)
 	}

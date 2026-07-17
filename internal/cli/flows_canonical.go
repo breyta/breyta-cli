@@ -503,6 +503,9 @@ Default:
 - breyta flows run <flow-slug> [--input '{...}' | --input-file ./input.json] [--wait]
 - file/blob-ref manual inputs: use --upload field=path to emulate a browser upload
 - brand-new unreleased flows: add --target draft while authoring, or release first
+- one enabled legacy manual trigger is selected automatically, even if its older source omitted :id
+- multiple legacy manual triggers require --trigger-id <id>; canonical manual interfaces can use --interface-id <id>
+- when a draft declares :invocations, use --invocation <id> to select its input contract
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
@@ -511,7 +514,7 @@ Default:
 	- --interface-id <id> : select the declared manual interface explicitly
 	- --target draft|live : select workspace draft/live when not using --installation-id
 	- --version <n> : force a specific release version for this invocation
-	- --trigger-id <id> : compatibility alias for legacy trigger-backed flows
+	- --trigger-id <id> : select a legacy trigger when a draft has more than one manual trigger
 	`),
 		Example: strings.TrimSpace(`
 breyta flows run order-ingest --wait
