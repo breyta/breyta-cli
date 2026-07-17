@@ -174,6 +174,12 @@ packaged step into `:steps`, and `--run` sends the complete literal for
 just-in-time server execution without creating or updating a draft. Use
 `flows push` (or an explicit command-level `--push`) for remote persistence.
 
+`flows push` allows two minutes per draft-upload and immediate-validation API
+request by default. Use `--timeout 5m` for a slower workspace. A timeout can be
+ambiguous because the server may have saved the draft before the response was
+received; run `breyta flows show <slug>` or `breyta flows validate <slug>` to
+verify the result before retrying.
+
 For an existing flow, pull it into a local workspace, edit it, push it back to
 draft, and run it:
 

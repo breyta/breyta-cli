@@ -611,6 +611,10 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	if count := strings.Count(body, "## Local flow source authoring (Local-first)"); count != 1 {
 		t.Fatalf("expected local authoring header exactly once, got %d\n%s", count, body)
 	}
+	if !strings.Contains(body, "two minutes per draft-upload") ||
+		!strings.Contains(body, "draft may already be saved") {
+		t.Fatalf("expected flow push timeout recovery guidance, got:\n%s", body)
+	}
 }
 
 func TestApplyCLIOverrides_DoesNotDuplicateNamingConventions(t *testing.T) {

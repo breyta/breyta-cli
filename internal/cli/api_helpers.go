@@ -276,8 +276,24 @@ func apiClient(app *App) api.Client {
 	return api.Client{
 		BaseURL:     app.APIURL,
 		WorkspaceID: app.WorkspaceID,
+		HTTP:        app.HTTP,
 		Token:       app.Token,
 	}
+}
+
+func apiClientWithTimeout(app *App, timeout time.Duration) api.Client {
+	client := apiClient(app)
+	if timeout <= 0 {
+		return client
+	}
+	if client.HTTP == nil {
+		client.HTTP = &http.Client{Timeout: timeout}
+		return client
+	}
+	httpClient := *client.HTTP
+	httpClient.Timeout = timeout
+	client.HTTP = &httpClient
+	return client
 }
 
 func baseURL(app *App) string {
@@ -1680,13 +1696,10 @@ func runAPICommandWithContextAndTimeout(ctx context.Context, app *App, command s
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	client := apiClient(app)
-	if timeout > 0 {
-		client.HTTP = &http.Client{Timeout: timeout}
-	}
+	client := apiClientWithTimeout(app, timeout)
 	out, status, err := client.DoCommand(ctx, command, args)
 	if err != nil {
-		return nil, 0, err
+		return out, status, err
 	}
 	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
 	enrichAPICommandResult(app, client, command, args, out, status)

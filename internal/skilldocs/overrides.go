@@ -164,6 +164,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureInputFilePayloadGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
 	updated = ensureLocalFlowAuthoringGuidance(updated)
+	updated = ensureFlowPushTimeoutGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -234,11 +235,13 @@ func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string
 	updateFile("SKILL.md", ensureInputFilePayloadGuidance)
 	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
 	updateFile("SKILL.md", ensureLocalFlowAuthoringGuidance)
+	updateFile("SKILL.md", ensureFlowPushTimeoutGuidance)
 	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
 	updateFile("playbooks/author-flows.md", ensureFocusedStepRunGuidance)
 	updateFile("playbooks/author-flows.md", ensureInputFilePayloadGuidance)
 	updateFile("playbooks/author-flows.md", ensureLintBeforePushGuidance)
 	updateFile("playbooks/author-flows.md", ensureLocalFlowAuthoringGuidance)
+	updateFile("playbooks/author-flows.md", ensureFlowPushTimeoutGuidance)
 	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
 	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
 	updateFile("references/public-flows.md", ensurePublicFlowReuseDuringAuthoring)
@@ -607,6 +610,8 @@ const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
+const flowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
+
 const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 
 Keep the local flow source as the authoring surface until you explicitly push
@@ -617,6 +622,7 @@ it to a workspace draft:
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
+- ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 `
 
 func hasInputFilePayloadGuidance(body string) bool {
@@ -796,6 +802,22 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 		}
 	}
 	return strings.TrimRight(body, "\n") + "\n\n" + localFlowAuthoringSection + "\n"
+}
+
+func ensureFlowPushTimeoutGuidance(body string) string {
+	if strings.Contains(body, "two minutes per draft-upload") && strings.Contains(body, "draft may already be saved") {
+		return body
+	}
+	heading := "## Local flow source authoring (Local-first)"
+	headingPos := h2LineStartOutsideFences(body, heading)
+	if headingPos < 0 {
+		return strings.TrimRight(body, "\n") + "\n\n" + flowPushTimeoutGuidance + "\n"
+	}
+	insertPos := nextH2LineStartOutsideFences(body, headingPos+len(heading))
+	if insertPos < 0 {
+		return strings.TrimRight(body, "\n") + "\n" + flowPushTimeoutGuidance + "\n"
+	}
+	return body[:insertPos] + flowPushTimeoutGuidance + "\n\n" + body[insertPos:]
 }
 
 func ensureAuthorFlowEfficientLoop(body string) string {
