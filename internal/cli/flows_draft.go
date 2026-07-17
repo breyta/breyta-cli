@@ -53,6 +53,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run <flow-slug>",
 		Short: "Run a draft flow",
+		Long:  "Run a draft flow. Prefer `breyta flows run <flow-slug> --target draft` when you need invocation or manual-interface selectors.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
