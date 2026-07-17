@@ -2004,7 +2004,11 @@ func TestFlowsLintServerSendsCandidateLiteral(t *testing.T) {
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :flow '(let [input (flow/input)] input)}
+ :functions [{:id :build-plan
+              :language :clojure
+              :code "(fn [input]\n  (assoc input :ok true))"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
 `
 	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
 		t.Fatalf("write flow file: %v", err)
@@ -2060,6 +2064,71 @@ func TestFlowsLintServerSendsCandidateLiteral(t *testing.T) {
 	if len(stages) != 2 || stages[0] != "local" || stages[1] != "server" {
 		t.Fatalf("expected local+server stages, got %#v", meta["stages"])
 	}
+}
+
+func TestFlowsLintServerRejectsMalformedTopLevelFunctionCodeBeforeAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `{:slug :malformed-function-code
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :build-plan
+              :language :clojure
+              :code "(fn [input]\n  (assoc input :ok true)"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :build-plan {:ref :build-plan :input {:input input}}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	var requestCount atomic.Int32
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		http.Error(w, "server lint must not run for malformed local source", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "t", TokenExplicit: true}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--server"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected server lint to fail on malformed function code\n%s", out.String())
+	}
+	if got := requestCount.Load(); got != 0 {
+		t.Fatalf("expected local diagnostics to prevent server lint request, got %d", got)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] != "function_code_string_invalid" || item["severity"] != "error" {
+			continue
+		}
+		path, _ := item["path"].([]any)
+		if len(path) < 3 || path[1] != ":build-plan" {
+			t.Fatalf("expected function id in path, got %#v", item)
+		}
+		hint, _ := item["hint"].(string)
+		if !strings.Contains(hint, "directly quoted form") {
+			t.Fatalf("expected actionable function-code hint, got %#v", item)
+		}
+		return
+	}
+	t.Fatalf("expected function_code_string_invalid diagnostic, got %#v", items)
 }
 
 func TestFlowsLintServerTimeoutBoundsRequiredServerLint(t *testing.T) {
