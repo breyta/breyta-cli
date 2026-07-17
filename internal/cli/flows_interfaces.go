@@ -444,6 +444,7 @@ func fetchFlowInterfaceMetadata(ctx context.Context, app *App, flowSlug string, 
 			payload["version"] = resolvedVersion
 		}
 		addInstallationSourceLookupArgs(payload, data)
+		payload["installationId"] = installationID
 		payload["source"] = "active"
 		resolvedTarget = "installation"
 	} else if resolvedTarget == "live" {
