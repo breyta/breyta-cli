@@ -105,6 +105,197 @@ func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyReportsMismatchedDelimiterErrors(t *testing.T) {
+	flowLiteral := `{:slug :mismatched-delimiter
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(identity 1)]
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error for mismatched delimiter\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_delimiters_invalid")
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	first, _ := items[0].(map[string]any)
+	message, _ := first["message"].(string)
+	if !strings.Contains(message, "replaced=1") {
+		t.Fatalf("expected one mismatched delimiter replacement, got %#v", first)
+	}
+	hint, _ := first["hint"].(string)
+	if !strings.Contains(hint, "flows paren-repair --write") {
+		t.Fatalf("expected paren-repair hint, got %#v", first)
+	}
+}
+
+func TestFlowsLintLocalOnlyReportsReaderShapeErrors(t *testing.T) {
+	flowLiteral := `{:slug :bad
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	data, _ := body["data"].(map[string]any)
+	if valid, _ := data["valid"].(bool); valid {
+		t.Fatalf("expected valid=false, got %#v", data)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid")
+	items, _ := data["diagnostics"].([]any)
+	first, _ := items[0].(map[string]any)
+	if message, _ := first["message"].(string); !strings.Contains(message, "missing map value") {
+		t.Fatalf("expected missing map value message, got %#v", first)
+	}
+	meta, _ := body["meta"].(map[string]any)
+	if _, ok := meta["nextCommands"]; ok {
+		t.Fatalf("malformed source should not suggest nextCommands, got %#v", meta)
+	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsMultilineClojureStrings(t *testing.T) {
+	flowLiteral := `{:slug :multiline
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] "line one
+line two")}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid multiline Clojure string should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
+func TestFlowsLintLocalOnlyAcceptsReaderConditionalSpliceInMap(t *testing.T) {
+	flowLiteral := `{:slug :reader-conditional-splice
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] {:base true #?@(:clj [:extra 1])})}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid reader-conditional splice should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
+func TestFlowsLintLocalOnlyPreservesMapParityAroundReaderConditionalSplice(t *testing.T) {
+	flowLiteral := `{:slug :reader-conditional-splice-odd
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] {:base true #?@(:clj [:extra 1]) :unmatched})}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected odd map after reader-conditional splice to fail\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid")
+}
+
+func TestFlowsLintLocalOnlyExpandsIncludesBeforeReaderShapeValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includeFile := filepath.Join(tmpDir, "common-fields.edn")
+	if err := os.WriteFile(includeFile, []byte(`:slug :included-reader-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}`), 0o644); err != nil {
+		t.Fatalf("write include file: %v", err)
+	}
+	flowLiteral := `{:flow '(identity) #flow/include "common-fields.edn"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("valid included flow should pass local lint: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
+func TestFlowsLintLocalOnlyDoesNotSuggestRootRepairForUnbalancedInclude(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	includeFile := filepath.Join(tmpDir, "broken-fields.edn")
+	if err := os.WriteFile(includeFile, []byte(":slug :broken\n :concurrency {"), 0o644); err != nil {
+		t.Fatalf("write include file: %v", err)
+	}
+	flowLiteral := `{:flow '(identity) #flow/include "broken-fields.edn"}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected unbalanced included source to fail\n%s", out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	if len(items) == 0 {
+		t.Fatalf("expected included-source diagnostic, got %#v", body)
+	}
+	first, _ := items[0].(map[string]any)
+	hint, _ := first["hint"].(string)
+	if !strings.Contains(hint, "included source") {
+		t.Fatalf("expected included-source hint, got %#v", first)
+	}
+	if strings.Contains(hint, "paren-repair --write --file "+flowFile) {
+		t.Fatalf("must not suggest repairing the root file for an included-source error: %#v", first)
+	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsDelimiterCharacterLiteral(t *testing.T) {
+	flowLiteral := `{:slug :delimiter-character
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(fn [] \])}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid delimiter character literal should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
 func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
