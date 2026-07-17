@@ -566,6 +566,12 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	if !strings.Contains(body, "search tokens appear in :name, :description, and :tags") {
 		t.Fatalf("expected search token guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "## Local flow source authoring (Local-first)") ||
+		!strings.Contains(body, "breyta flows init <slug>") ||
+		!strings.Contains(body, "breyta flows steps create/update/remove") ||
+		!strings.Contains(body, "breyta flows push --file ./flows/<slug>.clj") {
+		t.Fatalf("expected local-first flow authoring guidance, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows search \"<query>\" --limit 5 searches actual workspace flow metadata") ||
 		!strings.Contains(body, "breyta flows grep \"<literal>\" --limit 5 searches actual workspace flow source/config") {
 		t.Fatalf("expected workspace search naming guidance, got:\n%s", body)
@@ -586,6 +592,24 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	namingPos := strings.Index(body, "## Readability + Searchability Naming Conventions (Required)")
 	if workflowPos == -1 || reliabilityPos == -1 || provenancePos == -1 || lifecyclePos == -1 || namingPos == -1 || !(workflowPos < reliabilityPos && reliabilityPos < provenancePos && provenancePos < lifecyclePos && lifecyclePos < namingPos) {
 		t.Fatalf("expected workflow, reliability, provenance, lifecycle, then naming sections in order, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Local flow source authoring (Local-first)",
+			"- existing content",
+			"",
+			"## Capability Discovery",
+			"- breyta docs",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if count := strings.Count(body, "## Local flow source authoring (Local-first)"); count != 1 {
+		t.Fatalf("expected local authoring header exactly once, got %d\n%s", count, body)
 	}
 }
 

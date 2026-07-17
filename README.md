@@ -101,6 +101,12 @@ because it shows what this workspace can install. Add `--include-own` only when
 debugging whether your own public flow is indexed; verify buyer/install behavior
 from another workspace.
 
+Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
+when a flow should move onto or off marketplace, Discover, and public app-page
+surfaces together. Use the lower-level marketplace/discover update commands
+only when intentionally changing one visibility flag. Delisting disables free
+linked public installs; paid buyer entitlements remain active.
+
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
 The skill bundle can include `SKILL.md` plus bundled `references/` files; agents
@@ -251,16 +257,20 @@ If the flow should appear in public discover/install surfaces, make that explici
 ```bash
 # Either author this in the flow file:
 # :discover {:public true}
+# :marketplace {:visible true}
 #
-# Or set it explicitly after push/release:
-breyta discover update <slug> --public=true
+# Or set all public surfaces explicitly after push and release:
+breyta flows public publish <slug>
 ```
 
-Public discover visibility is stored flow metadata. A released version with an
-installable interface is required before the flow can be exposed in discover.
-This discover catalog is separate from `breyta flows search`, which searches
-actual workspace flow metadata, and from `breyta flows templates search`, which
-searches approved reusable templates to inspect and copy from.
+Use `breyta flows public delist <slug>` to remove the flow from marketplace,
+Discover, and public app-page surfaces together. Delisting disables free linked
+public installs; paid buyer entitlements remain active. Public visibility is
+stored flow metadata. A released version with an installable interface is
+required before the flow can be exposed in Discover. This Discover catalog is separate from
+`breyta flows search`, which searches actual workspace flow metadata, and from
+`breyta flows templates search`, which searches approved reusable templates to
+inspect and copy from.
 
 Installable-flow smoke path:
 
@@ -271,6 +281,10 @@ breyta flows installations configure <installation-id> --input '{"<field>":"<val
 breyta flows installations enable <installation-id>
 breyta flows run <slug> --installation-id <installation-id> --wait
 ```
+
+To inspect every installed app in the workspace without knowing a flow slug,
+use `breyta flows installations list --all`. For creator-scoped inventory of
+one flow, use `breyta flows installations list <flow-slug> --all`.
 
 When browser access is available, also open the Discover install dialog and
 confirm setup fields, upload/resource fields, and output render as expected.

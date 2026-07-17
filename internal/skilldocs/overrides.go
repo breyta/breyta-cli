@@ -163,6 +163,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureFocusedStepRunGuidance(updated)
 	updated = ensureInputFilePayloadGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
+	updated = ensureLocalFlowAuthoringGuidance(updated)
 	if currentCanonicalSkill {
 		if updated == original {
 			return files
@@ -191,6 +192,7 @@ func ApplyCLIOverrides(skillSlug string, files map[string][]byte) map[string][]b
 	updated = ensureFocusedStepRunGuidance(updated)
 	updated = ensureInputFilePayloadGuidance(updated)
 	updated = ensureLintBeforePushGuidance(updated)
+	updated = ensureLocalFlowAuthoringGuidance(updated)
 	if updated == original {
 		return files
 	}
@@ -231,10 +233,12 @@ func applyEfficientWorkflowGuidanceOverrides(files map[string][]byte) map[string
 	updateFile("SKILL.md", ensureFocusedStepRunGuidance)
 	updateFile("SKILL.md", ensureInputFilePayloadGuidance)
 	updateFile("SKILL.md", ensureAuthoringDefaultsContractMatrix)
+	updateFile("SKILL.md", ensureLocalFlowAuthoringGuidance)
 	updateFile("playbooks/author-flows.md", ensureAuthorFlowEfficientLoop)
 	updateFile("playbooks/author-flows.md", ensureFocusedStepRunGuidance)
 	updateFile("playbooks/author-flows.md", ensureInputFilePayloadGuidance)
 	updateFile("playbooks/author-flows.md", ensureLintBeforePushGuidance)
+	updateFile("playbooks/author-flows.md", ensureLocalFlowAuthoringGuidance)
 	updateFile("playbooks/debug-and-verify.md", ensureDebugAcceptanceCaseGuidance)
 	updateFile("references/outputs-and-tables.md", ensureOutputHandoffContract)
 	updateFile("references/public-flows.md", ensurePublicFlowReuseDuringAuthoring)
@@ -393,7 +397,8 @@ Goal: prove the installed end-user path, not only draft CLI execution.
 - do not tell the user a public/end-user flow is "ready for UI" from draft proof alone
 - do not stop at activation; ` + "`/activate`" + ` and configure/check prove owner setup, not end-user installability
 - for installable/public flows, verify Discover install plus an installed run when install behavior matters
-- installable checklist: explicit author approval, Discover visibility, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- installable checklist: explicit author approval, public visibility via both source flags or ` + "`breyta flows public publish <slug>`" + ` after release, pushed/diffed/released/promoted live version, owner setup proof when required, Discover install dialog or installation create/configure/enable proof, installer-owned binding proof, installed run, output review
+- delist all public surfaces together with ` + "`breyta flows public delist <slug>`" + `; use lower-level Discover/marketplace update commands only for intentional single-flag changes
 - verify live/install-shaped behavior or state ` + "`web UI not verified`" + ` in the risk ledger
 - verify live target with ` + "`breyta flows show <slug> --target live`" + `
 - smoke-run live target with ` + "`breyta flows run <slug> --target live --wait`" + ` when side effects are safe
@@ -602,6 +607,18 @@ const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
+const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
+
+Keep the local flow source as the authoring surface until you explicitly push
+it to a workspace draft:
+
+- New flow: ` + "`breyta flows init <slug>`" + `; seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
+- Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
+- Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
+- Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
+- Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
+`
+
 func hasInputFilePayloadGuidance(body string) bool {
 	return strings.Contains(body, "--input-file ./input.json") &&
 		strings.Contains(body, "shell or OS argument limits")
@@ -764,6 +781,23 @@ func ensureLintBeforePushGuidance(body string) string {
 	return strings.TrimRight(body, "\n") + "\n\n## Draft lint before push\n\n" + lintBeforePushGuidance + "\n"
 }
 
+func ensureLocalFlowAuthoringGuidance(body string) string {
+	if h2LineStartOutsideFences(body, "## Local flow source authoring (Local-first)") >= 0 {
+		return body
+	}
+	for _, heading := range []string{
+		"## Create/Edit Preflight",
+		"## Default Loop",
+		"## Core Rule",
+		"## Capability Discovery",
+	} {
+		if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
+			return body[:headingPos] + localFlowAuthoringSection + "\n\n" + body[headingPos:]
+		}
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + localFlowAuthoringSection + "\n"
+}
+
 func ensureAuthorFlowEfficientLoop(body string) string {
 	readinessBullet := strings.Join([]string{
 		"- before wrapper smoke tests around paid public apps, inspect",
@@ -880,6 +914,9 @@ func ensurePublicFlowReuseDuringAuthoring(body string) string {
 		"Before wrapper smoke tests around paid public apps, inspect",
 		"`breyta flows installations get <installation-id>` and check",
 		"`data.runReadiness` for billing/trial blocks.",
+		"For workspace-wide installed-app inventory, use",
+		"`breyta flows installations list --all` without a flow slug; use",
+		"`breyta flows installations list <flow-slug> --all` for one flow.",
 	}, "\n")
 	internalCompositionGuidance := strings.Join([]string{
 		"Inside authored Breyta wrapper flows, call the installed public flow with",

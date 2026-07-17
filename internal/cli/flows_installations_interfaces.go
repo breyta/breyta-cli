@@ -70,6 +70,7 @@ func fetchInstallationInterfaceMetadata(ctx context.Context, app *App, installat
 		"flowSlug":           flowSlug,
 		"source":             "active",
 		"includeFlowLiteral": false,
+		"installationId":     installationID,
 	}
 	if resolvedVersion := firstPositiveInt(data["version"], data["installedVersion"], data["installed-version"]); resolvedVersion > 0 {
 		payload["version"] = resolvedVersion

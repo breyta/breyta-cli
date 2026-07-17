@@ -103,6 +103,21 @@ func TestFlowsLintLocalOnlyAcceptsDeclaredPackagedStepReference(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
 }
 
+func TestFlowsLintLocalOnlyReportsMissingPackagedStepWhenStepsKeyIsAbsent(t *testing.T) {
+	flowLiteral := `{:slug :missing-step-key
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/missing :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged step lint error when :steps is absent\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

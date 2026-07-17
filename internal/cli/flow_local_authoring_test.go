@@ -200,6 +200,24 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 			t.Fatalf("--run failure for update=%t did not emit API failure envelope: %s", update, out.String())
 		}
 	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newFlowsInitCmd(&App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "--out", path, "--step-id", "tools/add-one", "--step-file", stepPath, "--run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("seeded init --run failure returned nil")
+	}
+	if !strings.Contains(out.String(), `"ok":false`) {
+		t.Fatalf("seeded init --run failure did not emit API failure envelope: %s", out.String())
+	}
 }
 
 func TestLocalStepEditingSkipsDiscardedVectorElements(t *testing.T) {
@@ -228,6 +246,30 @@ func TestLocalStepEditingSkipsDiscardedVectorElements(t *testing.T) {
 	}
 }
 
+func TestLocalStepEditingAdvancesPastReaderConditionalElements(t *testing.T) {
+	source := `{:slug :order-sync
+ :steps [#?(:clj {:id :tools/add-one :type :function :description "Add one"}
+             :cljs {:id :tools/cljs-only :type :function})
+          {:id :tools/second :type :function :description "Second"}]}
+`
+	replacement := `{:id :tools/add-one :type :function :description "Add two"}`
+	updated, err := replaceLocalStep(source, "tools/add-one", replacement)
+	if err != nil {
+		t.Fatalf("replaceLocalStep() with reader conditional error = %v", err)
+	}
+	if !strings.Contains(updated, `:description "Add two"`) || !strings.Contains(updated, `:id :tools/cljs-only`) || !strings.Contains(updated, `:id :tools/second`) {
+		t.Fatalf("replaceLocalStep() corrupted reader conditional vector:\n%s", updated)
+	}
+
+	removed, err := removeLocalStep(source, "tools/second")
+	if err != nil {
+		t.Fatalf("removeLocalStep() after reader conditional error = %v", err)
+	}
+	if strings.Contains(removed, `:id :tools/second`) || !strings.Contains(removed, `:id :tools/add-one`) {
+		t.Fatalf("removeLocalStep() did not advance past reader conditional:\n%s", removed)
+	}
+}
+
 func TestLocalStepLiteralIDRequiresOneCompleteTopLevelMap(t *testing.T) {
 	for _, literal := range []string{
 		`{:id :tools/one :type :function} {:id :tools/two :type :function}`,
@@ -241,6 +283,34 @@ func TestLocalStepLiteralIDRequiresOneCompleteTopLevelMap(t *testing.T) {
 
 	if got, err := localStepLiteralID("{:id :tools/one :type :function}\n; trailing comment\n"); err != nil || got != "tools/one" {
 		t.Fatalf("localStepLiteralID() valid literal = %q, %v; want tools/one", got, err)
+	}
+}
+
+func TestLocalComposeRejectsInvalidBodyWithoutOverwriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, body := range []string{"(let [value 1)", "(flow/input) (flow/input)"} {
+		cmd := newFlowsComposeCmd(app)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"order-sync", "--flow-file", path, "--body", body})
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("compose accepted invalid body %q", body)
+		}
+		current, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if string(current) != string(original) {
+			t.Fatalf("compose overwrote source after rejecting body %q:\n%s", body, current)
+		}
 	}
 }
 
@@ -357,6 +427,36 @@ func TestLocalScheduleCRUDPreservesFlowDefinition(t *testing.T) {
 	source, _ = os.ReadFile(path)
 	if strings.Contains(string(source), ":id :daily-review") {
 		t.Fatalf("expected removed schedule to be absent:\n%s", source)
+	}
+}
+
+func TestLocalScheduleLiteralRequiresOneCompleteTopLevelMap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	badSchedulePath := filepath.Join(t.TempDir(), "bad-schedule.edn")
+	if err := os.WriteFile(badSchedulePath, []byte(`{:id :daily-review :cron "0 9 * * MON"} {:id :hidden :cron "0 10 * * MON"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newFlowsSchedulesLocalAddCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "daily-review", "--flow-file", path, "--schedule-file", badSchedulePath})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("schedule add accepted multiple top-level maps\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("schedule add overwrote source after rejecting literal:\n%s", current)
 	}
 }
 

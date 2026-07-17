@@ -47,11 +47,8 @@ func readLocalFlowSource(slug, requested string) (string, string, error) {
 	if strings.TrimSpace(source) == "" {
 		return path, "", fmt.Errorf("local flow %s is empty", path)
 	}
-	if err := parenrepair.Check(source); err != nil {
-		return path, "", fmt.Errorf("local flow source is not balanced: %w", err)
-	}
-	if _, err := extractTopLevelMapEntries(source); err != nil {
-		return path, "", fmt.Errorf("local flow source is not a top-level map: %w", err)
+	if _, err := parseSingleTopLevelMapEntries(source); err != nil {
+		return path, "", fmt.Errorf("local flow source must be one complete top-level map: %w", err)
 	}
 	return path, source, nil
 }
@@ -135,21 +132,21 @@ func localStepLiteralID(stepLiteral string) (string, error) {
 
 func parseSingleTopLevelMapEntries(source string) ([]clojureMapEntry, error) {
 	if err := parenrepair.Check(source); err != nil {
-		return nil, fmt.Errorf("step literal is not balanced: %w", err)
+		return nil, fmt.Errorf("source is not balanced: %w", err)
 	}
 	start, err := topLevelFlowMapStart(source)
 	if err != nil {
 		return nil, err
 	}
 	if start < 0 {
-		return nil, errors.New("step literal must contain a top-level map")
+		return nil, errors.New("source must contain a top-level map")
 	}
 	entries, end, err := parseClojureMapEntries(source, start)
 	if err != nil {
 		return nil, err
 	}
 	if trailing := skipClojureWhitespaceCommaAndComments(source, end); trailing != len(source) {
-		return nil, fmt.Errorf("step literal must contain exactly one top-level map; found another form near byte %d", trailing)
+		return nil, fmt.Errorf("source must contain exactly one top-level map; found another form near byte %d", trailing)
 	}
 	return entries, nil
 }
@@ -298,7 +295,7 @@ func localScheduleLiteralID(scheduleLiteral string) (string, error) {
 	if strings.TrimSpace(scheduleLiteral) == "" {
 		return "", errors.New("schedule literal is empty")
 	}
-	if _, err := extractTopLevelMapEntries(scheduleLiteral); err != nil {
+	if _, err := parseSingleTopLevelMapEntries(scheduleLiteral); err != nil {
 		return "", fmt.Errorf("read schedule literal: %w", err)
 	}
 	return localScheduleIDFromMap(scheduleLiteral, clojureFormSpan{Start: 0, End: len(scheduleLiteral)})
@@ -406,7 +403,31 @@ func composeLocalFlowBody(source, body string) (string, error) {
 	if !strings.HasPrefix(body, "'") && !strings.HasPrefix(body, "(quote") {
 		body = "'" + body
 	}
-	return replaceLocalFlowValue(source, entry, body), nil
+	if err := validateSingleClojureForm(body); err != nil {
+		return "", fmt.Errorf("flow body must be one complete Clojure form: %w", err)
+	}
+	updated := replaceLocalFlowValue(source, entry, body)
+	if _, err := parseSingleTopLevelMapEntries(updated); err != nil {
+		return "", fmt.Errorf("composed flow source is invalid: %w", err)
+	}
+	return updated, nil
+}
+
+func validateSingleClojureForm(source string) error {
+	if strings.TrimSpace(source) == "" {
+		return errors.New("form is empty")
+	}
+	if err := parenrepair.Check(source); err != nil {
+		return err
+	}
+	end, err := readClojureFormEnd(source, 0)
+	if err != nil {
+		return err
+	}
+	if trailing := skipClojureWhitespaceCommaAndComments(source, end); trailing != len(source) {
+		return fmt.Errorf("found another form near byte %d", trailing)
+	}
+	return nil
 }
 
 func readParamsJSON(paramsJSON, paramsFile string) (map[string]any, error) {
