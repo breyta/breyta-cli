@@ -230,8 +230,8 @@ func newFlowsCmd(app *App) *cobra.Command {
 		Short:   "Inspect and edit flows",
 		Long: strings.TrimSpace(`
 Flow authoring uses a file workflow:
-1) pull a flow to a local .clj file
-2) edit the file (Clojure map literal + DSL)
+1) init or pull a flow to a local .clj file
+2) edit the file (Clojure map literal + DSL), or use steps/compose helpers
 3) push -> updates working copy (and validates by default)
 4) diff -> inspect draft changes against live or a released version
 5) release -> activates the latest pushed version and promotes live + installations in current workspace
@@ -246,6 +246,12 @@ Advanced rollout workflow (optional):
 - installations ... -> installation-id scoped management
 
 Quick commands:
+- breyta flows init <slug> --name "My flow"
+- breyta flows init <slug> --step-id tools/fetch --step-file ./steps/fetch.edn --run
+- breyta flows steps create <slug> <step-id> --step-file ./steps/step.edn
+- breyta flows schedules add <slug> <schedule-id> --cron "0 9 * * MON" --timezone UTC
+- breyta flows steps run <slug> <step-id> --params '{...}'
+- breyta flows compose <slug> --body-file ./flows/<slug>.body.clj
 - breyta flows list
 - breyta flows pull <slug> --out ./tmp/flows/<slug>.clj
 - breyta flows lint --file ./tmp/flows/<slug>.clj --local-only
@@ -271,9 +277,10 @@ Flow file format (minimal):
  :requires nil
  :templates nil
  :functions nil
- :invocations nil
- :interfaces nil
- :schedules nil
+ :steps []
+ :invocations {:default {:label "Run" :inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
  :flow '(let [input (flow/input)]
           (flow/step :function :do {:code '(fn [input] input)
                                      :input {:input input}}))}
@@ -282,6 +289,17 @@ Notes:
 - The server reads the file with *read-eval* disabled.
 - :flow should be a quoted form. (quote ...) is also accepted.
 - Use flow/input for inputs and flow/step for steps.
+- Local flows steps create/update/remove edits only the top-level :steps vector.
+- Local flows schedules add/update/remove edits only the top-level :schedules vector.
+- flows compose edits only the quoted :flow form, so packaged step definitions,
+  interfaces, schedules, and connection metadata remain intact.
+- Local lint catches qualified packaged-step references that are missing from
+  :steps; the server remains the canonical validation stage before push.
+- flows init can seed one complete packaged step with --step-id and --step-file;
+  --run proves that local literal just in time, while --push is required for
+  remote persistence.
+- flows steps run sends the complete local literal for just-in-time server execution;
+  it does not create or update a draft. Use flows push explicitly to persist it remotely.
 - Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
   - inspect grouped flows: breyta flows list --limit 50
   - verify ordered siblings: breyta flows show <slug>
@@ -332,6 +350,7 @@ Public discover notes:
 	cmd.AddCommand(newFlowsShowCmd(app))
 	cmd.AddCommand(newFlowsDiffCmd(app))
 	cmd.AddCommand(newFlowsCreateCmd(app))
+	cmd.AddCommand(newFlowsInitCmd(app))
 	cmd.AddCommand(newFlowsConfigureCmd(app))
 	cmd.AddCommand(newFlowsBindingsCmd(app))
 	cmd.AddCommand(newFlowsReleaseCmd(app))
@@ -363,7 +382,13 @@ Public discover notes:
 	steps := &cobra.Command{Use: "steps", Short: "Manage flow steps"}
 	steps.AddCommand(newFlowsStepsListCmd(app))
 	steps.AddCommand(newFlowsStepsShowCmd(app))
+	steps.AddCommand(newFlowsStepsLocalCreateCmd(app))
+	steps.AddCommand(newFlowsStepsLocalUpdateCmd(app))
+	steps.AddCommand(newFlowsStepsLocalRemoveCmd(app))
+	steps.AddCommand(newFlowsStepsLocalRunCmd(app))
 	cmd.AddCommand(steps)
+	cmd.AddCommand(newFlowsSchedulesLocalCmd(app))
+	cmd.AddCommand(newFlowsComposeCmd(app))
 
 	versions := &cobra.Command{Use: "versions", Short: "Manage flow versions"}
 	versions.AddCommand(newFlowsVersionsListCmd(app))
@@ -1270,11 +1295,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeAPIResult(cmd, app, out, status)
 			}
 
-			client := apiClient(app)
-			validateOut, validateStatus, err := client.DoCommand(context.Background(), "flows.validate", map[string]any{
-				"flowSlug": flowSlug,
-				"source":   "draft",
-			})
+			validateOut, validateStatus, err := validateDraftFlow(cmd, app, flowSlug)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1358,6 +1379,13 @@ func postPushValidationFlowNotFound(out map[string]any, status int, flowSlug str
 	}
 	detailSlug := firstNonBlankString(details["flowSlug"], details["flow-slug"], details["slug"])
 	return detailSlug == "" || strings.EqualFold(strings.TrimSpace(detailSlug), strings.TrimSpace(flowSlug))
+}
+
+func validateDraftFlow(cmd *cobra.Command, app *App, flowSlug string) (map[string]any, int, error) {
+	return apiClient(app).DoCommand(cmd.Context(), "flows.validate", map[string]any{
+		"flowSlug": strings.TrimSpace(flowSlug),
+		"source":   "draft",
+	})
 }
 
 func newFlowsDeployCmd(app *App) *cobra.Command {

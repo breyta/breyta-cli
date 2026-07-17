@@ -366,6 +366,15 @@ func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 	if i < len(src) && (src[i] == '\'' || src[i] == '`') {
 		return src[i+1:], i + 1
 	}
+	if i < len(src) && src[i] == '(' {
+		elements, _, err := parseClojureListElements(src, i)
+		if err == nil && len(elements) >= 2 {
+			head := clojureFormToken(src, elements[0])
+			if head == "quote" || head == "clojure.core/quote" {
+				return src[elements[1].Start:elements[1].End], elements[1].Start
+			}
+		}
+	}
 	return src, 0
 }
 
@@ -771,8 +780,10 @@ func clojureFormIsNil(src string, start int) bool {
 }
 
 type clojureFormSpan struct {
-	Start int
-	End   int
+	Start     int
+	End       int
+	FormStart int
+	FormEnd   int
 }
 
 type clojureMapEntry struct {
@@ -806,6 +817,8 @@ func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	invocationIDs, foundInvocations, invocationDiagnostics := localInvocationShapeDiagnostics(flowLiteral, byKey["invocations"])
 	diagnostics = append(diagnostics, invocationDiagnostics...)
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
+	stepsEntry := byKey["steps"]
+	diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, stepsEntry, byKey["agents"])...)
 	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"))...)
 	return diagnostics
 }
@@ -882,17 +895,116 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 		if src[i] == ']' {
 			return out, i + 1, nil
 		}
-		end, err := readClojureFormEnd(src, i)
-		if err != nil || end <= i {
-			if err == nil {
-				err = fmt.Errorf("could not read vector element near byte %d", i)
-			}
-			return out, end, err
+		activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+		if err != nil {
+			return out, i, err
 		}
-		out = append(out, clojureFormSpan{Start: i, End: end})
-		i = end
+		if hasActive {
+			if strings.HasPrefix(src[i:], "#?@") {
+				var spliced []clojureFormSpan
+				var branchEnd int
+				var branchErr error
+				if activeStart >= activeEnd || activeStart >= len(src) {
+					return out, i, fmt.Errorf("splicing reader conditional selected an empty branch near byte %d", i)
+				}
+				switch src[activeStart] {
+				case '[':
+					spliced, branchEnd, branchErr = parseClojureVectorElements(src, activeStart)
+				case '(':
+					spliced, branchEnd, branchErr = parseClojureListElements(src, activeStart)
+				default:
+					return out, i, fmt.Errorf("splicing reader conditional must select a vector or list near byte %d", i)
+				}
+				if branchErr != nil {
+					return out, i, branchErr
+				}
+				if branchEnd != activeEnd {
+					return out, i, fmt.Errorf("splicing reader conditional branch did not consume its vector near byte %d", i)
+				}
+				out = append(out, spliced...)
+			} else {
+				out = append(out, clojureFormSpan{
+					Start:     activeStart,
+					End:       activeEnd,
+					FormStart: i,
+					FormEnd:   formEnd,
+				})
+			}
+		} else if formEnd == i && i < len(src) && src[i] == ']' {
+			// A discarded form may be the only form left before the vector
+			// closes. The discard prefix has already been consumed, so treat
+			// the closing delimiter as the collection boundary rather than
+			// trying to parse it as another element.
+			return out, i + 1, nil
+		}
+		if formEnd <= i {
+			return out, i, fmt.Errorf("could not advance past vector element near byte %d", i)
+		}
+		i = formEnd
 	}
 	return out, i, fmt.Errorf("unterminated vector")
+}
+
+// clojureActiveFormSpan returns the active form's span and the end of the
+// complete reader form that occupied the vector slot. The spans used for
+// editing intentionally exclude metadata/discard prefixes, while the cursor
+// advances over reader conditionals as a whole.
+func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formEnd int, hasActive bool, err error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	for i < len(src) {
+		if src[i] == ')' || src[i] == ']' || src[i] == '}' {
+			return -1, -1, i, false, nil
+		}
+		switch {
+		case strings.HasPrefix(src[i:], "#?"):
+			branchStart, branchEnd, next, ok := activeReaderConditionalForm(src, i)
+			if !ok {
+				return i, i, i, false, fmt.Errorf("could not read reader conditional near byte %d", i)
+			}
+			if branchStart < 0 {
+				return -1, -1, next, false, nil
+			}
+			activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, branchStart)
+			if err != nil {
+				return i, i, i, false, err
+			}
+			if !hasActive {
+				return -1, -1, next, false, nil
+			}
+			if activeEnd > branchEnd {
+				return i, i, i, false, fmt.Errorf("reader conditional branch extends past its form near byte %d", branchStart)
+			}
+			return activeStart, activeEnd, next, true, nil
+		case src[i] == '^':
+			metaEnd, metaErr := readClojureFormEnd(src, i+1)
+			if metaErr != nil || metaEnd <= i+1 {
+				if metaErr == nil {
+					metaErr = fmt.Errorf("could not read metadata near byte %d", i)
+				}
+				return i, i, i, false, metaErr
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
+		case strings.HasPrefix(src[i:], "#_"):
+			discardEnd, discardErr := readClojureFormEnd(src, i+2)
+			if discardErr != nil || discardEnd <= i+2 {
+				if discardErr == nil {
+					discardErr = fmt.Errorf("could not read discarded form near byte %d", i)
+				}
+				return i, i, i, false, discardErr
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		default:
+			end, formErr := readClojureFormEnd(src, i)
+			if formErr != nil || end <= i {
+				if formErr == nil {
+					formErr = fmt.Errorf("could not read vector element near byte %d", i)
+				}
+				return i, i, i, false, formErr
+			}
+			return i, end, end, true, nil
+		}
+	}
+	return i, i, i, false, fmt.Errorf("could not locate active vector element near byte %d", start)
 }
 
 func parseClojureListElements(src string, start int) ([]clojureFormSpan, int, error) {
@@ -921,6 +1033,34 @@ func parseClojureListElements(src string, start int) ([]clojureFormSpan, int, er
 		i = end
 	}
 	return out, i, fmt.Errorf("unterminated list")
+}
+
+func parseClojureSetElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i+1 >= len(src) || src[i] != '#' || src[i+1] != '{' {
+		return nil, i, fmt.Errorf("expected set near byte %d", start)
+	}
+	i += 2
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated set")
+		}
+		if src[i] == '}' {
+			return out, i + 1, nil
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			if err == nil {
+				err = fmt.Errorf("could not read set element near byte %d", i)
+			}
+			return out, end, err
+		}
+		out = append(out, clojureFormSpan{Start: i, End: end})
+		i = end
+	}
+	return out, i, fmt.Errorf("unterminated set")
 }
 
 func clojureActiveFormStart(src string, start int) (int, bool) {
@@ -962,6 +1102,279 @@ func clojureFormToken(src string, span clojureFormSpan) string {
 		return ""
 	}
 	return strings.TrimSpace(src[span.Start:span.End])
+}
+
+type localFlowStepReference struct {
+	StepID     string
+	ByteOffset int
+}
+
+func localQualifiedStepIDFromForm(src string, span clojureFormSpan) (string, bool) {
+	i, ok := clojureActiveFormStart(src, span.Start)
+	if !ok || i >= span.End || i >= len(src) || src[i] != ':' {
+		return "", false
+	}
+	end, err := readClojureFormEnd(src, i)
+	if err != nil || end > span.End || end <= i {
+		return "", false
+	}
+	stepID := strings.TrimPrefix(strings.TrimSpace(src[i:end]), ":")
+	return stepID, localStepIDValid(stepID)
+}
+
+func localFlowStepReferences(flowLiteral string) ([]localFlowStepReference, error) {
+	flowSource, baseOffset, ok := topLevelFlowValueSource(flowLiteral)
+	if !ok {
+		return nil, errors.New("top-level :flow value could not be located")
+	}
+	flowSource, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	baseOffset += readerOffset
+	flowSource, quotedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
+	baseOffset += quotedOffset
+	return localFlowStepReferencesInRange(flowSource, 0, len(flowSource), baseOffset)
+}
+
+func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]localFlowStepReference, error) {
+	var references []localFlowStepReference
+	for i := skipClojureWhitespaceCommaAndComments(src, start); i < end; {
+		formEnd, err := readClojureFormEnd(src, i)
+		if err != nil {
+			return references, err
+		}
+		if formEnd <= i || formEnd > end {
+			return references, fmt.Errorf("could not read flow form near byte %d", i)
+		}
+		found, err := localFlowStepReferencesForForm(src, clojureFormSpan{Start: i, End: formEnd}, baseOffset)
+		if err != nil {
+			return references, err
+		}
+		references = append(references, found...)
+		i = skipClojureWhitespaceCommaAndComments(src, formEnd)
+	}
+	return references, nil
+}
+
+func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int) ([]localFlowStepReference, error) {
+	return localFlowStepReferencesForFormAtDepth(src, span, baseOffset, 0)
+}
+
+func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, span.Start)
+	if i >= span.End || i >= len(src) {
+		return nil, nil
+	}
+	if strings.HasPrefix(src[i:], "#_") {
+		return nil, nil
+	}
+	if strings.HasPrefix(src[i:], "#?") {
+		formStart, formEnd, _, ok := activeReaderConditionalForm(src, i)
+		if !ok {
+			return nil, fmt.Errorf("could not read reader conditional near byte %d", i)
+		}
+		if formStart < 0 {
+			return nil, nil
+		}
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset, syntaxQuoteDepth)
+	}
+	if src[i] == '^' {
+		metaEnd, err := readClojureFormEnd(src, i+1)
+		if err != nil || metaEnd >= span.End {
+			return nil, err
+		}
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset, syntaxQuoteDepth)
+	}
+	switch src[i] {
+	case '\'':
+		return nil, nil
+	case '`':
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth+1)
+	case '@':
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth)
+	case '~':
+		if syntaxQuoteDepth <= 0 {
+			return nil, nil
+		}
+		next := i + 1
+		if next < span.End && src[next] == '@' {
+			next++
+		}
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: next, End: span.End}, baseOffset, syntaxQuoteDepth-1)
+	case '"':
+		return nil, nil
+	case '#':
+		if strings.HasPrefix(src[i:], "#(") {
+			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth)
+		}
+		if strings.HasPrefix(src[i:], "#{") {
+			elements, _, err := parseClojureSetElements(src, i)
+			if err != nil {
+				return nil, err
+			}
+			var references []localFlowStepReference
+			for _, element := range elements {
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+				if err != nil {
+					return references, err
+				}
+				references = append(references, found...)
+			}
+			return references, nil
+		}
+		return nil, nil
+	case '(':
+		return localFlowStepReferencesInListAtDepth(src, i, baseOffset, syntaxQuoteDepth)
+	case '[':
+		elements, _, err := parseClojureVectorElements(src, i)
+		if err != nil {
+			return nil, err
+		}
+		var references []localFlowStepReference
+		for _, element := range elements {
+			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+			if err != nil {
+				return references, err
+			}
+			references = append(references, found...)
+		}
+		return references, nil
+	case '{':
+		entries, _, err := parseClojureMapEntries(src, i)
+		if err != nil {
+			return nil, err
+		}
+		var references []localFlowStepReference
+		for _, entry := range entries {
+			for _, element := range []clojureFormSpan{{Start: entry.KeyStart, End: entry.KeyEnd}, {Start: entry.ValueStart, End: entry.ValueEnd}} {
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+				if err != nil {
+					return references, err
+				}
+				references = append(references, found...)
+			}
+		}
+		return references, nil
+	default:
+		return nil, nil
+	}
+}
+
+func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
+	elements, _, err := parseClojureListElements(src, listStart)
+	if err != nil {
+		return nil, err
+	}
+	if len(elements) >= 2 {
+		head := clojureFormToken(src, elements[0])
+		if head == "quote" || head == "clojure.core/quote" {
+			return nil, nil
+		}
+	}
+	var references []localFlowStepReference
+	if syntaxQuoteDepth == 0 && len(elements) >= 2 && clojureFormToken(src, elements[0]) == "flow/step" {
+		if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
+			references = append(references, localFlowStepReference{StepID: stepID, ByteOffset: baseOffset + elements[1].Start})
+		}
+	}
+	for _, element := range elements {
+		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+		if err != nil {
+			return references, err
+		}
+		references = append(references, found...)
+	}
+	return references, nil
+}
+
+func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry clojureMapEntry) []flowLintDiagnostic {
+	var spans []clojureFormSpan
+	if stepsEntry.ValueEnd > stepsEntry.ValueStart {
+		var err error
+		spans, err = localFlowStepVector(src, stepsEntry)
+		if err != nil {
+			return []flowLintDiagnostic{lintDiagnostic(
+				"warning",
+				"step_reference_scan_incomplete",
+				[]string{":steps"},
+				fmt.Sprintf("Local lint could not scan packaged steps: %v", err),
+				"Use a top-level :steps vector or nil, then run `breyta flows lint --server` for canonical validation.",
+				"local",
+			)}
+		}
+	}
+	declared := map[string]bool{}
+	var diagnostics []flowLintDiagnostic
+	for _, span := range spans {
+		stepID, idErr := localStepIDFromMap(src, span)
+		if idErr != nil {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"warning",
+				"step_reference_scan_incomplete",
+				[]string{":steps"},
+				fmt.Sprintf("Local lint could not read one packaged step: %v", idErr),
+				"Fix the packaged step map or run `breyta flows lint --server` for canonical validation.",
+				"local",
+			))
+			continue
+		}
+		declared[strings.TrimPrefix(strings.TrimSpace(stepID), ":")] = true
+	}
+	for _, agentID := range localDeclaredQualifiedIDs(src, agentsEntry) {
+		declared[agentID] = true
+	}
+	references, scanErr := localFlowStepReferences(src)
+	if scanErr != nil {
+		return append(diagnostics, lintDiagnostic(
+			"warning",
+			"step_reference_scan_incomplete",
+			[]string{":flow"},
+			fmt.Sprintf("Local lint could not scan packaged step references: %v", scanErr),
+			"Fix the flow form or run `breyta flows lint --server` for canonical validation.",
+			"local",
+		))
+	}
+	seen := map[string]bool{}
+	for _, reference := range references {
+		if declared[reference.StepID] || seen[reference.StepID] {
+			continue
+		}
+		seen[reference.StepID] = true
+		diag := lintDiagnostic(
+			"error",
+			"missing_packaged_step_reference",
+			[]string{":flow", ":" + reference.StepID},
+			fmt.Sprintf("Flow body references packaged step :%s, but no matching top-level :steps entry exists.", reference.StepID),
+			"Add it with `breyta flows steps create ...` or update the flow body to use a declared step.",
+			"local",
+		)
+		diag["byteOffset"] = reference.ByteOffset
+		diagnostics = append(diagnostics, diag)
+	}
+	return diagnostics
+}
+
+func localDeclaredQualifiedIDs(src string, entry clojureMapEntry) []string {
+	if entry.ValueEnd <= entry.ValueStart || clojureFormIsNil(src, entry.ValueStart) {
+		return nil
+	}
+	spans, _, err := parseClojureVectorElements(src, entry.ValueStart)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(spans))
+	for _, span := range spans {
+		if localFlowVectorSpanIsInclude(src, span) {
+			continue
+		}
+		id, idErr := localStepIDFromMap(src, span)
+		if idErr != nil {
+			continue
+		}
+		id = strings.TrimPrefix(strings.TrimSpace(id), ":")
+		if localStepIDValid(id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func clojureIdentifierFromForm(src string, start int) (string, bool) {
@@ -1022,8 +1435,9 @@ func validFlowLintSafeIdentifier(s string) bool {
 }
 
 func mapEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool) {
+	wanted := ":" + strings.TrimPrefix(strings.TrimSpace(key), ":")
 	for _, entry := range entries {
-		if entry.KeyName == key {
+		if strings.TrimSpace(entry.KeyToken) == wanted {
 			return entry, true
 		}
 	}

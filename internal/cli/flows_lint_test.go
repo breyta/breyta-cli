@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -67,6 +68,155 @@ func rejectFlowLintDiagnosticCodes(t *testing.T, body map[string]any, reject ...
 			t.Fatalf("unexpected diagnostic code %q, got item=%#v all=%#v", code, item, items)
 		}
 	}
+}
+
+func TestFlowsLintLocalOnlyReportsMissingPackagedStepReference(t *testing.T) {
+	flowLiteral := `{:slug :missing-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [declared (flow/step :tools/declared :run {})
+              missing (flow/step :tools/missing :run {})]
+          [declared missing])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged step lint error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyAcceptsDeclaredPackagedStepReference(t *testing.T) {
+	flowLiteral := `{:slug :declared-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("declared packaged step should lint successfully: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyAcceptsDeclaredAgentReference(t *testing.T) {
+	flowLiteral := `{:slug :declared-agent-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :agents [{:id :review/security :description "Security reviewer"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/security :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("declared agent should satisfy a flow/step reference: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyIgnoresNestedQuotedStepData(t *testing.T) {
+	flowLiteral := `{:slug :nested-quoted-step-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [literal '(flow/step :tools/missing :run {})]
+          (flow/step :tools/declared :run {}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("nested quoted step data should not be treated as executable: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyFindsStepReferencesInAnonymousFunctions(t *testing.T) {
+	flowLiteral := `{:slug :anonymous-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(map #(flow/step :tools/missing :run %) [1])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected anonymous-function step reference to be reported\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyFindsStepReferencesInSetLiterals(t *testing.T) {
+	flowLiteral := `{:slug :set-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '#{(flow/step :tools/missing :run {})}}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected set-literal step reference to be reported\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyIgnoresExplicitQuoteForms(t *testing.T) {
+	flowLiteral := `{:slug :explicit-quote-step-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [literal (quote (flow/step :tools/missing :run {}))]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("explicitly quoted step data should not be treated as executable: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyFindsStepReferencesInTopLevelExplicitQuote(t *testing.T) {
+	for _, quoteForm := range []string{"quote", "clojure.core/quote"} {
+		flowLiteral := fmt.Sprintf(`{:slug :top-level-explicit-quote-%s
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow (%s (flow/step :tools/missing :run {}))}
+`, strings.ReplaceAll(quoteForm, ".", "-"), quoteForm)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("expected top-level %s step reference to be reported\n%s", quoteForm, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+	}
+}
+
+func TestFlowsLintLocalOnlyReportsMissingPackagedStepWhenStepsKeyIsAbsent(t *testing.T) {
+	flowLiteral := `{:slug :missing-step-key
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/missing :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged step lint error when :steps is absent\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
 }
 
 func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {

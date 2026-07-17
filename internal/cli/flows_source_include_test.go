@@ -63,6 +63,21 @@ func TestExpandFlowSourceIncludes_RecursiveAndCommentSafe(t *testing.T) {
 	}
 }
 
+func TestReadClojureFormEndRejectsUnexpectedClosingDelimiter(t *testing.T) {
+	for _, source := range []string{
+		"{:value (identity 1))}",
+		"{:value [1)]}",
+		"[{:value 1)]",
+	} {
+		t.Run(source, func(t *testing.T) {
+			end, err := readClojureFormEnd(source, 0)
+			if err == nil {
+				t.Fatalf("expected malformed delimiter error, got end=%d", end)
+			}
+		})
+	}
+}
+
 func TestExpandFlowSourceIncludes_DetectsCycles(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := filepath.Join(tmpDir, "flow.clj")

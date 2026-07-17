@@ -141,7 +141,41 @@ breyta skills install --provider <codex|cursor|claude|gemini>
 
 ## First Workflow
 
-Pull a flow into a local workspace, edit it, push it back to draft, and run it:
+For a new flow, create the local source, compose it in small pieces, then push
+it explicitly when you want a workspace draft:
+
+```bash
+breyta flows init order-sync --name "Order sync"
+breyta flows steps create order-sync tools/fetch-order --step-file ./steps/fetch-order.edn
+breyta flows compose order-sync --body-file ./flows/order-sync.body.clj
+breyta flows lint --file ./flows/order-sync.clj --local-only
+breyta flows steps run order-sync tools/fetch-order --params '{"orderId":"order-123"}'
+breyta flows push --file ./flows/order-sync.clj
+breyta flows configure check order-sync
+breyta flows run order-sync --wait
+```
+
+When the first packaged step is already a complete local literal, initialize
+and seed it in one command. Add `--run` to prove that saved step just in time;
+the source remains local unless `--push` is explicit:
+
+```bash
+breyta flows init order-sync \
+  --step-id tools/fetch-order \
+  --step-file ./steps/fetch-order.edn \
+  --run
+```
+
+`flows steps create/update/remove` edits only the local top-level `:steps`
+vector. `flows compose` edits only the quoted `:flow` body. The generated
+source includes a no-input manual `run` interface and an empty `:schedules`
+vector. The seeded init path uses those same local semantics: it writes the
+packaged step into `:steps`, and `--run` sends the complete literal for
+just-in-time server execution without creating or updating a draft. Use
+`flows push` (or an explicit command-level `--push`) for remote persistence.
+
+For an existing flow, pull it into a local workspace, edit it, push it back to
+draft, and run it:
 
 ```bash
 breyta flows pull <slug> --out ./flows/<slug>.clj

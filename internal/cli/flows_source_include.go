@@ -93,6 +93,9 @@ func readDelimitedFormEnd(src string, start int, closeCh byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if next <= i {
+			return 0, fmt.Errorf("could not advance past Clojure form near byte %d", i)
+		}
 		i = next
 	}
 	return 0, fmt.Errorf("unterminated collection")
@@ -126,6 +129,8 @@ func readClojureFormEnd(src string, start int) (int, error) {
 		return readDelimitedFormEnd(src, i, ']')
 	case '{':
 		return readDelimitedFormEnd(src, i, '}')
+	case ')', ']', '}':
+		return 0, fmt.Errorf("unexpected closing delimiter %q near byte %d", src[i], i)
 	case '\'', '`', '@':
 		return readClojureFormEnd(src, i+1)
 	case '~':
