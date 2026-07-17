@@ -56,6 +56,40 @@ func TestFlowsInitCreatesLocalCanonicalSourceWithManualInterface(t *testing.T) {
 	}
 }
 
+func TestLocalAuthoringRejectsMismatchedFlowSlug(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-b.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-b", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-a", "tools/add-one", "--flow-file", path, "--step-file", stepPath})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("local authoring accepted a flow file with a mismatched slug\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `does not match requested flow "order-a"`) {
+		t.Fatalf("expected slug mismatch error, got:\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("slug mismatch changed the source:\n%s", current)
+	}
+}
+
 func TestFlowsInitCanSeedPackagedStepIntoLocalSource(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "order-sync.clj")
@@ -241,8 +275,8 @@ func TestLocalStepEditingSkipsDiscardedVectorElements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("removeLocalStep() error = %v", err)
 	}
-	if !strings.Contains(removed, `#_{:id :tools/old :type :function}`) || strings.Contains(removed, ":id :tools/add-one") {
-		t.Fatalf("removeLocalStep() removed the wrong vector element:\n%s", removed)
+	if strings.Contains(removed, `#_{:id :tools/old :type :function}`) || strings.Contains(removed, ":id :tools/add-one") {
+		t.Fatalf("removeLocalStep() left the complete discarded vector slot behind:\n%s", removed)
 	}
 }
 
@@ -267,6 +301,39 @@ func TestLocalStepEditingAdvancesPastReaderConditionalElements(t *testing.T) {
 	}
 	if strings.Contains(removed, `:id :tools/second`) || !strings.Contains(removed, `:id :tools/add-one`) {
 		t.Fatalf("removeLocalStep() did not advance past reader conditional:\n%s", removed)
+	}
+
+	conditionalRemoved, err := removeLocalStep(source, "tools/add-one")
+	if err != nil {
+		t.Fatalf("removeLocalStep() reader conditional error = %v", err)
+	}
+	if strings.Contains(conditionalRemoved, "#?") || strings.Contains(conditionalRemoved, `:id :tools/add-one`) || !strings.Contains(conditionalRemoved, `:id :tools/second`) {
+		t.Fatalf("removeLocalStep() left a malformed reader conditional:\n%s", conditionalRemoved)
+	}
+
+	metadataSource := `{:slug :order-sync
+ :steps [^{:tag :old} {:id :tools/metadata :type :function}
+          {:id :tools/next :type :function}]}
+`
+	metadataRemoved, err := removeLocalStep(metadataSource, "tools/metadata")
+	if err != nil {
+		t.Fatalf("removeLocalStep() metadata-prefixed error = %v", err)
+	}
+	if strings.Contains(metadataRemoved, ":tag :old") || strings.Contains(metadataRemoved, ":id :tools/metadata") || !strings.Contains(metadataRemoved, ":id :tools/next") {
+		t.Fatalf("removeLocalStep() left metadata attached to the next form:\n%s", metadataRemoved)
+	}
+
+	scheduleSource := `{:slug :order-sync
+ :schedules [#?(:clj {:id :daily :cron "0 9 * * MON"}
+                  :cljs {:id :cljs-daily :cron "0 10 * * MON"})
+              {:id :later :cron "0 11 * * MON"}]}
+`
+	scheduleRemoved, err := removeLocalSchedule(scheduleSource, "daily")
+	if err != nil {
+		t.Fatalf("removeLocalSchedule() reader conditional error = %v", err)
+	}
+	if strings.Contains(scheduleRemoved, "#?") || strings.Contains(scheduleRemoved, ":id :daily") || !strings.Contains(scheduleRemoved, ":id :later") {
+		t.Fatalf("removeLocalSchedule() left a malformed reader conditional:\n%s", scheduleRemoved)
 	}
 }
 

@@ -531,8 +531,10 @@ func clojureFormIsNil(src string, start int) bool {
 }
 
 type clojureFormSpan struct {
-	Start int
-	End   int
+	Start     int
+	End       int
+	FormStart int
+	FormEnd   int
 }
 
 type clojureMapEntry struct {
@@ -649,7 +651,12 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 			return out, i, err
 		}
 		if hasActive {
-			out = append(out, clojureFormSpan{Start: activeStart, End: activeEnd})
+			out = append(out, clojureFormSpan{
+				Start:     activeStart,
+				End:       activeEnd,
+				FormStart: i,
+				FormEnd:   formEnd,
+			})
 		}
 		if formEnd <= i {
 			return out, i, fmt.Errorf("could not advance past vector element near byte %d", i)

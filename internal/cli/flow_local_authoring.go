@@ -47,10 +47,43 @@ func readLocalFlowSource(slug, requested string) (string, string, error) {
 	if strings.TrimSpace(source) == "" {
 		return path, "", fmt.Errorf("local flow %s is empty", path)
 	}
-	if _, err := parseSingleTopLevelMapEntries(source); err != nil {
+	entries, err := parseSingleTopLevelMapEntries(source)
+	if err != nil {
 		return path, "", fmt.Errorf("local flow source must be one complete top-level map: %w", err)
 	}
+	literalSlug, err := localFlowSlugFromEntries(source, entries)
+	if err != nil {
+		return path, "", fmt.Errorf("local flow source has no valid :slug: %w", err)
+	}
+	requestedSlug := strings.TrimPrefix(strings.TrimSpace(slug), ":")
+	if literalSlug != requestedSlug {
+		return path, "", fmt.Errorf("local flow source slug %q does not match requested flow %q", literalSlug, requestedSlug)
+	}
 	return path, source, nil
+}
+
+func localFlowSlugFromEntries(source string, entries []clojureMapEntry) (string, error) {
+	slugEntry, found := mapEntryByKey(entries, "slug")
+	if !found {
+		return "", errors.New("top-level :slug is missing")
+	}
+	token := strings.TrimSpace(source[slugEntry.ValueStart:slugEntry.ValueEnd])
+	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
+		var decoded string
+		if err := json.Unmarshal([]byte(token), &decoded); err != nil {
+			return "", fmt.Errorf("decode :slug: %w", err)
+		}
+		token = decoded
+	} else {
+		if !strings.HasPrefix(token, ":") {
+			return "", fmt.Errorf("expected keyword or string, got %s", token)
+		}
+		token = strings.TrimPrefix(token, ":")
+	}
+	if !isAPIValidFlowSlug(token) {
+		return "", fmt.Errorf("invalid flow slug %q", token)
+	}
+	return token, nil
 }
 
 func localTopLevelEntry(source, name string) (clojureMapEntry, bool, error) {
@@ -246,7 +279,8 @@ func removeLocalStep(source string, stepID string) (string, error) {
 		}
 	}
 	span := spans[index]
-	return source[:span.Start] + source[span.End:], nil
+	start, end := localCompleteFormSpan(span)
+	return source[:start] + source[end:], nil
 }
 
 func localFlowScheduleVector(source string, schedulesEntry clojureMapEntry) ([]clojureFormSpan, error) {
@@ -385,7 +419,15 @@ func removeLocalSchedule(source string, scheduleID string) (string, error) {
 		return "", fmt.Errorf("schedule %q not found", scheduleID)
 	}
 	span := spans[index]
-	return source[:span.Start] + source[span.End:], nil
+	start, end := localCompleteFormSpan(span)
+	return source[:start] + source[end:], nil
+}
+
+func localCompleteFormSpan(span clojureFormSpan) (int, int) {
+	if span.FormEnd > span.FormStart {
+		return span.FormStart, span.FormEnd
+	}
+	return span.Start, span.End
 }
 
 func composeLocalFlowBody(source, body string) (string, error) {
@@ -490,6 +532,16 @@ func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, st
 	return apiClient(app).DoCommand(cmd.Context(), "steps.run", payload)
 }
 
+func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any, status int) error {
+	if status < 400 && isOK(out) {
+		return nil
+	}
+	if out == nil {
+		return writeErr(cmd, fmt.Errorf("local step run returned no API response (status=%d)", status))
+	}
+	return writeAPIResult(cmd, app, out, status)
+}
+
 func writeLocalAuthoringResult(cmd *cobra.Command, app *App, path string, pushed map[string]any, pushStatus int, extra map[string]any) error {
 	result := map[string]any{
 		"saved": true,
@@ -581,8 +633,8 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				if runErr != nil {
 					return writeErr(cmd, runErr)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeAPIResult(cmd, app, runOut, runStatus)
+				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
+					return runErr
 				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
@@ -671,8 +723,8 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 				if runErr != nil {
 					return writeErr(cmd, runErr)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeAPIResult(cmd, app, runOut, runStatus)
+				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
+					return runErr
 				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
@@ -1144,8 +1196,8 @@ Examples:
 				if runErr != nil {
 					return writeErr(cmd, runErr)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeAPIResult(cmd, app, runOut, runStatus)
+				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
+					return runErr
 				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
