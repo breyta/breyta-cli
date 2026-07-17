@@ -178,8 +178,8 @@ func enrichDataWebLinks(base string, data map[string]any) {
 				continue
 			}
 			enrichRunWebLinks(base, item)
-			enrichFlowWebLinks(base, item)
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
+			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
 		}
 	}
