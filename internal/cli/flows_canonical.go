@@ -278,6 +278,12 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"wait":        true,
 		})
 		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+			if run := runFromCommandResponse(snapshot); run != nil {
+				snapshotRunStatus := canonicalRunStatus(run["status"])
+				if isTerminalRunStatus(snapshotRunStatus) {
+					return finishReconciledTerminal(snapshot, snapshotStatus, snapshotRunStatus)
+				}
+			}
 			lastPoll = snapshot
 		}
 		nextCommands := []string{
