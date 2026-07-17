@@ -142,8 +142,8 @@ func TestLiveWaitRendererAppendsRedirectedFramesWithoutANSI(t *testing.T) {
 
 	renderer.redrawLiveBlock(live.DisplayFrame{}, "next frame")
 
-	if got := out.String(); got != "next frame" {
-		t.Fatalf("expected redirected frame to append without redraw controls, got %q", got)
+	if got := out.String(); got != "\nnext frame" {
+		t.Fatalf("expected redirected frame to append on a new line without redraw controls, got %q", got)
 	}
 	if strings.Contains(out.String(), "\x1b[") {
 		t.Fatalf("expected redirected frame to contain no ANSI cursor controls, got %q", out.String())

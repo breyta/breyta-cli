@@ -59,6 +59,7 @@ type liveWaitRenderer struct {
 	diagnostics               *liveDiagnostics
 	waitAction                liveTUIWaitAction
 	nextWaitActionAt          time.Time
+	closed                    bool
 }
 
 const liveRenderFrameInterval = time.Second / 60
@@ -134,9 +135,10 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 }
 
 func (r *liveWaitRenderer) Close() {
-	if r == nil {
+	if r == nil || r.closed {
 		return
 	}
+	r.closed = true
 	if r.streamCancel != nil {
 		r.streamCancel()
 		r.streamCancel = nil
@@ -478,6 +480,9 @@ func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string)
 		}
 		r.tui.SendFrame(frame, r.waitAction)
 		return
+	}
+	if r.displayedLines > 0 && !strings.HasSuffix(r.lastRenderedText, "\n") {
+		_, _ = io.WriteString(r.out, "\n")
 	}
 	_, _ = io.WriteString(r.out, text)
 }

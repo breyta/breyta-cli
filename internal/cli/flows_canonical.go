@@ -238,7 +238,15 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		if liveRenderer.shouldSuppressFinalResult(resp, st) {
 			return nil
 		}
+		// Bubble Tea owns the alternate screen while live output is active. Restore
+		// the caller's terminal before writing a final JSON response or error, or
+		// the output is rendered into the screen that Close would later discard.
+		liveRenderer.Close()
 		return writeAPIResult(cmd, app, resp, st)
+	}
+	writeWaitError := func(err error) error {
+		liveRenderer.Close()
+		return writeErr(cmd, err)
 	}
 	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
 		trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
@@ -253,9 +261,10 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"reconciled":  true,
 		})
 		if err := writeFinal(finalResp, finalStatus); err != nil {
-			return writeErr(cmd, err)
+			return writeWaitError(err)
 		}
 		if runStatusFailedForExit(finalRunStatus) {
+			liveRenderer.Close()
 			return guidedCLIErrorForCommand(cmd, "flow run finished with status "+finalRunStatus, []string{
 				"Inspect failed steps: breyta runs inspect " + workflowID,
 				"List resources: breyta resources workflow list " + workflowID,
@@ -270,7 +279,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		}
 		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", runsGetPayload)
 		if err != nil {
-			return writeErr(cmd, err)
+			return writeWaitError(err)
 		}
 		if execStatus == 404 {
 			polls++
@@ -287,24 +296,24 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			if liveRenderer != nil {
 				liveRenderer.Update(cmd.Context(), false)
 				if liveRenderer.StopRequested() {
-					return writeErr(cmd, errors.New("live wait cancelled"))
+					return writeWaitError(errors.New("live wait cancelled"))
 				}
 			}
 			if time.Now().After(deadline) {
 				if err := writeFinal(execResp, execStatus); err != nil {
-					return writeErr(cmd, err)
+					return writeWaitError(err)
 				}
 				return nil
 			}
 			sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
 			if liveRenderer != nil && liveRenderer.StopRequested() {
-				return writeErr(cmd, errors.New("live wait cancelled"))
+				return writeWaitError(errors.New("live wait cancelled"))
 			}
 			continue
 		}
 		if execStatus >= 400 {
 			if err := writeFinal(execResp, execStatus); err != nil {
-				return writeErr(cmd, err)
+				return writeWaitError(err)
 			}
 			return nil
 		}
@@ -325,7 +334,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			})
 			finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, installationID)
 			if err != nil {
-				return writeErr(cmd, err)
+				return writeWaitError(err)
 			}
 			if liveRenderer != nil {
 				liveRenderer.Update(cmd.Context(), true)
@@ -336,9 +345,10 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				finalStatus = execStatus
 			}
 			if err := writeFinal(finalResp, finalStatus); err != nil {
-				return writeErr(cmd, err)
+				return writeWaitError(err)
 			}
 			if runStatusFailedForExit(s) {
+				liveRenderer.Close()
 				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
 					"Inspect failed steps: breyta runs inspect " + workflowID,
 					"List resources: breyta resources workflow list " + workflowID,
@@ -361,7 +371,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		if liveRenderer != nil {
 			liveRenderer.Update(cmd.Context(), false)
 			if liveRenderer.StopRequested() {
-				return writeErr(cmd, errors.New("live wait cancelled"))
+				return writeWaitError(errors.New("live wait cancelled"))
 			}
 		}
 
@@ -409,13 +419,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				},
 			}
 			if err := writeFinal(timeoutOut, 200); err != nil {
-				return writeErr(cmd, err)
+				return writeWaitError(err)
 			}
 			return nil
 		}
 		sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
 		if liveRenderer != nil && liveRenderer.StopRequested() {
-			return writeErr(cmd, errors.New("live wait cancelled"))
+			return writeWaitError(errors.New("live wait cancelled"))
 		}
 	}
 }
