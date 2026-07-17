@@ -425,6 +425,21 @@ func TestLocalStepLiteralIDRequiresOneCompleteTopLevelMap(t *testing.T) {
 	if got, err := localStepLiteralID("{:id :tools/one :type :function}\n; trailing comment\n"); err != nil || got != "tools/one" {
 		t.Fatalf("localStepLiteralID() valid literal = %q, %v; want tools/one", got, err)
 	}
+	for _, literal := range []string{
+		`{:custom/id :tools/wrong :type :function}`,
+		`{:custom/id :tools/wrong :type :function :id :tools/right}`,
+	} {
+		got, err := localStepLiteralID(literal)
+		if strings.Contains(literal, ":id :tools/right") {
+			if err != nil || got != "tools/right" {
+				t.Fatalf("localStepLiteralID() ignored exact :id in %q: %q, %v", literal, got, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("localStepLiteralID() accepted namespaced :custom/id as packaged id: %q", literal)
+		}
+	}
 }
 
 func TestLocalComposeRejectsInvalidBodyWithoutOverwriting(t *testing.T) {
@@ -686,6 +701,9 @@ func TestLocalComposeAcceptsOnlyExactQuoteForm(t *testing.T) {
 	if got, err := composeLocalFlowBody(source, "(quote (flow/input))"); err != nil || !strings.Contains(got, ":flow (quote (flow/input))") {
 		t.Fatalf("composeLocalFlowBody() should preserve exact quote form: %v\n%s", err, got)
 	}
+	if got, err := composeLocalFlowBody(source, "`(flow/input)"); err != nil || !strings.Contains(got, ":flow `(flow/input)") {
+		t.Fatalf("composeLocalFlowBody() should preserve syntax quote: %v\n%s", err, got)
+	}
 }
 
 func TestLocalStepUpdateRegistersResultPreviewFlags(t *testing.T) {
@@ -694,6 +712,42 @@ func TestLocalStepUpdateRegistersResultPreviewFlags(t *testing.T) {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Fatalf("expected local step update to register --%s", name)
 		}
+	}
+}
+
+func TestLocalScheduleAddRejectsIncludedDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	includePath := filepath.Join(dir, "daily.edn")
+	flowSource := `{:slug :order-sync
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :invocations {:default {:inputs []}}
+ :schedules [#flow/include "daily.edn"]
+ :flow '(flow/input)}
+`
+	if err := os.WriteFile(path, []byte(flowSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(includePath, []byte(`{:id :daily :cron "0 9 * * MON"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newFlowsSchedulesLocalAddCmd(&App{WorkspaceID: "ws-test"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "daily", "--flow-file", path, "--cron", "0 10 * * MON"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected duplicate included schedule to be rejected\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != flowSource {
+		t.Fatalf("duplicate included schedule changed source:\n%s", current)
 	}
 }
 

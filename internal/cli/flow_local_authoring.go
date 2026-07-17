@@ -125,7 +125,7 @@ func localStepIDFromMap(source string, span clojureFormSpan) (string, error) {
 		return "", err
 	}
 	for _, entry := range entries {
-		if entry.KeyName != "id" {
+		if strings.TrimSpace(entry.KeyToken) != ":id" {
 			continue
 		}
 		token := strings.TrimSpace(source[entry.ValueStart:entry.ValueEnd])
@@ -151,7 +151,7 @@ func localStepLiteralID(stepLiteral string) (string, error) {
 		return "", fmt.Errorf("read step literal: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.KeyName != "id" {
+		if strings.TrimSpace(entry.KeyToken) != ":id" {
 			continue
 		}
 		token := strings.TrimSpace(stepLiteral[entry.ValueStart:entry.ValueEnd])
@@ -353,7 +353,7 @@ func localScheduleIDFromMap(source string, span clojureFormSpan) (string, error)
 		return "", err
 	}
 	for _, entry := range entries {
-		if entry.KeyName != "id" {
+		if strings.TrimSpace(entry.KeyToken) != ":id" {
 			continue
 		}
 		token := strings.TrimSpace(source[entry.ValueStart:entry.ValueEnd])
@@ -409,6 +409,25 @@ func localScheduleSpansForID(source string, scheduleID string) (clojureMapEntry,
 		}
 	}
 	return schedulesEntry, spans, -1, nil
+}
+
+func localScheduleExistsIncludingIncludes(sourcePath, source, scheduleID string) (bool, error) {
+	_, _, index, err := localScheduleSpansForID(source, scheduleID)
+	if err != nil {
+		return false, err
+	}
+	if index >= 0 {
+		return true, nil
+	}
+	expanded, err := expandFlowSourceIncludes(sourcePath, source)
+	if err != nil {
+		return false, fmt.Errorf("inspect included schedules before creating %q: %w", scheduleID, err)
+	}
+	_, _, index, err = localScheduleSpansForID(expanded, scheduleID)
+	if err != nil {
+		return false, fmt.Errorf("inspect included schedules before creating %q: %w", scheduleID, err)
+	}
+	return index >= 0, nil
 }
 
 func appendLocalSchedule(source, scheduleLiteral string) (string, error) {
@@ -509,7 +528,7 @@ func composeLocalFlowBody(source, body string) (string, error) {
 
 func localFlowBodyIsQuoted(body string) bool {
 	body = strings.TrimSpace(body)
-	if strings.HasPrefix(body, "'") {
+	if strings.HasPrefix(body, "'") || strings.HasPrefix(body, "`") {
 		return true
 	}
 	if !strings.HasPrefix(body, "(") {
@@ -965,9 +984,10 @@ func newFlowsSchedulesLocalAddCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if _, _, index, findErr := localScheduleSpansForID(source, scheduleID); findErr != nil {
+			exists, findErr := localScheduleExistsIncludingIncludes(path, source, scheduleID)
+			if findErr != nil {
 				return writeErr(cmd, findErr)
-			} else if index >= 0 {
+			} else if exists {
 				return writeErr(cmd, fmt.Errorf("schedule %q already exists; use update", scheduleID))
 			}
 
