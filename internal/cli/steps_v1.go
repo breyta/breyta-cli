@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/breyta/breyta-cli/internal/api"
 	"github.com/mattn/go-isatty"
@@ -702,6 +704,7 @@ func newStepsRunCmd(app *App) *cobra.Command {
 	var recordTest bool
 	var recordNote string
 	var recordTestName string
+	var timeout time.Duration
 	var previewOpts stepResultPreviewOptions
 
 	cmd := &cobra.Command{
@@ -713,6 +716,13 @@ Run a single step without executing an entire flow.
 This is designed for fast iteration while authoring: provide an explicit step type,
 step id, and step params; the server executes the step using the same runtime
 dispatcher as normal flows.
+
+The request waits up to five minutes by default. Use --timeout for a different
+bound when probing a slow LLM or other remote provider. For a flow-local template,
+pass --flow <slug> --source draft and put its variables under data, for example:
+
+  breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post \\
+    --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' --timeout 5m
 
 ` + "`--params`" + ` and ` + "`--params-file`" + ` accept JSON. Safe step-config keys are normalized to
 the authored Clojure shape on the server, so JSON like ` + "`responseAs`" + ` and
@@ -734,6 +744,9 @@ Examples:
 			return requireStepsAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				return writeErr(cmd, errors.New("--timeout must be > 0"))
+			}
 			t := strings.TrimSpace(stepType)
 			if t == "" {
 				return writeErr(cmd, errors.New("missing --type"))
@@ -798,8 +811,14 @@ Examples:
 			}
 
 			client := apiClient(app)
-			out, status, err := client.DoCommand(context.Background(), "steps.run", payload)
+			client.HTTP = &http.Client{Timeout: timeout}
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+			out, status, err := client.DoCommand(ctx, "steps.run", payload)
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") {
+					return writeErr(cmd, fmt.Errorf("steps run timed out after %s; increase --timeout for slow LLM probes: %w", timeout, err))
+				}
 				return writeErr(cmd, err)
 			}
 			recordStepSidecars(client, out, fs, id, t, params, extractStepsRunResult(out), recordNote, recordTestName, traceID, effectiveInstallationID, recordExample, recordTest)
@@ -825,6 +844,7 @@ Examples:
 	cmd.Flags().StringVar(&installationID, "installation-id", "", "Optional installation id for slot-based connections")
 	cmd.Flags().StringVar(&legacyProfileID, "profile-id", "", "Deprecated alias for --installation-id")
 	_ = cmd.Flags().MarkHidden("profile-id")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout (use a longer bound for slow LLM probes)")
 	cmd.Flags().BoolVar(&recordExample, "record-example", false, "After a successful run, store the observed input/output as a step example (requires --flow)")
 	cmd.Flags().BoolVar(&recordTest, "record-test", false, "After a successful run, store a snapshot test case with expected=result (requires --flow)")
 	cmd.Flags().StringVar(&recordNote, "record-note", "", "Optional note for --record-example/--record-test")

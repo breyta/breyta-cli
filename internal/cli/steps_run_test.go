@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
@@ -64,6 +65,53 @@ func TestStepsRunSendsFlowSourceAndVersion(t *testing.T) {
 	}
 	if args["idempotencyKey"] != "turn-123:make-output" {
 		t.Fatalf("expected idempotency key, got %#v", args)
+	}
+}
+
+func TestStepsRunTimeoutBoundsSlowRequestAndExplainsRetry(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"steps", "run",
+		"--type", "llm",
+		"--id", "refresh-blog-post",
+		"--params", `{"template":"refresh-blog-post","data":{"title":"Example"}}`,
+		"--timeout", "20ms",
+	)
+	if err == nil {
+		t.Fatalf("expected timeout error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "steps run timed out after 20ms") {
+		t.Fatalf("expected actionable timeout error, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "increase --timeout") {
+		t.Fatalf("expected longer-timeout guidance, got %q", stderr)
+	}
+}
+
+func TestStepsRunHelpDocumentsTemplateDataAndTimeout(t *testing.T) {
+	stdout, _, err := runCLIArgs(t, "steps", "run", "--help")
+	if err != nil {
+		t.Fatalf("steps run --help failed: %v\n%s", err, stdout)
+	}
+	for _, want := range []string{"--timeout", "--flow update-blog-post", `"data"`, "flow-local template"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("steps run --help missing %q:\n%s", want, stdout)
+		}
 	}
 }
 
