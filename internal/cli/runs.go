@@ -519,6 +519,15 @@ Use runs start only when integrating with older scripts.
 					if strings.TrimSpace(statusStr) == "" {
 						statusStr = startRunStatus
 					}
+					if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, waitInstallationID); err == nil && snapshotStatus < 400 {
+						if run := runFromCommandResponse(snapshot); run != nil {
+							snapshotRunStatus := canonicalRunStatus(run["status"])
+							if isTerminalRunStatus(snapshotRunStatus) {
+								return writeFinal(snapshot, snapshotStatus)
+							}
+						}
+						lastPoll = snapshot
+					}
 					// Important UX: still return the workflowId so callers can continue
 					// with `breyta runs show <workflow-id>` or inspect waits.
 					timeoutOut := map[string]any{

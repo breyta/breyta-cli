@@ -460,6 +460,83 @@ func TestRunsStart_WaitTimeoutReturnsInProgressEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunsStart_WaitTimeoutReconcilesHydratedTerminalSnapshot(t *testing.T) {
+	var compactPolls int
+	var terminalHydrations int
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-start-hydrated-terminal",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["includeSteps"] == true {
+				terminalHydrations++
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-runs-start-hydrated-terminal",
+							"status":     "completed",
+							"steps":      []any{map[string]any{"stepId": "build", "status": "completed"}},
+						},
+					},
+				})
+				return
+			}
+			compactPolls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-runs-start-hydrated-terminal",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start", "--flow", "flow-hydrated-terminal",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	if err != nil {
+		t.Fatalf("expected hydrated terminal run to succeed, got err=%v\nstdout=%s", err, stdout)
+	}
+	if compactPolls == 0 || terminalHydrations != 1 {
+		t.Fatalf("expected a compact poll followed by one terminal hydration, got compact=%d hydration=%d", compactPolls, terminalHydrations)
+	}
+	if strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("hydrated terminal run must not return a timeout envelope:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"status":"completed"`) || !strings.Contains(stdout, `"stepId":"build"`) {
+		t.Fatalf("expected hydrated terminal snapshot in wait output:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_WaitPollErrorEnvelopeReturnsNonZero(t *testing.T) {
 	var runsGetCalls int
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
