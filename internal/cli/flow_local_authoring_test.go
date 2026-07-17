@@ -497,6 +497,68 @@ func TestLocalStepCRUDAndComposeOnlyRewriteOwnedSourceSections(t *testing.T) {
 	}
 }
 
+func TestLocalStepCRUDSkipsIncludedVectorEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	includePath := filepath.Join(dir, "existing.edn")
+	newStepPath := filepath.Join(dir, "new-step.edn")
+	updatedStepPath := filepath.Join(dir, "direct-updated.edn")
+	if err := os.WriteFile(includePath, []byte(`{:id :tools/included :type :function :description "Included"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newStepPath, []byte(`{:id :tools/new :type :function :description "New"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/direct :type :function :description "Updated direct"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flowSource := `{:slug :order-sync
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#flow/include "existing.edn"
+         {:id :tools/direct :type :function :description "Direct"}]
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :invocations {:default {:inputs []}}
+ :schedules []
+ :flow '(flow/input)}
+`
+	if err := os.WriteFile(path, []byte(flowSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+
+	var duplicateOut bytes.Buffer
+	duplicateCmd := newFlowsStepsLocalCreateCmd(app)
+	duplicateCmd.SetOut(&duplicateOut)
+	duplicateCmd.SetErr(&duplicateOut)
+	duplicateCmd.SetArgs([]string{"order-sync", "tools/included", "--flow-file", path, "--step-file", includePath})
+	if err := duplicateCmd.Execute(); err == nil {
+		t.Fatalf("expected duplicate included step to be rejected\n%s", duplicateOut.String())
+	}
+	unchanged, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != flowSource {
+		t.Fatalf("duplicate included step changed source:\n%s", unchanged)
+	}
+
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/new", "--flow-file", path, "--step-file", newStepPath)
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalUpdateCmd(app), "order-sync", "tools/direct", "--flow-file", path, "--step-file", updatedStepPath, "--run=false")
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalRemoveCmd(app), "order-sync", "tools/new", "--flow-file", path)
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(updated)
+	if !strings.Contains(text, `#flow/include "existing.edn"`) || !strings.Contains(text, `:description "Updated direct"`) {
+		t.Fatalf("local CRUD should preserve included entries and edit direct entries:\n%s", text)
+	}
+	if strings.Contains(text, ":id :tools/new") {
+		t.Fatalf("removed direct step is still present:\n%s", text)
+	}
+}
+
 func TestLocalStepRemoveRejectsReferencedPackagedStep(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "order-sync.clj")
 	stepPath := filepath.Join(t.TempDir(), "add-one.edn")
@@ -522,6 +584,116 @@ func TestLocalStepRemoveRejectsReferencedPackagedStep(t *testing.T) {
 	}
 	if !strings.Contains(string(source), ":id :tools/add-one") {
 		t.Fatalf("failed removal should preserve step definition:\n%s", source)
+	}
+}
+
+func TestLocalStepRemoveRejectsReferencesInIncludedFlowBody(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	bodyPath := filepath.Join(dir, "body.clj")
+	flowSource := `{:slug :order-sync
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/add-one :type :function :description "Add one"}]
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :invocations {:default {:inputs []}}
+ :schedules []
+ :flow #flow/include "body.clj"}
+`
+	if err := os.WriteFile(path, []byte(flowSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bodyPath, []byte(`'(flow/step :tools/add-one :run {})`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-test"}
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalRemoveCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected included flow body reference to block removal\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != flowSource {
+		t.Fatalf("failed removal should preserve source:\n%s", current)
+	}
+}
+
+func TestLocalStepScaffoldRejectsUnsafeTypeWithoutOverwriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/unsafe", "--flow-file", path, "--type", "http}"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected unsafe scaffold type to be rejected\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("unsafe scaffold type changed source:\n%s", current)
+	}
+}
+
+func TestLocalFlowEditingMatchesExactTopLevelKeys(t *testing.T) {
+	source := `{:slug :order-sync
+ :custom/steps [{:id :custom/step}]
+ :steps []
+ :custom/flow '(custom/body)
+ :flow '(flow/input)}
+`
+	updated, err := appendLocalStep(source, `{:id :tools/direct :type :function}`)
+	if err != nil {
+		t.Fatalf("appendLocalStep() failed: %v", err)
+	}
+	if !strings.Contains(updated, ":custom/steps [{:id :custom/step}]") || !strings.Contains(updated, ":steps [") {
+		t.Fatalf("appendLocalStep() touched a namespaced extension key:\n%s", updated)
+	}
+	composed, err := composeLocalFlowBody(updated, "(flow/input)")
+	if err != nil {
+		t.Fatalf("composeLocalFlowBody() failed: %v", err)
+	}
+	if !strings.Contains(composed, ":custom/flow '(custom/body)") || !strings.Contains(composed, ":flow '(flow/input)") {
+		t.Fatalf("composeLocalFlowBody() touched a namespaced extension key:\n%s", composed)
+	}
+}
+
+func TestLocalComposeAcceptsOnlyExactQuoteForm(t *testing.T) {
+	source := `{:slug :order-sync
+ :flow '(flow/input)}
+`
+	updated, err := composeLocalFlowBody(source, "(quote-string value)")
+	if err != nil {
+		t.Fatalf("composeLocalFlowBody() rejected valid quoted body: %v", err)
+	}
+	if !strings.Contains(updated, ":flow '(quote-string value)") {
+		t.Fatalf("composeLocalFlowBody() should add reader quote to non-quote form:\n%s", updated)
+	}
+	if got, err := composeLocalFlowBody(source, "(quote (flow/input))"); err != nil || !strings.Contains(got, ":flow (quote (flow/input))") {
+		t.Fatalf("composeLocalFlowBody() should preserve exact quote form: %v\n%s", err, got)
+	}
+}
+
+func TestLocalStepUpdateRegistersResultPreviewFlags(t *testing.T) {
+	cmd := newFlowsStepsLocalUpdateCmd(&App{WorkspaceID: "ws-test"})
+	for _, name := range []string{"full", "result-path", "result-file", "preview-depth", "preview-items", "preview-runes"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("expected local step update to register --%s", name)
+		}
 	}
 }
 
@@ -625,7 +797,7 @@ func TestFlowsStepsRunSendsFullLocalLiteralToEphemeralAPI(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"stepId": "tools/add-one", "result": map[string]any{"answer": 3}},
+			"data":        map[string]any{"stepId": "tools/add-one", "result": map[string]any{"answer": 3, "nested": map[string]any{"items": []any{1, 2, 3}}}},
 		})
 	}))
 	defer srv.Close()
@@ -652,5 +824,33 @@ func TestFlowsStepsRunSendsFullLocalLiteralToEphemeralAPI(t *testing.T) {
 	}
 	if _, exists := args["source"]; exists {
 		t.Fatalf("local literal run should not send a stored source selector: %#v", args)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode compact local run output: %v\n%s", err, out.String())
+	}
+	data, _ := body["data"].(map[string]any)
+	if _, exists := data["result"]; exists {
+		t.Fatalf("local run should compact data.result by default: %#v", data)
+	}
+	if _, exists := data["resultPreview"]; !exists {
+		t.Fatalf("local run should include data.resultPreview by default: %#v", data)
+	}
+
+	fullCmd := newFlowsStepsLocalRunCmd(app)
+	var fullOut bytes.Buffer
+	fullCmd.SetOut(&fullOut)
+	fullCmd.SetErr(&fullOut)
+	fullCmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--params", `{"n":2}`, "--full"})
+	if err := fullCmd.Execute(); err != nil {
+		t.Fatalf("full local flow step run failed: %v\noutput=%s", err, fullOut.String())
+	}
+	var fullBody map[string]any
+	if err := json.Unmarshal(fullOut.Bytes(), &fullBody); err != nil {
+		t.Fatalf("decode full local run output: %v\n%s", err, fullOut.String())
+	}
+	fullData, _ := fullBody["data"].(map[string]any)
+	if _, exists := fullData["result"]; !exists {
+		t.Fatalf("--full should preserve data.result: %#v", fullData)
 	}
 }

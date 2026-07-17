@@ -22,6 +22,10 @@ func localStepIDValid(stepID string) bool {
 	return localQualifiedStepIDRe.MatchString(strings.TrimSpace(stepID))
 }
 
+func localStepTypeValid(stepType string) bool {
+	return validFlowLintSafeIdentifier(strings.TrimPrefix(strings.TrimSpace(stepType), ":"))
+}
+
 func localScheduleIDValid(scheduleID string) bool {
 	return localScheduleIDRe.MatchString(strings.TrimSpace(scheduleID))
 }
@@ -91,8 +95,9 @@ func localTopLevelEntry(source, name string) (clojureMapEntry, bool, error) {
 	if err != nil {
 		return clojureMapEntry{}, false, err
 	}
+	wanted := ":" + strings.TrimPrefix(strings.TrimSpace(name), ":")
 	for _, entry := range entries {
-		if entry.KeyName == name {
+		if strings.TrimSpace(entry.KeyToken) == wanted {
 			return entry, true, nil
 		}
 	}
@@ -197,6 +202,9 @@ func localStepSpansForID(source string, stepID string) (clojureMapEntry, []cloju
 		return clojureMapEntry{}, nil, -1, err
 	}
 	for i, span := range spans {
+		if localFlowVectorSpanIsInclude(source, span) {
+			continue
+		}
 		id, idErr := localStepIDFromMap(source, span)
 		if idErr != nil {
 			return clojureMapEntry{}, nil, -1, idErr
@@ -206,6 +214,30 @@ func localStepSpansForID(source string, stepID string) (clojureMapEntry, []cloju
 		}
 	}
 	return stepsEntry, spans, -1, nil
+}
+
+func localFlowVectorSpanIsInclude(source string, span clojureFormSpan) bool {
+	start := skipClojureWhitespaceCommaAndComments(source, span.Start)
+	return start < span.End && start < len(source) && isFlowIncludeFormStart(source, start)
+}
+
+func localStepExistsIncludingIncludes(sourcePath, source, stepID string) (bool, error) {
+	_, _, index, err := localStepSpansForID(source, stepID)
+	if err != nil {
+		return false, err
+	}
+	if index >= 0 {
+		return true, nil
+	}
+	expanded, err := expandFlowSourceIncludes(sourcePath, source)
+	if err != nil {
+		return false, fmt.Errorf("inspect included steps before creating %q: %w", stepID, err)
+	}
+	_, _, index, err = localStepSpansForID(expanded, stepID)
+	if err != nil {
+		return false, fmt.Errorf("inspect included steps before creating %q: %w", stepID, err)
+	}
+	return index >= 0, nil
 }
 
 func replaceLocalFlowValue(source string, entry clojureMapEntry, replacement string) string {
@@ -264,6 +296,18 @@ func replaceLocalStep(source string, stepID, stepLiteral string) (string, error)
 }
 
 func removeLocalStep(source string, stepID string) (string, error) {
+	return removeLocalStepWithReferences(source, source, stepID, false)
+}
+
+func removeLocalStepFromPath(sourcePath, source string, stepID string) (string, error) {
+	referenceSource, err := expandFlowSourceIncludes(sourcePath, source)
+	if err != nil {
+		return "", fmt.Errorf("inspect local flow references before removing step: %w", err)
+	}
+	return removeLocalStepWithReferences(source, referenceSource, stepID, true)
+}
+
+func removeLocalStepWithReferences(source, referenceSource, stepID string, strictScan bool) (string, error) {
 	_, spans, index, err := localStepSpansForID(source, stepID)
 	if err != nil {
 		return "", err
@@ -271,7 +315,12 @@ func removeLocalStep(source string, stepID string) (string, error) {
 	if index < 0 {
 		return "", fmt.Errorf("step %q not found", stepID)
 	}
-	if references, scanErr := localFlowStepReferences(source); scanErr == nil {
+	references, scanErr := localFlowStepReferences(referenceSource)
+	if scanErr != nil {
+		if strictScan {
+			return "", fmt.Errorf("cannot inspect flow body references before removing step: %w", scanErr)
+		}
+	} else {
 		for _, reference := range references {
 			if reference.StepID == strings.TrimPrefix(strings.TrimSpace(stepID), ":") {
 				return "", fmt.Errorf("cannot remove step %q: flow body references it; update :flow first", stepID)
@@ -348,6 +397,9 @@ func localScheduleSpansForID(source string, scheduleID string) (clojureMapEntry,
 		return clojureMapEntry{}, nil, -1, err
 	}
 	for i, span := range spans {
+		if localFlowVectorSpanIsInclude(source, span) {
+			continue
+		}
 		id, idErr := localScheduleIDFromMap(source, span)
 		if idErr != nil {
 			return clojureMapEntry{}, nil, -1, idErr
@@ -442,7 +494,7 @@ func composeLocalFlowBody(source, body string) (string, error) {
 	if body == "" {
 		return "", errors.New("flow body is empty")
 	}
-	if !strings.HasPrefix(body, "'") && !strings.HasPrefix(body, "(quote") {
+	if !localFlowBodyIsQuoted(body) {
 		body = "'" + body
 	}
 	if err := validateSingleClojureForm(body); err != nil {
@@ -453,6 +505,22 @@ func composeLocalFlowBody(source, body string) (string, error) {
 		return "", fmt.Errorf("composed flow source is invalid: %w", err)
 	}
 	return updated, nil
+}
+
+func localFlowBodyIsQuoted(body string) bool {
+	body = strings.TrimSpace(body)
+	if strings.HasPrefix(body, "'") {
+		return true
+	}
+	if !strings.HasPrefix(body, "(") {
+		return false
+	}
+	elements, _, err := parseClojureListElements(body, 0)
+	if err != nil || len(elements) == 0 {
+		return false
+	}
+	head := clojureFormToken(body, elements[0])
+	return head == "quote" || head == "clojure.core/quote"
 }
 
 func validateSingleClojureForm(source string) error {
@@ -576,6 +644,15 @@ func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any,
 	return writeAPIResult(cmd, app, out, status)
 }
 
+func addLocalStepRunPreviewFlags(cmd *cobra.Command, opts *stepResultPreviewOptions) {
+	cmd.Flags().BoolVar(&opts.Full, "full", false, "Include full data.result instead of the default compact resultPreview")
+	cmd.Flags().StringVar(&opts.Path, "result-path", "", "Preview only one result branch (dot path or EDN-style vector path, e.g. rows.0 or [:rows 0])")
+	cmd.Flags().StringVar(&opts.ResultFile, "result-file", "", "Write full data.result JSON to a local file while keeping terminal output compact")
+	cmd.Flags().IntVar(&opts.MaxDepth, "preview-depth", stepResultPreviewDefaultDepth, "Max nested depth for resultPreview")
+	cmd.Flags().IntVar(&opts.MaxItems, "preview-items", stepResultPreviewDefaultItems, "Max map entries or vector items per resultPreview level")
+	cmd.Flags().IntVar(&opts.MaxRunes, "preview-runes", stepResultPreviewDefaultRunes, "Max runes for resultPreview.value")
+}
+
 func writeLocalAuthoringResult(cmd *cobra.Command, app *App, path string, pushed map[string]any, pushStatus int, extra map[string]any) error {
 	result := map[string]any{
 		"saved": true,
@@ -595,6 +672,7 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 	var flowFile, stepFile, stepType, title, description string
 	var push, run bool
 	var idempotencyKey, paramsJSON, paramsFile, profileID string
+	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug> <step-id>",
 		Short: "Add a packaged step to the local flow source",
@@ -611,9 +689,10 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			if _, _, index, findErr := localStepSpansForID(source, stepID); findErr != nil {
+			exists, findErr := localStepExistsIncludingIncludes(path, source, stepID)
+			if findErr != nil {
 				return writeErr(cmd, findErr)
-			} else if index >= 0 {
+			} else if exists {
 				return writeErr(cmd, fmt.Errorf("step %q already exists; use update", stepID))
 			}
 			var stepLiteral string
@@ -634,10 +713,14 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				if strings.TrimSpace(stepType) == "" {
 					return writeErr(cmd, errors.New("missing --type or --step-file"))
 				}
+				stepType = strings.TrimPrefix(strings.TrimSpace(stepType), ":")
+				if !localStepTypeValid(stepType) {
+					return writeErr(cmd, fmt.Errorf("invalid step type %q (use a safe type such as function, http, or llm)", stepType))
+				}
 				if strings.TrimSpace(title) == "" {
 					title = stepID
 				}
-				stepLiteral = fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]}", stepID, strings.TrimPrefix(strings.TrimSpace(stepType), ":"), descriptionOrDefault(description, title))
+				stepLiteral = fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]}", stepID, stepType, descriptionOrDefault(description, title))
 			}
 			updated, err := appendLocalStep(source, stepLiteral)
 			if err != nil {
@@ -670,6 +753,9 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
 					return runErr
 				}
+				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
+					return writeErr(cmd, err)
+				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
 			}
@@ -687,6 +773,7 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
+	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
 
@@ -701,6 +788,7 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 	var flowFile, stepFile string
 	var push, run bool
 	var idempotencyKey, paramsJSON, paramsFile, profileID string
+	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> <step-id>",
 		Short: "Replace a packaged step in the local flow source",
@@ -760,6 +848,9 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
 					return runErr
 				}
+				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
+					return writeErr(cmd, err)
+				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
 			}
@@ -774,6 +865,7 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
+	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
 
@@ -790,7 +882,7 @@ func newFlowsStepsLocalRemoveCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			updated, err := removeLocalStep(source, stepID)
+			updated, err := removeLocalStepFromPath(path, source, stepID)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -817,6 +909,7 @@ func newFlowsStepsLocalRemoveCmd(app *App) *cobra.Command {
 
 func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 	var flowFile, paramsJSON, paramsFile, idempotencyKey, profileID string
+	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "run <flow-slug> <step-id>",
 		Short: "Run a packaged step from the local flow source",
@@ -838,6 +931,9 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			if err := compactStepsRunResult(out, stepID, previewOpts); err != nil {
+				return writeErr(cmd, err)
+			}
 			return writeAPIResult(cmd, app, out, status)
 		},
 	}
@@ -846,6 +942,7 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for retrying side-effectful runs")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id")
+	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
 
@@ -1122,6 +1219,7 @@ func newFlowsInitCmd(app *App) *cobra.Command {
 	var name, description, outPath string
 	var stepID, stepFile, paramsJSON, paramsFile, idempotencyKey, profileID string
 	var force, push, run bool
+	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "init <flow-slug>",
 		Short: "Create a local canonical flow source file",
@@ -1233,6 +1331,9 @@ Examples:
 				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
 					return runErr
 				}
+				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
+					return writeErr(cmd, err)
+				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
 			}
@@ -1251,5 +1352,6 @@ Examples:
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
+	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }

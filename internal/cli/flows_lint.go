@@ -569,7 +569,7 @@ func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	diagnostics = append(diagnostics, invocationDiagnostics...)
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
 	stepsEntry := byKey["steps"]
-	diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, stepsEntry)...)
+	diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, stepsEntry, byKey["agents"])...)
 	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"))...)
 	return diagnostics
 }
@@ -854,6 +854,10 @@ func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]l
 }
 
 func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int) ([]localFlowStepReference, error) {
+	return localFlowStepReferencesForFormAtDepth(src, span, baseOffset, 0)
+}
+
+func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
 	i := skipClojureWhitespaceCommaAndComments(src, span.Start)
 	if i >= span.End || i >= len(src) {
 		return nil, nil
@@ -869,45 +873,40 @@ func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset
 		if formStart < 0 {
 			return nil, nil
 		}
-		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset, syntaxQuoteDepth)
 	}
 	if src[i] == '^' {
 		metaEnd, err := readClojureFormEnd(src, i+1)
 		if err != nil || metaEnd >= span.End {
 			return nil, err
 		}
-		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset, syntaxQuoteDepth)
 	}
 	switch src[i] {
-	case '\'', '`', '@':
-		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset)
+	case '\'':
+		return nil, nil
+	case '`':
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth+1)
+	case '@':
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth)
 	case '~':
+		if syntaxQuoteDepth <= 0 {
+			return nil, nil
+		}
 		next := i + 1
 		if next < span.End && src[next] == '@' {
 			next++
 		}
-		return localFlowStepReferencesForForm(src, clojureFormSpan{Start: next, End: span.End}, baseOffset)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: next, End: span.End}, baseOffset, syntaxQuoteDepth-1)
 	case '"':
 		return nil, nil
+	case '#':
+		if strings.HasPrefix(src[i:], "#(") {
+			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth)
+		}
+		return nil, nil
 	case '(':
-		elements, _, err := parseClojureListElements(src, i)
-		if err != nil {
-			return nil, err
-		}
-		var references []localFlowStepReference
-		if len(elements) >= 2 && clojureFormToken(src, elements[0]) == "flow/step" {
-			if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
-				references = append(references, localFlowStepReference{StepID: stepID, ByteOffset: baseOffset + elements[1].Start})
-			}
-		}
-		for _, element := range elements {
-			found, err := localFlowStepReferencesForForm(src, element, baseOffset)
-			if err != nil {
-				return references, err
-			}
-			references = append(references, found...)
-		}
-		return references, nil
+		return localFlowStepReferencesInListAtDepth(src, i, baseOffset, syntaxQuoteDepth)
 	case '[':
 		elements, _, err := parseClojureVectorElements(src, i)
 		if err != nil {
@@ -915,7 +914,7 @@ func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset
 		}
 		var references []localFlowStepReference
 		for _, element := range elements {
-			found, err := localFlowStepReferencesForForm(src, element, baseOffset)
+			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
 			if err != nil {
 				return references, err
 			}
@@ -930,7 +929,7 @@ func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset
 		var references []localFlowStepReference
 		for _, entry := range entries {
 			for _, element := range []clojureFormSpan{{Start: entry.KeyStart, End: entry.KeyEnd}, {Start: entry.ValueStart, End: entry.ValueEnd}} {
-				found, err := localFlowStepReferencesForForm(src, element, baseOffset)
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
 				if err != nil {
 					return references, err
 				}
@@ -943,7 +942,34 @@ func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset
 	}
 }
 
-func localPackagedStepReferenceDiagnostics(src string, stepsEntry clojureMapEntry) []flowLintDiagnostic {
+func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
+	elements, _, err := parseClojureListElements(src, listStart)
+	if err != nil {
+		return nil, err
+	}
+	if len(elements) >= 2 {
+		head := clojureFormToken(src, elements[0])
+		if head == "quote" || head == "clojure.core/quote" {
+			return nil, nil
+		}
+	}
+	var references []localFlowStepReference
+	if syntaxQuoteDepth == 0 && len(elements) >= 2 && clojureFormToken(src, elements[0]) == "flow/step" {
+		if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
+			references = append(references, localFlowStepReference{StepID: stepID, ByteOffset: baseOffset + elements[1].Start})
+		}
+	}
+	for _, element := range elements {
+		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+		if err != nil {
+			return references, err
+		}
+		references = append(references, found...)
+	}
+	return references, nil
+}
+
+func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry clojureMapEntry) []flowLintDiagnostic {
 	var spans []clojureFormSpan
 	if stepsEntry.ValueEnd > stepsEntry.ValueStart {
 		var err error
@@ -976,6 +1002,9 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry clojureMapEntr
 		}
 		declared[strings.TrimPrefix(strings.TrimSpace(stepID), ":")] = true
 	}
+	for _, agentID := range localDeclaredQualifiedIDs(src, agentsEntry) {
+		declared[agentID] = true
+	}
 	references, scanErr := localFlowStepReferences(src)
 	if scanErr != nil {
 		return append(diagnostics, lintDiagnostic(
@@ -1005,6 +1034,31 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry clojureMapEntr
 		diagnostics = append(diagnostics, diag)
 	}
 	return diagnostics
+}
+
+func localDeclaredQualifiedIDs(src string, entry clojureMapEntry) []string {
+	if entry.ValueEnd <= entry.ValueStart || clojureFormIsNil(src, entry.ValueStart) {
+		return nil
+	}
+	spans, _, err := parseClojureVectorElements(src, entry.ValueStart)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(spans))
+	for _, span := range spans {
+		if localFlowVectorSpanIsInclude(src, span) {
+			continue
+		}
+		id, idErr := localStepIDFromMap(src, span)
+		if idErr != nil {
+			continue
+		}
+		id = strings.TrimPrefix(strings.TrimSpace(id), ":")
+		if localStepIDValid(id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func clojureIdentifierFromForm(src string, start int) (string, bool) {
@@ -1065,8 +1119,9 @@ func validFlowLintSafeIdentifier(s string) bool {
 }
 
 func mapEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool) {
+	wanted := ":" + strings.TrimPrefix(strings.TrimSpace(key), ":")
 	for _, entry := range entries {
-		if entry.KeyName == key {
+		if strings.TrimSpace(entry.KeyToken) == wanted {
 			return entry, true
 		}
 	}
