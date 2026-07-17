@@ -97,7 +97,11 @@ func TestLiveWaitRendererRendersChangedSnapshotsAndInteractiveHeartbeat(t *testi
 }
 
 func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T) {
-	interactive := &liveWaitRenderer{interactive: true, stdoutInteractive: true}
+	interactive := &liveWaitRenderer{
+		interactive:       true,
+		stdoutInteractive: true,
+		displayedLines:    1,
+	}
 	if !interactive.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
 		t.Fatalf("expected interactive successful live run to suppress final JSON")
 	}
@@ -116,5 +120,10 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	redirectedStdout := &liveWaitRenderer{interactive: true, stdoutInteractive: false}
 	if redirectedStdout.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
 		t.Fatalf("expected redirected stdout to keep final JSON while live UI uses stderr")
+	}
+
+	fallback := &liveWaitRenderer{interactive: true, stdoutInteractive: true}
+	if fallback.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
+		t.Fatalf("expected wait fallback result to remain visible when live output never rendered")
 	}
 }

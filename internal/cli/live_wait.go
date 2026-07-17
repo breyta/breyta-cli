@@ -179,6 +179,9 @@ func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status 
 	if r == nil || !r.interactive || !r.stdoutInteractive || status >= 400 || out == nil {
 		return false
 	}
+	if r.tui == nil && r.displayedLines == 0 {
+		return false
+	}
 	if ok, exists := out["ok"].(bool); exists && !ok {
 		return false
 	}
