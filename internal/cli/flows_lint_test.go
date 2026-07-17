@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -167,6 +168,24 @@ func TestFlowsLintLocalOnlyIgnoresExplicitQuoteForms(t *testing.T) {
 		t.Fatalf("explicitly quoted step data should not be treated as executable: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyFindsStepReferencesInTopLevelExplicitQuote(t *testing.T) {
+	for _, quoteForm := range []string{"quote", "clojure.core/quote"} {
+		flowLiteral := fmt.Sprintf(`{:slug :top-level-explicit-quote-%s
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow (%s (flow/step :tools/missing :run {}))}
+`, strings.ReplaceAll(quoteForm, ".", "-"), quoteForm)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("expected top-level %s step reference to be reported\n%s", quoteForm, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+	}
 }
 
 func TestFlowsLintLocalOnlyReportsMissingPackagedStepWhenStepsKeyIsAbsent(t *testing.T) {

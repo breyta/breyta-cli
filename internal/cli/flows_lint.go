@@ -332,6 +332,15 @@ func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 	if i < len(src) && (src[i] == '\'' || src[i] == '`') {
 		return src[i+1:], i + 1
 	}
+	if i < len(src) && src[i] == '(' {
+		elements, _, err := parseClojureListElements(src, i)
+		if err == nil && len(elements) >= 2 {
+			head := clojureFormToken(src, elements[0])
+			if head == "quote" || head == "clojure.core/quote" {
+				return src[elements[1].Start:elements[1].End], elements[1].Start
+			}
+		}
+	}
 	return src, 0
 }
 
