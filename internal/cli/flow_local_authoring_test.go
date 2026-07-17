@@ -345,6 +345,17 @@ func TestLocalVectorEditingFlattensSplicedReaderConditionalVectors(t *testing.T)
 	if !strings.Contains(removedSchedule, "#?@(:clj []") || strings.Contains(removedSchedule, ":id :daily") {
 		t.Fatalf("removeLocalSchedule() did not preserve empty spliced vector: %s", removedSchedule)
 	}
+
+	listSource := `{:slug :order-sync
+ :steps [#?@(:clj ({:id :tools/list-branch :type :function}))]}
+`
+	_, listSpans, listIndex, err := localStepSpansForID(listSource, "tools/list-branch")
+	if err != nil {
+		t.Fatalf("localStepSpansForID() spliced list error = %v", err)
+	}
+	if len(listSpans) != 1 || listIndex != 0 {
+		t.Fatalf("expected one spliced list step, got spans=%#v index=%d", listSpans, listIndex)
+	}
 }
 
 func TestLocalAuthoringPushValidatesDraft(t *testing.T) {

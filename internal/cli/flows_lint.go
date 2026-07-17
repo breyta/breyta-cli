@@ -661,10 +661,20 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 		}
 		if hasActive {
 			if strings.HasPrefix(src[i:], "#?@") {
-				if activeStart >= activeEnd || activeStart >= len(src) || src[activeStart] != '[' {
-					return out, i, fmt.Errorf("splicing reader conditional must select a vector near byte %d", i)
+				var spliced []clojureFormSpan
+				var branchEnd int
+				var branchErr error
+				if activeStart >= activeEnd || activeStart >= len(src) {
+					return out, i, fmt.Errorf("splicing reader conditional selected an empty branch near byte %d", i)
 				}
-				spliced, branchEnd, branchErr := parseClojureVectorElements(src, activeStart)
+				switch src[activeStart] {
+				case '[':
+					spliced, branchEnd, branchErr = parseClojureVectorElements(src, activeStart)
+				case '(':
+					spliced, branchEnd, branchErr = parseClojureListElements(src, activeStart)
+				default:
+					return out, i, fmt.Errorf("splicing reader conditional must select a vector or list near byte %d", i)
+				}
 				if branchErr != nil {
 					return out, i, branchErr
 				}
