@@ -153,6 +153,22 @@ func TestFlowsLintLocalOnlyFindsStepReferencesInAnonymousFunctions(t *testing.T)
 	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
 }
 
+func TestFlowsLintLocalOnlyFindsStepReferencesInSetLiterals(t *testing.T) {
+	flowLiteral := `{:slug :set-step-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '#{(flow/step :tools/missing :run {})}}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected set-literal step reference to be reported\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
 func TestFlowsLintLocalOnlyIgnoresExplicitQuoteForms(t *testing.T) {
 	flowLiteral := `{:slug :explicit-quote-step-data
  :concurrency {:type :singleton :on-new-version :coexist}

@@ -660,12 +660,26 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 			return out, i, err
 		}
 		if hasActive {
-			out = append(out, clojureFormSpan{
-				Start:     activeStart,
-				End:       activeEnd,
-				FormStart: i,
-				FormEnd:   formEnd,
-			})
+			if strings.HasPrefix(src[i:], "#?@") {
+				if activeStart >= activeEnd || activeStart >= len(src) || src[activeStart] != '[' {
+					return out, i, fmt.Errorf("splicing reader conditional must select a vector near byte %d", i)
+				}
+				spliced, branchEnd, branchErr := parseClojureVectorElements(src, activeStart)
+				if branchErr != nil {
+					return out, i, branchErr
+				}
+				if branchEnd != activeEnd {
+					return out, i, fmt.Errorf("splicing reader conditional branch did not consume its vector near byte %d", i)
+				}
+				out = append(out, spliced...)
+			} else {
+				out = append(out, clojureFormSpan{
+					Start:     activeStart,
+					End:       activeEnd,
+					FormStart: i,
+					FormEnd:   formEnd,
+				})
+			}
 		} else if formEnd == i && i < len(src) && src[i] == ']' {
 			// A discarded form may be the only form left before the vector
 			// closes. The discard prefix has already been consumed, so treat
@@ -769,6 +783,34 @@ func parseClojureListElements(src string, start int) ([]clojureFormSpan, int, er
 		i = end
 	}
 	return out, i, fmt.Errorf("unterminated list")
+}
+
+func parseClojureSetElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i+1 >= len(src) || src[i] != '#' || src[i+1] != '{' {
+		return nil, i, fmt.Errorf("expected set near byte %d", start)
+	}
+	i += 2
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated set")
+		}
+		if src[i] == '}' {
+			return out, i + 1, nil
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			if err == nil {
+				err = fmt.Errorf("could not read set element near byte %d", i)
+			}
+			return out, end, err
+		}
+		out = append(out, clojureFormSpan{Start: i, End: end})
+		i = end
+	}
+	return out, i, fmt.Errorf("unterminated set")
 }
 
 func clojureActiveFormStart(src string, start int) (int, bool) {
@@ -912,6 +954,21 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 	case '#':
 		if strings.HasPrefix(src[i:], "#(") {
 			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth)
+		}
+		if strings.HasPrefix(src[i:], "#{") {
+			elements, _, err := parseClojureSetElements(src, i)
+			if err != nil {
+				return nil, err
+			}
+			var references []localFlowStepReference
+			for _, element := range elements {
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+				if err != nil {
+					return references, err
+				}
+				references = append(references, found...)
+			}
+			return references, nil
 		}
 		return nil, nil
 	case '(':

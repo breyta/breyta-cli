@@ -302,6 +302,51 @@ func TestLocalVectorEditingAllowsOnlyDiscardedForms(t *testing.T) {
 	}
 }
 
+func TestLocalVectorEditingFlattensSplicedReaderConditionalVectors(t *testing.T) {
+	source := `{:slug :order-sync
+ :steps [#?@(:clj [{:id :tools/first :type :function}
+                  {:id :tools/second :type :function}])]
+ :schedules [#?@(:clj [{:id :daily :cron "0 9 * * MON"}])]
+}
+`
+	_, stepSpans, stepIndex, err := localStepSpansForID(source, "tools/second")
+	if err != nil {
+		t.Fatalf("localStepSpansForID() spliced vector error = %v", err)
+	}
+	if len(stepSpans) != 2 || stepIndex != 1 {
+		t.Fatalf("expected two spliced steps and second index, got spans=%#v index=%d", stepSpans, stepIndex)
+	}
+	replacement := `{:id :tools/second :type :http}`
+	updated, err := replaceLocalStep(source, "tools/second", replacement)
+	if err != nil {
+		t.Fatalf("replaceLocalStep() spliced vector error = %v", err)
+	}
+	if !strings.Contains(updated, "#?@(:clj") || !strings.Contains(updated, ":type :http") || !strings.Contains(updated, ":id :tools/first") {
+		t.Fatalf("replaceLocalStep() did not preserve spliced vector: %s", updated)
+	}
+	removed, err := removeLocalStep(source, "tools/second")
+	if err != nil {
+		t.Fatalf("removeLocalStep() spliced vector error = %v", err)
+	}
+	if !strings.Contains(removed, ":id :tools/first") || strings.Contains(removed, ":id :tools/second") || !strings.Contains(removed, "#?@(:clj") {
+		t.Fatalf("removeLocalStep() did not preserve remaining spliced vector: %s", removed)
+	}
+	_, scheduleSpans, scheduleIndex, err := localScheduleSpansForID(source, "daily")
+	if err != nil {
+		t.Fatalf("localScheduleSpansForID() spliced vector error = %v", err)
+	}
+	if len(scheduleSpans) != 1 || scheduleIndex != 0 {
+		t.Fatalf("expected one spliced schedule, got spans=%#v index=%d", scheduleSpans, scheduleIndex)
+	}
+	removedSchedule, err := removeLocalSchedule(source, "daily")
+	if err != nil {
+		t.Fatalf("removeLocalSchedule() spliced vector error = %v", err)
+	}
+	if !strings.Contains(removedSchedule, "#?@(:clj []") || strings.Contains(removedSchedule, ":id :daily") {
+		t.Fatalf("removeLocalSchedule() did not preserve empty spliced vector: %s", removedSchedule)
+	}
+}
+
 func TestLocalAuthoringPushValidatesDraft(t *testing.T) {
 	flowFile := filepath.Join(t.TempDir(), "order-sync.clj")
 	if err := os.WriteFile(flowFile, []byte(`{:slug :order-sync :flow '(identity 1)}`), 0o644); err != nil {
