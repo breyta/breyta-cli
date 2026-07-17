@@ -479,18 +479,7 @@ func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string)
 		r.tui.SendFrame(frame, r.waitAction)
 		return
 	}
-	if r.displayedLines > 0 {
-		clearLiveBlock(r.out, r.displayedLines)
-	}
 	_, _ = io.WriteString(r.out, text)
-}
-
-func clearLiveBlock(w io.Writer, lines int) {
-	if lines <= 0 {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "\x1b[%dA", lines)
-	_, _ = io.WriteString(w, "\r\x1b[J")
 }
 
 func countLiveBlockLines(text string) int {

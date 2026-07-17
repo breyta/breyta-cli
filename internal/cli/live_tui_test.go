@@ -1041,6 +1041,40 @@ func TestLiveTUIToolCallIOFiltersParentStepOutput(t *testing.T) {
 	}
 }
 
+func TestLiveTUIToolCallIOMatchesIDBeforeNameFallback(t *testing.T) {
+	ref := liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "research-agent",
+		ToolCallID: "call-second",
+		Label:      "mock_fetch_record",
+	}
+	result, err := liveTUIToolCallIOResult(ref, "completed", map[string]any{
+		"toolCalls": []any{
+			map[string]any{
+				"id":     "call-first",
+				"name":   "mock_fetch_record",
+				"input":  map[string]any{"recordId": "rec-first"},
+				"output": map[string]any{"call": "first"},
+			},
+			map[string]any{
+				"id":     "call-second",
+				"name":   "mock_fetch_record",
+				"input":  map[string]any{"recordId": "rec-second"},
+				"output": map[string]any{"call": "second"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := fmt.Sprint(result.Input); !strings.Contains(got, "rec-second") || strings.Contains(got, "rec-first") {
+		t.Fatalf("expected the matching tool-call input, got %#v", result.Input)
+	}
+	if got := fmt.Sprint(result.Result); !strings.Contains(got, "second") || strings.Contains(got, "first") {
+		t.Fatalf("expected the matching tool-call output, got %#v", result.Result)
+	}
+}
+
 func TestLiveTUIInspectValuePrettyPrintsJSON(t *testing.T) {
 	lines := inspectValueLines(map[string]any{
 		"nested": map[string]any{

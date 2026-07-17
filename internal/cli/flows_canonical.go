@@ -291,14 +291,6 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				}
 			}
 			if time.Now().After(deadline) {
-				if liveRenderer != nil && liveRenderer.ActiveWait() {
-					deadline = time.Now().Add(timeout)
-					sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
-					if liveRenderer.StopRequested() {
-						return writeErr(cmd, errors.New("live wait cancelled"))
-					}
-					continue
-				}
 				if err := writeFinal(execResp, execStatus); err != nil {
 					return writeErr(cmd, err)
 				}
@@ -374,14 +366,6 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		}
 
 		if time.Now().After(deadline) {
-			if liveRenderer != nil && liveRenderer.ActiveWait() {
-				deadline = time.Now().Add(timeout)
-				sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
-				if liveRenderer.StopRequested() {
-					return writeErr(cmd, errors.New("live wait cancelled"))
-				}
-				continue
-			}
 			trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
 				"product":     "flows",
 				"channel":     "cli",

@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/breyta/breyta-cli/internal/live"
 )
 
 type fakeLiveBootstrapper struct {
@@ -125,5 +129,23 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	fallback := &liveWaitRenderer{interactive: true, stdoutInteractive: true}
 	if fallback.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
 		t.Fatalf("expected wait fallback result to remain visible when live output never rendered")
+	}
+}
+
+func TestLiveWaitRendererAppendsRedirectedFramesWithoutANSI(t *testing.T) {
+	var out bytes.Buffer
+	renderer := &liveWaitRenderer{
+		displayedLines: 2,
+		interactive:    false,
+		out:            &out,
+	}
+
+	renderer.redrawLiveBlock(live.DisplayFrame{}, "next frame")
+
+	if got := out.String(); got != "next frame" {
+		t.Fatalf("expected redirected frame to append without redraw controls, got %q", got)
+	}
+	if strings.Contains(out.String(), "\x1b[") {
+		t.Fatalf("expected redirected frame to contain no ANSI cursor controls, got %q", out.String())
 	}
 }

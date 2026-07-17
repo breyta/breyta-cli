@@ -385,11 +385,18 @@ func findLiveTUIToolCallRecordDepth(value any, toolCallID string, label string, 
 
 func liveTUIToolCallRecordMatches(record map[string]any, toolCallID string, label string) bool {
 	if toolCallID != "" {
+		hasIdentifier := false
 		for _, key := range []string{"id", "toolCallId", "tool_call_id", "tool-call-id", "callId", "call_id"} {
 			value := strings.TrimSpace(scalarString(record[key]))
+			if value != "" {
+				hasIdentifier = true
+			}
 			if value == toolCallID || strings.HasSuffix(value, "/"+toolCallID) || strings.HasSuffix(toolCallID, "/"+value) {
 				return true
 			}
+		}
+		if hasIdentifier {
+			return false
 		}
 	}
 	name := strings.TrimSpace(firstNonBlankString(record["name"], record["toolName"], record["tool_name"], record["tool-name"]))
