@@ -111,7 +111,7 @@ func localStepLiteralID(stepLiteral string) (string, error) {
 	if strings.TrimSpace(stepLiteral) == "" {
 		return "", errors.New("step literal is empty")
 	}
-	entries, err := extractTopLevelMapEntries(stepLiteral)
+	entries, err := parseSingleTopLevelMapEntries(stepLiteral)
 	if err != nil {
 		return "", fmt.Errorf("read step literal: %w", err)
 	}
@@ -131,6 +131,27 @@ func localStepLiteralID(stepLiteral string) (string, error) {
 		return token, nil
 	}
 	return "", errors.New("step literal must contain :id")
+}
+
+func parseSingleTopLevelMapEntries(source string) ([]clojureMapEntry, error) {
+	if err := parenrepair.Check(source); err != nil {
+		return nil, fmt.Errorf("step literal is not balanced: %w", err)
+	}
+	start, err := topLevelFlowMapStart(source)
+	if err != nil {
+		return nil, err
+	}
+	if start < 0 {
+		return nil, errors.New("step literal must contain a top-level map")
+	}
+	entries, end, err := parseClojureMapEntries(source, start)
+	if err != nil {
+		return nil, err
+	}
+	if trailing := skipClojureWhitespaceCommaAndComments(source, end); trailing != len(source) {
+		return nil, fmt.Errorf("step literal must contain exactly one top-level map; found another form near byte %d", trailing)
+	}
+	return entries, nil
 }
 
 func localStepSpansForID(source string, stepID string) (clojureMapEntry, []clojureFormSpan, int, error) {
@@ -539,6 +560,9 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				if runErr != nil {
 					return writeErr(cmd, runErr)
 				}
+				if runStatus >= 400 || !isOK(runOut) {
+					return writeAPIResult(cmd, app, runOut, runStatus)
+				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
 			}
@@ -625,6 +649,9 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, params, idempotencyKey, profileID)
 				if runErr != nil {
 					return writeErr(cmd, runErr)
+				}
+				if runStatus >= 400 || !isOK(runOut) {
+					return writeAPIResult(cmd, app, runOut, runStatus)
 				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus
@@ -1095,6 +1122,9 @@ Examples:
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, params, idempotencyKey, profileID)
 				if runErr != nil {
 					return writeErr(cmd, runErr)
+				}
+				if runStatus >= 400 || !isOK(runOut) {
+					return writeAPIResult(cmd, app, runOut, runStatus)
 				}
 				extra["run"] = runOut
 				extra["runStatus"] = runStatus

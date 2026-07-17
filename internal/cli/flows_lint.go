@@ -642,6 +642,11 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 		if i >= len(src) {
 			return out, i, fmt.Errorf("unterminated vector")
 		}
+		activeStart, ok := clojureActiveFormStart(src, i)
+		if !ok {
+			return out, i, fmt.Errorf("could not locate active vector element near byte %d", i)
+		}
+		i = activeStart
 		if src[i] == ']' {
 			return out, i + 1, nil
 		}

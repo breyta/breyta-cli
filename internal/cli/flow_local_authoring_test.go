@@ -152,6 +152,98 @@ func TestFlowsInitSeedRunUsesCompleteLocalLiteral(t *testing.T) {
 	}
 }
 
+func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "step validation failed"},
+		})
+	}))
+	defer srv.Close()
+
+	for _, update := range []bool{false, true} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "order-sync.clj")
+		stepPath := filepath.Join(dir, "add-one.edn")
+		updatedStepPath := filepath.Join(dir, "add-two.edn")
+		if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/add-one :type :function :description "Add two"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+		executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+		var cmd *cobra.Command
+		var args []string
+		if update {
+			executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+			cmd = newFlowsStepsLocalUpdateCmd(app)
+			args = []string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", updatedStepPath, "--run"}
+		} else {
+			cmd = newFlowsStepsLocalCreateCmd(app)
+			args = []string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, "--run"}
+		}
+
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("--run failure for update=%t returned nil", update)
+		}
+		if !strings.Contains(out.String(), `"ok":false`) {
+			t.Fatalf("--run failure for update=%t did not emit API failure envelope: %s", update, out.String())
+		}
+	}
+}
+
+func TestLocalStepEditingSkipsDiscardedVectorElements(t *testing.T) {
+	source := `{:slug :order-sync
+ :steps [#_{:id :tools/old :type :function}
+          {:id :tools/add-one :type :function :description "Add one"}]}
+`
+	replacement := `{:id :tools/add-one :type :function :description "Add two"}`
+	updated, err := replaceLocalStep(source, "tools/add-one", replacement)
+	if err != nil {
+		t.Fatalf("replaceLocalStep() error = %v", err)
+	}
+	if !strings.Contains(updated, `#_{:id :tools/old :type :function}`) || !strings.Contains(updated, `:description "Add two"`) {
+		t.Fatalf("replaceLocalStep() rewrote the wrong vector element:\n%s", updated)
+	}
+	if strings.Contains(updated, `:description "Add one"`) {
+		t.Fatalf("replaceLocalStep() left the active old step in place:\n%s", updated)
+	}
+
+	removed, err := removeLocalStep(source, "tools/add-one")
+	if err != nil {
+		t.Fatalf("removeLocalStep() error = %v", err)
+	}
+	if !strings.Contains(removed, `#_{:id :tools/old :type :function}`) || strings.Contains(removed, ":id :tools/add-one") {
+		t.Fatalf("removeLocalStep() removed the wrong vector element:\n%s", removed)
+	}
+}
+
+func TestLocalStepLiteralIDRequiresOneCompleteTopLevelMap(t *testing.T) {
+	for _, literal := range []string{
+		`{:id :tools/one :type :function} {:id :tools/two :type :function}`,
+		`{:id :tools/one :type :function} [1]`,
+		`{:id :tools/one :type :function} )`,
+	} {
+		if _, err := localStepLiteralID(literal); err == nil {
+			t.Fatalf("localStepLiteralID(%q) returned nil error for invalid literal", literal)
+		}
+	}
+
+	if got, err := localStepLiteralID("{:id :tools/one :type :function}\n; trailing comment\n"); err != nil || got != "tools/one" {
+		t.Fatalf("localStepLiteralID() valid literal = %q, %v; want tools/one", got, err)
+	}
+}
+
 func TestLocalStepCRUDAndComposeOnlyRewriteOwnedSourceSections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "order-sync.clj")
 	stepPath := filepath.Join(t.TempDir(), "add-one.edn")
