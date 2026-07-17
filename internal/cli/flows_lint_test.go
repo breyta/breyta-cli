@@ -105,6 +105,34 @@ func TestFlowsLintLocalOnlyReportsDelimiterErrors(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyReportsMismatchedDelimiterErrors(t *testing.T) {
+	flowLiteral := `{:slug :mismatched-delimiter
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(identity 1)]
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected lint error for mismatched delimiter\n%s", stdout)
+	}
+	if ok, _ := body["ok"].(bool); ok {
+		t.Fatalf("expected ok=false, got %#v", body)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_delimiters_invalid")
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	first, _ := items[0].(map[string]any)
+	message, _ := first["message"].(string)
+	if !strings.Contains(message, "replaced=1") {
+		t.Fatalf("expected one mismatched delimiter replacement, got %#v", first)
+	}
+	hint, _ := first["hint"].(string)
+	if !strings.Contains(hint, "flows paren-repair --write") {
+		t.Fatalf("expected paren-repair hint, got %#v", first)
+	}
+}
+
 func TestFlowsLintLocalOnlyReportsReaderShapeErrors(t *testing.T) {
 	flowLiteral := `{:slug :bad
  :concurrency {:type :singleton :on-new-version :coexist}
