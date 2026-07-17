@@ -280,6 +280,80 @@ func TestLocalStepEditingSkipsDiscardedVectorElements(t *testing.T) {
 	}
 }
 
+func TestLocalVectorEditingAllowsOnlyDiscardedForms(t *testing.T) {
+	source := `{:slug :order-sync
+ :steps [#_{:id :tools/old :type :function}]
+ :schedules [#_{:id :daily :cron "0 9 * * MON"}]}
+`
+	_, stepSpans, stepIndex, err := localStepSpansForID(source, "tools/old")
+	if err != nil {
+		t.Fatalf("localStepSpansForID() returned an error for an only-discarded vector: %v", err)
+	}
+	if len(stepSpans) != 0 || stepIndex != -1 {
+		t.Fatalf("expected no active steps, got spans=%#v index=%d", stepSpans, stepIndex)
+	}
+
+	_, scheduleSpans, scheduleIndex, err := localScheduleSpansForID(source, "daily")
+	if err != nil {
+		t.Fatalf("localScheduleSpansForID() returned an error for an only-discarded vector: %v", err)
+	}
+	if len(scheduleSpans) != 0 || scheduleIndex != -1 {
+		t.Fatalf("expected no active schedules, got spans=%#v index=%d", scheduleSpans, scheduleIndex)
+	}
+}
+
+func TestLocalAuthoringPushValidatesDraft(t *testing.T) {
+	flowFile := filepath.Join(t.TempDir(), "order-sync.clj")
+	if err := os.WriteFile(flowFile, []byte(`{:slug :order-sync :flow '(identity 1)}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		command, _ := body["command"].(string)
+		commands = append(commands, command)
+		switch command {
+		case "flows.put_draft":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          true,
+				"workspaceId": "ws-acme",
+				"data":        map[string]any{"flowSlug": "order-sync", "saved": true},
+			})
+		case "flows.validate":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":          false,
+				"workspaceId": "ws-acme",
+				"error":       map[string]any{"message": "canonical validation failed"},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "unexpected command"},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "token", TokenExplicit: true}
+	cmd := newFlowsComposeCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "--flow-file", flowFile, "--body", "(flow/input)", "--push"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("local --push reported success without canonical validation\n%s", out.String())
+	}
+	if strings.Join(commands, ",") != "flows.put_draft,flows.validate" {
+		t.Fatalf("expected put_draft followed by validate, got %v", commands)
+	}
+}
+
 func TestLocalStepEditingAdvancesPastReaderConditionalElements(t *testing.T) {
 	source := `{:slug :order-sync
  :steps [#?(:clj {:id :tools/add-one :type :function :description "Add one"}

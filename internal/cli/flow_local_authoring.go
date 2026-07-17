@@ -499,6 +499,14 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 	if err := requireAPI(app); err != nil {
 		return nil, 0, err
 	}
+	entries, err := parseSingleTopLevelMapEntries(source)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read local flow before push: %w", err)
+	}
+	flowSlug, err := localFlowSlugFromEntries(source, entries)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read local flow slug before push: %w", err)
+	}
 	expanded, err := expandFlowSourceIncludes(sourcePath, source)
 	if err != nil {
 		return nil, 0, err
@@ -506,7 +514,33 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 	out, status, err := apiClient(app).DoCommand(cmd.Context(), "flows.put_draft", map[string]any{
 		"flowLiteral": expanded,
 	})
-	return out, status, err
+	if err != nil || status >= 400 || !isOK(out) {
+		return out, status, err
+	}
+
+	validateOut, validateStatus, err := validateDraftFlow(cmd, app, flowSlug)
+	if err != nil {
+		return nil, 0, err
+	}
+	if validateStatus >= 400 || !isOK(validateOut) {
+		if postPushValidationFlowNotFound(validateOut, validateStatus, flowSlug) {
+			meta := ensureMeta(out)
+			if meta != nil {
+				meta["validated"] = false
+				meta["validateSource"] = "draft"
+				meta["validationWarning"] = "Draft was saved, but immediate validation could not read the new flow yet. Retry validation after the draft is visible."
+				appendMetaNextCommands(meta, "breyta flows validate "+flowSlug, "breyta flows show "+flowSlug)
+			}
+			return out, status, nil
+		}
+		return validateOut, validateStatus, nil
+	}
+	meta := ensureMeta(out)
+	if meta != nil {
+		meta["validated"] = true
+		meta["validateSource"] = "draft"
+	}
+	return out, status, nil
 }
 
 func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, stepID string, params map[string]any, idempotencyKey, profileID string) (map[string]any, int, error) {

@@ -1295,11 +1295,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeAPIResult(cmd, app, out, status)
 			}
 
-			client := apiClient(app)
-			validateOut, validateStatus, err := client.DoCommand(context.Background(), "flows.validate", map[string]any{
-				"flowSlug": flowSlug,
-				"source":   "draft",
-			})
+			validateOut, validateStatus, err := validateDraftFlow(cmd, app, flowSlug)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -1383,6 +1379,13 @@ func postPushValidationFlowNotFound(out map[string]any, status int, flowSlug str
 	}
 	detailSlug := firstNonBlankString(details["flowSlug"], details["flow-slug"], details["slug"])
 	return detailSlug == "" || strings.EqualFold(strings.TrimSpace(detailSlug), strings.TrimSpace(flowSlug))
+}
+
+func validateDraftFlow(cmd *cobra.Command, app *App, flowSlug string) (map[string]any, int, error) {
+	return apiClient(app).DoCommand(cmd.Context(), "flows.validate", map[string]any{
+		"flowSlug": strings.TrimSpace(flowSlug),
+		"source":   "draft",
+	})
 }
 
 func newFlowsDeployCmd(app *App) *cobra.Command {

@@ -657,6 +657,12 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 				FormStart: i,
 				FormEnd:   formEnd,
 			})
+		} else if formEnd == i && i < len(src) && src[i] == ']' {
+			// A discarded form may be the only form left before the vector
+			// closes. The discard prefix has already been consumed, so treat
+			// the closing delimiter as the collection boundary rather than
+			// trying to parse it as another element.
+			return out, i + 1, nil
 		}
 		if formEnd <= i {
 			return out, i, fmt.Errorf("could not advance past vector element near byte %d", i)
@@ -673,6 +679,9 @@ func parseClojureVectorElements(src string, start int) ([]clojureFormSpan, int, 
 func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formEnd int, hasActive bool, err error) {
 	i := skipClojureWhitespaceCommaAndComments(src, start)
 	for i < len(src) {
+		if src[i] == ')' || src[i] == ']' || src[i] == '}' {
+			return -1, -1, i, false, nil
+		}
 		switch {
 		case strings.HasPrefix(src[i:], "#?"):
 			branchStart, branchEnd, next, ok := activeReaderConditionalForm(src, i)
