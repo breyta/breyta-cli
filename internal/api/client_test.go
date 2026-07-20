@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -363,6 +364,38 @@ func TestClient_DoCommand_DoesNotRetryRunsGetAfterWaitContextDeadline(t *testing
 	}
 	if commandCalls != 1 {
 		t.Fatalf("expected deadline to prevent retries, got %d calls", commandCalls)
+	}
+}
+
+func TestClient_DoCommand_ReturnsWaitContextDeadlineWhenRetryBackoffExpires(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{200 * time.Millisecond}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	commandCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		commandCalls++
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"code":    "bad_gateway",
+				"message": "temporarily unavailable",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := Client{BaseURL: srv.URL, WorkspaceID: "ws-acme", Token: "tok", HTTP: srv.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	_, status, err := c.DoCommand(ctx, "runs.get", map[string]any{"workflowId": "run-123"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected retry backoff deadline error, got status=%d err=%v", status, err)
+	}
+	if commandCalls != 1 {
+		t.Fatalf("expected deadline during retry backoff to prevent a second request, got %d calls", commandCalls)
 	}
 }
 

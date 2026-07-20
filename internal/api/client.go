@@ -250,6 +250,9 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 		out, status, err := c.doCommandRequest(ctx, endpoint, payloadBytes, includeWorkspace)
 		if shouldRetryCommandAttempt(ctx, status, err, attempt, backoffs) {
 			if !waitBeforeRetry(ctx, backoffs[attempt]) {
+				if ctx != nil && ctx.Err() != nil {
+					return nil, status, ctx.Err()
+				}
 				if err != nil {
 					return nil, status, err
 				}
