@@ -139,6 +139,23 @@ If you only want the skill bundle and not the workspace files:
 breyta skills install --provider <codex|cursor|claude|gemini>
 ```
 
+## Continue proactive work
+
+When you want the signed-in proactive agent to keep working on a specific
+priority, record a concise directive instead of waiting for a generic check:
+
+```bash
+breyta proactive-agent initiative continue \
+  --summary "Continue the Meta ads work and prepare the next creative test." \
+  --source-event-id "chat-event-42"
+```
+
+`--summary` is required. `--source-event-id` is optional and lets a chat or
+event integration safely retry the same directive. The command records the
+user's priority for autonomous follow-through; it does not approve publishing,
+ad spend, account connections, or other gated actions. It requires signed-in
+user authentication and cannot run with a service-account API key.
+
 ## First Workflow
 
 For a new flow, create the local source, compose it in small pieces, then push

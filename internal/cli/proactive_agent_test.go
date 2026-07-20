@@ -47,6 +47,135 @@ func TestProactiveAgentInitiativeParkCallsStructuredCommand(t *testing.T) {
 	}
 }
 
+func TestProactiveAgentInitiativeContinueCallsStructuredCommand(t *testing.T) {
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"status": "recorded", "directiveId": "directive-1"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"proactive-agent", "initiative", "continue",
+		"--summary", "  Continue the Meta ads work and prepare the next creative test.  ",
+		"--source-event-id", "  chat-event-42  ",
+	)
+	if err != nil {
+		t.Fatalf("continue initiative failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if got["command"] != "proactive_agent.initiative.continue" {
+		t.Fatalf("expected structured continue command, got %#v", got["command"])
+	}
+	args, ok := got["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected command args, got %#v", got["args"])
+	}
+	if len(args) != 2 ||
+		args["summary"] != "Continue the Meta ads work and prepare the next creative test." ||
+		args["sourceEventId"] != "chat-event-42" {
+		t.Fatalf("expected trimmed continue args, got %#v", args)
+	}
+	if !strings.Contains(stdout, `"status":"recorded"`) {
+		t.Fatalf("expected recorded response, got %s", stdout)
+	}
+}
+
+func TestProactiveAgentInitiativeContinueOmitsBlankSourceEventID(t *testing.T) {
+	var got map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	_, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"agent", "initiative", "continue",
+		"--summary", "Continue the Meta ads work.",
+		"--source-event-id", "   ",
+	)
+	if err != nil {
+		t.Fatalf("continue initiative failed: %v\nstderr=%s", err, stderr)
+	}
+	args, ok := got["args"].(map[string]any)
+	if !ok || len(args) != 1 || args["summary"] != "Continue the Meta ads work." {
+		t.Fatalf("expected only summary argument, got %#v", got["args"])
+	}
+}
+
+func TestProactiveAgentInitiativeContinueRequiresSummary(t *testing.T) {
+	stdout, stderr, err := runCLIArgs(t, "agent", "initiative", "continue", "--help")
+	if err != nil {
+		t.Fatalf("continue help failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "--summary") || !strings.Contains(stdout, "--source-event-id") {
+		t.Fatalf("expected continue flags in help, got %s", stdout)
+	}
+
+	_, stderr, err = runCLIArgs(t, "agent", "initiative", "continue")
+	if err == nil {
+		t.Fatal("expected missing summary to be rejected")
+	}
+	if !strings.Contains(stderr, "required flag(s) \"summary\" not set") {
+		t.Fatalf("expected required summary error, got %s", stderr)
+	}
+
+	_, stderr, err = runCLIArgs(t, "agent", "initiative", "continue", "--summary", "  ")
+	if err == nil {
+		t.Fatal("expected blank summary to be rejected")
+	}
+	if !strings.Contains(stderr, "missing --summary") {
+		t.Fatalf("expected blank summary error, got %s", stderr)
+	}
+}
+
+func TestProactiveAgentInitiativeContinueRejectsServiceAccountCredential(t *testing.T) {
+	t.Setenv("BREYTA_API_KEY", "bsa_sak-test_secret")
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"agent", "initiative", "continue",
+		"--summary", "Continue the Meta ads work.",
+	)
+	if err == nil {
+		t.Fatal("expected service-account credential to be rejected")
+	}
+	if requests != 0 {
+		t.Fatalf("expected no API request, got %d", requests)
+	}
+	if !strings.Contains(stderr, "requires signed-in user authentication") ||
+		!strings.Contains(stderr, "unset BREYTA_API_KEY") {
+		t.Fatalf("expected user-auth recovery hint, got %s", stderr)
+	}
+}
+
 func TestProactiveAgentInitiativeParkIsPublicAndRejectsArguments(t *testing.T) {
 	stdout, stderr, err := runCLIArgs(t, "--help")
 	if err != nil {
