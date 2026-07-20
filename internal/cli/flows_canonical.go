@@ -217,16 +217,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
+	deadline := time.Now().Add(timeout)
+	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
+	defer cancelWait()
 	var liveRenderer *liveWaitRenderer
 	if liveOutput {
 		liveRenderer = newLiveWaitRenderer(cmd, app, client, workflowID)
 		defer liveRenderer.Close()
-		liveRenderer.Update(cmd.Context(), false)
+		liveRenderer.Update(waitCtx, false)
 	}
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")
 	}
-	deadline := time.Now().Add(timeout)
 	polls := 0
 	var nextTerminalFallback time.Time
 	avgMs := avgDurationMsFromRunData(startResp)
@@ -287,14 +289,14 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
 					if liveRenderer != nil {
-						liveRenderer.Update(cmd.Context(), true)
-						liveRenderer.WaitForExit(cmd.Context())
+						liveRenderer.Update(waitCtx, true)
+						liveRenderer.WaitForExit(waitCtx)
 					}
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
 			}
 			if liveRenderer != nil {
-				liveRenderer.Update(cmd.Context(), false)
+				liveRenderer.Update(waitCtx, false)
 				if liveRenderer.StopRequested() {
 					return writeWaitError(errors.New("live wait cancelled"))
 				}
@@ -305,7 +307,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				}
 				return nil
 			}
-			sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+			sleepWithLiveUpdates(waitCtx, liveRenderer, poll)
 			if liveRenderer != nil && liveRenderer.StopRequested() {
 				return writeWaitError(errors.New("live wait cancelled"))
 			}
@@ -337,8 +339,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				return writeWaitError(err)
 			}
 			if liveRenderer != nil {
-				liveRenderer.Update(cmd.Context(), true)
-				liveRenderer.WaitForExit(cmd.Context())
+				liveRenderer.Update(waitCtx, true)
+				liveRenderer.WaitForExit(waitCtx)
 			}
 			if finalStatus >= 400 {
 				finalResp = execResp
@@ -361,15 +363,15 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
 			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
 				if liveRenderer != nil {
-					liveRenderer.Update(cmd.Context(), true)
-					liveRenderer.WaitForExit(cmd.Context())
+					liveRenderer.Update(waitCtx, true)
+					liveRenderer.WaitForExit(waitCtx)
 				}
 				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 			}
 		}
 
 		if liveRenderer != nil {
-			liveRenderer.Update(cmd.Context(), false)
+			liveRenderer.Update(waitCtx, false)
 			if liveRenderer.StopRequested() {
 				return writeWaitError(errors.New("live wait cancelled"))
 			}
@@ -423,7 +425,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			}
 			return nil
 		}
-		sleepWithLiveUpdates(cmd.Context(), liveRenderer, poll)
+		sleepWithLiveUpdates(waitCtx, liveRenderer, poll)
 		if liveRenderer != nil && liveRenderer.StopRequested() {
 			return writeWaitError(errors.New("live wait cancelled"))
 		}

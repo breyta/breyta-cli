@@ -278,3 +278,100 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 		t.Fatalf("expected ok stdout, got %#v", out)
 	}
 }
+
+func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
+	var baseURL string
+	var snapshotCanceled int64
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/commands":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			command, _ := body["command"].(string)
+			switch command {
+			case "flows.run":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-live-timeout",
+							"status":     "running",
+						},
+					},
+				})
+			case "runs.live.bootstrap":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"enabled":        true,
+						"workspaceId":    "ws-acme",
+						"workflowId":     "wf-live-timeout",
+						"watchUrl":       baseURL + "/watch/wf-live-timeout",
+						"runSnapshotUrl": baseURL + "/workspaces/ws-acme/runs/wf-live-timeout/live",
+						"runStreamUrl":   baseURL + "/workspaces/ws-acme/runs/wf-live-timeout/stream",
+						"pollMs":         1,
+						"auth": map[string]any{
+							"type":  "bearer",
+							"token": "rt-token",
+						},
+					},
+				})
+			case "runs.get":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":          true,
+					"workspaceId": "ws-acme",
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-live-timeout",
+							"status":     "completed",
+						},
+					},
+				})
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command " + command}})
+			}
+		case "/workspaces/ws-acme/runs/wf-live-timeout/live":
+			<-r.Context().Done()
+			atomic.AddInt64(&snapshotCanceled, 1)
+		case "/workspaces/ws-acme/runs/wf-live-timeout/stream":
+			<-r.Context().Done()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	baseURL = srv.URL
+
+	started := time.Now()
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "root-flow",
+		"--live",
+		"--poll", "1ms",
+		"--timeout", "2s",
+	)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("flows run --live failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("initial live refresh exceeded wait timeout: elapsed=%s\nstdout=%s\nstderr=%s", elapsed, stdout, stderr)
+	}
+	if atomic.LoadInt64(&snapshotCanceled) == 0 {
+		t.Fatalf("expected the live snapshot request to be cancelled by the wait deadline")
+	}
+	var out map[string]any
+	if err := json.NewDecoder(bytes.NewBufferString(stdout)).Decode(&out); err != nil {
+		t.Fatalf("expected JSON stdout, got error %v\n%s", err, stdout)
+	}
+	if out["ok"] != true {
+		t.Fatalf("expected ok stdout, got %#v", out)
+	}
+}
