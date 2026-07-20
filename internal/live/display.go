@@ -413,6 +413,15 @@ func activityDisplayKey(activity Activity) string {
 	workflowID := strings.TrimSpace(activity.WorkflowID)
 	stepID := strings.TrimSpace(activity.StepID)
 	activityID := strings.TrimSpace(activity.ActivityID)
+	activityKind := strings.ToLower(strings.TrimSpace(activity.ActivityKind))
+	if activityKind != "step" {
+		if activityID != "" {
+			return "activity:" + workflowID + ":" + activityKind + ":" + activityID
+		}
+		if toolCallID := strings.TrimSpace(activity.ToolCallID); toolCallID != "" {
+			return "activity:" + workflowID + ":" + activityKind + ":" + toolCallID
+		}
+	}
 	if stepID != "" {
 		return "activity:" + workflowID + ":" + stepID
 	}

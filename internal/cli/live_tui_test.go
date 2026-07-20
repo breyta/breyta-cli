@@ -631,6 +631,56 @@ func TestLiveTUIApproveWaitActionCallsResolver(t *testing.T) {
 	}
 }
 
+func TestLiveTUIWaitActionSuppressesResolvedWaitUntilInactivePoll(t *testing.T) {
+	model := newLiveTUIModel()
+	model.resolveWaitAction = func(liveTUIWaitAction, string) error {
+		return nil
+	}
+	wait := liveTUIWaitAction{
+		Active:  true,
+		WaitID:  "wait-1",
+		StepID:  "wait-for-approval",
+		Actions: []string{"approve", "reject"},
+	}
+	model.setWaitAction(wait)
+
+	cmd := model.startWaitAction("approve")
+	if cmd == nil {
+		t.Fatal("expected approve resolver command")
+	}
+	updated, _ := model.Update(cmd())
+	model = updated.(liveTUIModel)
+	if model.waitAction.Active || model.resolvedWaitID != "wait-1" {
+		t.Fatalf("expected resolved wait to be hidden and remembered, action=%#v resolved=%q", model.waitAction, model.resolvedWaitID)
+	}
+	if model.waitActionMessage != "approve sent" {
+		t.Fatalf("expected sent message after successful resolution, got %q", model.waitActionMessage)
+	}
+
+	updated, _ = model.Update(liveTUIFrameMsg{waitAction: wait, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if model.waitAction.Active || model.resolvedWaitID != "wait-1" {
+		t.Fatalf("expected stale active frame to remain suppressed, action=%#v resolved=%q", model.waitAction, model.resolvedWaitID)
+	}
+	if model.waitActionMessage != "approve sent" {
+		t.Fatalf("expected sent message to survive stale frame, got %q", model.waitActionMessage)
+	}
+	if cmd := model.startWaitAction("approve"); cmd != nil {
+		t.Fatal("did not expect duplicate approve command while stale wait remains cached")
+	}
+
+	updated, _ = model.Update(liveTUIFrameMsg{waitAction: liveTUIWaitAction{}, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if model.resolvedWaitID != "" || model.waitActionMessage != "" {
+		t.Fatalf("expected inactive poll to clear resolved wait state, resolved=%q message=%q", model.resolvedWaitID, model.waitActionMessage)
+	}
+	updated, _ = model.Update(liveTUIFrameMsg{waitAction: wait, at: time.Now()})
+	model = updated.(liveTUIModel)
+	if !model.waitAction.Active {
+		t.Fatal("expected a later active poll to re-enable the wait")
+	}
+}
+
 func TestLiveTUIWaitActionConfirmationCanBeCancelled(t *testing.T) {
 	model := newLiveTUIModel()
 	model.resolveWaitAction = func(liveTUIWaitAction, string) error {

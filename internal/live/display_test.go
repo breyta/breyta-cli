@@ -92,6 +92,39 @@ func TestCollectDisplayFrameKeepsCompletedStepsInTreeOrder(t *testing.T) {
 	}
 }
 
+func TestActivityDisplayKeyKeepsNestedToolRowsDistinctFromSteps(t *testing.T) {
+	step := Activity{
+		WorkflowID:   "wf-root",
+		ActivityKind: "step",
+		StepID:       "research-step",
+		ActivityID:   "research-step",
+	}
+	tool := Activity{
+		WorkflowID:   "wf-root",
+		ActivityKind: "tool_call",
+		StepID:       "research-step",
+		ActivityID:   "tool-fetch",
+		ToolCallID:   "call-fetch",
+	}
+	secondTool := Activity{
+		WorkflowID:   "wf-root",
+		ActivityKind: "tool_call",
+		StepID:       "research-step",
+		ActivityID:   "tool-score",
+		ToolCallID:   "call-score",
+	}
+
+	stepKey := activityDisplayKey(step)
+	toolKey := activityDisplayKey(tool)
+	secondToolKey := activityDisplayKey(secondTool)
+	if stepKey == toolKey || stepKey == secondToolKey || toolKey == secondToolKey {
+		t.Fatalf("expected step and nested tool keys to be unique: step=%q tool=%q secondTool=%q", stepKey, toolKey, secondToolKey)
+	}
+	if !strings.Contains(toolKey, "tool-fetch") || !strings.Contains(secondToolKey, "tool-score") {
+		t.Fatalf("expected nested tool keys to include their activity identities: tool=%q secondTool=%q", toolKey, secondToolKey)
+	}
+}
+
 func TestCollectDisplayFrameCarriesResourceRunContext(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
 	done := now.Add(-2 * time.Second)

@@ -124,6 +124,7 @@ type liveTUIModel struct {
 	stepIOOffset int
 
 	waitAction        liveTUIWaitAction
+	resolvedWaitID    string
 	waitActionPending string
 	waitActionMessage string
 	waitActionConfirm string
@@ -233,7 +234,8 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.waitActionMessage = msg.action + " sent"
-		if strings.TrimSpace(msg.waitID) != "" && msg.waitID == m.waitAction.WaitID {
+		if waitID := strings.TrimSpace(msg.waitID); waitID != "" && waitID == strings.TrimSpace(m.waitAction.WaitID) {
+			m.resolvedWaitID = waitID
 			m.waitAction = liveTUIWaitAction{}
 		}
 	}
@@ -394,10 +396,20 @@ func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
 func (m *liveTUIModel) setWaitAction(wait liveTUIWaitAction) {
 	if !wait.Active {
 		m.waitAction = liveTUIWaitAction{}
+		m.resolvedWaitID = ""
 		m.waitActionPending = ""
 		m.waitActionMessage = ""
 		m.waitActionConfirm = ""
 		return
+	}
+	if resolvedWaitID := strings.TrimSpace(m.resolvedWaitID); resolvedWaitID != "" {
+		if resolvedWaitID == strings.TrimSpace(wait.WaitID) {
+			m.waitAction = liveTUIWaitAction{}
+			m.waitActionPending = ""
+			m.waitActionConfirm = ""
+			return
+		}
+		m.resolvedWaitID = ""
 	}
 	if wait.WaitID != m.waitAction.WaitID {
 		m.waitActionPending = ""
