@@ -106,6 +106,59 @@ func TestRequireAPI_RefreshesTokenFromStoreWhenNotExplicit(t *testing.T) {
 	}
 }
 
+func TestRequireAPI_RefreshesTokenWellBeforeExpiry(t *testing.T) {
+	var refreshCalls atomic.Int32
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/auth/refresh" || r.Method != http.MethodPost {
+				return httpJSON(404, map[string]any{"success": false, "error": "not found"})
+			}
+			refreshCalls.Add(1)
+			return httpJSON(200, map[string]any{
+				"success":      true,
+				"token":        "tok-2",
+				"refreshToken": "ref-2",
+				"expiresIn":    3600,
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	st := &authstore.Store{
+		Tokens: map[string]authstore.Record{
+			baseURL: {
+				Token:        "tok-1",
+				RefreshToken: "ref-1",
+				ExpiresAt:    time.Now().UTC().Add(10 * time.Minute),
+				UpdatedAt:    time.Now().UTC(),
+			},
+		},
+	}
+	if err := authstore.SaveAtomic(storePath, st); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	app := &App{
+		APIURL:        baseURL,
+		Token:         "tok-1",
+		TokenExplicit: false,
+	}
+
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("requireAPI: %v", err)
+	}
+	if app.Token != "tok-2" {
+		t.Fatalf("expected refreshed token tok-2, got %q", app.Token)
+	}
+	if refreshCalls.Load() != 1 {
+		t.Fatalf("expected refresh called once, got %d", refreshCalls.Load())
+	}
+}
+
 func TestRequireAPI_DoesNotRefreshWhenTokenExplicit(t *testing.T) {
 	var refreshCalls atomic.Int32
 
