@@ -1940,11 +1940,11 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 	}
 	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
 		diag := lintDiagnostic(
-			"error",
+			"warning",
 			"function_step_input_shape_invalid",
 			append(path, ":input"),
-			"Function step :input must be a map when present.",
-			"Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}.",
+			"Referenced function step :input uses a legacy bare value instead of a map.",
+			"Pulled legacy source can keep this compatibility shape. For new steps, prefer an input map such as :input {:input input} or :input {:rows rows}, then confirm compatibility with server lint.",
 			"local",
 		)
 		diag["byteOffset"] = input.ValueStart
