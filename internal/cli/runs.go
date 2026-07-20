@@ -18,9 +18,12 @@ import (
 )
 
 var shortRunIDPattern = regexp.MustCompile(`^r[0-9]+$`)
-var linkedInstallationRunSuffixPattern = regexp.MustCompile(`^([A-Za-z0-9_-]+)-v[0-9]+(?:-p[A-Za-z0-9_-]+)?(?:-c)?-r[0-9]+$`)
+var linkedInstallationRunTailPattern = regexp.MustCompile(`^([A-Za-z0-9_-]+?)(?:-p[0-9A-Fa-f]{8})?(?:-c)?-r[0-9]+$`)
+var linkedInstallationVersionSegmentPattern = regexp.MustCompile(`(?:^|-)v[0-9]+(?:-|$)`)
+var trailingRunVersionSegmentPattern = regexp.MustCompile(`-v[0-9]+$`)
 
 const linkedInstallationWorkflowIDMarker = "-install-"
+const maxLinkedInstallationIDCandidates = 12
 
 type apiCommandRunner interface {
 	DoCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error)
@@ -70,25 +73,89 @@ func installationIDFromRunData(data map[string]any) string {
 	return ""
 }
 
-func installationIDFromLinkedRunWorkflowID(workflowID string) string {
+func installationIDCandidatesFromLinkedRunWorkflowID(workflowID string) []string {
 	workflowID = strings.TrimSpace(workflowID)
 	markerIndex := strings.LastIndex(workflowID, linkedInstallationWorkflowIDMarker)
 	if markerIndex < 0 {
-		return ""
+		return nil
 	}
 	tail := workflowID[markerIndex+len(linkedInstallationWorkflowIDMarker):]
-	matches := linkedInstallationRunSuffixPattern.FindStringSubmatch(tail)
+	matches := linkedInstallationRunTailPattern.FindStringSubmatch(tail)
 	if len(matches) != 2 {
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(matches[1])
+	scopedConcurrencyTail := matches[1]
+	if !linkedInstallationVersionSegmentPattern.MatchString(scopedConcurrencyTail) {
+		return nil
+	}
+	// Non-coexist runs append their version after the keyed concurrency value.
+	// Coexist runs contain the version earlier in that value, so only remove a
+	// trailing version segment here.
+	scopedConcurrencyTail = trailingRunVersionSegmentPattern.ReplaceAllString(scopedConcurrencyTail, "")
+	parts := strings.Split(scopedConcurrencyTail, "-")
+	candidateCount := min(len(parts), maxLinkedInstallationIDCandidates)
+	candidates := make([]string, 0, candidateCount)
+	for i := 1; i <= candidateCount; i++ {
+		candidate := strings.TrimSpace(strings.Join(parts[:i], "-"))
+		if candidate != "" {
+			candidates = append(candidates, candidate)
+		}
+	}
+	return candidates
 }
 
-func effectiveRunInstallationID(workflowID string, explicitInstallationID string) string {
-	if explicitInstallationID = strings.TrimSpace(explicitInstallationID); explicitInstallationID != "" {
-		return explicitInstallationID
+func runsInspectGet(app *App, workflowID string, explicitInstallationID string, payload map[string]any) (map[string]any, int, string, error) {
+	return runsInspectGetWithCommand(
+		func(requestPayload map[string]any) (map[string]any, int, error) {
+			return runAPICommand(app, "runs.get", requestPayload)
+		},
+		workflowID,
+		explicitInstallationID,
+		payload,
+	)
+}
+
+func runsInspectGetWithCommand(runGet func(map[string]any) (map[string]any, int, error), workflowID string, explicitInstallationID string, payload map[string]any) (map[string]any, int, string, error) {
+	explicitInstallationID = strings.TrimSpace(explicitInstallationID)
+	doGet := func(installationID string) (map[string]any, int, error) {
+		requestPayload := make(map[string]any, len(payload)+1)
+		for key, value := range payload {
+			requestPayload[key] = value
+		}
+		delete(requestPayload, "installationId")
+		if installationID != "" {
+			requestPayload["installationId"] = installationID
+		}
+		return runGet(requestPayload)
 	}
-	return installationIDFromLinkedRunWorkflowID(workflowID)
+
+	if explicitInstallationID != "" {
+		out, status, err := doGet(explicitInstallationID)
+		return out, status, explicitInstallationID, err
+	}
+
+	// A normal workspace run may contain "-install-" in its flow slug. Always
+	// try the unscoped lookup first so an opaque workflow id is never eagerly
+	// forced into the wrong installation scope.
+	out, status, err := doGet("")
+	if err != nil || status != http.StatusNotFound {
+		return out, status, "", err
+	}
+	unscopedOut, unscopedStatus := out, status
+
+	// Installation ids and keyed concurrency values use the same delimiter in
+	// canonical workflow ids. Try prefixes from shortest to longest and retain
+	// only the candidate that resolves the run.
+	for _, candidate := range installationIDCandidatesFromLinkedRunWorkflowID(workflowID) {
+		out, status, err = doGet(candidate)
+		if err != nil {
+			return nil, status, "", err
+		}
+		if status != http.StatusNotFound {
+			return out, status, candidate, nil
+		}
+	}
+	return unscopedOut, unscopedStatus, "", nil
 }
 
 func newRunsListCmd(app *App) *cobra.Command {
@@ -743,12 +810,11 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := strings.TrimSpace(args[0])
-			effectiveInstallationID := effectiveRunInstallationID(workflowID, installationID)
 			if strings.TrimSpace(stepID) != "" {
 				if !isAPIMode(app) {
 					return writeLocalRunStepInspect(cmd, app, workflowID, stepID)
 				}
-				return doRunsStepInspect(cmd, app, workflowID, stepID, effectiveInstallationID, full)
+				return doRunsStepInspect(cmd, app, workflowID, stepID, installationID, full)
 			}
 			if !isAPIMode(app) {
 				return writeLocalRunInspect(cmd, app, workflowID)
@@ -764,10 +830,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				payload["includeResult"] = false
 				payload["compactInspect"] = true
 			}
-			if effectiveInstallationID != "" {
-				payload["installationId"] = effectiveInstallationID
-			}
-			out, status, err := runAPICommand(app, "runs.get", payload)
+			out, status, effectiveInstallationID, err := runsInspectGet(app, workflowID, installationID, payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -991,10 +1054,7 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 		"includeStepResults": full,
 		"stepId":             strings.TrimSpace(stepID),
 	}
-	if strings.TrimSpace(installationID) != "" {
-		payload["installationId"] = strings.TrimSpace(installationID)
-	}
-	out, status, err := runAPICommand(app, "runs.get", payload)
+	out, status, effectiveInstallationID, err := runsInspectGet(app, workflowID, installationID, payload)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
@@ -1035,7 +1095,7 @@ func doRunsStepInspect(cmd *cobra.Command, app *App, workflowID string, stepID s
 		"cost":           firstPresent(step, "cost", "usage", "counters", "metering"),
 		"execution":      compactAPIRunStepExecution(step),
 	}
-	if events, eventsMeta := fetchAPIRunEvents(app, strings.TrimSpace(workflowID), stepIDOut, installationID, 50); events != nil {
+	if events, eventsMeta := fetchAPIRunEvents(app, strings.TrimSpace(workflowID), stepIDOut, effectiveInstallationID, 50); events != nil {
 		data["events"] = events
 		meta["eventCount"] = len(events)
 		meta["eventsSourceCommand"] = "runs.events"
