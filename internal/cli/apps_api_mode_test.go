@@ -6609,6 +6609,91 @@ func TestFlowsRun_WaitTimeoutIncludesHydratedSnapshotAndLongerTimeoutHint(t *tes
 	}
 }
 
+func TestFlowsRun_WaitTimeoutBoundsHydratedSnapshot(t *testing.T) {
+	hydrationStarted := make(chan struct{}, 1)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		command, _ := body["command"].(string)
+		args, _ := body["args"].(map[string]any)
+		switch command {
+		case "flows.run":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-flow-bounded-snapshot",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			if args["includeSteps"] == true {
+				hydrationStarted <- struct{}{}
+				timer := time.NewTimer(2 * time.Second)
+				defer timer.Stop()
+				select {
+				case <-r.Context().Done():
+					return
+				case <-timer.C:
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"run": map[string]any{
+							"workflowId": "wf-flow-bounded-snapshot",
+							"status":     "running",
+						},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-flow-bounded-snapshot",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	started := time.Now()
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "bounded-snapshot-flow",
+		"--wait",
+		"--poll", "1ms",
+		"--timeout", "1ms",
+	)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("expected bounded timeout hydration to return an envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	select {
+	case <-hydrationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected timeout path to attempt final snapshot hydration")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("timeout snapshot was not bounded, elapsed=%s", elapsed)
+	}
+	if !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected timeout envelope, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsRun_WaitTimeoutReconcilesHydratedTerminalSnapshot(t *testing.T) {
 	var compactPolls int
 	var terminalHydrations int

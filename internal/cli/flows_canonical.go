@@ -279,9 +279,11 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"workflow_id": workflowID,
 			"wait":        true,
 		})
-		// The polling deadline has elapsed, but one best-effort final hydration
-		// still preserves the existing timeout snapshot behavior.
-		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+		// The polling deadline has elapsed, but one bounded best-effort final
+		// hydration still preserves the existing timeout snapshot behavior.
+		snapshotCtx, cancelSnapshot := context.WithTimeout(cmd.Context(), waitTimeoutSnapshotBudget)
+		defer cancelSnapshot()
+		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshotWithContext(snapshotCtx, client, workflowID, installationID); err == nil && snapshotStatus < 400 {
 			if run := runFromCommandResponse(snapshot); run != nil {
 				snapshotRunStatus := canonicalRunStatus(run["status"])
 				if isTerminalRunStatus(snapshotRunStatus) {
