@@ -19,6 +19,8 @@ import (
 
 var shortRunIDPattern = regexp.MustCompile(`^r[0-9]+$`)
 
+const waitTimeoutSnapshotBudget = 250 * time.Millisecond
+
 type apiCommandRunner interface {
 	DoCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error)
 }
@@ -522,9 +524,11 @@ Use runs start only when integrating with older scripts.
 					if strings.TrimSpace(statusStr) == "" {
 						statusStr = startRunStatus
 					}
-					// The polling deadline has elapsed, but one best-effort final
+					// The polling deadline has elapsed, but one bounded best-effort
 					// hydration still preserves the existing timeout snapshot behavior.
-					if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, waitInstallationID); err == nil && snapshotStatus < 400 {
+					snapshotCtx, cancelSnapshot := context.WithTimeout(cmd.Context(), waitTimeoutSnapshotBudget)
+					defer cancelSnapshot()
+					if snapshot, snapshotStatus, err := hydrateWaitRunSnapshotWithContext(snapshotCtx, client, workflowID, waitInstallationID); err == nil && snapshotStatus < 400 {
 						if run := runFromCommandResponse(snapshot); run != nil {
 							snapshotRunStatus := canonicalRunStatus(run["status"])
 							if isTerminalRunStatus(snapshotRunStatus) {

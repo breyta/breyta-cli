@@ -523,6 +523,75 @@ func TestRunsStart_WaitTimeoutReturnsInProgressEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunsStart_WaitTimeoutBoundsHydratedSnapshot(t *testing.T) {
+	hydrationStarted := make(chan struct{}, 1)
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-start-bounded-snapshot",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			args, _ := body["args"].(map[string]any)
+			if args["includeSteps"] == true {
+				select {
+				case hydrationStarted <- struct{}{}:
+				default:
+				}
+				<-r.Context().Done()
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"run": map[string]any{
+						"workflowId": "wf-runs-start-bounded-snapshot",
+						"status":     "running",
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	started := time.Now()
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start", "--flow", "bounded-snapshot-flow",
+		"--wait", "--poll", "1ms", "--timeout", "1ms",
+	)
+	if err != nil {
+		t.Fatalf("expected bounded snapshot timeout envelope, got err=%v\nstdout=%s", err, stdout)
+	}
+	select {
+	case <-hydrationStarted:
+	default:
+		t.Fatal("expected timeout path to attempt final hydration")
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("timeout snapshot was not bounded, elapsed=%s", elapsed)
+	}
+	if !strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected timeout envelope, got:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_WaitTimeoutReconcilesHydratedTerminalSnapshot(t *testing.T) {
 	var compactPolls int
 	var terminalHydrations int

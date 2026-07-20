@@ -335,7 +335,7 @@ func IsRetryableCommandFailure(ctx context.Context, command string, status int, 
 		return false
 	}
 	if err != nil {
-		return retryableCommandError(ctx, err) || retryableCommandStatusIfContextActive(ctx, status)
+		return retryableCommandError(ctx, status, err) || retryableCommandStatusIfContextActive(ctx, status)
 	}
 	return retryableCommandStatus(status)
 }
@@ -345,7 +345,7 @@ func shouldRetryCommandAttempt(ctx context.Context, status int, err error, attem
 		return false
 	}
 	if err != nil {
-		return retryableCommandError(ctx, err) || retryableCommandStatusIfContextActive(ctx, status)
+		return retryableCommandError(ctx, status, err) || retryableCommandStatusIfContextActive(ctx, status)
 	}
 	return retryableCommandStatus(status)
 }
@@ -370,7 +370,7 @@ func retryableCommandStatus(status int) bool {
 	}
 }
 
-func retryableCommandError(ctx context.Context, err error) bool {
+func retryableCommandError(ctx context.Context, status int, err error) bool {
 	if err == nil {
 		return false
 	}
@@ -385,6 +385,9 @@ func retryableCommandError(ctx context.Context, err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "invalid json response") {
+		return retryableCommandStatus(status)
+	}
 	return strings.Contains(msg, "context deadline exceeded") ||
 		strings.Contains(msg, "client.timeout") ||
 		strings.Contains(msg, "timeout awaiting response headers") ||

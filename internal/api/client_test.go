@@ -367,6 +367,25 @@ func TestClient_DoCommand_DoesNotRetryRunsGetAfterWaitContextDeadline(t *testing
 	}
 }
 
+func TestIsRetryableCommandFailure_InvalidJSONRequiresRetryableStatus(t *testing.T) {
+	err := errors.New("invalid json response (status=502): unexpected end of JSON input")
+	for _, tc := range []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{name: "bad gateway", status: http.StatusBadGateway, want: true},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: false},
+		{name: "malformed success", status: http.StatusOK, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsRetryableCommandFailure(context.Background(), "runs.get", tc.status, err); got != tc.want {
+				t.Fatalf("IsRetryableCommandFailure(status=%d) = %v, want %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClient_DoCommand_ReturnsWaitContextDeadlineWhenRetryBackoffExpires(t *testing.T) {
 	origBackoffs := readCommandRetryBackoffs
 	readCommandRetryBackoffs = []time.Duration{200 * time.Millisecond}
