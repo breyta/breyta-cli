@@ -347,7 +347,9 @@ func collectResource(frame *DisplayFrame, activity Activity, prefix string, opts
 		return
 	}
 	line := formatResourceLine(activity, prefix, opts)
-	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" + firstNonBlank(activity.ActivityID, activity.ResourceURI, activity.ResourceLabel)
+	key := "resource:" + strings.TrimSpace(activity.WorkflowID) + ":" +
+		firstNonBlank(activity.ActivityID, activity.ResourceLabel) + ":" +
+		strings.TrimSpace(activity.ResourceURI)
 	frame.add(DisplayLine{
 		Key:              key,
 		Text:             line,

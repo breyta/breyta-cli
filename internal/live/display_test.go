@@ -162,6 +162,36 @@ func TestCollectDisplayFrameCarriesResourceRunContext(t *testing.T) {
 	}
 }
 
+func TestCollectResourceKeysIncludeURI(t *testing.T) {
+	frame := &DisplayFrame{}
+	run := RunState{WorkflowID: "wf-root"}
+
+	collectResource(frame, Activity{
+		WorkflowID:    "wf-root",
+		ActivityID:    "resource:shared",
+		ResourceURI:   "res://v1/ws/ws-acme/result/blob/first",
+		ResourceLabel: "report",
+	}, "", RenderOptions{Color: false}, run)
+	collectResource(frame, Activity{
+		WorkflowID:    "wf-root",
+		ActivityID:    "resource:shared",
+		ResourceURI:   "res://v1/ws/ws-acme/result/blob/second",
+		ResourceLabel: "report",
+	}, "", RenderOptions{Color: false}, run)
+
+	if len(frame.Lines) != 2 {
+		t.Fatalf("expected two resource lines, got %d", len(frame.Lines))
+	}
+	if frame.Lines[0].Key == frame.Lines[1].Key {
+		t.Fatalf("resource keys must distinguish URIs: %#v", frame.Lines)
+	}
+	for _, line := range frame.Lines {
+		if !strings.Contains(line.Key, line.ResourceURI) {
+			t.Fatalf("resource key should include URI %q: %#v", line.ResourceURI, line)
+		}
+	}
+}
+
 func TestCollectDisplayFrameSuppressesAutomaticStepCaptureResources(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 10, 0, time.UTC)
 	done := now.Add(-2 * time.Second)
