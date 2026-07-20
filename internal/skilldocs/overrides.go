@@ -616,6 +616,8 @@ it to a workspace draft:
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
+- ` + "`breyta steps run`" + ` waits up to five minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 10m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 10m`" + `.
+- A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
 `
 

@@ -235,6 +235,19 @@ For every side-effectful `breyta steps run`, pass
 after a timeout, dropped response, or 5xx. Do not switch to a fresh key until
 the external side effect has been reconciled.
 
+`breyta steps run` waits up to five minutes by default. For a slow flow-local
+template/data probe, pass an explicit longer timeout, for example:
+
+```bash
+breyta steps run --flow update-blog-post --source draft --type llm \
+  --id refresh-blog-post \
+  --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' \
+  --timeout 10m
+```
+
+A timeout may mean the server-side step continued; reconcile any external
+effect before retrying.
+
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,
 step arrays, or result payloads. `resources read` defaults to compact blob
