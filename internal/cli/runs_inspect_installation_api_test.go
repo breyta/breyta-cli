@@ -167,7 +167,7 @@ func TestRunsInspectGetWithCommand(t *testing.T) {
 				attempts = append(attempts, candidate)
 				switch candidate {
 				case "":
-					return map[string]any{"ok": false}, http.StatusNotFound, nil
+					return map[string]any{"ok": false}, http.StatusOK, nil
 				case "inst", "inst-with":
 					return map[string]any{"ok": false}, http.StatusOK, nil
 				case wantInstallationID:

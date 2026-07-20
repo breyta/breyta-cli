@@ -146,10 +146,13 @@ func runsInspectGetWithCommand(runGet func(map[string]any) (map[string]any, int,
 	// try the unscoped lookup first so an opaque workflow id is never eagerly
 	// forced into the wrong installation scope.
 	out, status, err := doGet("")
-	if err != nil || status != http.StatusNotFound {
+	if err != nil {
 		return out, status, "", err
 	}
 	unscopedOut, unscopedStatus := out, status
+	if runInspectResponseResolved(out, status) {
+		return out, status, "", nil
+	}
 
 	// Installation ids and keyed concurrency values use the same delimiter in
 	// canonical workflow ids. Try prefixes from shortest to longest and retain
