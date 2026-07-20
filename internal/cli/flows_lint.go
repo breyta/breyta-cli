@@ -504,8 +504,7 @@ func validateLocalClojureReaderForm(src string, start int) (int, error) {
 		case '(':
 			return validateLocalClojureDelimitedReaderForms(src, i+1, ')', false)
 		case '"':
-			_, _, next, err := readClojureStringToken(src, i+1)
-			return next, err
+			return readClojureRegexTokenEnd(src, i+1)
 		case '?':
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if !ok {

@@ -1694,6 +1694,40 @@ func TestFlowsLintLocalOnlyAcceptsLegacyMetadataAndSymbolicValuesInFunctionCodeS
 	}
 }
 
+func TestFlowsLintLocalOnlyAcceptsRegexEscapesInPulledFunctionCodeStrings(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `;; breyta: pulled-source
+{:slug :pulled-function-regex
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :blank-text?
+              :code "(fn [input]\n  (boolean (re-matches #\"\\s+\" (:text input))))"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :check-text {:ref :blank-text? :input {:input input}}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint returned error for valid pulled regex code string: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "function_code_string_invalid")
+}
+
 func TestFlowsLintLocalOnlyRejectsReaderEvalInFunctionCodeStrings(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
