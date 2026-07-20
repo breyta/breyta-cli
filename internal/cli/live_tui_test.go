@@ -936,6 +936,7 @@ func TestLiveTUIEnterInspectsCompletedToolCallIO(t *testing.T) {
 			WorkspaceID:      "ws-acme",
 			WorkflowID:       "wf-root",
 			ParentActivityID: "research-agent",
+			ParentStepID:     "research-step",
 			ActivityID:       "research-agent/call-fetch-record",
 			ActivityKind:     "tool_call",
 			ActivityName:     "mock_fetch_record",
@@ -954,7 +955,7 @@ func TestLiveTUIEnterInspectsCompletedToolCallIO(t *testing.T) {
 	updated, _ = model.Update(cmd())
 	model = updated.(liveTUIModel)
 
-	if gotRef.WorkflowID != "wf-root" || gotRef.StepID != "research-agent" || gotRef.ToolCallID != "call-fetch-record" {
+	if gotRef.WorkflowID != "wf-root" || gotRef.StepID != "research-step" || gotRef.ToolCallID != "call-fetch-record" {
 		t.Fatalf("unexpected loader ref: %#v", gotRef)
 	}
 	view := stripTUIANSI(model.View())

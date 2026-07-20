@@ -225,7 +225,7 @@ func (m liveTUIModel) cursorStepIORef(visible []liveTreeNode) (liveTUIStepIORef,
 	stepID := strings.TrimSpace(line.StepID)
 	toolCallID := ""
 	if isToolDisplayLine(line) {
-		stepID = firstNonBlankString(line.ParentActivityID, line.ParentStepID, line.StepID)
+		stepID = firstNonBlankString(line.ParentStepID, line.ParentActivityID, line.StepID)
 		toolCallID = toolCallIDFromDisplayLine(line)
 	}
 	return liveTUIStepIORef{
