@@ -982,7 +982,7 @@ Examples:
 			out, status, err := client.DoCommand(ctx, "steps.run", payload)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") {
-					return writeErr(cmd, fmt.Errorf("steps record timed out after %s; the request may have reached the server and an external side effect may already have completed. Before retrying, reuse the same --idempotency-key or reconcile the external effect first if no key was provided: %w", timeout, err))
+					return writeErr(cmd, fmt.Errorf("steps record timed out after %s; the request may have reached the server and an external side effect may already have completed. Reconcile the external effect before retrying: %w", timeout, err))
 				}
 				return writeErr(cmd, err)
 			}

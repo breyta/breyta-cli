@@ -148,6 +148,12 @@ func TestStepsRecordTimeoutBoundsUnderlyingStepRun(t *testing.T) {
 	if !strings.Contains(stderr, "steps record timed out after 20ms") {
 		t.Fatalf("expected actionable timeout error, got %q", stderr)
 	}
+	if !strings.Contains(stderr, "Reconcile the external effect before retrying") {
+		t.Fatalf("expected steps record retry guidance, got %q", stderr)
+	}
+	if strings.Contains(stderr, "--idempotency-key") {
+		t.Fatalf("steps record timeout guidance must not advertise an unsupported flag, got %q", stderr)
+	}
 }
 
 func TestStepsRunCompactsResultByDefault(t *testing.T) {
