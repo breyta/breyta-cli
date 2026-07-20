@@ -382,7 +382,9 @@ func (r *liveWaitRenderer) render(snapshot live.Snapshot, now time.Time) {
 	frame := enrichLiveDisplayFrameWebLinks(r.app, live.CollectDisplayFrame(snapshot, opts))
 	text := strings.TrimSuffix(live.RenderDisplayFrame(frame), "\n")
 	waitActionKey := liveTUIWaitActionKey(r.waitAction)
-	if text == r.lastRenderedText && waitActionKey == r.lastRenderedWaitActionKey {
+	if text == r.lastRenderedText &&
+		waitActionKey == r.lastRenderedWaitActionKey &&
+		displayKey == r.lastRenderedDisplayKey {
 		r.lastRenderedDisplayKey = displayKey
 		return
 	}

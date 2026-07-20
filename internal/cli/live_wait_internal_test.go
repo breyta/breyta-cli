@@ -149,3 +149,57 @@ func TestLiveWaitRendererAppendsRedirectedFramesWithoutANSI(t *testing.T) {
 		t.Fatalf("expected redirected frame to contain no ANSI cursor controls, got %q", out.String())
 	}
 }
+
+func TestLiveWaitRendererSendsMetadataOnlyFrameChanges(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	snapshot := func(resourceURI string) live.Snapshot {
+		return live.Snapshot{
+			Runs: []live.RunState{{
+				WorkspaceID: "ws-acme",
+				WorkflowID:  "wf-live",
+				FlowSlug:    "metadata-flow",
+				Status:      "running",
+				Active:      true,
+			}},
+			Nodes: []live.Activity{{
+				WorkspaceID:   "ws-acme",
+				WorkflowID:    "wf-live",
+				ActivityKind:  "resource",
+				ResourceKind:  "blob",
+				ResourceLabel: "artifact",
+				ResourceURI:   resourceURI,
+			}},
+		}
+	}
+
+	first := snapshot("res://v1/ws/ws-acme/result/run/wf-live/flow-output?version=first")
+	second := snapshot("res://v1/ws/ws-acme/result/run/wf-live/flow-output?version=second")
+	if displayFrameKey(first, "wf-live") == displayFrameKey(second, "wf-live") {
+		t.Fatal("expected the resource metadata change to update the display key")
+	}
+	if got := strings.TrimSuffix(
+		live.RenderDisplayFrame(live.CollectDisplayFrame(first, live.RenderOptions{
+			Now: now, FocusWorkflowID: "wf-live", FullTree: true,
+		})),
+		"\n",
+	); got != strings.TrimSuffix(
+		live.RenderDisplayFrame(live.CollectDisplayFrame(second, live.RenderOptions{
+			Now: now, FocusWorkflowID: "wf-live", FullTree: true,
+		})),
+		"\n",
+	) {
+		t.Fatalf("expected metadata-only frames to have the same terminal text")
+	}
+
+	var out bytes.Buffer
+	renderer := &liveWaitRenderer{
+		workflowID: "wf-live",
+		out:        &out,
+	}
+	renderer.render(first, now)
+	initial := out.String()
+	renderer.render(second, now)
+	if out.String() == initial {
+		t.Fatalf("expected metadata-only frame change to be sent, output=%q", out.String())
+	}
+}
