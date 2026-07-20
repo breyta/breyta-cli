@@ -189,6 +189,18 @@ func (r *liveWaitRenderer) Close() {
 	}
 }
 
+func (r *liveWaitRenderer) closeAndPrintFinalSummary() {
+	if r == nil {
+		return
+	}
+	summary := strings.TrimSuffix(r.lastRenderedText, "\n")
+	r.Close()
+	if strings.TrimSpace(summary) == "" || r.out == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(r.out, summary)
+}
+
 func (r *liveWaitRenderer) cancelSnapshotFetch() {
 	if r == nil {
 		return

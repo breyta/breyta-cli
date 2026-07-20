@@ -239,6 +239,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	writeFinal := func(resp map[string]any, st int) error {
 		addRunStartETAMeta(resp, avgMs)
 		if liveRenderer.shouldSuppressFinalResult(resp, st) {
+			liveRenderer.closeAndPrintFinalSummary()
 			return nil
 		}
 		// Bubble Tea owns the alternate screen while live output is active. Restore

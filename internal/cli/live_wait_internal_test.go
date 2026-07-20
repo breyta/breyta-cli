@@ -365,6 +365,31 @@ func TestLiveWaitRendererKeepsFinalResultVisibleWhenRefreshIsFirstOutput(t *test
 	renderer.Close()
 }
 
+func TestLiveWaitRendererPrintsFinalSummaryAfterClosingTUI(t *testing.T) {
+	var out bytes.Buffer
+	renderer := &liveWaitRenderer{
+		interactive:               true,
+		stdoutInteractive:         true,
+		displayedLines:            2,
+		lastRenderedText:          "f wf-live\n  ✓ completed",
+		finalRefreshAttempted:     true,
+		finalRefreshHadLiveOutput: true,
+		tui:                       &liveTUIRunner{},
+		out:                       &out,
+	}
+
+	if !renderer.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
+		t.Fatal("expected interactive successful result to use the final live summary")
+	}
+	renderer.closeAndPrintFinalSummary()
+	if renderer.tui != nil {
+		t.Fatal("expected final summary path to close the live TUI")
+	}
+	if got := out.String(); !strings.Contains(got, "f wf-live") || !strings.Contains(got, "completed") {
+		t.Fatalf("expected final live summary after TUI close, got %q", got)
+	}
+}
+
 func TestLiveWaitRendererReturnsImmediatelyForTerminalRun(t *testing.T) {
 	renderer := &liveWaitRenderer{
 		interactive: true,
