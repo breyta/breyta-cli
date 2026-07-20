@@ -1285,18 +1285,51 @@ func TestFetchLiveTUIStepIOUsesRunsGetStepResults(t *testing.T) {
 	defer srv.Close()
 
 	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
-		WorkflowID: "wf-root",
-		StepID:     "collect-fanout",
-		Status:     "completed",
+		WorkflowID:     "wf-root",
+		InstallationID: "inst-buyer-test",
+		StepID:         "collect-fanout",
+		Status:         "completed",
 	})
 	if err != nil {
 		t.Fatalf("fetch step I/O failed: %v", err)
 	}
-	if capturedArgs["workflowId"] != "wf-root" || capturedArgs["stepId"] != "collect-fanout" || capturedArgs["includeStepResults"] != true {
+	if capturedArgs["workflowId"] != "wf-root" || capturedArgs["installationId"] != "inst-buyer-test" || capturedArgs["stepId"] != "collect-fanout" || capturedArgs["includeStepResults"] != true {
 		t.Fatalf("unexpected runs.get payload: %#v", capturedArgs)
 	}
 	if result.ResultKind != "output" || mapStringAny(result.Result)["ok"] != true {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestFetchLiveTUIRunIOIncludesInstallationID(t *testing.T) {
+	var capturedArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		capturedArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-buyer-test",
+					"status":     "completed",
+					"result":     map[string]any{"ok": true},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	_, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID:     "wf-buyer-test",
+		InstallationID: "inst-buyer-test",
+		TargetKind:     "run",
+	})
+	if err != nil {
+		t.Fatalf("fetch run I/O failed: %v", err)
+	}
+	if capturedArgs["workflowId"] != "wf-buyer-test" || capturedArgs["installationId"] != "inst-buyer-test" {
+		t.Fatalf("expected installation-scoped run inspection payload, got %#v", capturedArgs)
 	}
 }
 

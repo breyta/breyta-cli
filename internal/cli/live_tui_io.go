@@ -13,14 +13,15 @@ import (
 )
 
 type liveTUIStepIORef struct {
-	RowKey     string
-	WorkflowID string
-	StepID     string
-	ToolCallID string
-	TargetKind string
-	Label      string
-	Status     string
-	UpdatedAt  time.Time
+	RowKey         string
+	WorkflowID     string
+	InstallationID string
+	StepID         string
+	ToolCallID     string
+	TargetKind     string
+	Label          string
+	Status         string
+	UpdatedAt      time.Time
 }
 
 type liveTUIStepIOResult struct {
@@ -46,8 +47,11 @@ type liveTUIStepIOLoadedMsg struct {
 	err    error
 }
 
-func newLiveTUIStepIOLoader(app *App) func(liveTUIStepIORef) (liveTUIStepIOResult, error) {
+func newLiveTUIStepIOLoader(app *App, installationID string) func(liveTUIStepIORef) (liveTUIStepIOResult, error) {
 	return func(ref liveTUIStepIORef) (liveTUIStepIOResult, error) {
+		if strings.TrimSpace(ref.InstallationID) == "" {
+			ref.InstallationID = strings.TrimSpace(installationID)
+		}
 		return fetchLiveTUIStepIO(app, ref)
 	}
 }
@@ -66,13 +70,17 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 	if ref.TargetKind == "run" {
 		return fetchLiveTUIRunIO(app, ref, workflowID)
 	}
-	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", map[string]any{
+	payload := map[string]any{
 		"workflowId":         workflowID,
 		"includeSteps":       true,
 		"includeResult":      false,
 		"includeStepResults": true,
 		"stepId":             stepID,
-	}, 20*time.Second)
+	}
+	if installationID := strings.TrimSpace(ref.InstallationID); installationID != "" {
+		payload["installationId"] = installationID
+	}
+	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", payload, 20*time.Second)
 	if err != nil {
 		return liveTUIStepIOResult{}, err
 	}
@@ -108,11 +116,15 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 }
 
 func fetchLiveTUIRunIO(app *App, ref liveTUIStepIORef, workflowID string) (liveTUIStepIOResult, error) {
-	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", map[string]any{
+	payload := map[string]any{
 		"workflowId":    workflowID,
 		"includeSteps":  false,
 		"includeResult": true,
-	}, 20*time.Second)
+	}
+	if installationID := strings.TrimSpace(ref.InstallationID); installationID != "" {
+		payload["installationId"] = installationID
+	}
+	out, status, err := runAPICommandWithContextAndTimeout(context.Background(), app, "runs.get", payload, 20*time.Second)
 	if err != nil {
 		return liveTUIStepIOResult{}, err
 	}

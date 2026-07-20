@@ -29,6 +29,7 @@ type liveWaitRenderer struct {
 	snapshotClient    live.SnapshotClient
 	streamClient      live.StreamClient
 	workflowID        string
+	installationID    string
 	bootstrap         live.Bootstrap
 	bootstrapOK       bool
 	nextBootstrapAt   time.Time
@@ -75,7 +76,7 @@ type liveSnapshotFetchResult struct {
 	err      error
 }
 
-func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, workflowID string) *liveWaitRenderer {
+func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, workflowID string, installationID string) *liveWaitRenderer {
 	out := cmd.ErrOrStderr()
 	stderrInteractive := false
 	if f, ok := out.(*os.File); ok {
@@ -95,6 +96,7 @@ func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, 
 		snapshotClient:    live.SnapshotClient{HTTP: &http.Client{Timeout: 10 * time.Second}},
 		streamClient:      live.StreamClient{HTTP: &http.Client{Timeout: 0}},
 		workflowID:        strings.TrimSpace(workflowID),
+		installationID:    strings.TrimSpace(installationID),
 		interactive:       interactive,
 		stdoutInteractive: stdoutInteractive,
 		color:             color,
@@ -575,7 +577,7 @@ func (r *liveWaitRenderer) redrawLiveBlock(frame live.DisplayFrame, text string)
 	}
 	if r.interactive {
 		if r.tui == nil {
-			r.tui = newLiveTUIRunner(r.out, r.resolveTUIWaitAction, newLiveTUIStepIOLoader(r.app))
+			r.tui = newLiveTUIRunner(r.out, r.resolveTUIWaitAction, newLiveTUIStepIOLoader(r.app, r.installationID))
 		}
 		r.tui.SendFrame(frame, r.waitAction)
 		return

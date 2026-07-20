@@ -217,18 +217,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return writeErr(cmd, errors.New("missing data.workflowId in start response"))
 	}
 	installationID := installationIDFromRunData(data)
+	if installationID == "" {
+		installationID = argString(payload, "installationId", "installation-id")
+	}
 	deadline := time.Now().Add(timeout)
 	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
 	defer cancelWait()
 	var liveRenderer *liveWaitRenderer
 	if liveOutput {
-		liveRenderer = newLiveWaitRenderer(cmd, app, client, workflowID)
+		liveRenderer = newLiveWaitRenderer(cmd, app, client, workflowID, installationID)
 		defer liveRenderer.Close()
 		// Live output is supplementary to normal wait polling. Do not let a
 		// slow live bootstrap delay the first runs.get terminal check.
-	}
-	if installationID == "" {
-		installationID = argString(payload, "installationId", "installation-id")
 	}
 	polls := 0
 	var nextTerminalFallback time.Time
