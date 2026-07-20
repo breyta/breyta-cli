@@ -181,7 +181,7 @@ func TestFlowsPush_GatewayTimeoutResponseExplainsSafeRecovery(t *testing.T) {
 	}
 	message := stderr + err.Error()
 	for _, expected := range []string{
-		"flows push timed out after 1s while saving push-timeout-response",
+		"flows push timed out while saving push-timeout-response",
 		"the draft may already have been saved",
 		"breyta flows show push-timeout-response",
 		"breyta flows validate push-timeout-response",
@@ -189,6 +189,9 @@ func TestFlowsPush_GatewayTimeoutResponseExplainsSafeRecovery(t *testing.T) {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("gateway timeout recovery message missing %q:\n%s", expected, message)
 		}
+	}
+	if strings.Contains(message, "after 1s") {
+		t.Fatalf("gateway timeout response should not claim the client deadline elapsed:\n%s", message)
 	}
 	if !strings.Contains(stdout, "timeoutRecovery") {
 		t.Fatalf("expected structured timeout recovery metadata:\n%s", stdout)
@@ -223,7 +226,7 @@ func TestFlowsPush_NonJSONGatewayTimeoutStillExplainsSafeRecovery(t *testing.T) 
 	}
 	message := stderr + err.Error()
 	for _, expected := range []string{
-		"flows push timed out after 1s while saving push-timeout-html-response",
+		"flows push timed out while saving push-timeout-html-response",
 		"the draft may already have been saved",
 		"breyta flows show push-timeout-html-response",
 		"breyta flows validate push-timeout-html-response",
@@ -231,6 +234,9 @@ func TestFlowsPush_NonJSONGatewayTimeoutStillExplainsSafeRecovery(t *testing.T) 
 		if !strings.Contains(message, expected) {
 			t.Fatalf("non-JSON gateway timeout recovery message missing %q:\n%s", expected, message)
 		}
+	}
+	if strings.Contains(message, "after 1s") {
+		t.Fatalf("non-JSON gateway timeout response should not claim the client deadline elapsed:\n%s", message)
 	}
 	if !strings.Contains(stdout, "timeoutRecovery") {
 		t.Fatalf("expected structured timeout recovery metadata:\n%s", stdout)

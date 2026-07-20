@@ -1399,16 +1399,28 @@ func flowPushRequestError(err error, timeout time.Duration, flowSlug, phase stri
 }
 
 func flowPushTimeoutMessage(timeout time.Duration, flowSlug, phase string) string {
+	return flowPushTimeoutMessageWithDuration(timeout, flowSlug, phase, true)
+}
+
+func flowPushTimeoutResponseMessage(flowSlug, phase string) string {
+	return flowPushTimeoutMessageWithDuration(0, flowSlug, phase, false)
+}
+
+func flowPushTimeoutMessageWithDuration(timeout time.Duration, flowSlug, phase string, includeDuration bool) string {
+	duration := ""
+	if includeDuration {
+		duration = fmt.Sprintf(" after %s", timeout)
+	}
 	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
 		if slug := strings.TrimSpace(flowSlug); slug != "" {
-			return fmt.Sprintf("flows push timed out after %s while validating saved draft %s; the draft was already saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", timeout, slug, slug, slug)
+			return fmt.Sprintf("flows push timed out%s while validating saved draft %s; the draft was already saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", duration, slug, slug, slug)
 		}
-		return fmt.Sprintf("flows push timed out after %s while validating the saved draft; the draft was already saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", timeout)
+		return fmt.Sprintf("flows push timed out%s while validating the saved draft; the draft was already saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", duration)
 	}
 	if slug := strings.TrimSpace(flowSlug); slug != "" {
-		return fmt.Sprintf("flows push timed out after %s while saving %s; the draft may already have been saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", timeout, slug, slug, slug)
+		return fmt.Sprintf("flows push timed out%s while saving %s; the draft may already have been saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", duration, slug, slug, slug)
 	}
-	return fmt.Sprintf("flows push timed out after %s; the draft may already have been saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", timeout)
+	return fmt.Sprintf("flows push timed out%s; the draft may already have been saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", duration)
 }
 
 func flowPushResponseTimedOut(status int) bool {
@@ -1434,7 +1446,7 @@ func appendFlowPushTimeoutRecovery(out map[string]any, timeout time.Duration, fl
 	if meta == nil {
 		return
 	}
-	message := flowPushTimeoutMessage(timeout, flowSlug, phase)
+	message := flowPushTimeoutResponseMessage(flowSlug, phase)
 	meta["timeoutRecovery"] = message
 	meta["timeoutPhase"] = strings.TrimSpace(phase)
 	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
@@ -1457,7 +1469,7 @@ func appendFlowPushTimeoutRecovery(out map[string]any, timeout time.Duration, fl
 func writeFlowPushTimeoutAPIResponse(cmd *cobra.Command, app *App, out map[string]any, status int, timeout time.Duration, flowSlug, phase string) error {
 	appendFlowPushTimeoutRecovery(out, timeout, flowSlug, phase)
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
-		return writeErr(cmd, errors.New(flowPushTimeoutMessage(timeout, flowSlug, phase)+": "+err.Error()))
+		return writeErr(cmd, errors.New(flowPushTimeoutResponseMessage(flowSlug, phase)+": "+err.Error()))
 	}
 	return nil
 }
