@@ -117,6 +117,39 @@ func TestStepsRunHelpDocumentsTemplateDataAndTimeout(t *testing.T) {
 	}
 }
 
+func TestStepsRecordTimeoutBoundsUnderlyingStepRun(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"steps", "record",
+		"--flow", "my-flow",
+		"--type", "llm",
+		"--id", "refresh-blog-post",
+		"--params", `{"template":"refresh-blog-post","data":{"title":"Example"}}`,
+		"--timeout", "20ms",
+	)
+	if err == nil {
+		t.Fatalf("expected timeout error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "steps record timed out after 20ms") {
+		t.Fatalf("expected actionable timeout error, got %q", stderr)
+	}
+}
+
 func TestStepsRunCompactsResultByDefault(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 
