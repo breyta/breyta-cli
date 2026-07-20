@@ -368,6 +368,8 @@ func buildRunNode(
 				LastEventAt:       childRelation.UpdatedAt,
 				UpdatedAt:         childRelation.UpdatedAt,
 			}
+		} else {
+			childRun = mergeRunRelationMetadata(childRun, childRelation)
 		}
 		relationCopy := childRelation
 		child := buildRunNode(childRun, &relationCopy, runsByWorkflow, relationsByParent, activitiesByWorkflow)
@@ -375,6 +377,37 @@ func buildRunNode(
 		node.Children = append(node.Children, child)
 	}
 	return node
+}
+
+func mergeRunRelationMetadata(run RunState, relation RunRelation) RunState {
+	if strings.TrimSpace(run.RootWorkflowID) == "" {
+		run.RootWorkflowID = relation.RootWorkflowID
+	}
+	if strings.TrimSpace(run.ParentWorkflowID) == "" {
+		run.ParentWorkflowID = relation.ParentWorkflowID
+	}
+	if strings.TrimSpace(run.ParentStepID) == "" {
+		run.ParentStepID = relation.ParentStepID
+	}
+	if strings.TrimSpace(run.RelationKind) == "" {
+		run.RelationKind = relation.RelationKind
+	}
+	if strings.TrimSpace(run.FlowSlug) == "" {
+		run.FlowSlug = relation.FlowSlug
+	}
+	if strings.TrimSpace(run.EntrypointType) == "" {
+		run.EntrypointType = relation.EntrypointType
+	}
+	if strings.TrimSpace(run.AgentID) == "" {
+		run.AgentID = relation.AgentID
+	}
+	if strings.TrimSpace(run.FanoutID) == "" {
+		run.FanoutID = relation.FanoutID
+	}
+	if run.FanoutBranchIndex == nil && relation.FanoutBranchIndex != nil {
+		run.FanoutBranchIndex = relation.FanoutBranchIndex
+	}
+	return run
 }
 
 func relationLess(left, right RunRelation) bool {

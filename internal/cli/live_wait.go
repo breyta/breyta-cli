@@ -192,6 +192,9 @@ func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status 
 	if ok, exists := out["ok"].(bool); exists && !ok {
 		return false
 	}
+	if run := runFromCommandResponse(out); run != nil && runStatusFailedForExit(canonicalRunStatus(run["status"])) {
+		return false
+	}
 	return true
 }
 

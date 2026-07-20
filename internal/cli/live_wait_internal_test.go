@@ -112,6 +112,17 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	if interactive.shouldSuppressFinalResult(map[string]any{"ok": false}, 200) {
 		t.Fatalf("expected ok=false result to remain printable")
 	}
+	for _, status := range []string{"failed", "cancelled"} {
+		out := map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{"status": status},
+			},
+		}
+		if interactive.shouldSuppressFinalResult(out, 200) {
+			t.Fatalf("expected %s run payload to remain printable", status)
+		}
+	}
 	if interactive.shouldSuppressFinalResult(map[string]any{"ok": true}, 500) {
 		t.Fatalf("expected error status result to remain printable")
 	}
