@@ -1659,31 +1659,43 @@ func selectedActivities(node RunNode, children []RunNode, opts RenderOptions) []
 	if opts.FullTree || len(selected) <= max {
 		return selected
 	}
-	active := make([]Activity, 0, len(selected))
-	for _, activity := range selected {
+	preserve := make([]bool, len(selected))
+	preservedCount := 0
+	for i, activity := range selected {
 		if activity.Active || isProblemStatus(normalizeStatus(activity.Status, activity.Active)) {
-			active = append(active, activity)
+			preserve[i] = true
+			preservedCount++
 		}
 	}
-	start := len(selected) - max
-	if start < 0 {
-		start = 0
+
+	keep := make([]bool, len(selected))
+	remaining := max
+	for i, shouldPreserve := range preserve {
+		if !shouldPreserve || remaining == 0 {
+			continue
+		}
+		keep[i] = true
+		remaining--
 	}
-	trimmed := append([]Activity(nil), selected[start:]...)
-	for _, activity := range active {
-		found := false
-		for _, existing := range trimmed {
-			if existing.ActivityID == activity.ActivityID && existing.WorkflowID == activity.WorkflowID {
-				found = true
-				break
+	if preservedCount < max {
+		start := len(selected) - max
+		if start < 0 {
+			start = 0
+		}
+		for i := len(selected) - 1; i >= start && remaining > 0; i-- {
+			if keep[i] {
+				continue
 			}
-		}
-		if !found {
-			trimmed = append([]Activity{activity}, trimmed...)
+			keep[i] = true
+			remaining--
 		}
 	}
-	if len(trimmed) > max {
-		trimmed = trimmed[len(trimmed)-max:]
+
+	trimmed := make([]Activity, 0, max)
+	for i, activity := range selected {
+		if keep[i] {
+			trimmed = append(trimmed, activity)
+		}
 	}
 	return trimmed
 }

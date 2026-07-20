@@ -1192,6 +1192,18 @@ func TestLiveTUIInspectValueStripsTerminalControls(t *testing.T) {
 	}
 }
 
+func TestWrapInspectLineCapsContinuationIndent(t *testing.T) {
+	lines := wrapInspectLine(strings.Repeat(" ", 24)+"long value that must wrap", 12)
+	if len(lines) < 2 {
+		t.Fatalf("expected over-indented line to wrap, got %#v", lines)
+	}
+	for _, line := range lines {
+		if got := len([]rune(line)); got > 12 {
+			t.Fatalf("expected wrapped line to fit width, got %d: %q", got, line)
+		}
+	}
+}
+
 func TestLiveTUIInspectErrorStripsTerminalControls(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 100

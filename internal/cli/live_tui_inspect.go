@@ -316,6 +316,9 @@ func wrapInspectLine(line string, width int) []string {
 	if continuationIndent > width/2 {
 		continuationIndent = indent
 	}
+	if continuationIndent >= width {
+		continuationIndent = width - 1
+	}
 	prefix := strings.Repeat(" ", continuationIndent)
 	out := []string{}
 	for len(runes) > width {

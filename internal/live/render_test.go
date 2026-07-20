@@ -2543,3 +2543,22 @@ func TestRenderSnapshotLiveFullShowsFullTree(t *testing.T) {
 		t.Fatalf("expected expanded view to flatten redundant root run line\n%s", expanded)
 	}
 }
+
+func TestSelectedActivitiesPreservesProblemRowsWhenTailTrimmed(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	selected := selectedActivities(RunNode{
+		Run: RunState{WorkflowID: "wf-root", Status: "failed"},
+		Activities: []Activity{
+			{WorkflowID: "wf-root", ActivityID: "step-failed", StepID: "step-failed", ActivityKind: "step", ActivityType: "sleep", Status: "failed", UpdatedAt: now.Add(-3 * time.Second)},
+			{WorkflowID: "wf-root", ActivityID: "step-middle", StepID: "step-middle", ActivityKind: "step", ActivityType: "sleep", Status: "completed", UpdatedAt: now.Add(-2 * time.Second)},
+			{WorkflowID: "wf-root", ActivityID: "step-latest", StepID: "step-latest", ActivityKind: "step", ActivityType: "sleep", Status: "completed", UpdatedAt: now.Add(-1 * time.Second)},
+		},
+	}, nil, RenderOptions{MaxActivitiesPerRun: 2})
+
+	if len(selected) != 2 {
+		t.Fatalf("expected max activity count, got %d: %#v", len(selected), selected)
+	}
+	if selected[0].ActivityID != "step-failed" || selected[1].ActivityID != "step-latest" {
+		t.Fatalf("expected failed row plus latest tail row, got %#v", selected)
+	}
+}
