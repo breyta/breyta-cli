@@ -11,6 +11,8 @@ func TestAPIUse_WorksWithDevFlag(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
 
 	stdout, stderr, err := runCLIArgs(t,
 		"--dev",
