@@ -223,11 +223,10 @@ func suppressDuplicateStepActivities(activities []Activity) []Activity {
 	activeByStep := map[string]bool{}
 	recordedByStep := map[string]bool{}
 	for _, activity := range activities {
-		stepID := strings.TrimSpace(activity.StepID)
-		if stepID == "" {
+		key, ok := duplicateStepActivityKey(activity)
+		if !ok {
 			continue
 		}
-		key := activity.WorkflowID + "\x00" + stepID
 		if activity.Active {
 			activeByStep[key] = true
 		}
@@ -239,12 +238,11 @@ func suppressDuplicateStepActivities(activities []Activity) []Activity {
 	out := make([]Activity, 0, len(activities))
 	seenCompleted := map[string]bool{}
 	for _, activity := range activities {
-		stepID := strings.TrimSpace(activity.StepID)
-		if stepID == "" {
+		key, ok := duplicateStepActivityKey(activity)
+		if !ok {
 			out = append(out, activity)
 			continue
 		}
-		key := activity.WorkflowID + "\x00" + stepID
 		if activity.Planned && recordedByStep[key] {
 			continue
 		}
@@ -262,4 +260,26 @@ func suppressDuplicateStepActivities(activities []Activity) []Activity {
 		out = append(out, activity)
 	}
 	return out
+}
+
+func duplicateStepActivityKey(activity Activity) (string, bool) {
+	if isToolActivity(activity) {
+		toolID := strings.TrimSpace(activity.ActivityID)
+		if toolID == "" {
+			toolID = strings.TrimSpace(activity.ToolCallID)
+		}
+		if toolID == "" {
+			toolID = strings.TrimSpace(activity.MCPSessionID)
+		}
+		if toolID == "" {
+			return "", false
+		}
+		return activity.WorkflowID + "\x00tool\x00" + toolID, true
+	}
+
+	stepID := strings.TrimSpace(activity.StepID)
+	if stepID == "" {
+		return "", false
+	}
+	return activity.WorkflowID + "\x00step\x00" + stepID, true
 }

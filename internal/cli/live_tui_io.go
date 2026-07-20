@@ -85,6 +85,9 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 		return liveTUIStepIOResult{}, fmt.Errorf("step %q not found in run %s", stepID, workflowID)
 	}
 	stepStatus := firstNonBlankString(step["status"], ref.Status)
+	if strings.TrimSpace(ref.ToolCallID) != "" {
+		return liveTUIToolCallIOResult(ref, stepStatus, step)
+	}
 	input := firstPresent(step, "input", "params", "inputPreview", "input-preview", "paramsPreview", "params-preview")
 	errValue := firstPresent(step, "errorOutput", "error-output", "error", "errorMessage", "error-message", "errorResource", "error-resource")
 	resultKind := "output"
@@ -94,9 +97,6 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 		if errValue != nil {
 			result = errValue
 		}
-	}
-	if strings.TrimSpace(ref.ToolCallID) != "" {
-		return liveTUIToolCallIOResult(ref, stepStatus, result)
 	}
 	return liveTUIStepIOResult{
 		Ref:        ref,

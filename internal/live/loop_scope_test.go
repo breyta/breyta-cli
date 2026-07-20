@@ -128,6 +128,20 @@ func TestSuppressDuplicateStepActivitiesHidesCompletedWhileActive(t *testing.T) 
 	}
 }
 
+func TestSuppressDuplicateStepActivitiesKeepsToolRowsWithParentStepID(t *testing.T) {
+	out := suppressDuplicateStepActivities([]Activity{
+		{WorkflowID: "wf-root", ActivityID: "research-step", ActivityKind: "step", StepID: "research-step", Status: "completed"},
+		{WorkflowID: "wf-root", ActivityID: "tool-fetch", ActivityKind: "tool_call", StepID: "research-step", ToolCallID: "call-fetch", Status: "completed"},
+	})
+
+	if len(out) != 2 {
+		t.Fatalf("expected parent step and tool row to remain visible, got %d: %#v", len(out), out)
+	}
+	if out[1].ActivityID != "tool-fetch" {
+		t.Fatalf("expected tool row to remain after its parent step, got %#v", out)
+	}
+}
+
 func ptrTime(t time.Time) *time.Time {
 	return &t
 }

@@ -1367,6 +1367,52 @@ func TestFetchLiveTUIStepIOPreservesFailedOutputWithoutError(t *testing.T) {
 	}
 }
 
+func TestFetchLiveTUIStepIOToolCallPreservesOutputWhenParentFails(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-root",
+					"steps": []map[string]any{{
+						"stepId": "research-agent",
+						"status": "failed",
+						"error":  map[string]any{"message": "parent failed"},
+						"toolCalls": []map[string]any{{
+							"id":     "call-fetch-record",
+							"name":   "mock_fetch_record",
+							"status": "completed",
+							"input":  map[string]any{"recordId": "rec-1"},
+							"output": map[string]any{"message": "tool output"},
+						}},
+					}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "research-agent",
+		ToolCallID: "call-fetch-record",
+		Label:      "mock_fetch_record",
+		Status:     "failed",
+	})
+	if err != nil {
+		t.Fatalf("fetch tool call I/O failed: %v", err)
+	}
+	output := mapStringAny(result.Result)
+	if result.ResultKind != "output" || output["message"] != "tool output" {
+		t.Fatalf("expected tool output instead of the parent error, got %#v", result)
+	}
+}
+
 func TestFetchLiveTUIStepIOFallsBackToErrorResource(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
