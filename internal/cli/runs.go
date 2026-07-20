@@ -75,16 +75,24 @@ func installationIDFromRunData(data map[string]any) string {
 
 func installationIDCandidatesFromLinkedRunWorkflowID(workflowID string) []string {
 	workflowID = strings.TrimSpace(workflowID)
-	markerIndex := strings.LastIndex(workflowID, linkedInstallationWorkflowIDMarker)
-	if markerIndex < 0 {
-		return nil
+	var candidates []string
+	for searchFrom := 0; searchFrom < len(workflowID); {
+		relativeMarkerIndex := strings.Index(workflowID[searchFrom:], linkedInstallationWorkflowIDMarker)
+		if relativeMarkerIndex < 0 {
+			break
+		}
+		markerIndex := searchFrom + relativeMarkerIndex
+		tail := workflowID[markerIndex+len(linkedInstallationWorkflowIDMarker):]
+		matches := linkedInstallationRunTailPattern.FindStringSubmatch(tail)
+		if len(matches) == 2 {
+			candidates = appendUniqueStrings(candidates, installationIDCandidatesFromLinkedRunTail(matches[1]))
+		}
+		searchFrom = markerIndex + len(linkedInstallationWorkflowIDMarker)
 	}
-	tail := workflowID[markerIndex+len(linkedInstallationWorkflowIDMarker):]
-	matches := linkedInstallationRunTailPattern.FindStringSubmatch(tail)
-	if len(matches) != 2 {
-		return nil
-	}
-	scopedConcurrencyTail := matches[1]
+	return candidates
+}
+
+func installationIDCandidatesFromLinkedRunTail(scopedConcurrencyTail string) []string {
 	if !linkedInstallationVersionSegmentPattern.MatchString(scopedConcurrencyTail) {
 		return nil
 	}

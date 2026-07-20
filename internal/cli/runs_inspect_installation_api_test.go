@@ -49,6 +49,11 @@ func TestInstallationIDCandidatesFromLinkedRunWorkflowID(t *testing.T) {
 			want:       []string{"inst", "inst-with", "inst-with-dashes", "inst-with-dashes-v7", "inst-with-dashes-v7-user", "inst-with-dashes-v7-user-42"},
 		},
 		{
+			name:       "installation id containing marker",
+			workflowID: "flow-demo-ws-install-acme-install-prod-v7-pdeadbeef-r3",
+			want:       []string{"acme", "acme-install", "acme-install-prod", "prod"},
+		},
+		{
 			name:       "noncanonical installation marker",
 			workflowID: "flow-demo-ws-install-inst-r3",
 			want:       nil,
@@ -108,6 +113,37 @@ func TestRunsInspectGetWithCommand(t *testing.T) {
 			map[string]any{"workflowId": workflowID},
 		)
 		wantAttempts := []string{"", "inst", "inst-with", wantInstallationID}
+		if err != nil || status != http.StatusOK || installationID != wantInstallationID {
+			t.Fatalf("got status=%d installationID=%q err=%v", status, installationID, err)
+		}
+		if len(attempts) != len(wantAttempts) {
+			t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+		}
+		for i := range wantAttempts {
+			if attempts[i] != wantAttempts[i] {
+				t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+			}
+		}
+	})
+
+	t.Run("installation id containing marker retries the full id", func(t *testing.T) {
+		const workflowID = "flow-demo-ws-install-acme-install-prod-v7-pdeadbeef-r3"
+		const wantInstallationID = "acme-install-prod"
+		var attempts []string
+		_, status, installationID, err := runsInspectGetWithCommand(
+			func(payload map[string]any) (map[string]any, int, error) {
+				candidate := firstNonBlankString(payload["installationId"])
+				attempts = append(attempts, candidate)
+				if candidate != wantInstallationID {
+					return map[string]any{"ok": false}, http.StatusNotFound, nil
+				}
+				return map[string]any{"ok": true}, http.StatusOK, nil
+			},
+			workflowID,
+			"",
+			map[string]any{"workflowId": workflowID},
+		)
+		wantAttempts := []string{"", "acme", "acme-install", wantInstallationID}
 		if err != nil || status != http.StatusOK || installationID != wantInstallationID {
 			t.Fatalf("got status=%d installationID=%q err=%v", status, installationID, err)
 		}
