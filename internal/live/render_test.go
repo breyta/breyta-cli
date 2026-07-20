@@ -26,6 +26,15 @@ func hasDiagnostic(diagnostics []RenderDiagnostic, code string) bool {
 	return false
 }
 
+func TestRunStatusTreatsTerminatedAsProblemAndTerminal(t *testing.T) {
+	if !isProblemStatus("terminated") {
+		t.Fatal("expected terminated to be a problem status")
+	}
+	if !isTerminalStatus("terminated") {
+		t.Fatal("expected terminated to be a terminal status")
+	}
+}
+
 func TestRenderSnapshotShowsRunTreeActivitiesDurationsAndFanout(t *testing.T) {
 	now := time.Date(2026, 5, 29, 12, 0, 10, 0, time.UTC)
 	started := now.Add(-8 * time.Second)

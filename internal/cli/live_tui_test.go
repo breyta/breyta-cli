@@ -63,6 +63,17 @@ func sampleLiveDisplayFrame(t *testing.T) live.DisplayFrame {
 	})
 }
 
+func TestLiveTUITerminalStatusIncludesTimeoutAndTerminationVariants(t *testing.T) {
+	for _, status := range []string{"timed-out", "timeout", "timed_out", "terminated"} {
+		if !liveTUITerminalStatus(status) {
+			t.Fatalf("expected %q to be inspectable as terminal", status)
+		}
+		if !liveTUIProblemStatus(status) {
+			t.Fatalf("expected %q to be treated as a problem", status)
+		}
+	}
+}
+
 func TestLiveTUIStartsExpandedAndPreservesCompletedRows(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 120

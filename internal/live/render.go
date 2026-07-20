@@ -2418,7 +2418,7 @@ func hasPartialRunState(run RunState) bool {
 
 func isProblemStatus(status string) bool {
 	switch normalizeStatus(status, false) {
-	case "failed", "error", "cancelled", "canceled", "timed-out", "timeout":
+	case "failed", "error", "cancelled", "canceled", "terminated", "timed-out", "timeout":
 		return true
 	default:
 		return false
@@ -2427,7 +2427,7 @@ func isProblemStatus(status string) bool {
 
 func isTerminalStatus(status string) bool {
 	switch normalizeStatus(status, false) {
-	case "completed", "succeeded", "success", "failed", "error", "cancelled", "canceled", "timed-out", "timeout":
+	case "completed", "succeeded", "success", "failed", "error", "cancelled", "canceled", "terminated", "timed-out", "timeout":
 		return true
 	default:
 		return false

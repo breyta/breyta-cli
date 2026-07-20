@@ -307,8 +307,9 @@ func liveTUIStepIOCacheKey(ref liveTUIStepIORef) string {
 }
 
 func liveTUITerminalStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled":
+	status = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(status)), "_", "-")
+	switch status {
+	case "completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled", "terminated", "timed-out", "timeout":
 		return true
 	default:
 		return false
@@ -316,8 +317,9 @@ func liveTUITerminalStatus(status string) bool {
 }
 
 func liveTUIProblemStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "failed", "error", "cancelled", "canceled":
+	status = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(status)), "_", "-")
+	switch status {
+	case "failed", "error", "cancelled", "canceled", "terminated", "timed-out", "timeout":
 		return true
 	default:
 		return false
