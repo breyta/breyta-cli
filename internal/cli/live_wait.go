@@ -349,8 +349,8 @@ func (r *liveWaitRenderer) drainSnapshot(ctx context.Context, now time.Time) {
 }
 
 func (r *liveWaitRenderer) applySnapshot(ctx context.Context, snapshot live.Snapshot, now time.Time) {
-	snapshot = r.enrichSnapshotWithGraphs(ctx, snapshot)
 	focused := snapshot.Focus(r.workflowID)
+	focused = r.enrichSnapshotWithGraphs(ctx, focused)
 	r.lastSnapshot = &focused
 	r.lastDisplayKey = displayFrameKey(focused, r.workflowID)
 	r.nextSnapshotAt = now.Add(r.bootstrap.PollInterval(time.Second))
@@ -384,8 +384,8 @@ func (r *liveWaitRenderer) drainStream(ctx context.Context, now time.Time) {
 	for {
 		select {
 		case snapshot := <-r.streamSnapshots:
-			snapshot = r.enrichSnapshotWithGraphs(ctx, snapshot)
 			focused := snapshot.Focus(r.workflowID)
+			focused = r.enrichSnapshotWithGraphs(ctx, focused)
 			r.lastSnapshot = &focused
 			r.lastDisplayKey = displayFrameKey(focused, r.workflowID)
 		case err := <-r.streamErrors:

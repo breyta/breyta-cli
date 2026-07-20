@@ -32,6 +32,10 @@ type blockingLiveBootstrapper struct {
 	calls int
 }
 
+type recordingLiveGraphBootstrapper struct {
+	workflowIDs []string
+}
+
 func (f *failingLiveBootstrapper) DoCommand(_ context.Context, _ string, _ map[string]any) (map[string]any, int, error) {
 	f.calls++
 	return nil, 0, errors.New("bootstrap unavailable")
@@ -53,6 +57,25 @@ func (f *blockingLiveBootstrapper) DoCommand(ctx context.Context, command string
 	f.calls++
 	<-ctx.Done()
 	return nil, 0, ctx.Err()
+}
+
+func (f *recordingLiveGraphBootstrapper) DoCommand(_ context.Context, command string, args map[string]any) (map[string]any, int, error) {
+	if command != "runs.live.graph" {
+		return nil, 0, errors.New("unexpected command")
+	}
+	workflowID := firstNonBlankString(args["workflowId"])
+	f.workflowIDs = append(f.workflowIDs, workflowID)
+	return map[string]any{
+		"ok": true,
+		"data": map[string]any{
+			"workflowId": workflowID,
+			"graph": map[string]any{
+				"schemaVersion": 1,
+				"rootId":        "flow:root",
+				"nodes":         []any{},
+			},
+		},
+	}, 200, nil
 }
 
 func (f *fakeLiveBootstrapper) DoCommand(_ context.Context, command string, args map[string]any) (map[string]any, int, error) {
@@ -193,6 +216,20 @@ func TestLiveWaitRendererBoundsOptionalGraphHydration(t *testing.T) {
 	}
 	if fake.calls != 1 {
 		t.Fatalf("expected one graph hydration request, got %d", fake.calls)
+	}
+}
+
+func TestLiveWaitRendererFocusesBeforeGraphHydration(t *testing.T) {
+	fake := &recordingLiveGraphBootstrapper{}
+	renderer := &liveWaitRenderer{apiClient: fake, workflowID: "wf-target"}
+	snapshot := live.Snapshot{Runs: []live.RunState{
+		{WorkflowID: "wf-target", RootWorkflowID: "wf-target"},
+		{WorkflowID: "wf-other", RootWorkflowID: "wf-other"},
+	}}
+
+	renderer.applySnapshot(context.Background(), snapshot, time.Now())
+	if len(fake.workflowIDs) != 1 || fake.workflowIDs[0] != "wf-target" {
+		t.Fatalf("expected graph hydration to stay within focused tree, got %#v", fake.workflowIDs)
 	}
 }
 

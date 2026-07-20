@@ -11,6 +11,7 @@ import (
 )
 
 const liveWaitActionPollInterval = time.Second
+const liveWaitActionTimeout = 500 * time.Millisecond
 
 type liveTUIWaitAction struct {
 	Active     bool
@@ -130,7 +131,9 @@ func fetchLiveTUIWaitAction(ctx context.Context, app *App, workflowID string, li
 	q := url.Values{}
 	q.Set("workflowId", workflowID)
 	q.Set("limit", fmt.Sprintf("%d", limit))
-	out, status, err := apiClient(app).DoREST(ctx, http.MethodGet, "/api/waits", q, nil)
+	waitCtx, cancel := context.WithTimeout(ctx, liveWaitActionTimeout)
+	defer cancel()
+	out, status, err := apiClient(app).DoREST(waitCtx, http.MethodGet, "/api/waits", q, nil)
 	if err != nil {
 		return liveTUIWaitAction{}, err
 	}

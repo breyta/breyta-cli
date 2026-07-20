@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -98,6 +100,23 @@ func TestFilterWaitItemsForWorkflowKeepsChildRunWaits(t *testing.T) {
 	got := activeLiveTUIWaitActionFromItems("wf-root", filtered)
 	if !got.Active || got.WaitID != "child-rooted" || !got.Can("approve") || !got.Can("reject") {
 		t.Fatalf("expected actionable child wait, got %#v", got)
+	}
+}
+
+func TestFetchLiveTUIWaitActionBoundsListRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	app := &App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "token"}
+	startedAt := time.Now()
+	_, err := fetchLiveTUIWaitAction(context.Background(), app, "wf-live", 25)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected bounded wait list timeout, got %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("expected wait list request to be bounded, elapsed=%s", elapsed)
 	}
 }
 
