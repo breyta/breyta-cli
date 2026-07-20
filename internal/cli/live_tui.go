@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ type liveTUIRunner struct {
 func newLiveTUIRunner(out io.Writer, resolver func(liveTUIWaitAction, string) error, stepIOLoader func(liveTUIStepIORef) (liveTUIStepIOResult, error)) *liveTUIRunner {
 	runner := &liveTUIRunner{done: make(chan error, 1)}
 	model := newLiveTUIModel()
+	model.color = strings.TrimSpace(os.Getenv("NO_COLOR")) == ""
 	model.resolveWaitAction = resolver
 	model.loadStepIO = stepIOLoader
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(out))
@@ -124,6 +126,8 @@ type liveTUIModel struct {
 	waitAction        liveTUIWaitAction
 	waitActionPending string
 	waitActionMessage string
+	waitActionConfirm string
+	color             bool
 	resolveWaitAction func(liveTUIWaitAction, string) error
 }
 
@@ -133,6 +137,7 @@ func newLiveTUIModel() liveTUIModel {
 		stickEnd:    true,
 		width:       80,
 		height:      24,
+		color:       true,
 		openURL:     browseropen.Open,
 		stepIOCache: map[string]liveTUIStepIOResult{},
 	}
@@ -153,6 +158,19 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ensureCursorVisible()
 		}
 	case tea.KeyMsg:
+		if m.waitActionConfirm != "" {
+			switch strings.ToLower(strings.TrimSpace(msg.String())) {
+			case "y", "enter":
+				action := m.waitActionConfirm
+				m.waitActionConfirm = ""
+				if cmd := m.startWaitAction(action); cmd != nil {
+					return m, cmd
+				}
+			case "n", "esc", "q":
+				m.waitActionConfirm = ""
+			}
+			return m, nil
+		}
 		if m.inspectOpen() {
 			if cmd, handled := m.updateInspectKey(msg); handled {
 				return m, cmd
@@ -192,13 +210,9 @@ func (m liveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.expandCursor()
 		case "a":
-			if cmd := m.startWaitAction("approve"); cmd != nil {
-				return m, cmd
-			}
+			m.requestWaitActionConfirmation("approve")
 		case "r":
-			if cmd := m.startWaitAction("reject"); cmd != nil {
-				return m, cmd
-			}
+			m.requestWaitActionConfirmation("reject")
 		case "left":
 			m.collapseCursorOrMoveParent()
 		case " ":
@@ -230,8 +244,19 @@ func (m liveTUIModel) View() string {
 	if m.height <= 0 {
 		return ""
 	}
+	if m.waitActionConfirm != "" {
+		view := m.waitActionConfirmationView()
+		if !m.color {
+			return stripTUIANSI(view)
+		}
+		return view
+	}
 	if m.inspectOpen() {
-		return m.inspectView()
+		view := m.inspectView()
+		if !m.color {
+			return stripTUIANSI(view)
+		}
+		return view
 	}
 	visible := m.visibleNodes()
 	m.ensureCursorVisible()
@@ -259,8 +284,68 @@ func (m liveTUIModel) View() string {
 	}
 	for i, line := range lines {
 		lines[i] = fitTUILine(line, m.width)
+		if !m.color {
+			lines[i] = stripTUIANSI(lines[i])
+		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m liveTUIModel) waitActionConfirmationView() string {
+	action := strings.TrimSpace(m.waitActionConfirm)
+	if action == "" {
+		action = "resolve"
+	}
+	label := sanitizeTUIInlineText(m.waitAction.Label())
+	content := []string{
+		styleTUIFg("Confirm wait action", "220"),
+		"",
+		fmt.Sprintf("Send %s for %s?", action, label),
+		"",
+		"y/enter confirm   n/esc cancel",
+	}
+	contentWidth := 0
+	for _, line := range content {
+		if width := runewidth.StringWidth(stripTUIANSI(line)); width > contentWidth {
+			contentWidth = width
+		}
+	}
+	boxWidth := contentWidth + 4
+	if m.width > 0 && boxWidth > m.width-2 {
+		boxWidth = m.width - 2
+	}
+	if boxWidth < 8 {
+		boxWidth = 8
+	}
+	innerWidth := boxWidth - 4
+	box := []string{"┌" + strings.Repeat("─", boxWidth-2) + "┐"}
+	for _, line := range content {
+		line = truncateTUIRunes(line, innerWidth)
+		padding := innerWidth - runewidth.StringWidth(stripTUIANSI(line))
+		if padding < 0 {
+			padding = 0
+		}
+		box = append(box, "│ "+line+strings.Repeat(" ", padding)+" │")
+	}
+	box = append(box, "└"+strings.Repeat("─", boxWidth-2)+"┘")
+	if m.width <= 0 {
+		return strings.Join(box, "\n")
+	}
+	left := (m.width - boxWidth) / 2
+	if left < 0 {
+		left = 0
+	}
+	for i, line := range box {
+		box[i] = strings.Repeat(" ", left) + line
+	}
+	if m.height <= len(box) {
+		return strings.Join(box, "\n")
+	}
+	prefix := make([]string, (m.height-len(box))/2)
+	for i := range prefix {
+		prefix[i] = ""
+	}
+	return strings.Join(append(prefix, box...), "\n")
 }
 
 func (m *liveTUIModel) setFrame(frame live.DisplayFrame) {
@@ -311,11 +396,13 @@ func (m *liveTUIModel) setWaitAction(wait liveTUIWaitAction) {
 		m.waitAction = liveTUIWaitAction{}
 		m.waitActionPending = ""
 		m.waitActionMessage = ""
+		m.waitActionConfirm = ""
 		return
 	}
 	if wait.WaitID != m.waitAction.WaitID {
 		m.waitActionPending = ""
 		m.waitActionMessage = ""
+		m.waitActionConfirm = ""
 	}
 	m.waitAction = wait
 }
@@ -683,6 +770,15 @@ func (m *liveTUIModel) startWaitAction(action string) tea.Cmd {
 	return func() tea.Msg {
 		return liveTUIWaitResolvedMsg{waitID: wait.WaitID, action: action, err: resolver(wait, action)}
 	}
+}
+
+func (m *liveTUIModel) requestWaitActionConfirmation(action string) {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if !m.waitAction.Active || !m.waitAction.Can(action) || m.waitActionPending != "" || m.resolveWaitAction == nil {
+		return
+	}
+	m.waitActionConfirm = action
+	m.waitActionMessage = ""
 }
 
 func (m liveTUIModel) cursorWebURL(visible []liveTreeNode) string {

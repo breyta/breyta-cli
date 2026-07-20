@@ -590,8 +590,19 @@ func TestLiveTUIApproveWaitActionCallsResolver(t *testing.T) {
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model = updated.(liveTUIModel)
+	if cmd != nil {
+		t.Fatalf("expected approve key to open confirmation without resolving")
+	}
+	if model.waitActionConfirm != "approve" {
+		t.Fatalf("expected approve confirmation modal, got %q", model.waitActionConfirm)
+	}
+	if !strings.Contains(stripTUIANSI(model.View()), "Send approve") {
+		t.Fatalf("expected approval confirmation modal, got:\n%s", model.View())
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(liveTUIModel)
 	if cmd == nil {
-		t.Fatalf("expected approve key to return wait resolver command")
+		t.Fatalf("expected enter to confirm wait resolver command")
 	}
 	msg := cmd()
 	resolved, ok := msg.(liveTUIWaitResolvedMsg)
@@ -606,6 +617,39 @@ func TestLiveTUIApproveWaitActionCallsResolver(t *testing.T) {
 	}
 	if model.waitActionPending != "approve" {
 		t.Fatalf("expected pending approve state, got %q", model.waitActionPending)
+	}
+}
+
+func TestLiveTUIWaitActionConfirmationCanBeCancelled(t *testing.T) {
+	model := newLiveTUIModel()
+	model.resolveWaitAction = func(liveTUIWaitAction, string) error {
+		t.Fatal("resolver should not run when confirmation is cancelled")
+		return nil
+	}
+	model.waitAction = liveTUIWaitAction{Active: true, WaitID: "wait-1", Actions: []string{"approve"}}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(liveTUIModel)
+	if model.waitActionConfirm != "approve" {
+		t.Fatalf("expected confirmation modal, got %q", model.waitActionConfirm)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(liveTUIModel)
+	if cmd != nil || model.waitActionConfirm != "" {
+		t.Fatalf("expected escape to cancel confirmation, got cmd=%v state=%q", cmd, model.waitActionConfirm)
+	}
+}
+
+func TestLiveTUIHonorsNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	model := newLiveTUIModel()
+	model.color = false
+	model.width = 120
+	model.height = 8
+	updated, _ := model.Update(liveTUIFrameMsg{frame: sampleLiveDisplayFrame(t), at: time.Now()})
+	model = updated.(liveTUIModel)
+	view := model.View()
+	if strings.Contains(view, "\x1b[") {
+		t.Fatalf("expected NO_COLOR to remove all TUI ANSI controls:\n%q", view)
 	}
 }
 

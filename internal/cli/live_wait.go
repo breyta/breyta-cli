@@ -66,10 +66,12 @@ const liveRenderFrameInterval = time.Second / 60
 
 func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, workflowID string) *liveWaitRenderer {
 	out := cmd.ErrOrStderr()
-	interactive := false
+	stderrInteractive := false
 	if f, ok := out.(*os.File); ok {
-		interactive = isatty.IsTerminal(f.Fd())
+		stderrInteractive = isatty.IsTerminal(f.Fd())
 	}
+	stdinInteractive := isatty.IsTerminal(os.Stdin.Fd())
+	interactive := stderrInteractive && stdinInteractive
 	stdoutInteractive := false
 	if f, ok := cmd.OutOrStdout().(*os.File); ok {
 		stdoutInteractive = isatty.IsTerminal(f.Fd())
