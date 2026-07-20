@@ -1329,6 +1329,43 @@ func TestFetchLiveTUIStepIOFallsBackToOutputResource(t *testing.T) {
 	}
 }
 
+func TestFetchLiveTUIStepIOPreservesFailedOutputWithoutError(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "runs.get" {
+			t.Fatalf("expected runs.get, got %#v", body["command"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-root",
+					"steps": []map[string]any{{
+						"stepId": "partial-output",
+						"status": "failed",
+						"output": map[string]any{"message": "partial output"},
+					}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	result, err := fetchLiveTUIStepIO(&App{APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "user-dev", DevMode: true}, liveTUIStepIORef{
+		WorkflowID: "wf-root",
+		StepID:     "partial-output",
+		Status:     "failed",
+	})
+	if err != nil {
+		t.Fatalf("fetch step I/O failed: %v", err)
+	}
+	output := mapStringAny(result.Result)
+	if result.ResultKind != "error" || output["message"] != "partial output" {
+		t.Fatalf("expected failed step to preserve output as error content, got %#v", result)
+	}
+}
+
 func TestFetchLiveTUIStepIOFallsBackToErrorResource(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any

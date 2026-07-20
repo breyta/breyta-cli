@@ -13,6 +13,8 @@ import (
 func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 	var baseURL string
 	var bootstrapCalls int64
+	var bootstrapBeforeRunsGet int64
+	var runsGetCalls int64
 	var snapshotCalls int64
 	var streamCalls int64
 
@@ -36,6 +38,9 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 				})
 			case "runs.live.bootstrap":
 				atomic.AddInt64(&bootstrapCalls, 1)
+				if atomic.LoadInt64(&runsGetCalls) == 0 {
+					atomic.StoreInt64(&bootstrapBeforeRunsGet, 1)
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":          true,
 					"workspaceId": "ws-acme",
@@ -81,6 +86,7 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 					},
 				})
 			case "runs.get":
+				atomic.AddInt64(&runsGetCalls, 1)
 				args, _ := body["args"].(map[string]any)
 				if args["includeSteps"] == true {
 					_ = json.NewEncoder(w).Encode(map[string]any{
@@ -253,6 +259,12 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 	if atomic.LoadInt64(&bootstrapCalls) == 0 {
 		t.Fatalf("expected live bootstrap call")
 	}
+	if atomic.LoadInt64(&runsGetCalls) == 0 {
+		t.Fatalf("expected normal wait polling")
+	}
+	if atomic.LoadInt64(&bootstrapBeforeRunsGet) != 0 {
+		t.Fatalf("expected runs.get to run before live bootstrap")
+	}
 	if atomic.LoadInt64(&snapshotCalls) == 0 {
 		t.Fatalf("expected realtime snapshot call")
 	}
@@ -279,9 +291,10 @@ func TestFlowsRunLiveBootstrapsRealtimeAndRendersProgress(t *testing.T) {
 	}
 }
 
-func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
+func TestFlowsRunLivePollsBeforeInitialRefresh(t *testing.T) {
 	var baseURL string
-	var snapshotCanceled int64
+	var bootstrapBeforeRunsGet int64
+	var runsGetCalls int64
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -302,6 +315,9 @@ func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
 					},
 				})
 			case "runs.live.bootstrap":
+				if atomic.LoadInt64(&runsGetCalls) == 0 {
+					atomic.StoreInt64(&bootstrapBeforeRunsGet, 1)
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":          true,
 					"workspaceId": "ws-acme",
@@ -320,6 +336,7 @@ func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
 					},
 				})
 			case "runs.get":
+				atomic.AddInt64(&runsGetCalls, 1)
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"ok":          true,
 					"workspaceId": "ws-acme",
@@ -336,7 +353,6 @@ func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
 			}
 		case "/workspaces/ws-acme/runs/wf-live-timeout/live":
 			<-r.Context().Done()
-			atomic.AddInt64(&snapshotCanceled, 1)
 		case "/workspaces/ws-acme/runs/wf-live-timeout/stream":
 			<-r.Context().Done()
 		default:
@@ -361,11 +377,14 @@ func TestFlowsRunLiveBoundsInitialRefreshByWaitTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flows run --live failed: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
-	if elapsed > 4*time.Second {
-		t.Fatalf("initial live refresh exceeded wait timeout: elapsed=%s\nstdout=%s\nstderr=%s", elapsed, stdout, stderr)
+	if elapsed > time.Second {
+		t.Fatalf("normal wait polling was delayed by live refresh: elapsed=%s\nstdout=%s\nstderr=%s", elapsed, stdout, stderr)
 	}
-	if atomic.LoadInt64(&snapshotCanceled) == 0 {
-		t.Fatalf("expected the live snapshot request to be cancelled by the wait deadline")
+	if atomic.LoadInt64(&runsGetCalls) == 0 {
+		t.Fatalf("expected normal wait polling")
+	}
+	if atomic.LoadInt64(&bootstrapBeforeRunsGet) != 0 {
+		t.Fatalf("expected runs.get to run before live bootstrap")
 	}
 	var out map[string]any
 	if err := json.NewDecoder(bytes.NewBufferString(stdout)).Decode(&out); err != nil {

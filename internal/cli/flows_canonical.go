@@ -224,7 +224,8 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	if liveOutput {
 		liveRenderer = newLiveWaitRenderer(cmd, app, client, workflowID)
 		defer liveRenderer.Close()
-		liveRenderer.Update(waitCtx, false)
+		// Live output is supplementary to normal wait polling. Do not let a
+		// slow live bootstrap delay the first runs.get terminal check.
 	}
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")

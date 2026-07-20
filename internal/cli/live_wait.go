@@ -63,6 +63,7 @@ type liveWaitRenderer struct {
 }
 
 const liveRenderFrameInterval = time.Second / 60
+const liveFinalRefreshTimeout = 500 * time.Millisecond
 
 func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, workflowID string) *liveWaitRenderer {
 	out := cmd.ErrOrStderr()
@@ -96,6 +97,11 @@ func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, 
 func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 	if r == nil {
 		return
+	}
+	if final {
+		finalCtx, cancel := context.WithTimeout(ctx, liveFinalRefreshTimeout)
+		defer cancel()
+		ctx = finalCtx
 	}
 	now := time.Now()
 	bootstrapRefreshDue := (!r.bootstrapOK && (r.nextBootstrapAt.IsZero() || !now.Before(r.nextBootstrapAt))) ||

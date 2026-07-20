@@ -91,7 +91,9 @@ func fetchLiveTUIStepIO(app *App, ref liveTUIStepIORef) (liveTUIStepIOResult, er
 	result := firstPresent(step, "output", "result", "resultPreview", "result-preview", "outputPreview", "output-preview", "outputResource", "output-resource")
 	if liveTUIProblemStatus(stepStatus) || errValue != nil {
 		resultKind = "error"
-		result = errValue
+		if errValue != nil {
+			result = errValue
+		}
 	}
 	if strings.TrimSpace(ref.ToolCallID) != "" {
 		return liveTUIToolCallIOResult(ref, stepStatus, result)
@@ -127,10 +129,13 @@ func fetchLiveTUIRunIO(app *App, ref liveTUIStepIORef, workflowID string) (liveT
 	result := firstPresent(run, "result", "resultPreview", "result-preview", "output", "outputPreview", "output-preview", "outputResource", "output-resource", "resultResourceUri", "resultResourceURI", "result-resource-uri")
 	if liveTUIProblemStatus(runStatus) || errValue != nil {
 		if errValue == nil {
-			errValue = firstPresent(run, "resultResourceUri", "resultResourceURI", "result-resource-uri")
+			if fallback := firstPresent(run, "resultResourceUri", "resultResourceURI", "result-resource-uri"); fallback != nil {
+				result = fallback
+			}
+		} else {
+			result = errValue
 		}
 		resultKind = "error"
-		result = errValue
 	}
 	return liveTUIStepIOResult{
 		Ref:        ref,
@@ -337,7 +342,9 @@ func liveTUIToolCallIOResult(ref liveTUIStepIORef, parentStatus string, parentRe
 	status := firstNonBlankString(toolCall["status"], parentStatus)
 	if errValue != nil || strings.EqualFold(firstNonBlankString(toolCall["success"]), "false") || liveTUIProblemStatus(status) {
 		resultKind = "error"
-		result = errValue
+		if errValue != nil {
+			result = errValue
+		}
 		if strings.TrimSpace(status) == "" || strings.EqualFold(status, "completed") {
 			status = "failed"
 		}
