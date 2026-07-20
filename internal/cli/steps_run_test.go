@@ -98,8 +98,10 @@ func TestStepsRunTimeoutBoundsSlowRequestAndExplainsRetry(t *testing.T) {
 	if !strings.Contains(stderr, "steps run timed out after 20ms") {
 		t.Fatalf("expected actionable timeout error, got %q", stderr)
 	}
-	if !strings.Contains(stderr, "increase --timeout") {
-		t.Fatalf("expected longer-timeout guidance, got %q", stderr)
+	for _, want := range []string{"external side effect may already have completed", "reuse the same --idempotency-key", "reconcile the external effect first"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected safe retry guidance %q, got %q", want, stderr)
+		}
 	}
 }
 
