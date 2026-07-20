@@ -159,11 +159,21 @@ func runsInspectGetWithCommand(runGet func(map[string]any) (map[string]any, int,
 		if err != nil {
 			return nil, status, "", err
 		}
-		if status != http.StatusNotFound {
+		if runInspectResponseResolved(out, status) {
 			return out, status, candidate, nil
 		}
 	}
 	return unscopedOut, unscopedStatus, "", nil
+}
+
+func runInspectResponseResolved(out map[string]any, status int) bool {
+	if status >= http.StatusBadRequest || out == nil {
+		return false
+	}
+	if ok, exists := out["ok"].(bool); exists && !ok {
+		return false
+	}
+	return true
 }
 
 func newRunsListCmd(app *App) *cobra.Command {

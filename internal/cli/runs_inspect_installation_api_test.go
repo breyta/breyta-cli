@@ -157,6 +157,43 @@ func TestRunsInspectGetWithCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("non-successful candidate responses do not stop inference", func(t *testing.T) {
+		const workflowID = "flow-demo-ws-install-inst-with-dashes-user-42-v7-pdeadbeef-r3"
+		const wantInstallationID = "inst-with-dashes"
+		var attempts []string
+		_, status, installationID, err := runsInspectGetWithCommand(
+			func(payload map[string]any) (map[string]any, int, error) {
+				candidate := firstNonBlankString(payload["installationId"])
+				attempts = append(attempts, candidate)
+				switch candidate {
+				case "":
+					return map[string]any{"ok": false}, http.StatusNotFound, nil
+				case "inst", "inst-with":
+					return map[string]any{"ok": false}, http.StatusOK, nil
+				case wantInstallationID:
+					return map[string]any{"ok": true}, http.StatusOK, nil
+				default:
+					return map[string]any{"ok": false}, http.StatusBadRequest, nil
+				}
+			},
+			workflowID,
+			"",
+			map[string]any{"workflowId": workflowID},
+		)
+		wantAttempts := []string{"", "inst", "inst-with", wantInstallationID}
+		if err != nil || status != http.StatusOK || installationID != wantInstallationID {
+			t.Fatalf("got status=%d installationID=%q err=%v", status, installationID, err)
+		}
+		if len(attempts) != len(wantAttempts) {
+			t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+		}
+		for i := range wantAttempts {
+			if attempts[i] != wantAttempts[i] {
+				t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+			}
+		}
+	})
+
 	t.Run("explicit installation id bypasses inference", func(t *testing.T) {
 		calls := 0
 		_, status, installationID, err := runsInspectGetWithCommand(
