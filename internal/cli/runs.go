@@ -18,6 +18,9 @@ import (
 )
 
 var shortRunIDPattern = regexp.MustCompile(`^r[0-9]+$`)
+var linkedInstallationRunSuffixPattern = regexp.MustCompile(`^([A-Za-z0-9_-]+)-v[0-9]+(?:-p[A-Za-z0-9_-]+)?(?:-c)?-r[0-9]+$`)
+
+const linkedInstallationWorkflowIDMarker = "-install-"
 
 type apiCommandRunner interface {
 	DoCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error)
@@ -65,6 +68,27 @@ func installationIDFromRunData(data map[string]any) string {
 		return firstNonBlankString(runData["installationId"], runData["installation-id"], runData["profileId"], runData["profile-id"])
 	}
 	return ""
+}
+
+func installationIDFromLinkedRunWorkflowID(workflowID string) string {
+	workflowID = strings.TrimSpace(workflowID)
+	markerIndex := strings.LastIndex(workflowID, linkedInstallationWorkflowIDMarker)
+	if markerIndex < 0 {
+		return ""
+	}
+	tail := workflowID[markerIndex+len(linkedInstallationWorkflowIDMarker):]
+	matches := linkedInstallationRunSuffixPattern.FindStringSubmatch(tail)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
+func effectiveRunInstallationID(workflowID string, explicitInstallationID string) string {
+	if explicitInstallationID = strings.TrimSpace(explicitInstallationID); explicitInstallationID != "" {
+		return explicitInstallationID
+	}
+	return installationIDFromLinkedRunWorkflowID(workflowID)
 }
 
 func newRunsListCmd(app *App) *cobra.Command {
@@ -718,17 +742,19 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 		Short: "Inspect a run or one step's compact I/O",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			workflowID := strings.TrimSpace(args[0])
+			effectiveInstallationID := effectiveRunInstallationID(workflowID, installationID)
 			if strings.TrimSpace(stepID) != "" {
 				if !isAPIMode(app) {
-					return writeLocalRunStepInspect(cmd, app, args[0], stepID)
+					return writeLocalRunStepInspect(cmd, app, workflowID, stepID)
 				}
-				return doRunsStepInspect(cmd, app, args[0], stepID, installationID, full)
+				return doRunsStepInspect(cmd, app, workflowID, stepID, effectiveInstallationID, full)
 			}
 			if !isAPIMode(app) {
-				return writeLocalRunInspect(cmd, app, args[0])
+				return writeLocalRunInspect(cmd, app, workflowID)
 			}
 			payload := map[string]any{
-				"workflowId":   strings.TrimSpace(args[0]),
+				"workflowId":   workflowID,
 				"includeSteps": true,
 			}
 			if full {
@@ -738,8 +764,8 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				payload["includeResult"] = false
 				payload["compactInspect"] = true
 			}
-			if strings.TrimSpace(installationID) != "" {
-				payload["installationId"] = strings.TrimSpace(installationID)
+			if effectiveInstallationID != "" {
+				payload["installationId"] = effectiveInstallationID
 			}
 			out, status, err := runAPICommand(app, "runs.get", payload)
 			if err != nil {
@@ -747,11 +773,11 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 			}
 			if status < 400 && isOK(out) {
 				if full {
-					annotateFullRunInspectOutput(out, args[0])
+					annotateFullRunInspectOutput(out, workflowID)
 				} else {
-					compactRunInspectOutput(out, args[0])
+					compactRunInspectOutput(out, workflowID)
 				}
-				reconcileRunResponseWithTerminalEvents(apiClient(app), out, strings.TrimSpace(args[0]), installationID)
+				reconcileRunResponseWithTerminalEvents(apiClient(app), out, workflowID, effectiveInstallationID)
 			}
 			return writeAPIResult(cmd, app, out, status)
 		},
