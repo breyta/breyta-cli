@@ -110,7 +110,7 @@ func (m liveTUIModel) stepIOResultKind() string {
 func (m liveTUIModel) inspectView() string {
 	lines := make([]string, 0, m.height)
 	if m.header != "" {
-		lines = append(lines, m.header)
+		lines = append(lines, m.inspectHeader())
 	}
 	if m.inspectHeaderSeparatorHeight() > 0 {
 		lines = append(lines, m.headerSeparator())
@@ -210,14 +210,20 @@ func (m liveTUIModel) inspectFooter(contentLen int) string {
 	position := footerPosition(minInt(m.stepIOOffset+1, maxInt(contentLen, 1)), maxInt(contentLen, 1))
 	parts := []string{
 		breytaTUILogoMark(),
+		position,
+	}
+	return strings.Join(parts, footerDivider())
+}
+
+func (m liveTUIModel) inspectHeader() string {
+	return strings.Join([]string{
+		m.header,
 		footerCommand("↑↓/jk", "scroll"),
 		footerKey("pgup/pgdn"),
 		footerCommand("i/o", "tabs"),
 		footerCommand("q/esc", "back"),
 		footerCommand("ctrl+c", "exit"),
-		position,
-	}
-	return strings.Join(parts, footerDivider())
+	}, footerDivider())
 }
 
 func (m liveTUIModel) inspectContentHeight() int {

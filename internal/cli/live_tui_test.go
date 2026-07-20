@@ -400,7 +400,7 @@ func TestLiveTUITruncatesANSIWithoutCorruptingEscapeSequences(t *testing.T) {
 	}
 }
 
-func TestLiveTUIFooterShowsCommandMenuAndQQuits(t *testing.T) {
+func TestLiveTUIHeaderShowsCommandMenuAndQQuits(t *testing.T) {
 	model := newLiveTUIModel()
 	model.width = 140
 	model.height = 6
@@ -414,14 +414,14 @@ func TestLiveTUIFooterShowsCommandMenuAndQQuits(t *testing.T) {
 	}
 	for _, want := range []string{"↑↓/jk move", "space toggle", "q/ctrl+c exit"} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("expected footer to contain %q\n%s", want, view)
+			t.Fatalf("expected header to contain %q\n%s", want, view)
 		}
 	}
 	if !strings.Contains(plain, "────") {
 		t.Fatalf("expected footer to be visually separated\n%s", view)
 	}
 	if !strings.Contains(view, "\x1b[38;5;81m↑↓/jk\x1b[39m") {
-		t.Fatalf("expected footer command keys to be accented\n%s", view)
+		t.Fatalf("expected header command keys to be accented\n%s", view)
 	}
 	if !strings.Contains(view, "\x1b[38;5;54;48;5;220m☷\x1b[0m") {
 		t.Fatalf("expected footer to include compact Breyta logo mark\n%s", view)

@@ -290,7 +290,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
 					if liveRenderer != nil {
 						liveRenderer.Update(waitCtx, true)
-						liveRenderer.WaitForExit(waitCtx)
+						liveRenderer.WaitForExit(waitCtx, true)
 					}
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
@@ -340,7 +340,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			}
 			if liveRenderer != nil {
 				liveRenderer.Update(waitCtx, true)
-				liveRenderer.WaitForExit(waitCtx)
+				liveRenderer.WaitForExit(waitCtx, true)
 			}
 			if finalStatus >= 400 {
 				finalResp = execResp
@@ -364,7 +364,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
 				if liveRenderer != nil {
 					liveRenderer.Update(waitCtx, true)
-					liveRenderer.WaitForExit(waitCtx)
+					liveRenderer.WaitForExit(waitCtx, true)
 				}
 				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 			}

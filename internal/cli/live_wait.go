@@ -161,8 +161,11 @@ func (r *liveWaitRenderer) StopRequested() bool {
 	return r != nil && r.tui != nil && r.tui.StopRequested()
 }
 
-func (r *liveWaitRenderer) WaitForExit(ctx context.Context) {
+func (r *liveWaitRenderer) WaitForExit(ctx context.Context, terminal bool) {
 	if r == nil || !r.interactive || r.tui == nil {
+		return
+	}
+	if terminal {
 		return
 	}
 	ticker := time.NewTicker(50 * time.Millisecond)

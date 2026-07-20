@@ -263,7 +263,7 @@ func (m liveTUIModel) View() string {
 	bodyHeight := m.bodyHeight()
 	lines := make([]string, 0, m.height)
 	if m.header != "" {
-		lines = append(lines, m.header)
+		lines = append(lines, m.treeHeader(visible))
 	}
 	if m.headerSeparatorHeight() > 0 {
 		lines = append(lines, m.headerSeparator())
@@ -1010,15 +1010,6 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 	}
 	parts := []string{
 		breytaTUILogoMark(),
-		footerCommand("↑↓/jk", "move"),
-		footerCommand("←→", "fold"),
-		footerCommand("space", "toggle"),
-		footerKey("pgup/pgdn"),
-	}
-	if m.cursorWebURL(visible) != "" {
-		parts = append(parts, footerCommand("enter", "open"))
-	} else if _, ok := m.cursorStepIORef(visible); ok {
-		parts = append(parts, footerCommand("enter", "inspect"))
 	}
 	if m.waitAction.Active {
 		parts = append(parts, footerWaitLabel(m.waitAction.Label()))
@@ -1038,6 +1029,23 @@ func (m liveTUIModel) footer(visible []liveTreeNode) string {
 		footerCommand("q/ctrl+c", "exit"),
 		footerPosition(cursor, total),
 	)
+	return strings.Join(parts, footerDivider())
+}
+
+func (m liveTUIModel) treeHeader(visible []liveTreeNode) string {
+	parts := []string{
+		m.header,
+		footerCommand("↑↓/jk", "move"),
+		footerCommand("←→", "fold"),
+		footerCommand("space", "toggle"),
+		footerKey("pgup/pgdn"),
+	}
+	if m.cursorWebURL(visible) != "" {
+		parts = append(parts, footerCommand("enter", "open"))
+	} else if _, ok := m.cursorStepIORef(visible); ok {
+		parts = append(parts, footerCommand("enter", "inspect"))
+	}
+	parts = append(parts, footerCommand("q/ctrl+c", "exit"))
 	return strings.Join(parts, footerDivider())
 }
 

@@ -132,6 +132,21 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	}
 }
 
+func TestLiveWaitRendererReturnsImmediatelyForTerminalRun(t *testing.T) {
+	renderer := &liveWaitRenderer{
+		interactive: true,
+		tui:         &liveTUIRunner{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	renderer.WaitForExit(ctx, true)
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("expected terminal live wait to return promptly, elapsed=%s", elapsed)
+	}
+}
+
 func TestLiveWaitRendererAppendsRedirectedFramesWithoutANSI(t *testing.T) {
 	var out bytes.Buffer
 	renderer := &liveWaitRenderer{
