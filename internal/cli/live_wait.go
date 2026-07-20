@@ -452,6 +452,9 @@ func (r *liveWaitRenderer) shouldRender(now time.Time, final bool) bool {
 	if r.lastDisplayKey != "" && r.lastDisplayKey != r.lastRenderedDisplayKey {
 		return true
 	}
+	if liveTUIWaitActionKey(r.waitAction) != r.lastRenderedWaitActionKey {
+		return true
+	}
 	if r.lastSnapshot != nil && len(r.lastSnapshot.Runs) > 0 && !r.lastSnapshot.HasActiveWork() {
 		return false
 	}

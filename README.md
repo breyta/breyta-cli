@@ -145,6 +145,10 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
+For an interactive full-tree realtime terminal view with wait/approval actions,
+use `breyta flows run <slug> --live`; it implies `--wait` and requires an
+interactive terminal. Use `--wait` for machine-readable output.
+
 Use `--input-file ./input.json` instead of `--input '<json>'` when the per-run
 payload is large enough to hit shell or OS argument limits.
 

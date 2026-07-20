@@ -187,6 +187,27 @@ func TestLiveWaitRendererRendersChangedSnapshotsAndInteractiveHeartbeat(t *testi
 		t.Fatalf("expected changed snapshot to render")
 	}
 
+	waitAction := &liveWaitRenderer{
+		displayedLines:         2,
+		lastDisplayKey:         "same",
+		lastRenderedDisplayKey: "same",
+		lastSnapshot: &live.Snapshot{Runs: []live.RunState{{
+			WorkflowID: "wf-live",
+			Status:     "completed",
+		}}},
+		waitAction: liveTUIWaitAction{
+			Active:     true,
+			WaitID:     "wait-1",
+			WorkflowID: "wf-live",
+			StepID:     "approve",
+			Title:      "Approve",
+			Actions:    []string{"approve", "reject"},
+		},
+	}
+	if !waitAction.shouldRender(now, false) {
+		t.Fatalf("expected wait-action-only change to render after the snapshot became idle")
+	}
+
 	heartbeat := &liveWaitRenderer{
 		displayedLines:         2,
 		lastDisplayKey:         "same",

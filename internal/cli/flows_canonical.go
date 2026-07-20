@@ -554,9 +554,10 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 		Short: "Start a flow run",
 		Long: strings.TrimSpace(`
 Default:
-- breyta flows run <flow-slug> [--input '{...}' | --input-file ./input.json] [--wait]
+- breyta flows run <flow-slug> [--input '{...}' | --input-file ./input.json] [--wait | --live]
 - file/blob-ref manual inputs: use --upload field=path to emulate a browser upload
 - brand-new unreleased flows: add --target draft while authoring, or release first
+- --live: stream the full-tree realtime terminal UI with wait/approval actions; it implies --wait and requires an interactive terminal
 
 	Advanced targeting:
 	- --installation-id <id> : run a specific installation target
@@ -569,6 +570,7 @@ Default:
 	`),
 		Example: strings.TrimSpace(`
 breyta flows run order-ingest --wait
+breyta flows run order-ingest --live
 breyta flows run order-ingest --input '{"region":"EU"}' --wait
 breyta flows run github-file-update --input-file ./package-lock-run-input.json --wait
 breyta flows run thesis-pdf-review-docx --target draft --interface-id run --upload thesis=./thesis.pdf --wait
