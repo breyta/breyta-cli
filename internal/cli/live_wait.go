@@ -98,7 +98,9 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 		return
 	}
 	now := time.Now()
-	if !r.bootstrapOK || (!r.nextBootstrapAt.IsZero() && !now.Before(r.nextBootstrapAt)) {
+	bootstrapRefreshDue := (!r.bootstrapOK && (r.nextBootstrapAt.IsZero() || !now.Before(r.nextBootstrapAt))) ||
+		(r.bootstrapOK && !r.nextBootstrapAt.IsZero() && !now.Before(r.nextBootstrapAt))
+	if bootstrapRefreshDue {
 		if err := r.refreshBootstrap(ctx, now); err != nil {
 			if !r.bootstrapOK && !r.warnedUnavailable {
 				_, _ = fmt.Fprintf(r.out, "live output unavailable, falling back to wait polling: %v\n", err)

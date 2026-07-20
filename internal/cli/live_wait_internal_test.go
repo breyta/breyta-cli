@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,15 @@ type fakeLiveBootstrapper struct {
 	expiresAt       time.Time
 	refreshBeforeMs int
 	calls           int
+}
+
+type failingLiveBootstrapper struct {
+	calls int
+}
+
+func (f *failingLiveBootstrapper) DoCommand(_ context.Context, _ string, _ map[string]any) (map[string]any, int, error) {
+	f.calls++
+	return nil, 0, errors.New("bootstrap unavailable")
 }
 
 func (f *fakeLiveBootstrapper) DoCommand(_ context.Context, command string, args map[string]any) (map[string]any, int, error) {
@@ -55,6 +65,27 @@ func TestLiveWaitRendererSchedulesBootstrapRefreshBeforeExpiry(t *testing.T) {
 	}
 	if fake.calls != 1 {
 		t.Fatalf("expected one bootstrap call, got %d", fake.calls)
+	}
+}
+
+func TestLiveWaitRendererHonorsBootstrapRetryBackoff(t *testing.T) {
+	fake := &failingLiveBootstrapper{}
+	var out bytes.Buffer
+	renderer := &liveWaitRenderer{apiClient: fake, out: &out}
+
+	renderer.Update(context.Background(), false)
+	if fake.calls != 1 {
+		t.Fatalf("expected initial bootstrap attempt, got %d", fake.calls)
+	}
+	renderer.Update(context.Background(), false)
+	if fake.calls != 1 {
+		t.Fatalf("expected failed bootstrap to honor backoff, got %d calls", fake.calls)
+	}
+
+	renderer.nextBootstrapAt = time.Now().Add(-time.Second)
+	renderer.Update(context.Background(), false)
+	if fake.calls != 2 {
+		t.Fatalf("expected retry after backoff, got %d calls", fake.calls)
 	}
 }
 
