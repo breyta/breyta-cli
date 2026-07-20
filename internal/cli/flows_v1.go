@@ -1273,6 +1273,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				}
 				if flowPushRequestTimedOut(err) {
 					trackFlowPushTimeout(app, flowSlug, "saving")
+					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(out, err), status, timeout, flowSlug, "saving")
 				}
 				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "saving"))
 			}
@@ -1325,6 +1326,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				}
 				if flowPushRequestTimedOut(err) {
 					trackFlowPushTimeout(app, flowSlug, "validating")
+					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(validateOut, err), validateStatus, timeout, flowSlug, "validating")
 				}
 				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "validating"))
 			}
@@ -1470,6 +1472,14 @@ func writeFlowPushTimeoutAPIResponse(cmd *cobra.Command, app *App, out map[strin
 	appendFlowPushTimeoutRecovery(out, timeout, flowSlug, phase)
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, errors.New(flowPushTimeoutResponseMessage(flowSlug, phase)+": "+err.Error()))
+	}
+	return nil
+}
+
+func writeFlowPushRequestTimeoutAPIResponse(cmd *cobra.Command, app *App, out map[string]any, status int, timeout time.Duration, flowSlug, phase string) error {
+	appendFlowPushTimeoutRecovery(out, timeout, flowSlug, phase)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, errors.New(flowPushTimeoutMessage(timeout, flowSlug, phase)+": "+err.Error()))
 	}
 	return nil
 }

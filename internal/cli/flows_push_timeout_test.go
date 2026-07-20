@@ -96,6 +96,9 @@ func TestFlowsPush_TimeoutAfterDraftSaveExplainsSafeRecovery(t *testing.T) {
 			t.Fatalf("timeout recovery message missing %q:\n%s", expected, message)
 		}
 	}
+	if !strings.Contains(outcome.stdout, "timeoutRecovery") || !strings.Contains(outcome.stdout, "draftOutcome") {
+		t.Fatalf("expected structured validation timeout recovery metadata:\n%s", outcome.stdout)
+	}
 }
 
 func TestFlowsPush_TimeoutFlagBoundsDraftUpload(t *testing.T) {
@@ -146,6 +149,9 @@ func TestFlowsPush_TimeoutFlagBoundsDraftUpload(t *testing.T) {
 	message := outcome.stderr + outcome.err.Error()
 	if !strings.Contains(message, "flows push timed out after 1s while saving push-timeout-upload") {
 		t.Fatalf("timeout upload message missing recovery context:\n%s", message)
+	}
+	if !strings.Contains(outcome.stdout, "timeoutRecovery") || !strings.Contains(outcome.stdout, "nextCommands") {
+		t.Fatalf("expected structured upload timeout recovery metadata:\n%s", outcome.stdout)
 	}
 }
 
