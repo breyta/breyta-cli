@@ -194,6 +194,37 @@ func TestRunsInspectGetWithCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("scoped server failures are not replaced by unscoped not found", func(t *testing.T) {
+		const workflowID = "flow-demo-ws-install-inst-with-dashes-v7-pdeadbeef-r3"
+		const wantInstallationID = "inst-with-dashes"
+		var attempts []string
+		out, status, installationID, err := runsInspectGetWithCommand(
+			func(payload map[string]any) (map[string]any, int, error) {
+				candidate := firstNonBlankString(payload["installationId"])
+				attempts = append(attempts, candidate)
+				if candidate == "" || candidate != wantInstallationID {
+					return map[string]any{"ok": false}, http.StatusNotFound, nil
+				}
+				return map[string]any{"ok": false, "error": map[string]any{"message": "upstream unavailable"}}, http.StatusServiceUnavailable, nil
+			},
+			workflowID,
+			"",
+			map[string]any{"workflowId": workflowID},
+		)
+		wantAttempts := []string{"", "inst", "inst-with", wantInstallationID}
+		if err != nil || status != http.StatusServiceUnavailable || installationID != wantInstallationID {
+			t.Fatalf("got status=%d installationID=%q err=%v out=%#v", status, installationID, err, out)
+		}
+		if len(attempts) != len(wantAttempts) {
+			t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+		}
+		for i := range wantAttempts {
+			if attempts[i] != wantAttempts[i] {
+				t.Fatalf("installation attempts = %#v, want %#v", attempts, wantAttempts)
+			}
+		}
+	})
+
 	t.Run("explicit installation id bypasses inference", func(t *testing.T) {
 		calls := 0
 		_, status, installationID, err := runsInspectGetWithCommand(

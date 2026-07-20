@@ -157,6 +157,9 @@ func runsInspectGetWithCommand(runGet func(map[string]any) (map[string]any, int,
 	// Installation ids and keyed concurrency values use the same delimiter in
 	// canonical workflow ids. Try prefixes from shortest to longest and retain
 	// only the candidate that resolves the run.
+	var scopedFailure map[string]any
+	scopedFailureStatus := 0
+	scopedFailureCandidate := ""
 	for _, candidate := range installationIDCandidatesFromLinkedRunWorkflowID(workflowID) {
 		out, status, err = doGet(candidate)
 		if err != nil {
@@ -165,6 +168,14 @@ func runsInspectGetWithCommand(runGet func(map[string]any) (map[string]any, int,
 		if runInspectResponseResolved(out, status) {
 			return out, status, candidate, nil
 		}
+		if runInspectResponseIsServerFailure(status) {
+			scopedFailure = out
+			scopedFailureStatus = status
+			scopedFailureCandidate = candidate
+		}
+	}
+	if scopedFailure != nil {
+		return scopedFailure, scopedFailureStatus, scopedFailureCandidate, nil
 	}
 	return unscopedOut, unscopedStatus, "", nil
 }
@@ -177,6 +188,10 @@ func runInspectResponseResolved(out map[string]any, status int) bool {
 		return false
 	}
 	return true
+}
+
+func runInspectResponseIsServerFailure(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 func newRunsListCmd(app *App) *cobra.Command {
