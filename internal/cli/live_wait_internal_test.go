@@ -339,6 +339,32 @@ func TestLiveWaitRendererSuppressesFinalResultOnlyForInteractiveOK(t *testing.T)
 	}
 }
 
+func TestLiveWaitRendererKeepsFinalResultVisibleWhenRefreshIsFirstOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"runs":[],"nodes":[]}`))
+	}))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	renderer := &liveWaitRenderer{
+		interactive:       true,
+		stdoutInteractive: true,
+		bootstrapOK:       true,
+		bootstrap:         live.Bootstrap{SnapshotURL: srv.URL},
+		snapshotClient:    live.SnapshotClient{HTTP: srv.Client()},
+		out:               &out,
+	}
+
+	renderer.Update(context.Background(), true)
+	if renderer.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
+		t.Fatal("expected final result to remain visible when final refresh was the first live output")
+	}
+	if !renderer.finalRefreshAttempted || renderer.finalRefreshHadLiveOutput {
+		t.Fatalf("expected final refresh to remember that no output existed before it: attempted=%t hadOutput=%t", renderer.finalRefreshAttempted, renderer.finalRefreshHadLiveOutput)
+	}
+	renderer.Close()
+}
+
 func TestLiveWaitRendererReturnsImmediatelyForTerminalRun(t *testing.T) {
 	renderer := &liveWaitRenderer{
 		interactive: true,

@@ -63,6 +63,8 @@ type liveWaitRenderer struct {
 	diagnostics               *liveDiagnostics
 	waitAction                liveTUIWaitAction
 	nextWaitActionAt          time.Time
+	finalRefreshAttempted     bool
+	finalRefreshHadLiveOutput bool
 	closed                    bool
 }
 
@@ -112,6 +114,8 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 		return
 	}
 	if final {
+		r.finalRefreshAttempted = true
+		r.finalRefreshHadLiveOutput = r.displayedLines > 0
 		finalCtx, cancel := context.WithTimeout(ctx, liveFinalRefreshTimeout)
 		defer cancel()
 		ctx = finalCtx
@@ -234,6 +238,9 @@ func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status 
 	}
 	if run := runFromCommandResponse(out); run != nil && runStatusFailedForExit(canonicalRunStatus(run["status"])) {
 		return false
+	}
+	if r.finalRefreshAttempted {
+		return r.finalRefreshHadLiveOutput
 	}
 	return true
 }
