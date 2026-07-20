@@ -65,6 +65,7 @@ type liveWaitRenderer struct {
 	nextWaitActionAt          time.Time
 	finalRefreshAttempted     bool
 	finalRefreshHadLiveOutput bool
+	finalRefreshIsTerminal    bool
 	closed                    bool
 }
 
@@ -116,6 +117,7 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 	if final {
 		r.finalRefreshAttempted = true
 		r.finalRefreshHadLiveOutput = r.displayedLines > 0
+		r.finalRefreshIsTerminal = false
 		finalCtx, cancel := context.WithTimeout(ctx, liveFinalRefreshTimeout)
 		defer cancel()
 		ctx = finalCtx
@@ -151,6 +153,7 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 			if !r.snapshotRunning {
 				if snapshot, err := r.snapshotClient.Fetch(ctx, r.bootstrap); err == nil {
 					r.applySnapshot(ctx, snapshot, now)
+					r.finalRefreshIsTerminal = r.finalSnapshotIsTerminal()
 				}
 			}
 		} else {
@@ -252,9 +255,25 @@ func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status 
 		return false
 	}
 	if r.finalRefreshAttempted {
-		return r.finalRefreshHadLiveOutput
+		return r.finalRefreshHadLiveOutput && r.finalRefreshIsTerminal
 	}
 	return true
+}
+
+func (r *liveWaitRenderer) finalSnapshotIsTerminal() bool {
+	if r == nil || r.lastSnapshot == nil || strings.TrimSpace(r.workflowID) == "" {
+		return false
+	}
+	if len(r.lastSnapshot.Runs) == 0 || r.lastSnapshot.HasActiveWork() {
+		return false
+	}
+	for _, run := range r.lastSnapshot.Runs {
+		if strings.TrimSpace(run.WorkflowID) != strings.TrimSpace(r.workflowID) {
+			continue
+		}
+		return isTerminalRunStatus(canonicalRunStatus(run.Status)) && !run.Active
+	}
+	return false
 }
 
 func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) error {

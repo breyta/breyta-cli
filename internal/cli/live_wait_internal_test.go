@@ -374,6 +374,7 @@ func TestLiveWaitRendererPrintsFinalSummaryAfterClosingTUI(t *testing.T) {
 		lastRenderedText:          "f wf-live\n  ✓ completed",
 		finalRefreshAttempted:     true,
 		finalRefreshHadLiveOutput: true,
+		finalRefreshIsTerminal:    true,
 		tui:                       &liveTUIRunner{},
 		out:                       &out,
 	}
@@ -387,6 +388,21 @@ func TestLiveWaitRendererPrintsFinalSummaryAfterClosingTUI(t *testing.T) {
 	}
 	if got := out.String(); !strings.Contains(got, "f wf-live") || !strings.Contains(got, "completed") {
 		t.Fatalf("expected final live summary after TUI close, got %q", got)
+	}
+}
+
+func TestLiveWaitRendererKeepsAuthoritativeResultWhenFinalSnapshotIsStale(t *testing.T) {
+	renderer := &liveWaitRenderer{
+		interactive:               true,
+		stdoutInteractive:         true,
+		displayedLines:            2,
+		finalRefreshAttempted:     true,
+		finalRefreshHadLiveOutput: true,
+		finalRefreshIsTerminal:    false,
+	}
+
+	if renderer.shouldSuppressFinalResult(map[string]any{"ok": true}, 200) {
+		t.Fatal("expected stale final live refresh to keep the authoritative result visible")
 	}
 }
 
