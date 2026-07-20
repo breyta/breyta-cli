@@ -1646,7 +1646,9 @@ func selectedActivities(node RunNode, children []RunNode, opts RenderOptions) []
 	selected = suppressPlannedUntakenScopeActivities(selected, opts)
 	selected = sortActivitiesByTime(selected)
 	selected = filterNestedToolActivities(selected, node.Activities)
-	selected = collapseLoopIterationScope(selected, node.Run)
+	if !opts.FullTree {
+		selected = collapseLoopIterationScope(selected, node.Run)
+	}
 	selected = suppressDuplicateStepActivities(selected)
 	if runHasActiveWork(node.Run) {
 		if opts.OmitCompletedSteps {

@@ -23,9 +23,22 @@ type failingLiveBootstrapper struct {
 	calls int
 }
 
+type blockingLiveGraphBootstrapper struct {
+	calls int
+}
+
 func (f *failingLiveBootstrapper) DoCommand(_ context.Context, _ string, _ map[string]any) (map[string]any, int, error) {
 	f.calls++
 	return nil, 0, errors.New("bootstrap unavailable")
+}
+
+func (f *blockingLiveGraphBootstrapper) DoCommand(ctx context.Context, command string, _ map[string]any) (map[string]any, int, error) {
+	if command != "runs.live.graph" {
+		return nil, 0, errors.New("unexpected command")
+	}
+	f.calls++
+	<-ctx.Done()
+	return nil, 0, ctx.Err()
 }
 
 func (f *fakeLiveBootstrapper) DoCommand(_ context.Context, command string, args map[string]any) (map[string]any, int, error) {
@@ -121,6 +134,27 @@ func TestLiveWaitRendererStartsSnapshotFetchWithoutBlocking(t *testing.T) {
 		t.Fatal("expected asynchronous snapshot request to start")
 	}
 	renderer.Close()
+}
+
+func TestLiveWaitRendererBoundsOptionalGraphHydration(t *testing.T) {
+	fake := &blockingLiveGraphBootstrapper{}
+	renderer := &liveWaitRenderer{apiClient: fake}
+	snapshot := live.Snapshot{Runs: []live.RunState{{WorkflowID: "wf-root", RootWorkflowID: "wf-root"}}}
+
+	done := make(chan struct{})
+	go func() {
+		_ = renderer.enrichSnapshotWithGraphs(context.Background(), snapshot)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("expected optional graph hydration to be bounded")
+	}
+	if fake.calls != 1 {
+		t.Fatalf("expected one graph hydration request, got %d", fake.calls)
+	}
 }
 
 func TestLiveWaitRendererSuppressesUnchangedNonInteractiveFrames(t *testing.T) {

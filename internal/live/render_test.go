@@ -2528,11 +2528,10 @@ func TestRenderSnapshotLiveFullShowsFullTree(t *testing.T) {
 	if strings.Count(collapsed, "[b0]") != 0 {
 		t.Fatalf("expected collapsed view to hide terminal child branch\n%s", collapsed)
 	}
-	if strings.Count(expanded, "loop-page-1") != 0 || strings.Count(expanded, "loop-page-2") != 0 {
-		t.Fatalf("expected expanded view to replace prior loop iterations inline\n%s", expanded)
-	}
-	if strings.Count(expanded, "loop-page-3") != 1 {
-		t.Fatalf("expected expanded view to show only latest loop iteration\n%s", expanded)
+	for _, want := range []string{"loop-page-1", "loop-page-2", "loop-page-3"} {
+		if strings.Count(expanded, want) != 1 {
+			t.Fatalf("expected full-tree view to preserve %s exactly once\n%s", want, expanded)
+		}
 	}
 	if !strings.Contains(expanded, "[b0]") {
 		t.Fatalf("expected expanded view to show terminal child branch\n%s", expanded)

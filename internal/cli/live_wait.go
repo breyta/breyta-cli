@@ -68,6 +68,7 @@ type liveWaitRenderer struct {
 const liveRenderFrameInterval = time.Second / 60
 const liveFinalRefreshTimeout = 500 * time.Millisecond
 const liveSnapshotRetryInterval = time.Second
+const liveGraphHydrationTimeout = 250 * time.Millisecond
 
 type liveSnapshotFetchResult struct {
 	snapshot live.Snapshot
@@ -427,7 +428,9 @@ func (r *liveWaitRenderer) enrichSnapshotWithGraphs(ctx context.Context, snapsho
 
 func (r *liveWaitRenderer) fetchFlowGraph(ctx context.Context, workflowID string) (live.FlowGraphDocument, bool) {
 	var doc live.FlowGraphDocument
-	out, status, err := r.apiClient.DoCommand(ctx, "runs.live.graph", map[string]any{"workflowId": workflowID})
+	graphCtx, cancel := context.WithTimeout(ctx, liveGraphHydrationTimeout)
+	defer cancel()
+	out, status, err := r.apiClient.DoCommand(graphCtx, "runs.live.graph", map[string]any{"workflowId": workflowID})
 	if err != nil || status >= 400 || !isOK(out) {
 		return doc, false
 	}

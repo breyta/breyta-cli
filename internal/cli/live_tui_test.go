@@ -87,9 +87,9 @@ func TestLiveTUIStartsExpandedAndPreservesCompletedRows(t *testing.T) {
 			t.Fatalf("expected live TUI view to include %q\n%s", want, view)
 		}
 	}
-	for _, notWant := range []string{"loop-page-1", "loop-page-2"} {
-		if strings.Contains(view, notWant) {
-			t.Fatalf("expected live TUI view to replace prior loop pages inline, found %q\n%s", notWant, view)
+	for _, want := range []string{"loop-page-1", "loop-page-2"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected full-tree live TUI view to preserve %q\n%s", want, view)
 		}
 	}
 }
