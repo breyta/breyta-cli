@@ -2578,7 +2578,7 @@ func TestSecretsDelete_InUse_ReturnsHintDetails(t *testing.T) {
 	}
 }
 
-func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
+func TestFlowsInstallations_List_AllWithFlowFiltersWorkspaceInventory(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
 			http.NotFound(w, r)
@@ -2592,14 +2592,14 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 			return
 		}
 		args, _ := body["args"].(map[string]any)
-		if args["flowSlug"] != "my-app" {
+		if _, ok := args["flowSlug"]; ok {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing flowSlug"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected creator flowSlug"}})
 			return
 		}
-		if args["all"] != true {
+		if args["allFlows"] != true || args["workspaceFlowSlug"] != "my-app" {
 			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing all"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing workspace inventory selector"}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -2620,6 +2620,40 @@ func TestFlowsInstallations_List_All_SendsAllFlag(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows installations list --all failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_List_AllUsersSendsCreatorFlag(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		args, _ := body["args"].(map[string]any)
+		if body["command"] != "flows.installations.list" || args["flowSlug"] != "my-app" || args["all"] != true {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing creator inventory selector"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   true,
+			"data": map[string]any{"flowSlug": "my-app", "items": []any{}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "installations", "list", "my-app",
+		"--all-users",
+	)
+	if err != nil {
+		t.Fatalf("flows installations list --all-users failed: %v\n%s", err, stdout)
 	}
 }
 

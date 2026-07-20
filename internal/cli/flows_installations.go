@@ -44,6 +44,7 @@ config, triggers, endpoints, or controlled promotion.
 
 func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 	var all bool
+	var allUsers bool
 	var sourceWorkspaceID string
 	var sourceFlowSlug string
 	cmd := &cobra.Command{
@@ -60,6 +61,9 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 				if !all {
 					return writeErr(cmd, errors.New("flows installations list requires <flow-slug> unless --all is set"))
 				}
+				if allUsers {
+					return writeErr(cmd, errors.New("--all-users requires <flow-slug> and cannot be combined with --all"))
+				}
 				if sourceWorkspaceID != "" || sourceFlowSlug != "" {
 					return writeErr(cmd, errors.New("--source-workspace-id and --source-flow-slug require <flow-slug>"))
 				}
@@ -67,8 +71,20 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 					"allFlows": true,
 				})
 			}
-			payload := map[string]any{"flowSlug": args[0]}
 			if all {
+				if allUsers {
+					return writeErr(cmd, errors.New("--all and --all-users select different installation inventories and cannot be combined"))
+				}
+				if sourceWorkspaceID != "" || sourceFlowSlug != "" {
+					return writeErr(cmd, errors.New("--source-workspace-id and --source-flow-slug cannot be combined with workspace inventory --all"))
+				}
+				return doAPICommand(cmd, app, "flows.installations.list", map[string]any{
+					"allFlows":          true,
+					"workspaceFlowSlug": args[0],
+				})
+			}
+			payload := map[string]any{"flowSlug": args[0]}
+			if allUsers {
 				payload["all"] = true
 			}
 			if sourceWorkspaceID != "" {
@@ -80,7 +96,8 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 			return doAPICommand(cmd, app, "flows.installations.list", payload)
 		},
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "List all workspace installations when no flow is provided; with a flow, list all users for that flow (creator-only)")
+	cmd.Flags().BoolVar(&all, "all", false, "List current-workspace installations, optionally filtered by the positional flow slug")
+	cmd.Flags().BoolVar(&allUsers, "all-users", false, "List installations across all consumer users for a flow (creator-only)")
 	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Public-install source workspace id for cross-workspace listing")
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Public-install source flow slug override")
 	return cmd
