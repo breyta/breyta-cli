@@ -966,6 +966,54 @@ func TestFlowsDraftRun_Wait404DeadlineReturnsInProgressEnvelope(t *testing.T) {
 	}
 }
 
+func TestFlowsDraftRun_WaitPreservesSuccessfulHTTPErrorEnvelope(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-draft-error-envelope",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "run_lookup_failed", "message": "run lookup failed"},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "draft", "run", "draft-error-envelope",
+		"--wait", "--poll", "1ms", "--timeout", "100ms",
+	)
+	if err == nil {
+		t.Fatalf("expected draft wait to return the API error envelope as an error\nstdout=%s", stdout)
+	}
+	if !strings.Contains(stdout, `"ok":false`) || !strings.Contains(stdout, "run lookup failed") {
+		t.Fatalf("expected the runs.get error envelope, got:\n%s", stdout)
+	}
+	if strings.Contains(stdout, `"timedOut":true`) {
+		t.Fatalf("expected the runs.get error envelope instead of a timeout envelope, got:\n%s", stdout)
+	}
+}
+
 func TestFlowsInstallations_Create_UsesFlowsInstallationsCreateCommand(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

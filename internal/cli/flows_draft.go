@@ -165,6 +165,9 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				if execStatus >= 400 {
 					return writeFinal(execResp, execStatus)
 				}
+				if !isOK(execResp) {
+					return writeFinal(execResp, execStatus)
+				}
 				execDataAny := execResp["data"]
 				execData, _ := execDataAny.(map[string]any)
 				runAny := execData["run"]
