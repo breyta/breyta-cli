@@ -1037,6 +1037,15 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+const pulledFlowSourceMarker = ";; breyta: pulled-source"
+
+func markPulledFlowSource(flowLiteral string) string {
+	if strings.HasPrefix(strings.TrimSpace(flowLiteral), pulledFlowSourceMarker) {
+		return flowLiteral
+	}
+	return pulledFlowSourceMarker + "\n" + flowLiteral
+}
+
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
 	var target string
@@ -1131,7 +1140,7 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			if err := makePublicDir(filepath.Dir(path)); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := writePublicFile(path, []byte(flowLiteral+"\n")); err != nil {
+			if err := writePublicFile(path, []byte(markPulledFlowSource(flowLiteral)+"\n")); err != nil {
 				return writeErr(cmd, err)
 			}
 			_ = recordConsultedFlow(provenanceSourceRef{

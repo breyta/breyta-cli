@@ -1070,8 +1070,37 @@ func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
 		"function_step_input_shape_invalid")
 }
 
+func TestFlowsLintLocalOnlyRejectsNewBareReferencedFunctionStepInput(t *testing.T) {
+	flowLiteral := `{:slug :new-bare-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize-input-payload
+              :language :clojure
+              :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input-payload
+                     {:ref :normalize-input-payload
+                      :input input}))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("new bare referenced function input should fail local lint\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_step_input_shape_invalid" && item["severity"] != "error" {
+			t.Fatalf("expected new bare function input to remain an error: %#v", item)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing.T) {
-	flowLiteral := `{:slug :pulled-legacy-function-step-shape
+	flowLiteral := pulledFlowSourceMarker + `
+{:slug :pulled-legacy-function-step-shape
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
