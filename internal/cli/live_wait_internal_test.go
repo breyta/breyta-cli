@@ -28,6 +28,10 @@ type blockingLiveGraphBootstrapper struct {
 	calls int
 }
 
+type blockingLiveBootstrapper struct {
+	calls int
+}
+
 func (f *failingLiveBootstrapper) DoCommand(_ context.Context, _ string, _ map[string]any) (map[string]any, int, error) {
 	f.calls++
 	return nil, 0, errors.New("bootstrap unavailable")
@@ -35,6 +39,15 @@ func (f *failingLiveBootstrapper) DoCommand(_ context.Context, _ string, _ map[s
 
 func (f *blockingLiveGraphBootstrapper) DoCommand(ctx context.Context, command string, _ map[string]any) (map[string]any, int, error) {
 	if command != "runs.live.graph" {
+		return nil, 0, errors.New("unexpected command")
+	}
+	f.calls++
+	<-ctx.Done()
+	return nil, 0, ctx.Err()
+}
+
+func (f *blockingLiveBootstrapper) DoCommand(ctx context.Context, command string, _ map[string]any) (map[string]any, int, error) {
+	if command != "runs.live.bootstrap" {
 		return nil, 0, errors.New("unexpected command")
 	}
 	f.calls++
@@ -110,6 +123,23 @@ func TestLiveWaitRendererHonorsBootstrapRetryBackoff(t *testing.T) {
 	renderer.Update(context.Background(), false)
 	if fake.calls != 2 {
 		t.Fatalf("expected retry after backoff, got %d calls", fake.calls)
+	}
+}
+
+func TestLiveWaitRendererBoundsBootstrapRefresh(t *testing.T) {
+	fake := &blockingLiveBootstrapper{}
+	renderer := &liveWaitRenderer{apiClient: fake}
+
+	startedAt := time.Now()
+	err := renderer.refreshBootstrap(context.Background(), startedAt)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected bounded bootstrap timeout, got %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("expected bootstrap refresh to be bounded, elapsed=%s", elapsed)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("expected one bootstrap call, got %d", fake.calls)
 	}
 }
 

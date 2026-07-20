@@ -68,6 +68,7 @@ type liveWaitRenderer struct {
 
 const liveRenderFrameInterval = time.Second / 60
 const liveFinalRefreshTimeout = 500 * time.Millisecond
+const liveBootstrapTimeout = 500 * time.Millisecond
 const liveSnapshotRetryInterval = time.Second
 const liveGraphHydrationTimeout = 250 * time.Millisecond
 
@@ -238,6 +239,9 @@ func (r *liveWaitRenderer) shouldSuppressFinalResult(out map[string]any, status 
 }
 
 func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) error {
+	bootstrapCtx, cancel := context.WithTimeout(ctx, liveBootstrapTimeout)
+	defer cancel()
+
 	args := map[string]any{}
 	if r.workflowID != "" {
 		args["workflowId"] = r.workflowID
@@ -245,7 +249,7 @@ func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) 
 	if r.installationID != "" {
 		args["installationId"] = r.installationID
 	}
-	out, status, err := r.apiClient.DoCommand(ctx, "runs.live.bootstrap", args)
+	out, status, err := r.apiClient.DoCommand(bootstrapCtx, "runs.live.bootstrap", args)
 	if err != nil {
 		return err
 	}
