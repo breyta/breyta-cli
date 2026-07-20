@@ -1037,13 +1037,55 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-const pulledFlowSourceMarker = ";; breyta: pulled-source"
+const (
+	pulledFlowSourceMarker          = ";; breyta: pulled-source"
+	pulledLegacyFunctionInputMarker = ";; breyta: legacy-bare-function-input "
+)
 
 func markPulledFlowSource(flowLiteral string) string {
-	if strings.HasPrefix(strings.TrimSpace(flowLiteral), pulledFlowSourceMarker) {
-		return flowLiteral
+	flowLiteral = stripPulledFlowSourceMarkers(flowLiteral)
+	legacySteps := map[string]bool{}
+	for _, diagnostic := range localFunctionStepShapeDiagnostics(flowLiteral, false, nil) {
+		if diagnostic["code"] != "function_step_input_shape_invalid" {
+			continue
+		}
+		path, _ := diagnostic["path"].([]string)
+		if len(path) >= 2 && path[1] != "" && path[1] != "<missing>" {
+			legacySteps[path[1]] = true
+		}
 	}
-	return pulledFlowSourceMarker + "\n" + flowLiteral
+
+	var markers strings.Builder
+	markers.WriteString(pulledFlowSourceMarker)
+	markers.WriteByte('\n')
+	steps := make([]string, 0, len(legacySteps))
+	for step := range legacySteps {
+		steps = append(steps, step)
+	}
+	sort.Strings(steps)
+	for _, step := range steps {
+		markers.WriteString(pulledLegacyFunctionInputMarker)
+		markers.WriteString(strconv.Quote(step))
+		markers.WriteByte('\n')
+	}
+	return markers.String() + flowLiteral
+}
+
+func stripPulledFlowSourceMarkers(flowLiteral string) string {
+	lines := strings.Split(flowLiteral, "\n")
+	out := make([]string, 0, len(lines))
+	inHeader := true
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inHeader && trimmed != "" && !strings.HasPrefix(trimmed, ";") {
+			inHeader = false
+		}
+		if inHeader && (trimmed == pulledFlowSourceMarker || strings.HasPrefix(trimmed, pulledLegacyFunctionInputMarker)) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func newFlowsPullCmd(app *App) *cobra.Command {
