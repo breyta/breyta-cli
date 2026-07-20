@@ -39,6 +39,9 @@ type liveWaitRenderer struct {
 	streamErrors      chan error
 	streamKey         string
 	streamRunning     bool
+	snapshotCancel    context.CancelFunc
+	snapshotResults   chan liveSnapshotFetchResult
+	snapshotRunning   bool
 	graphsByWorkflow  map[string]live.FlowGraphDocument
 	displayedWatchURL string
 
@@ -64,6 +67,12 @@ type liveWaitRenderer struct {
 
 const liveRenderFrameInterval = time.Second / 60
 const liveFinalRefreshTimeout = 500 * time.Millisecond
+const liveSnapshotRetryInterval = time.Second
+
+type liveSnapshotFetchResult struct {
+	snapshot live.Snapshot
+	err      error
+}
 
 func newLiveWaitRenderer(cmd *cobra.Command, app *App, client liveBootstrapper, workflowID string) *liveWaitRenderer {
 	out := cmd.ErrOrStderr()
@@ -104,6 +113,7 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 		ctx = finalCtx
 	}
 	now := time.Now()
+	r.drainSnapshot(ctx, now)
 	bootstrapRefreshDue := (!r.bootstrapOK && (r.nextBootstrapAt.IsZero() || !now.Before(r.nextBootstrapAt))) ||
 		(r.bootstrapOK && !r.nextBootstrapAt.IsZero() && !now.Before(r.nextBootstrapAt))
 	if bootstrapRefreshDue {
@@ -126,12 +136,17 @@ func (r *liveWaitRenderer) Update(ctx context.Context, final bool) {
 	if r.bootstrapOK && (final ||
 		r.lastSnapshot == nil ||
 		(snapshotFallbackDue && (r.nextSnapshotAt.IsZero() || !now.Before(r.nextSnapshotAt)))) {
-		if snapshot, err := r.snapshotClient.Fetch(ctx, r.bootstrap); err == nil {
-			snapshot = r.enrichSnapshotWithGraphs(ctx, snapshot)
-			focused := snapshot.Focus(r.workflowID)
-			r.lastSnapshot = &focused
-			r.lastDisplayKey = displayFrameKey(focused, r.workflowID)
-			r.nextSnapshotAt = now.Add(r.bootstrap.PollInterval(time.Second))
+		if final {
+			// The final refresh is bounded by the caller's final timeout, but a
+			// non-terminal wait must never block its normal runs.get polling on a
+			// supplementary snapshot request.
+			if !r.snapshotRunning {
+				if snapshot, err := r.snapshotClient.Fetch(ctx, r.bootstrap); err == nil {
+					r.applySnapshot(ctx, snapshot, now)
+				}
+			}
+		} else {
+			r.startSnapshotFetch(ctx, now)
 		}
 	}
 	if r.lastSnapshot == nil {
@@ -149,6 +164,7 @@ func (r *liveWaitRenderer) Close() {
 		return
 	}
 	r.closed = true
+	r.cancelSnapshotFetch()
 	if r.streamCancel != nil {
 		r.streamCancel()
 		r.streamCancel = nil
@@ -163,6 +179,18 @@ func (r *liveWaitRenderer) Close() {
 		r.diagnostics.Close()
 		r.diagnostics = nil
 	}
+}
+
+func (r *liveWaitRenderer) cancelSnapshotFetch() {
+	if r == nil {
+		return
+	}
+	if r.snapshotCancel != nil {
+		r.snapshotCancel()
+		r.snapshotCancel = nil
+	}
+	r.snapshotResults = nil
+	r.snapshotRunning = false
 }
 
 func (r *liveWaitRenderer) StopRequested() bool {
@@ -258,6 +286,7 @@ func (r *liveWaitRenderer) resetStreamIfBootstrapChanged() {
 	if streamKey == r.streamKey {
 		return
 	}
+	r.cancelSnapshotFetch()
 	if r.streamCancel != nil {
 		r.streamCancel()
 		r.streamCancel = nil
@@ -272,6 +301,51 @@ func (r *liveWaitRenderer) resetStreamIfBootstrapChanged() {
 	}
 }
 
+func (r *liveWaitRenderer) startSnapshotFetch(ctx context.Context, now time.Time) {
+	if r == nil || r.snapshotRunning || (!r.nextSnapshotAt.IsZero() && now.Before(r.nextSnapshotAt)) {
+		return
+	}
+	fetchCtx, cancel := context.WithCancel(ctx)
+	results := make(chan liveSnapshotFetchResult, 1)
+	r.snapshotCancel = cancel
+	r.snapshotResults = results
+	r.snapshotRunning = true
+	bootstrap := r.bootstrap
+	go func() {
+		snapshot, err := r.snapshotClient.Fetch(fetchCtx, bootstrap)
+		results <- liveSnapshotFetchResult{snapshot: snapshot, err: err}
+	}()
+}
+
+func (r *liveWaitRenderer) drainSnapshot(ctx context.Context, now time.Time) {
+	if r == nil || !r.snapshotRunning || r.snapshotResults == nil {
+		return
+	}
+	select {
+	case result := <-r.snapshotResults:
+		r.snapshotRunning = false
+		if r.snapshotCancel != nil {
+			r.snapshotCancel()
+			r.snapshotCancel = nil
+		}
+		r.snapshotResults = nil
+		if result.err != nil {
+			r.nextSnapshotAt = now.Add(liveSnapshotRetryInterval)
+			return
+		}
+		r.applySnapshot(ctx, result.snapshot, now)
+	default:
+	}
+}
+
+func (r *liveWaitRenderer) applySnapshot(ctx context.Context, snapshot live.Snapshot, now time.Time) {
+	snapshot = r.enrichSnapshotWithGraphs(ctx, snapshot)
+	focused := snapshot.Focus(r.workflowID)
+	r.lastSnapshot = &focused
+	r.lastDisplayKey = displayFrameKey(focused, r.workflowID)
+	r.nextSnapshotAt = now.Add(r.bootstrap.PollInterval(time.Second))
+}
+
 func (r *liveWaitRenderer) ensureStream(ctx context.Context, now time.Time) {
 	if strings.TrimSpace(r.streamKey) == "" || r.streamRunning {
 		return
@@ -279,6 +353,7 @@ func (r *liveWaitRenderer) ensureStream(ctx context.Context, now time.Time) {
 	if !r.nextStreamAt.IsZero() && now.Before(r.nextStreamAt) {
 		return
 	}
+	r.cancelSnapshotFetch()
 	streamCtx, cancel := context.WithCancel(ctx)
 	r.streamCancel = cancel
 	r.streamSnapshots = make(chan live.Snapshot, 8)

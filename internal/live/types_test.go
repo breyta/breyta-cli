@@ -88,6 +88,41 @@ func TestBuildRunTreeBackfillsChildMetadataFromRelation(t *testing.T) {
 	}
 }
 
+func TestBuildRunTreeSynthesizesRelationFromChildRunMetadata(t *testing.T) {
+	nodes := Snapshot{
+		Runs: []RunState{
+			{
+				WorkspaceID:    "ws-acme",
+				WorkflowID:     "wf-root",
+				RootWorkflowID: "wf-root",
+				Status:         "running",
+			},
+			{
+				WorkspaceID:      "ws-acme",
+				WorkflowID:       "wf-child",
+				RootWorkflowID:   "wf-root",
+				ParentWorkflowID: "wf-root",
+				ParentStepID:     "spawn-children",
+				RelationKind:     "child_flow",
+				FlowSlug:         "child-flow",
+				Status:           "running",
+				Active:           true,
+			},
+		},
+	}.BuildRunTree()
+
+	if len(nodes) != 1 || len(nodes[0].Children) != 1 {
+		t.Fatalf("expected one root with one synthesized child relation, got %#v", nodes)
+	}
+	child := nodes[0].Children[0]
+	if child.Run.WorkflowID != "wf-child" {
+		t.Fatalf("expected child wf-child, got %#v", child.Run)
+	}
+	if child.Relation == nil || child.Relation.ParentWorkflowID != "wf-root" || child.Relation.ChildWorkflowID != "wf-child" {
+		t.Fatalf("expected synthesized child relation, got %#v", child.Relation)
+	}
+}
+
 func TestFlatRootRunNodeUsesFocusedRootWhenFlattening(t *testing.T) {
 	root := RunNode{
 		Run: RunState{

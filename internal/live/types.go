@@ -280,7 +280,8 @@ func (s Snapshot) BuildRunTree() []RunNode {
 	}
 
 	relationsByParent := map[string][]RunRelation{}
-	childWorkflowIDs := map[string]bool{}
+	parentsByChild := map[string]map[string]bool{}
+	relationKeys := map[string]bool{}
 	for _, relation := range s.Relations {
 		parentID := strings.TrimSpace(relation.ParentWorkflowID)
 		childID := strings.TrimSpace(relation.ChildWorkflowID)
@@ -288,7 +289,38 @@ func (s Snapshot) BuildRunTree() []RunNode {
 			continue
 		}
 		relationsByParent[parentID] = append(relationsByParent[parentID], relation)
-		childWorkflowIDs[childID] = true
+		if parentsByChild[childID] == nil {
+			parentsByChild[childID] = map[string]bool{}
+		}
+		parentsByChild[childID][parentID] = true
+		relationKeys[parentID+"\x00"+childID] = true
+	}
+	for _, run := range runsByWorkflow {
+		parentID := strings.TrimSpace(run.ParentWorkflowID)
+		childID := strings.TrimSpace(run.WorkflowID)
+		if parentID == "" || childID == "" || relationKeys[parentID+"\x00"+childID] {
+			continue
+		}
+		relationsByParent[parentID] = append(relationsByParent[parentID], RunRelation{
+			WorkspaceID:       run.WorkspaceID,
+			RootWorkflowID:    run.RootWorkflowID,
+			ParentWorkflowID:  parentID,
+			ChildWorkflowID:   childID,
+			ParentStepID:      run.ParentStepID,
+			RelationKind:      run.RelationKind,
+			FlowSlug:          run.FlowSlug,
+			EntrypointType:    run.EntrypointType,
+			AgentID:           run.AgentID,
+			FanoutID:          run.FanoutID,
+			FanoutBranchIndex: run.FanoutBranchIndex,
+			Active:            run.Active,
+			Status:            run.Status,
+			UpdatedAt:         run.UpdatedAt,
+		})
+		if parentsByChild[childID] == nil {
+			parentsByChild[childID] = map[string]bool{}
+		}
+		parentsByChild[childID][parentID] = true
 	}
 	for parentID := range relationsByParent {
 		sort.SliceStable(relationsByParent[parentID], func(i, j int) bool {
@@ -312,10 +344,14 @@ func (s Snapshot) BuildRunTree() []RunNode {
 
 	roots := make([]RunState, 0, len(s.Runs))
 	for _, run := range runsByWorkflow {
-		if childWorkflowIDs[run.WorkflowID] {
-			continue
+		hasPresentParent := false
+		for parentID := range parentsByChild[run.WorkflowID] {
+			if _, ok := runsByWorkflow[parentID]; ok {
+				hasPresentParent = true
+				break
+			}
 		}
-		if strings.TrimSpace(run.ParentWorkflowID) != "" {
+		if hasPresentParent {
 			continue
 		}
 		roots = append(roots, run)

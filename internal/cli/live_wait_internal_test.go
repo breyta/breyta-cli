@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +89,38 @@ func TestLiveWaitRendererHonorsBootstrapRetryBackoff(t *testing.T) {
 	if fake.calls != 2 {
 		t.Fatalf("expected retry after backoff, got %d calls", fake.calls)
 	}
+}
+
+func TestLiveWaitRendererStartsSnapshotFetchWithoutBlocking(t *testing.T) {
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	renderer := &liveWaitRenderer{
+		bootstrapOK: true,
+		bootstrap: live.Bootstrap{
+			SnapshotURL: srv.URL,
+			PollMs:      1,
+		},
+		snapshotClient: live.SnapshotClient{HTTP: &http.Client{Timeout: 10 * time.Second}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startedAt := time.Now()
+	renderer.Update(ctx, false)
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("expected live wait update to return before snapshot response, elapsed=%s", elapsed)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("expected asynchronous snapshot request to start")
+	}
+	renderer.Close()
 }
 
 func TestLiveWaitRendererSuppressesUnchangedNonInteractiveFrames(t *testing.T) {
