@@ -17,6 +17,7 @@ type fakeLiveBootstrapper struct {
 	expiresAt       time.Time
 	refreshBeforeMs int
 	calls           int
+	lastArgs        map[string]any
 }
 
 type failingLiveBootstrapper struct {
@@ -43,6 +44,10 @@ func (f *blockingLiveGraphBootstrapper) DoCommand(ctx context.Context, command s
 
 func (f *fakeLiveBootstrapper) DoCommand(_ context.Context, command string, args map[string]any) (map[string]any, int, error) {
 	f.calls++
+	f.lastArgs = make(map[string]any, len(args))
+	for key, value := range args {
+		f.lastArgs[key] = value
+	}
 	return map[string]any{
 		"ok": true,
 		"data": map[string]any{
@@ -68,8 +73,9 @@ func TestLiveWaitRendererSchedulesBootstrapRefreshBeforeExpiry(t *testing.T) {
 		refreshBeforeMs: 60000,
 	}
 	renderer := &liveWaitRenderer{
-		apiClient:  fake,
-		workflowID: "wf-live",
+		apiClient:      fake,
+		workflowID:     "wf-live",
+		installationID: "inst-live",
 	}
 	if err := renderer.refreshBootstrap(context.Background(), now); err != nil {
 		t.Fatalf("refreshBootstrap failed: %v", err)
@@ -80,6 +86,9 @@ func TestLiveWaitRendererSchedulesBootstrapRefreshBeforeExpiry(t *testing.T) {
 	}
 	if fake.calls != 1 {
 		t.Fatalf("expected one bootstrap call, got %d", fake.calls)
+	}
+	if fake.lastArgs["workflowId"] != "wf-live" || fake.lastArgs["installationId"] != "inst-live" {
+		t.Fatalf("expected scoped bootstrap args, got %#v", fake.lastArgs)
 	}
 }
 

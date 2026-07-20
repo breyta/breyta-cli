@@ -242,6 +242,9 @@ func (r *liveWaitRenderer) refreshBootstrap(ctx context.Context, now time.Time) 
 	if r.workflowID != "" {
 		args["workflowId"] = r.workflowID
 	}
+	if r.installationID != "" {
+		args["installationId"] = r.installationID
+	}
 	out, status, err := r.apiClient.DoCommand(ctx, "runs.live.bootstrap", args)
 	if err != nil {
 		return err

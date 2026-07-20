@@ -1232,11 +1232,28 @@ func filterWaitItemsForWorkflow(items []map[string]any, workflowID string) []map
 	filtered := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		itemWorkflowID := firstNonBlankString(item["workflowId"], item["workflow-id"], item["runId"], item["run-id"])
-		if itemWorkflowID == "" || itemWorkflowID == workflowID {
+		if itemWorkflowID == "" || itemWorkflowID == workflowID || waitItemBelongsToWorkflowTree(item, workflowID) {
 			filtered = append(filtered, item)
 		}
 	}
 	return filtered
+}
+
+func waitItemBelongsToWorkflowTree(item map[string]any, workflowID string) bool {
+	if item == nil || workflowID == "" {
+		return false
+	}
+	for _, key := range []string{
+		"rootWorkflowId", "root-workflow-id", "root_workflow_id",
+		"parentWorkflowId", "parent-workflow-id", "parent_workflow_id",
+		"rootRunId", "root-run-id", "root_run_id",
+		"parentRunId", "parent-run-id", "parent_run_id",
+	} {
+		if firstNonBlankString(item[key]) == workflowID {
+			return true
+		}
+	}
+	return false
 }
 
 func waitItems(out any) []map[string]any {

@@ -68,6 +68,39 @@ func TestActiveLiveTUIWaitActionFromItemsKeepsGenericWaitActiveWithoutActions(t 
 	}
 }
 
+func TestFilterWaitItemsForWorkflowKeepsChildRunWaits(t *testing.T) {
+	items := []map[string]any{
+		{
+			"waitId":         "child-rooted",
+			"workflowId":     "wf-child",
+			"rootWorkflowId": "wf-root",
+			"status":         "active",
+			"approval":       map[string]any{"actions": []any{"approve", "reject"}},
+		},
+		{
+			"waitId":           "child-parented",
+			"workflowId":       "wf-child-deep",
+			"parentWorkflowId": "wf-root",
+			"status":           "active",
+			"approval":         map[string]any{"actions": []any{"approve", "reject"}},
+		},
+		{
+			"waitId":     "other",
+			"workflowId": "wf-other",
+			"status":     "active",
+		},
+	}
+
+	filtered := filterWaitItemsForWorkflow(items, "wf-root")
+	if len(filtered) != 2 {
+		t.Fatalf("expected both child waits, got %#v", filtered)
+	}
+	got := activeLiveTUIWaitActionFromItems("wf-root", filtered)
+	if !got.Active || got.WaitID != "child-rooted" || !got.Can("approve") || !got.Can("reject") {
+		t.Fatalf("expected actionable child wait, got %#v", got)
+	}
+}
+
 func TestActiveLiveTUIWaitActionFromItemsPrefersResolvableActionOverNewerGenericWait(t *testing.T) {
 	got := activeLiveTUIWaitActionFromItems("wf-live", []map[string]any{
 		{
