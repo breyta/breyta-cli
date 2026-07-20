@@ -404,6 +404,69 @@ func TestRunsStart_WaitForwardsInstallationIDToPollAndFinalHydration(t *testing.
 	}
 }
 
+func TestRunsStart_WaitContinuesAfterTransientRunsGetRetries(t *testing.T) {
+	runsGetCalls := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "runs.start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"workflowId": "wf-runs-start-transient-poll",
+					"status":     "running",
+				},
+			})
+		case "runs.get":
+			runsGetCalls++
+			if runsGetCalls <= 3 {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = io.WriteString(w, "gateway unavailable")
+				return
+			}
+			args, _ := body["args"].(map[string]any)
+			run := map[string]any{
+				"workflowId": "wf-runs-start-transient-poll",
+				"status":     "completed",
+			}
+			if args["includeSteps"] == true {
+				run["steps"] = []any{}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"run": run},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start", "--flow", "my-flow",
+		"--wait", "--poll", "1ms", "--timeout", "3s",
+	)
+	if err != nil {
+		t.Fatalf("expected transient runs.get failures to remain inside the wait loop, got err=%v\nstdout=%s", err, stdout)
+	}
+	if runsGetCalls < 5 {
+		t.Fatalf("expected three transient requests, a later poll, and final hydration; got %d runs.get calls", runsGetCalls)
+	}
+	if strings.Contains(stdout, `"timedOut":true`) || !strings.Contains(stdout, `"status":"completed"`) {
+		t.Fatalf("expected completed result after transient poll failures, got:\n%s", stdout)
+	}
+}
+
 func TestRunsStart_WaitTimeoutReturnsInProgressEnvelope(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

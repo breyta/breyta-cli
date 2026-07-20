@@ -417,6 +417,10 @@ func compactRunsGetPayload(workflowID string) map[string]any {
 	}
 }
 
+func shouldRetryRunPoll(ctx context.Context, status int, err error) bool {
+	return api.IsRetryableCommandFailure(ctx, "runs.get", status, err)
+}
+
 func finalWaitRunsGetPayload(workflowID string) map[string]any {
 	return map[string]any{
 		"workflowId":    workflowID,

@@ -327,6 +327,19 @@ func retryableCommand(command string) bool {
 	}
 }
 
+// IsRetryableCommandFailure reports whether a failed read command can be
+// treated as a transient result by a higher-level polling loop after the
+// client's own retry budget is exhausted.
+func IsRetryableCommandFailure(ctx context.Context, command string, status int, err error) bool {
+	if !retryableCommand(command) {
+		return false
+	}
+	if err != nil {
+		return retryableCommandError(ctx, err) || retryableCommandStatusIfContextActive(ctx, status)
+	}
+	return retryableCommandStatus(status)
+}
+
 func shouldRetryCommandAttempt(ctx context.Context, status int, err error, attempt int, backoffs []time.Duration) bool {
 	if attempt >= len(backoffs) {
 		return false
@@ -375,6 +388,7 @@ func retryableCommandError(ctx context.Context, err error) bool {
 	return strings.Contains(msg, "context deadline exceeded") ||
 		strings.Contains(msg, "client.timeout") ||
 		strings.Contains(msg, "timeout awaiting response headers") ||
+		strings.Contains(msg, "invalid json response") ||
 		strings.Contains(msg, "connection reset by peer") ||
 		strings.Contains(msg, "unexpected eof")
 }

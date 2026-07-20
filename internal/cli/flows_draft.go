@@ -146,6 +146,14 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 					if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
 						return writeTimeout("", nil)
 					}
+					if shouldRetryRunPoll(waitCtx, execStatus, err) {
+						polls++
+						if time.Now().After(deadline) {
+							return writeTimeout("", nil)
+						}
+						time.Sleep(poll)
+						continue
+					}
 					return writeErr(cmd, err)
 				}
 				if execStatus == 404 {
@@ -163,6 +171,14 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 					continue
 				}
 				if execStatus >= 400 {
+					if shouldRetryRunPoll(waitCtx, execStatus, nil) {
+						polls++
+						if time.Now().After(deadline) {
+							return writeTimeout("", execResp)
+						}
+						time.Sleep(poll)
+						continue
+					}
 					return writeFinal(execResp, execStatus)
 				}
 				if !isOK(execResp) {
