@@ -111,15 +111,32 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 			deadline := time.Now().Add(timeout)
 			waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
 			defer cancelWait()
-			writeTimeout := func() error {
-				timeoutOut := map[string]any{
-					"ok": false,
-					"error": map[string]any{
-						"message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
-					},
-					"data": map[string]any{"workflowId": workflowID},
+			writeTimeout := func(status string, lastPoll map[string]any) error {
+				if strings.TrimSpace(status) == "" {
+					status = "running"
 				}
-				return writeFinal(timeoutOut, 408)
+				timeoutOut := map[string]any{
+					"ok": true,
+					"meta": map[string]any{
+						"timedOut": true,
+						"hint":     "The wait deadline was reached before the draft run became terminal. The run may still complete; inspect the workflow id, or use a longer --timeout on the next waited run.",
+						"nextCommands": []string{
+							"breyta flows draft run " + args[0] + " --wait --timeout 2m",
+						},
+					},
+					"data": map[string]any{
+						"workflowId": workflowID,
+						"status":     status,
+						"wait": map[string]any{
+							"timedOut":  true,
+							"timeoutMs": timeout.Milliseconds(),
+							"pollMs":    poll.Milliseconds(),
+						},
+						"start":    startResp,
+						"lastPoll": lastPoll,
+					},
+				}
+				return writeFinal(timeoutOut, 200)
 			}
 			polls := 0
 			var nextTerminalFallback time.Time
@@ -127,7 +144,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				execResp, execStatus, err := client.DoCommand(waitCtx, "runs.get", compactRunsGetPayload(workflowID))
 				if err != nil {
 					if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
-						return writeTimeout()
+						return writeTimeout("", nil)
 					}
 					return writeErr(cmd, err)
 				}
@@ -140,7 +157,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 						}
 					}
 					if time.Now().After(deadline) {
-						return writeFinal(execResp, execStatus)
+						return writeTimeout("", execResp)
 					}
 					time.Sleep(poll)
 					continue
@@ -155,7 +172,13 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 				if isTerminalRunStatus(canonicalRunStatus(run["status"])) {
 					finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, "")
 					if err != nil {
-						return writeErr(cmd, err)
+						if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+							return writeErr(cmd, err)
+						}
+						// The compact poll already proved that the run is terminal. If
+						// full hydration reaches the wait deadline, preserve that poll.
+						finalResp = execResp
+						finalStatus = execStatus
 					}
 					if finalStatus >= 400 {
 						finalResp = execResp
@@ -171,7 +194,7 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 					}
 				}
 				if time.Now().After(deadline) {
-					return writeTimeout()
+					return writeTimeout(canonicalRunStatus(run["status"]), execResp)
 				}
 				time.Sleep(poll)
 			}

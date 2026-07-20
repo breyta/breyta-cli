@@ -601,7 +601,14 @@ Use runs start only when integrating with older scripts.
 					if isTerminalRunStatus(statusStr) {
 						finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, waitInstallationID)
 						if err != nil {
-							return writeErr(cmd, err)
+							if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+								return writeErr(cmd, err)
+							}
+							// The compact poll already proved that the run is terminal. If
+							// the optional full hydration reaches the wait deadline,
+							// preserve that terminal poll instead of failing the wait.
+							finalResp = execResp
+							finalStatus = execStatus
 						}
 						if finalStatus >= 400 {
 							finalResp = execResp

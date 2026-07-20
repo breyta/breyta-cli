@@ -377,7 +377,14 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			})
 			finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, installationID)
 			if err != nil {
-				return writeErr(cmd, err)
+				if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+					return writeErr(cmd, err)
+				}
+				// The compact poll already proved that the run is terminal. If the
+				// optional full hydration reaches the wait deadline, preserve that
+				// terminal poll instead of turning a completed run into a CLI error.
+				finalResp = execResp
+				finalStatus = execStatus
 			}
 			if finalStatus >= 400 {
 				finalResp = execResp
