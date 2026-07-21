@@ -11,6 +11,7 @@ import (
 	"github.com/breyta/breyta-cli/internal/skillsync"
 	"github.com/breyta/breyta-cli/internal/state"
 	"github.com/breyta/breyta-cli/internal/updatecheck"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type App struct {
 	StatePath            string
 	PrettyJSON           bool
 	APIURL               string
+	HTTP                 *http.Client
 	Token                string
 	APIKey               string
 	TokenExplicit        bool

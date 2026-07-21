@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,6 +22,8 @@ import (
 )
 
 var apiValidFlowSlugRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,127}$`)
+
+const defaultFlowPushTimeout = 2 * time.Minute
 
 func isAPISafeIdentifier(s string) bool {
 	return apiValidFlowSlugRe.MatchString(strings.TrimSpace(s))
@@ -1164,6 +1168,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	var repairDelimiters bool
 	var noRepairWriteback bool
 	var validate bool
+	var timeout time.Duration
 	var deployKey string
 	var includeProvenance bool
 	cmd := &cobra.Command{
@@ -1184,6 +1189,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			}
 			if strings.TrimSpace(file) == "" {
 				return writeErr(cmd, errors.New("missing --file"))
+			}
+			if timeout <= 0 {
+				return writeErr(cmd, errors.New("--timeout must be > 0"))
 			}
 			b, err := readExplicitFile(file)
 			if err != nil {
@@ -1230,6 +1238,10 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			flowSlug := ""
+			if entries, parseErr := parseSingleTopLevelMapEntries(flowLiteral); parseErr == nil {
+				flowSlug, _ = localFlowSlugFromEntries(flowLiteral, entries)
+			}
 
 			if useDoAPICommandFn {
 				payload := map[string]any{"flowLiteral": flowLiteral}
@@ -1253,14 +1265,25 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if resolvedDeployKey != "" {
 				payload["deploy-key"] = resolvedDeployKey
 			}
-			out, status, err := runAPICommand(app, "flows.put_draft", payload)
+			out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, "flows.put_draft", payload, timeout)
 			if err != nil {
-				return writeErr(cmd, err)
+				if flowPushResponseTimedOut(status) {
+					trackFlowPushTimeout(app, flowSlug, "saving")
+					return writeFlowPushTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(out, err), status, timeout, flowSlug, "saving")
+				}
+				if flowPushRequestTimedOut(err) {
+					trackFlowPushTimeout(app, flowSlug, "saving")
+					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(out, err), status, timeout, flowSlug, "saving")
+				}
+				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "saving"))
 			}
 			if status >= 400 || !isOK(out) {
+				if flowPushResponseTimedOut(status) {
+					trackFlowPushTimeout(app, flowSlug, "saving")
+					return writeFlowPushTimeoutAPIResponse(cmd, app, out, status, timeout, flowSlug, "saving")
+				}
 				return writeAPIResult(cmd, app, out, status)
 			}
-			flowSlug := ""
 			if dataAny, ok := out["data"]; ok {
 				if data, ok := dataAny.(map[string]any); ok {
 					if slug, _ := data["flowSlug"].(string); strings.TrimSpace(slug) != "" {
@@ -1295,11 +1318,23 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 				return writeAPIResult(cmd, app, out, status)
 			}
 
-			validateOut, validateStatus, err := validateDraftFlow(cmd, app, flowSlug)
+			validateOut, validateStatus, err := validateDraftFlowWithTimeout(cmd, app, flowSlug, timeout)
 			if err != nil {
-				return writeErr(cmd, err)
+				if flowPushResponseTimedOut(validateStatus) {
+					trackFlowPushTimeout(app, flowSlug, "validating")
+					return writeFlowPushTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(validateOut, err), validateStatus, timeout, flowSlug, "validating")
+				}
+				if flowPushRequestTimedOut(err) {
+					trackFlowPushTimeout(app, flowSlug, "validating")
+					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(validateOut, err), validateStatus, timeout, flowSlug, "validating")
+				}
+				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "validating"))
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
+				if flowPushResponseTimedOut(validateStatus) {
+					trackFlowPushTimeout(app, flowSlug, "validating")
+					return writeFlowPushTimeoutAPIResponse(cmd, app, validateOut, validateStatus, timeout, flowSlug, "validating")
+				}
 				if postPushValidationFlowNotFound(validateOut, validateStatus, flowSlug) {
 					meta := ensureMeta(out)
 					if meta != nil {
@@ -1351,10 +1386,139 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&repairDelimiters, "repair-delimiters", false, "Attempt best-effort delimiter repair before uploading")
 	cmd.Flags().BoolVar(&noRepairWriteback, "no-repair-writeback", false, "Do not write repaired content back to --file (default: write back when changed)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "Validate the working copy after pushing")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowPushTimeout, "API request timeout for draft push and validation")
 	cmd.Flags().BoolVar(&includeProvenance, "provenance", false, "Include full consulted provenance candidate list in output")
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
+}
+
+func flowPushRequestError(err error, timeout time.Duration, flowSlug, phase string) error {
+	if err == nil || !flowPushRequestTimedOut(err) {
+		return err
+	}
+	return fmt.Errorf("%s: %w", flowPushTimeoutMessage(timeout, flowSlug, phase), err)
+}
+
+func flowPushTimeoutMessage(timeout time.Duration, flowSlug, phase string) string {
+	return flowPushTimeoutMessageWithDuration(timeout, flowSlug, phase, true)
+}
+
+func flowPushTimeoutResponseMessage(flowSlug, phase string) string {
+	return flowPushTimeoutMessageWithDuration(0, flowSlug, phase, false)
+}
+
+func flowPushTimeoutMessageWithDuration(timeout time.Duration, flowSlug, phase string, includeDuration bool) string {
+	duration := ""
+	if includeDuration {
+		duration = fmt.Sprintf(" after %s", timeout)
+	}
+	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
+		if slug := strings.TrimSpace(flowSlug); slug != "" {
+			return fmt.Sprintf("flows push timed out%s while validating saved draft %s; the draft was already saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", duration, slug, slug, slug)
+		}
+		return fmt.Sprintf("flows push timed out%s while validating the saved draft; the draft was already saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", duration)
+	}
+	if slug := strings.TrimSpace(flowSlug); slug != "" {
+		return fmt.Sprintf("flows push timed out%s while saving %s; the draft may already have been saved. Verify with `breyta flows show %s` or `breyta flows validate %s` before retrying", duration, slug, slug, slug)
+	}
+	return fmt.Sprintf("flows push timed out%s; the draft may already have been saved. Inspect the target flow with `breyta flows show <slug>` or validate it before retrying", duration)
+}
+
+func flowPushResponseTimedOut(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusGatewayTimeout
+}
+
+func flowPushTimeoutErrorResponse(out map[string]any, err error) map[string]any {
+	if out != nil {
+		return out
+	}
+	message := "API returned an empty response"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	return map[string]any{
+		"ok":    false,
+		"error": map[string]any{"message": message},
+	}
+}
+
+func appendFlowPushTimeoutRecovery(out map[string]any, timeout time.Duration, flowSlug, phase string) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	message := flowPushTimeoutResponseMessage(flowSlug, phase)
+	meta["timeoutRecovery"] = message
+	meta["timeoutPhase"] = strings.TrimSpace(phase)
+	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
+		meta["draftOutcome"] = "saved"
+		meta["validated"] = false
+		meta["validateSource"] = "draft"
+	} else {
+		meta["draftOutcome"] = "unknown"
+	}
+	if _, exists := meta["hint"]; !exists {
+		meta["hint"] = message
+	}
+	slug := strings.TrimSpace(flowSlug)
+	if slug == "" {
+		slug = "<slug>"
+	}
+	appendMetaNextCommands(meta, "breyta flows show "+slug, "breyta flows validate "+slug)
+}
+
+func writeFlowPushTimeoutAPIResponse(cmd *cobra.Command, app *App, out map[string]any, status int, timeout time.Duration, flowSlug, phase string) error {
+	appendFlowPushTimeoutRecovery(out, timeout, flowSlug, phase)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, errors.New(flowPushTimeoutResponseMessage(flowSlug, phase)+": "+err.Error()))
+	}
+	return nil
+}
+
+func writeFlowPushRequestTimeoutAPIResponse(cmd *cobra.Command, app *App, out map[string]any, status int, timeout time.Duration, flowSlug, phase string) error {
+	appendFlowPushTimeoutRecovery(out, timeout, flowSlug, phase)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		return writeErr(cmd, errors.New(flowPushTimeoutMessage(timeout, flowSlug, phase)+": "+err.Error()))
+	}
+	return nil
+}
+
+func trackFlowPushTimeout(app *App, flowSlug, phase string) {
+	properties := map[string]any{
+		"product":       "flows",
+		"channel":       "cli",
+		"api_host":      apiHostname(app.APIURL),
+		"validated":     false,
+		"timed_out":     true,
+		"timeout_phase": strings.TrimSpace(phase),
+		"draft_outcome": "unknown",
+	}
+	if slug := strings.TrimSpace(flowSlug); slug != "" {
+		properties["flow_slug"] = slug
+	}
+	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
+		properties["draft_outcome"] = "saved"
+		properties["validate_source"] = "draft"
+	}
+	trackCLIEvent(app, "cli_flow_pushed", nil, app.Token, properties)
+}
+
+func flowPushRequestTimedOut(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "context deadline exceeded") ||
+		strings.Contains(message, "client.timeout") ||
+		strings.Contains(message, "timeout awaiting response headers")
 }
 
 func postPushValidationFlowNotFound(out map[string]any, status int, flowSlug string) bool {
@@ -1383,6 +1547,19 @@ func postPushValidationFlowNotFound(out map[string]any, status int, flowSlug str
 
 func validateDraftFlow(cmd *cobra.Command, app *App, flowSlug string) (map[string]any, int, error) {
 	return apiClient(app).DoCommand(cmd.Context(), "flows.validate", map[string]any{
+		"flowSlug": strings.TrimSpace(flowSlug),
+		"source":   "draft",
+	})
+}
+
+func validateDraftFlowWithTimeout(cmd *cobra.Command, app *App, flowSlug string, timeout time.Duration) (map[string]any, int, error) {
+	if timeout <= 0 {
+		return validateDraftFlow(cmd, app, flowSlug)
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
+	client := apiClientWithTimeout(app, timeout)
+	return client.DoCommand(ctx, "flows.validate", map[string]any{
 		"flowSlug": strings.TrimSpace(flowSlug),
 		"source":   "draft",
 	})
