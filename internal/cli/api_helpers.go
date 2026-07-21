@@ -419,6 +419,10 @@ func compactRunsGetPayload(workflowID string) map[string]any {
 	}
 }
 
+func shouldRetryRunPoll(ctx context.Context, status int, err error) bool {
+	return api.IsRetryableCommandFailure(ctx, "runs.get", status, err)
+}
+
 func finalWaitRunsGetPayload(workflowID string) map[string]any {
 	return map[string]any{
 		"workflowId":    workflowID,
@@ -428,15 +432,23 @@ func finalWaitRunsGetPayload(workflowID string) map[string]any {
 }
 
 func hydrateTerminalWaitRun(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
-	return hydrateWaitRunSnapshot(client, workflowID, installationID)
+	return hydrateTerminalWaitRunWithContext(context.Background(), client, workflowID, installationID)
 }
 
 func hydrateWaitRunSnapshot(client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
+	return hydrateWaitRunSnapshotWithContext(context.Background(), client, workflowID, installationID)
+}
+
+func hydrateTerminalWaitRunWithContext(ctx context.Context, client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
+	return hydrateWaitRunSnapshotWithContext(ctx, client, workflowID, installationID)
+}
+
+func hydrateWaitRunSnapshotWithContext(ctx context.Context, client apiCommandRunner, workflowID string, installationID string) (map[string]any, int, error) {
 	payload := finalWaitRunsGetPayload(workflowID)
 	if strings.TrimSpace(installationID) != "" {
 		payload["installationId"] = strings.TrimSpace(installationID)
 	}
-	out, status, err := client.DoCommand(context.Background(), "runs.get", payload)
+	out, status, err := client.DoCommand(ctx, "runs.get", payload)
 	if err != nil {
 		return nil, status, err
 	}

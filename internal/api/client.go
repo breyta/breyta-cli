@@ -250,6 +250,9 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 		out, status, err := c.doCommandRequest(ctx, endpoint, payloadBytes, includeWorkspace)
 		if shouldRetryCommandAttempt(ctx, status, err, attempt, backoffs) {
 			if !waitBeforeRetry(ctx, backoffs[attempt]) {
+				if ctx != nil && ctx.Err() != nil {
+					return nil, status, ctx.Err()
+				}
 				if err != nil {
 					return nil, status, err
 				}
@@ -317,11 +320,24 @@ func commandRetryBackoffs(command string) []time.Duration {
 
 func retryableCommand(command string) bool {
 	switch strings.TrimSpace(command) {
-	case "flows.discover.list", "flows.discover.search":
+	case "flows.discover.list", "flows.discover.search", "runs.get":
 		return true
 	default:
 		return false
 	}
+}
+
+// IsRetryableCommandFailure reports whether a failed read command can be
+// treated as a transient result by a higher-level polling loop after the
+// client's own retry budget is exhausted.
+func IsRetryableCommandFailure(ctx context.Context, command string, status int, err error) bool {
+	if !retryableCommand(command) {
+		return false
+	}
+	if err != nil {
+		return retryableCommandError(ctx, status, err) || retryableCommandStatusIfContextActive(ctx, status)
+	}
+	return retryableCommandStatus(status)
 }
 
 func shouldRetryCommandAttempt(ctx context.Context, status int, err error, attempt int, backoffs []time.Duration) bool {
@@ -329,7 +345,7 @@ func shouldRetryCommandAttempt(ctx context.Context, status int, err error, attem
 		return false
 	}
 	if err != nil {
-		return retryableCommandError(ctx, err) || retryableCommandStatusIfContextActive(ctx, status)
+		return retryableCommandError(ctx, status, err) || retryableCommandStatusIfContextActive(ctx, status)
 	}
 	return retryableCommandStatus(status)
 }
@@ -354,7 +370,7 @@ func retryableCommandStatus(status int) bool {
 	}
 }
 
-func retryableCommandError(ctx context.Context, err error) bool {
+func retryableCommandError(ctx context.Context, status int, err error) bool {
 	if err == nil {
 		return false
 	}
@@ -369,9 +385,13 @@ func retryableCommandError(ctx context.Context, err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "invalid json response") {
+		return retryableCommandStatus(status)
+	}
 	return strings.Contains(msg, "context deadline exceeded") ||
 		strings.Contains(msg, "client.timeout") ||
 		strings.Contains(msg, "timeout awaiting response headers") ||
+		strings.Contains(msg, "invalid json response") ||
 		strings.Contains(msg, "connection reset by peer") ||
 		strings.Contains(msg, "unexpected eof")
 }

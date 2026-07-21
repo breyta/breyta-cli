@@ -19,6 +19,8 @@ import (
 
 var shortRunIDPattern = regexp.MustCompile(`^r[0-9]+$`)
 
+const waitTimeoutSnapshotBudget = 250 * time.Millisecond
+
 type apiCommandRunner interface {
 	DoCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error)
 }
@@ -502,6 +504,13 @@ Use runs start only when integrating with older scripts.
 					return writeErr(cmd, errors.New("missing data.workflowId in runs.start response"))
 				}
 				waitInstallationID := installationIDFromRunData(data)
+				startRunStatus := canonicalRunStatus(data["status"])
+				if startRunStatus == "" {
+					startRunStatus = canonicalRunStatus(mapStringAny(data["run"])["status"])
+				}
+				if startRunStatus == "" {
+					startRunStatus = "running"
+				}
 
 				avgMs := avgDurationMsFromRunData(startResp)
 				// In --wait mode the start response is swallowed and one of the
@@ -512,8 +521,49 @@ Use runs start only when integrating with older scripts.
 					addRunStartETAMeta(resp, avgMs)
 					return writeAPIResult(cmd, app, resp, st)
 				}
-
 				deadline := time.Now().Add(timeout)
+				waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
+				defer cancelWait()
+				writeTimeout := func(statusStr string, lastPoll map[string]any) error {
+					if strings.TrimSpace(statusStr) == "" {
+						statusStr = startRunStatus
+					}
+					// The polling deadline has elapsed, but one bounded best-effort
+					// hydration still preserves the existing timeout snapshot behavior.
+					snapshotCtx, cancelSnapshot := context.WithTimeout(cmd.Context(), waitTimeoutSnapshotBudget)
+					defer cancelSnapshot()
+					if snapshot, snapshotStatus, err := hydrateWaitRunSnapshotWithContext(snapshotCtx, client, workflowID, waitInstallationID); err == nil && snapshotStatus < 400 {
+						if run := runFromCommandResponse(snapshot); run != nil {
+							snapshotRunStatus := canonicalRunStatus(run["status"])
+							if isTerminalRunStatus(snapshotRunStatus) {
+								return writeFinal(snapshot, snapshotStatus)
+							}
+						}
+						lastPoll = snapshot
+					}
+					// Important UX: still return the workflowId so callers can continue
+					// with `breyta runs show <workflow-id>` or inspect waits.
+					timeoutOut := map[string]any{
+						"ok": true,
+						"meta": map[string]any{
+							"timedOut": true,
+							"hint":     "The wait deadline was reached before the run became terminal. The run may still complete; check runs show or waits list.",
+						},
+						"data": map[string]any{
+							"workflowId": workflowID,
+							"status":     statusStr,
+							"wait": map[string]any{
+								"timedOut":  true,
+								"timeoutMs": timeout.Milliseconds(),
+								"pollMs":    poll.Milliseconds(),
+							},
+							"start":    startResp,
+							"lastPoll": lastPoll,
+						},
+					}
+					return writeFinal(timeoutOut, 200)
+				}
+
 				polls := 0
 				var nextTerminalFallback time.Time
 				for {
@@ -521,8 +571,19 @@ Use runs start only when integrating with older scripts.
 					if waitInstallationID != "" {
 						pollPayload["installationId"] = waitInstallationID
 					}
-					execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", pollPayload)
+					execResp, execStatus, err := client.DoCommand(waitCtx, "runs.get", pollPayload)
 					if err != nil {
+						if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+							return writeTimeout("", nil)
+						}
+						if shouldRetryRunPoll(waitCtx, execStatus, err) {
+							polls++
+							if time.Now().After(deadline) {
+								return writeTimeout("", nil)
+							}
+							time.Sleep(poll)
+							continue
+						}
 						return writeErr(cmd, err)
 					}
 					// The execution store may lag slightly after runs.start returns.
@@ -531,17 +592,28 @@ Use runs start only when integrating with older scripts.
 						polls++
 						if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 							nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-							if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+							if finalResp, finalStatus, _, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, waitInstallationID); err == nil && ok {
 								return writeFinal(finalResp, finalStatus)
 							}
 						}
 						if time.Now().After(deadline) {
-							return writeFinal(execResp, execStatus)
+							return writeTimeout("", execResp)
 						}
 						time.Sleep(poll)
 						continue
 					}
 					if execStatus >= 400 {
+						if shouldRetryRunPoll(waitCtx, execStatus, nil) {
+							polls++
+							if time.Now().After(deadline) {
+								return writeTimeout("", execResp)
+							}
+							time.Sleep(poll)
+							continue
+						}
+						return writeFinal(execResp, execStatus)
+					}
+					if !isOK(execResp) {
 						return writeFinal(execResp, execStatus)
 					}
 					execDataAny := execResp["data"]
@@ -551,9 +623,16 @@ Use runs start only when integrating with older scripts.
 					statusStr := canonicalRunStatus(run["status"])
 
 					if isTerminalRunStatus(statusStr) {
-						finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, waitInstallationID)
+						finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, waitInstallationID)
 						if err != nil {
-							return writeErr(cmd, err)
+							if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+								return writeErr(cmd, err)
+							}
+							// The compact poll already proved that the run is terminal. If
+							// the optional full hydration reaches the wait deadline,
+							// preserve that terminal poll instead of failing the wait.
+							finalResp = execResp
+							finalStatus = execStatus
 						}
 						if finalStatus >= 400 {
 							finalResp = execResp
@@ -564,34 +643,12 @@ Use runs start only when integrating with older scripts.
 					polls++
 					if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 						nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-						if finalResp, finalStatus, _, ok, err := terminalRunFallback(client, workflowID, waitInstallationID); err == nil && ok {
+						if finalResp, finalStatus, _, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, waitInstallationID); err == nil && ok {
 							return writeFinal(finalResp, finalStatus)
 						}
 					}
 					if time.Now().After(deadline) {
-						// Important UX: still return the workflowId so callers can continue
-						// with `breyta runs show <workflow-id>` or inspect waits.
-						timeoutOut := map[string]any{
-							"ok": false,
-							"error": map[string]any{
-								"message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
-								"details": map[string]any{
-									"workflowId": workflowID,
-									"timeoutMs":  timeout.Milliseconds(),
-									"pollMs":     poll.Milliseconds(),
-								},
-							},
-							"meta": map[string]any{
-								"timedOut": true,
-								"hint":     "Run may still be active. Check runs show or waits list.",
-							},
-							"data": map[string]any{
-								"workflowId": workflowID,
-								"start":      startResp,
-								"lastPoll":   execResp,
-							},
-						}
-						return writeFinal(timeoutOut, 200)
+						return writeTimeout(statusStr, execResp)
 					}
 					time.Sleep(poll)
 				}
@@ -621,7 +678,7 @@ Use runs start only when integrating with older scripts.
 	cmd.Flags().StringVar(&invocation, "invocation-id", "", "Named invocation input contract (API mode only)")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input (API mode only)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run to complete (API mode only)")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout (API mode only)")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout (API mode only); use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting (API mode only)")
 	must(cmd.MarkFlagRequired("flow"))
 	cmd.Hidden = true

@@ -202,6 +202,11 @@ breyta flows configure check <slug>
 breyta flows run <slug> --wait
 ```
 
+Treat a waited run as verified only when it returns a terminal run status. A
+wait deadline returns an in-progress envelope with `meta.timedOut=true` and
+`data.wait.timedOut=true`; inspect the workflow or rerun with a longer
+`--timeout` before claiming the run passed.
+
 Use `--input-file ./input.json` instead of `--input '<json>'` when the per-run
 payload is large enough to hit shell or OS argument limits.
 
@@ -251,6 +256,9 @@ For every side-effectful `breyta steps run`, pass
 `--idempotency-key <stable-key>` on the first attempt and reuse that exact key
 after a timeout, dropped response, or 5xx. Do not switch to a fresh key until
 the external side effect has been reconciled.
+The same timeout rule applies to `flows run-step`, installed runs, and Buyer
+Test runs: `ok=true` with `timedOut=true` means the run is still pending, not
+that the smoke proof completed.
 
 Authoring commands return compact JSON by default. Use `--full` on `flows show`,
 `flows diff`, and `runs show` only when you need full source, unified diff text,

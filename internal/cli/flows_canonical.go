@@ -14,7 +14,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultFlowRunWaitTimeout = 5 * time.Minute
+const (
+	defaultFlowRunWaitTimeout     = 15 * time.Minute
+	defaultFlowRunWaitTimeoutFlag = "15m"
+)
 
 func asInt(v any) int {
 	switch t := v.(type) {
@@ -153,7 +156,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any, e
 	if version := asInt(payload["version"]); version > 0 {
 		parts = append(parts, "--version", strconv.Itoa(version))
 	}
-	parts = append(parts, "--wait", "--timeout", "5m")
+	parts = append(parts, "--wait", "--timeout", defaultFlowRunWaitTimeoutFlag)
 	return strings.Join(parts, " ")
 }
 
@@ -220,7 +223,16 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")
 	}
+	startRunStatus := canonicalRunStatus(data["status"])
+	if startRunStatus == "" {
+		startRunStatus = canonicalRunStatus(mapStringAny(data["run"])["status"])
+	}
+	if startRunStatus == "" {
+		startRunStatus = "running"
+	}
 	deadline := time.Now().Add(timeout)
+	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
+	defer cancelWait()
 	polls := 0
 	var nextTerminalFallback time.Time
 	avgMs := avgDurationMsFromRunData(startResp)
@@ -254,33 +266,113 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		}
 		return nil
 	}
+	writeTimeout := func(status string, lastPoll map[string]any) error {
+		if strings.TrimSpace(status) == "" {
+			status = startRunStatus
+		}
+		trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
+			"product":     "flows",
+			"channel":     "cli",
+			"api_host":    apiHostname(app.APIURL),
+			"flow_slug":   flowSlug,
+			"command":     strings.TrimSpace(command),
+			"workflow_id": workflowID,
+			"wait":        true,
+		})
+		// The polling deadline has elapsed, but one bounded best-effort final
+		// hydration still preserves the existing timeout snapshot behavior.
+		snapshotCtx, cancelSnapshot := context.WithTimeout(cmd.Context(), waitTimeoutSnapshotBudget)
+		defer cancelSnapshot()
+		if snapshot, snapshotStatus, err := hydrateWaitRunSnapshotWithContext(snapshotCtx, client, workflowID, installationID); err == nil && snapshotStatus < 400 {
+			if run := runFromCommandResponse(snapshot); run != nil {
+				snapshotRunStatus := canonicalRunStatus(run["status"])
+				if isTerminalRunStatus(snapshotRunStatus) {
+					return finishReconciledTerminal(snapshot, snapshotStatus, snapshotRunStatus)
+				}
+			}
+			lastPoll = snapshot
+		}
+		nextCommands := []string{
+			"breyta runs inspect " + workflowID,
+			"breyta runs show " + workflowID + " --include-steps",
+			"breyta resources workflow list " + workflowID,
+		}
+		if retryCommand := waitRetryCommand(command, flowSlug, payload, retryFlags); retryCommand != "" {
+			nextCommands = append(nextCommands, retryCommand)
+		}
+		timeoutOut := map[string]any{
+			"ok": true,
+			"meta": map[string]any{
+				"timedOut":     true,
+				"hint":         "The wait deadline was reached before the run became terminal. The run may still complete; inspect the workflow id, or use a longer --timeout on the next waited run.",
+				"nextCommands": nextCommands,
+			},
+			"data": map[string]any{
+				"workflowId": workflowID,
+				"status":     status,
+				"wait": map[string]any{
+					"timedOut":  true,
+					"timeoutMs": timeout.Milliseconds(),
+					"pollMs":    poll.Milliseconds(),
+				},
+				"start":    startResp,
+				"lastPoll": lastPoll,
+			},
+		}
+		if err := writeFinal(timeoutOut, 200); err != nil {
+			return writeErr(cmd, err)
+		}
+		return nil
+	}
 	for {
 		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
 			runsGetPayload["installationId"] = installationID
 		}
-		execResp, execStatus, err := client.DoCommand(context.Background(), "runs.get", runsGetPayload)
+		execResp, execStatus, err := client.DoCommand(waitCtx, "runs.get", runsGetPayload)
 		if err != nil {
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return writeTimeout("", nil)
+			}
+			if shouldRetryRunPoll(waitCtx, execStatus, err) {
+				polls++
+				if time.Now().After(deadline) {
+					return writeTimeout("", nil)
+				}
+				time.Sleep(poll)
+				continue
+			}
 			return writeErr(cmd, err)
 		}
 		if execStatus == 404 {
 			polls++
 			if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 				nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+				if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, installationID); err == nil && ok {
 					return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 				}
 			}
 			if time.Now().After(deadline) {
-				if err := writeFinal(execResp, execStatus); err != nil {
-					return writeErr(cmd, err)
-				}
-				return nil
+				return writeTimeout("", execResp)
 			}
 			time.Sleep(poll)
 			continue
 		}
 		if execStatus >= 400 {
+			if shouldRetryRunPoll(waitCtx, execStatus, nil) {
+				polls++
+				if time.Now().After(deadline) {
+					return writeTimeout("", execResp)
+				}
+				time.Sleep(poll)
+				continue
+			}
+			if err := writeFinal(execResp, execStatus); err != nil {
+				return writeErr(cmd, err)
+			}
+			return nil
+		}
+		if !isOK(execResp) {
 			if err := writeFinal(execResp, execStatus); err != nil {
 				return writeErr(cmd, err)
 			}
@@ -301,9 +393,16 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				"run_status":  s,
 				"wait":        true,
 			})
-			finalResp, finalStatus, err := hydrateTerminalWaitRun(client, workflowID, installationID)
+			finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, installationID)
 			if err != nil {
-				return writeErr(cmd, err)
+				if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+					return writeErr(cmd, err)
+				}
+				// The compact poll already proved that the run is terminal. If the
+				// optional full hydration reaches the wait deadline, preserve that
+				// terminal poll instead of turning a completed run into a CLI error.
+				finalResp = execResp
+				finalStatus = execStatus
 			}
 			if finalStatus >= 400 {
 				finalResp = execResp
@@ -323,58 +422,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		polls++
 		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
 			nextTerminalFallback = time.Now().Add(terminalWaitFallbackInterval(poll))
-			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallback(client, workflowID, installationID); err == nil && ok {
+			if finalResp, finalStatus, finalRunStatus, ok, err := terminalRunFallbackWithContext(waitCtx, client, workflowID, installationID); err == nil && ok {
 				return finishReconciledTerminal(finalResp, finalStatus, finalRunStatus)
 			}
 		}
 
 		if time.Now().After(deadline) {
-			trackCLIEvent(app, "cli_flow_run_wait_timed_out", nil, app.Token, map[string]any{
-				"product":     "flows",
-				"channel":     "cli",
-				"api_host":    apiHostname(app.APIURL),
-				"flow_slug":   flowSlug,
-				"command":     strings.TrimSpace(command),
-				"workflow_id": workflowID,
-				"wait":        true,
-			})
-			lastPoll := execResp
-			if snapshot, snapshotStatus, err := hydrateWaitRunSnapshot(client, workflowID, installationID); err == nil && snapshotStatus < 400 {
-				lastPoll = snapshot
-			}
-			nextCommands := []string{
-				"breyta runs inspect " + workflowID,
-				"breyta runs show " + workflowID + " --include-steps",
-				"breyta resources workflow list " + workflowID,
-			}
-			if retryCommand := waitRetryCommand(command, flowSlug, payload, retryFlags); retryCommand != "" {
-				nextCommands = append(nextCommands, retryCommand)
-			}
-			timeoutOut := map[string]any{
-				"ok": false,
-				"error": map[string]any{
-					"message": fmt.Sprintf("timed out waiting for run completion (workflowId=%s)", workflowID),
-					"details": map[string]any{
-						"workflowId": workflowID,
-						"timeoutMs":  timeout.Milliseconds(),
-						"pollMs":     poll.Milliseconds(),
-					},
-				},
-				"meta": map[string]any{
-					"timedOut":     true,
-					"hint":         "The run may still be in progress. Inspect the workflow id, or use a longer --timeout on the next waited run.",
-					"nextCommands": nextCommands,
-				},
-				"data": map[string]any{
-					"workflowId": workflowID,
-					"start":      startResp,
-					"lastPoll":   lastPoll,
-				},
-			}
-			if err := writeFinal(timeoutOut, 200); err != nil {
-				return writeErr(cmd, err)
-			}
-			return nil
+			return writeTimeout(s, execResp)
 		}
 		time.Sleep(poll)
 	}
@@ -625,7 +679,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
 	cmd.Flags().BoolVar(&buyerTest, "buyer-test", false, "Buyer Test Mode: run the specified Buyer Test installation id")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout; use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
@@ -729,7 +783,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().StringVar(&inputFile, "input-file", "", "Read JSON object input from file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout; use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
 	return cmd
 }
