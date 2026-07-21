@@ -2020,30 +2020,66 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 }
 
 // functionStepInputProvablyNonMap reports whether the :input value form at start
-// is a literal that can never resolve to a map at runtime: a vector, string, or
-// set literal. Symbols, keywords, map literals, and function/macro-call forms are
-// accepted because the server resolves :input at execution time and only then
-// requires a map (server FunctionStepParams :input is [:map-of ...]). Local lint
-// must not reject function-step source that the server lint accepts, so only
-// literals that are provably not maps are flagged.
+// is a literal that can never resolve to a map at runtime: a vector, string,
+// set, char, or keyword literal, or a self-evaluating number/nil/boolean.
+// Symbols and function/macro-call forms are accepted because they may resolve to
+// a map when the server evaluates :input at execution time (server
+// FunctionStepParams :input is [:map-of ...]); map literals are accepted because
+// they already are maps. Local lint must not reject function-step source that the
+// server lint accepts, so only forms that are provably not maps are flagged.
 func functionStepInputProvablyNonMap(src string, start int) bool {
 	i, ok := clojureActiveFormStart(src, start)
 	if !ok || i >= len(src) {
 		return false
 	}
 	switch src[i] {
-	case '[', '"':
-		// Vector or string literal.
+	case '{', '(':
+		// Map literal, or a list/call form that may resolve to a map.
+		return false
+	case '[', '"', '\\', ':':
+		// Vector, string, char, or keyword literal — none can ever be a map.
 		return true
 	case '#':
 		// #{...} is a set literal (never a map). #(...), #"...", #inst, and other
 		// reader/tagged forms are expressions that may resolve to a map.
 		return i+1 < len(src) && src[i+1] == '{'
 	default:
-		// Map literals ('{'), symbols, keywords, numbers, and call forms ('(')
-		// may be, or may resolve to, a map. Defer map-ness to runtime validation.
+		// A bare token: either a self-evaluating literal (number/nil/boolean,
+		// never a map) or a symbol (a runtime value that may resolve to a map).
+		// Flag only the literals; accept symbols.
+		return tokenIsScalarNonMapLiteral(src, i)
+	}
+}
+
+// tokenIsScalarNonMapLiteral reports whether the bare token starting at i is a
+// numeric, nil, or boolean literal — self-evaluating values that can never be a
+// map. Symbols (including sign-prefixed names like -main or +config) return
+// false so they stay valid runtime values.
+func tokenIsScalarNonMapLiteral(src string, i int) bool {
+	end := readClojureTokenEnd(src, i)
+	if end <= i {
 		return false
 	}
+	token := src[i:end]
+	switch token {
+	case "nil", "true", "false":
+		return true
+	}
+	// Clojure number rule: a token is numeric if it starts with a digit, or with
+	// a sign/dot immediately followed by a digit.
+	c := token[0]
+	if c >= '0' && c <= '9' {
+		return true
+	}
+	if (c == '+' || c == '-' || c == '.') && len(token) >= 2 {
+		if token[1] >= '0' && token[1] <= '9' {
+			return true
+		}
+		if token[1] == '.' && len(token) >= 3 && token[2] >= '0' && token[2] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 type functionCodeString struct {

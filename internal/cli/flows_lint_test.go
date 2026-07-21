@@ -1115,8 +1115,9 @@ func TestFlowsLintLocalOnlyAcceptsExpressionFunctionStepInput(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
 }
 
-// A literal that can never be a map (vector, string, set) is still flagged so the
-// obvious authoring mistake is caught before the runtime map-of schema rejects it.
+// A literal that can never be a map (vector, string, set, char, keyword, or a
+// self-evaluating number/nil/boolean) is still flagged so the obvious authoring
+// mistake is caught before the runtime map-of schema rejects it.
 func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -1125,6 +1126,13 @@ func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
 		{"vector", "[1 2 3]"},
 		{"string", "\"text\""},
 		{"set", "#{1 2 3}"},
+		{"number", "42"},
+		{"negative-number", "-5"},
+		{"decimal", "3.14"},
+		{"nil", "nil"},
+		{"boolean", "true"},
+		{"keyword", ":id"},
+		{"char", "\\a"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := `{:slug :non-map-literal-function-input
@@ -1140,6 +1148,38 @@ func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
 				t.Fatalf("expected lint error for non-map literal :input\n%s", stdout)
 			}
 			requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+		})
+	}
+}
+
+// Symbols (including sign-prefixed names) and call forms are runtime values that
+// may resolve to a map, so they must NOT be flagged as non-map literals.
+func TestFlowsLintLocalOnlyAcceptsSymbolLikeFunctionStepInput(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"plain-symbol", "input"},
+		{"dash-prefixed-symbol", "-input"},
+		{"plus-prefixed-symbol", "+config"},
+		{"namespaced-symbol", "my.ns/data"},
+		{"call-form", "(select-keys input [:id])"},
+		{"map-literal", "{:rows input}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := `{:slug :symbol-like-function-input
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input {:ref :normalize :input ` + tc.input + `}))}
+`
+			body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err != nil {
+				t.Fatalf("symbol/expression :input %q should pass local lint: %v\n%s", tc.input, err, stdout)
+			}
+			rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
 		})
 	}
 }
