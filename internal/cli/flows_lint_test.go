@@ -1209,6 +1209,8 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 		{"quoted-number", "'42", true},
 		{"quoted-deref", "'@input", true},
 		{"syntax-quoted-deref", "`@input", true},
+		{"ordinary-quote-unquote", "'~input", true},
+		{"syntax-quote-unquote", "`~input", false},
 		{"syntax-quoted-vector", "`[input]", true},
 		{"quote-form", "(quote [input])", true},
 		{"quoted-map", "'{:rows input}", false},

@@ -2027,33 +2027,47 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 // reject function-step source that the server lint accepts, so only forms that
 // are provably not maps are flagged.
 func functionStepInputProvablyNonMap(src string, start int) bool {
-	return functionStepFormProvablyNonMap(src, start, false)
+	return functionStepFormProvablyNonMap(src, start, quoteNone)
 }
 
-// functionStepFormProvablyNonMap classifies the value form at start. When quoted
-// is true the form sits inside a quote/syntax-quote (or an explicit (quote ...)),
-// so the datum is taken literally: anything but a map literal is provably not a
+// functionStepQuoteMode records the quoting context of a value form: no quote, an
+// ordinary quote ('X or (quote X)), or a syntax-quote (`X). It matters only for
+// unquote (~), which escapes a syntax-quote back to a runtime value but is plain
+// (unquote x) list data under an ordinary quote.
+type functionStepQuoteMode int
+
+const (
+	quoteNone functionStepQuoteMode = iota
+	quoteOrdinary
+	quoteSyntax
+)
+
+// functionStepFormProvablyNonMap classifies the value form at start. Under a quote
+// the datum is taken literally, so anything but a map literal is provably not a
 // map (a quoted symbol, list, vector, keyword, etc. is data, never a map). When
-// quoted is false, unquoted symbols and call forms stay accepted because they may
-// resolve to a map at runtime.
-func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
+// unquoted, symbols and call forms stay accepted because they may resolve to a map
+// at runtime.
+func functionStepFormProvablyNonMap(src string, start int, mode functionStepQuoteMode) bool {
 	i, ok := clojureActiveFormStart(src, start)
 	if !ok || i >= len(src) {
 		return false
 	}
 	switch src[i] {
-	case '\'', '`':
-		// Quote or syntax-quote: the following form is taken as literal data.
-		return functionStepFormProvablyNonMap(src, i+1, true)
+	case '\'':
+		// Ordinary quote: the following form is literal data.
+		return functionStepFormProvablyNonMap(src, i+1, quoteOrdinary)
+	case '`':
+		// Syntax-quote: literal data, but a top-level unquote escapes it.
+		return functionStepFormProvablyNonMap(src, i+1, quoteSyntax)
 	case '~':
-		// Unquote / unquote-splice is the one reader macro that escapes a
-		// surrounding syntax-quote back to a runtime value that may be a map, so
-		// defer it (outside a quote it is invalid, where deferring is harmless).
-		return false
+		// Unquote / unquote-splice escapes a syntax-quote back to a runtime value
+		// (defer). Under an ordinary quote it is literal (unquote x) list data,
+		// never a map. Outside any quote it is invalid, where deferring is safe.
+		return mode == quoteOrdinary
 	case '@':
-		// Unquoted, @x derefs to a runtime value that may be a map, so defer.
-		// Under a quote, @x is literal (deref x) list data, which is never a map.
-		return quoted
+		// Unquoted, @x derefs to a runtime value that may be a map (defer). Under
+		// any quote, @x is literal (deref x) list data, which is never a map.
+		return mode != quoteNone
 	case '{':
 		// Map literal (quoted or not) — this is a map.
 		return false
@@ -2072,7 +2086,7 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 			if err != nil || metaEnd <= i+2 {
 				return false
 			}
-			return functionStepFormProvablyNonMap(src, metaEnd, quoted)
+			return functionStepFormProvablyNonMap(src, metaEnd, mode)
 		}
 		// Non-tagged reader literals have fixed, provably non-map semantics:
 		//   #{...} set, #"..." regex, #(...) fn, #'x var, ##Inf/##NaN symbolic.
@@ -2085,7 +2099,7 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 			return false
 		}
 	case '(':
-		if quoted {
+		if mode != quoteNone {
 			// A quoted list is literal data, never a map.
 			return true
 		}
@@ -2102,13 +2116,13 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 		// (quote X) / (clojure.core/quote X) yields the literal datum X.
 		if len(elements) >= 2 {
 			if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
-				return functionStepFormProvablyNonMap(src, elements[1].Start, true)
+				return functionStepFormProvablyNonMap(src, elements[1].Start, quoteOrdinary)
 			}
 		}
 		// Any other call form may resolve to a map.
 		return false
 	default:
-		if quoted {
+		if mode != quoteNone {
 			// A quoted symbol or scalar is literal data, never a map.
 			return true
 		}
