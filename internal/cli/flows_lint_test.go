@@ -1058,7 +1058,7 @@ func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :functions [{:id :shape :language :clojure :code '(fn [input] input)}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :shape {:ref :shape :input input}
+          (flow/step :function :shape {:ref :shape :input [input]}
                      :code '(fn [_] nil)))}
 `
 	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
@@ -1070,7 +1070,12 @@ func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
 		"function_step_input_shape_invalid")
 }
 
-func TestFlowsLintLocalOnlyRejectsNewBareReferencedFunctionStepInput(t *testing.T) {
+// A bare symbol :input (a runtime value that resolves to a map at execution
+// time) is valid and accepted by the server, so local lint must accept it too.
+// Regression for the false positive where existing, server-valid flows like
+// youtube-video-search-scraper (:normalize-input, :assert-valid-input) were
+// flagged with function_step_input_shape_invalid on a clean pull+push.
+func TestFlowsLintLocalOnlyAcceptsNewBareReferencedFunctionStepInput(t *testing.T) {
 	flowLiteral := `{:slug :new-bare-function-step-shape
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
@@ -1084,20 +1089,63 @@ func TestFlowsLintLocalOnlyRejectsNewBareReferencedFunctionStepInput(t *testing.
                       :input input}))}
 `
 	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
-	if err == nil {
-		t.Fatalf("new bare referenced function input should fail local lint\n%s", stdout)
+	if err != nil {
+		t.Fatalf("bare symbol function input should pass local lint: %v\n%s", err, stdout)
 	}
-	requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
-	data, _ := body["data"].(map[string]any)
-	items, _ := data["diagnostics"].([]any)
-	for _, itemAny := range items {
-		item, _ := itemAny.(map[string]any)
-		if item["code"] == "function_step_input_shape_invalid" && item["severity"] != "error" {
-			t.Fatalf("expected new bare function input to remain an error: %#v", item)
-		}
+	rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+}
+
+// A runtime expression :input (for example a call that returns a map) is also a
+// valid runtime value and must be accepted.
+func TestFlowsLintLocalOnlyAcceptsExpressionFunctionStepInput(t *testing.T) {
+	flowLiteral := `{:slug :expression-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :assert-valid :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :assert-valid-input
+                     {:ref :assert-valid
+                      :input (select-keys input [:id])}))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("expression function input should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+}
+
+// A literal that can never be a map (vector, string, set) is still flagged so the
+// obvious authoring mistake is caught before the runtime map-of schema rejects it.
+func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"vector", "[1 2 3]"},
+		{"string", "\"text\""},
+		{"set", "#{1 2 3}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := `{:slug :non-map-literal-function-input
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input {:ref :normalize :input ` + tc.input + `}))}
+`
+			body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err == nil {
+				t.Fatalf("expected lint error for non-map literal :input\n%s", stdout)
+			}
+			requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+		})
 	}
 }
 
+// Pulled source that carries a non-map literal :input on a recorded legacy step
+// is downgraded to a non-blocking warning instead of a hard error.
 func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing.T) {
 	flowLiteral := markPulledFlowSource(`{:slug :pulled-legacy-function-step-shape
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -1109,7 +1157,7 @@ func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing
  :flow '(let [input (flow/input)]
           (flow/step :function :normalize-input-payload
                      {:ref :normalize-input-payload
-                      :input input}))}
+                      :input [input]}))}
 `)
 	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
 	if err != nil {
@@ -1126,6 +1174,28 @@ func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing
 	}
 }
 
+// A pulled source whose function step uses a bare symbol :input is simply valid:
+// it is accepted with no diagnostic at all (not even the compatibility warning).
+func TestFlowsLintLocalOnlyAcceptsPulledBareSymbolFunctionStepInput(t *testing.T) {
+	flowLiteral := markPulledFlowSource(`{:slug :pulled-bare-symbol-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize-input-payload
+              :language :clojure
+              :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input-payload
+                     {:ref :normalize-input-payload
+                      :input input}))}
+`)
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("pulled bare symbol function input should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+}
+
 func TestFlowsLintLocalOnlyRejectsNewBareInputStepInPulledSource(t *testing.T) {
 	flowLiteral := markPulledFlowSource(`{:slug :edited-pulled-function-step-shape
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -1134,12 +1204,12 @@ func TestFlowsLintLocalOnlyRejectsNewBareInputStepInPulledSource(t *testing.T) {
  :functions [{:id :legacy :language :clojure :code '(fn [input] input)}
              {:id :new-step :language :clojure :code '(fn [input] input)}]
  :flow '(let [input (flow/input)]
-          (flow/step :function :legacy {:ref :legacy :input input}))}
+          (flow/step :function :legacy {:ref :legacy :input [input]}))}
 `)
 	flowLiteral = strings.Replace(flowLiteral,
-		`(flow/step :function :legacy {:ref :legacy :input input}))}`,
-		`(flow/step :function :legacy {:ref :legacy :input input})
-          (flow/step :function :new-step {:ref :new-step :input input}))}`,
+		`(flow/step :function :legacy {:ref :legacy :input [input]}))}`,
+		`(flow/step :function :legacy {:ref :legacy :input [input]})
+          (flow/step :function :new-step {:ref :new-step :input [input]}))}`,
 		1,
 	)
 
@@ -1792,7 +1862,7 @@ func TestFlowsLintLocalOnlyContinuesScanningAfterRegexLiterals(t *testing.T) {
  :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
  :flow '(let [pattern #"\s+"
               input (flow/input)
-              normalized (flow/step :function :normalize {:ref :normalize :input input})]
+              normalized (flow/step :function :normalize {:ref :normalize :input [input]})]
           (->> normalized identity))}
 `
 	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)

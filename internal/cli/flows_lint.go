@@ -1996,14 +1996,14 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 			"local",
 		))
 	}
-	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
+	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && functionStepInputProvablyNonMap(src, input.ValueStart) {
 		severity := "error"
-		message := "Function step :input must be a map when present."
-		hint := "Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}."
+		message := "Function step :input must resolve to a map; a vector, string, or set literal never can."
+		hint := "Use a map literal like :input {:rows rows}, or a symbol or expression that resolves to a map such as :input input or :input (select-keys input [:id])."
 		if pulledLegacyInputSteps[stepID] {
 			severity = "warning"
-			message = "Referenced function step :input uses a legacy bare value instead of a map."
-			hint = "Pulled legacy source can keep this compatibility shape. For new steps, prefer an input map such as :input {:input input} or :input {:rows rows}, then confirm compatibility with server lint."
+			message = "Referenced function step :input uses a non-map literal value."
+			hint = "Pulled legacy source can keep this compatibility shape. For new steps, use a map literal such as :input {:rows rows} or an expression that resolves to a map, then confirm compatibility with server lint."
 		}
 		diag := lintDiagnostic(
 			severity,
@@ -2017,6 +2017,33 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		diagnostics = append(diagnostics, diag)
 	}
 	return diagnostics
+}
+
+// functionStepInputProvablyNonMap reports whether the :input value form at start
+// is a literal that can never resolve to a map at runtime: a vector, string, or
+// set literal. Symbols, keywords, map literals, and function/macro-call forms are
+// accepted because the server resolves :input at execution time and only then
+// requires a map (server FunctionStepParams :input is [:map-of ...]). Local lint
+// must not reject function-step source that the server lint accepts, so only
+// literals that are provably not maps are flagged.
+func functionStepInputProvablyNonMap(src string, start int) bool {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) {
+		return false
+	}
+	switch src[i] {
+	case '[', '"':
+		// Vector or string literal.
+		return true
+	case '#':
+		// #{...} is a set literal (never a map). #(...), #"...", #inst, and other
+		// reader/tagged forms are expressions that may resolve to a map.
+		return i+1 < len(src) && src[i+1] == '{'
+	default:
+		// Map literals ('{'), symbols, keywords, numbers, and call forms ('(')
+		// may be, or may resolve to, a map. Defer map-ness to runtime validation.
+		return false
+	}
 }
 
 type functionCodeString struct {
