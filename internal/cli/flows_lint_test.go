@@ -1207,6 +1207,8 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 		{"quoted-list", "'(hash-map :a 1)", true},
 		{"quoted-empty-list", "'()", true},
 		{"quoted-number", "'42", true},
+		{"quoted-deref", "'@input", true},
+		{"syntax-quoted-deref", "`@input", true},
 		{"syntax-quoted-vector", "`[input]", true},
 		{"quote-form", "(quote [input])", true},
 		{"quoted-map", "'{:rows input}", false},

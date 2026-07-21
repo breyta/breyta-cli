@@ -2046,12 +2046,14 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 		// Quote or syntax-quote: the following form is taken as literal data.
 		return functionStepFormProvablyNonMap(src, i+1, true)
 	case '~':
-		// Unquote / unquote-splice inside a syntax-quote escapes back to a runtime
-		// value that may be a map, so defer regardless of the surrounding quote.
+		// Unquote / unquote-splice is the one reader macro that escapes a
+		// surrounding syntax-quote back to a runtime value that may be a map, so
+		// defer it (outside a quote it is invalid, where deferring is harmless).
 		return false
 	case '@':
-		// Deref yields a runtime value that may be a map, so defer.
-		return false
+		// Unquoted, @x derefs to a runtime value that may be a map, so defer.
+		// Under a quote, @x is literal (deref x) list data, which is never a map.
+		return quoted
 	case '{':
 		// Map literal (quoted or not) — this is a map.
 		return false
