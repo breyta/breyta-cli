@@ -2052,9 +2052,19 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 		// Vector, string, char, or keyword literal — none can ever be a map.
 		return true
 	case '#':
-		// #{...} is a set literal (never a map). Other reader/tagged forms
-		// (#(...), #"...", #inst, ...) may resolve to a map, so accept them.
-		return i+1 < len(src) && src[i+1] == '{'
+		// Non-tagged reader literals have fixed, provably non-map semantics:
+		//   #{...} set, #"..." regex, #(...) fn, #'x var, ##Inf/##NaN symbolic.
+		// Tagged literals (#inst, #uuid, #my/tag ...) run a data reader that may
+		// yield a map, so defer those to runtime validation.
+		if i+1 >= len(src) {
+			return false
+		}
+		switch src[i+1] {
+		case '{', '"', '(', '#', '\'':
+			return true
+		default:
+			return false
+		}
 	case '(':
 		if quoted {
 			// A quoted list is literal data, never a map.

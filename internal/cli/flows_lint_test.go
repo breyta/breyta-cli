@@ -1126,6 +1126,10 @@ func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
 		{"vector", "[1 2 3]"},
 		{"string", "\"text\""},
 		{"set", "#{1 2 3}"},
+		{"regex", "#\"x\""},
+		{"anon-fn", "#(identity %)"},
+		{"symbolic", "##Inf"},
+		{"var-quote", "#'input"},
 		{"number", "42"},
 		{"negative-number", "-5"},
 		{"decimal", "3.14"},
@@ -1219,6 +1223,35 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 				rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
 				_ = stdout
 			}
+		})
+	}
+}
+
+// Tagged reader literals run a data reader that could yield a map, so local lint
+// defers them rather than flagging (unlike non-tagged reader literals such as
+// #"..." or #(...), which have fixed non-map semantics and are rejected above).
+func TestFlowsLintLocalOnlyDefersTaggedLiteralFunctionStepInput(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"inst", `#inst "2020-01-01"`},
+		{"uuid", `#uuid "00000000-0000-0000-0000-000000000000"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := `{:slug :tagged-literal-function-input
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input {:ref :normalize :input ` + tc.input + `}))}
+`
+			body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err != nil {
+				t.Fatalf("tagged literal :input %q should pass local lint: %v\n%s", tc.input, err, stdout)
+			}
+			rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
 		})
 	}
 }
