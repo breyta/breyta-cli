@@ -501,7 +501,12 @@ Inspect runs with the same structured filter syntax as the web runs list:
 ```bash
 breyta runs list --query 'status:failed flow:<slug>'
 breyta runs list --installation-id <installation-id> --version 7
+breyta runs inspect <workflow-id> --full
 ```
+
+`runs inspect` automatically carries the installation target encoded in a
+canonical linked-install workflow id. Use `--installation-id` to override the
+target for a legacy or non-canonical run id.
 
 If you need to revise the note later:
 
