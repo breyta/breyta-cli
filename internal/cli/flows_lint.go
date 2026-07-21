@@ -1996,14 +1996,14 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 			"local",
 		))
 	}
-	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
+	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && functionStepInputProvablyNonMap(src, input.ValueStart) {
 		severity := "error"
-		message := "Function step :input must be a map when present."
-		hint := "Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}."
+		message := "Function step :input must resolve to a map; a vector, string, or set literal never can."
+		hint := "Use a map literal like :input {:rows rows}, or a symbol or expression that resolves to a map such as :input input or :input (select-keys input [:id])."
 		if pulledLegacyInputSteps[stepID] {
 			severity = "warning"
-			message = "Referenced function step :input uses a legacy bare value instead of a map."
-			hint = "Pulled legacy source can keep this compatibility shape. For new steps, prefer an input map such as :input {:input input} or :input {:rows rows}, then confirm compatibility with server lint."
+			message = "Referenced function step :input uses a non-map literal value."
+			hint = "Pulled legacy source can keep this compatibility shape. For new steps, use a map literal such as :input {:rows rows} or an expression that resolves to a map, then confirm compatibility with server lint."
 		}
 		diag := lintDiagnostic(
 			severity,
@@ -2017,6 +2017,160 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		diagnostics = append(diagnostics, diag)
 	}
 	return diagnostics
+}
+
+// functionStepInputProvablyNonMap reports whether the :input value form at start
+// can never resolve to a map at runtime. Unquoted symbols and function/macro-call
+// forms are accepted because they may resolve to a map when the server evaluates
+// :input at execution time (server FunctionStepParams :input is [:map-of ...]);
+// map literals are accepted because they already are maps. Local lint must not
+// reject function-step source that the server lint accepts, so only forms that
+// are provably not maps are flagged.
+func functionStepInputProvablyNonMap(src string, start int) bool {
+	return functionStepFormProvablyNonMap(src, start, quoteNone)
+}
+
+// functionStepQuoteMode records the quoting context of a value form: no quote, an
+// ordinary quote ('X or (quote X)), or a syntax-quote (`X). It matters only for
+// unquote (~), which escapes a syntax-quote back to a runtime value but is plain
+// (unquote x) list data under an ordinary quote.
+type functionStepQuoteMode int
+
+const (
+	quoteNone functionStepQuoteMode = iota
+	quoteOrdinary
+	quoteSyntax
+)
+
+// functionStepFormProvablyNonMap classifies the value form at start. Under a quote
+// the datum is taken literally, so anything but a map literal is provably not a
+// map (a quoted symbol, list, vector, keyword, etc. is data, never a map). When
+// unquoted, symbols and call forms stay accepted because they may resolve to a map
+// at runtime.
+func functionStepFormProvablyNonMap(src string, start int, mode functionStepQuoteMode) bool {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) {
+		return false
+	}
+	switch src[i] {
+	case '\'':
+		if mode != quoteNone {
+			// A quote nested inside another quote is not transparent: 'X becomes
+			// literal (quote X) list data, which is never a map.
+			return true
+		}
+		// Ordinary quote: the following form is literal data.
+		return functionStepFormProvablyNonMap(src, i+1, quoteOrdinary)
+	case '`':
+		if mode != quoteNone {
+			// A syntax-quote nested inside another quote is literal list data.
+			return true
+		}
+		// Syntax-quote: literal data, but a top-level unquote escapes it.
+		return functionStepFormProvablyNonMap(src, i+1, quoteSyntax)
+	case '~':
+		// Unquote / unquote-splice escapes a syntax-quote back to a runtime value
+		// (defer). Under an ordinary quote it is literal (unquote x) list data,
+		// never a map. Outside any quote it is invalid, where deferring is safe.
+		return mode == quoteOrdinary
+	case '@':
+		// Unquoted, @x derefs to a runtime value that may be a map (defer). Under
+		// any quote, @x is literal (deref x) list data, which is never a map.
+		return mode != quoteNone
+	case '{':
+		// Map literal (quoted or not) — this is a map.
+		return false
+	case '[', '"', '\\', ':':
+		// Vector, string, char, or keyword literal — none can ever be a map.
+		return true
+	case '#':
+		if i+1 >= len(src) {
+			return false
+		}
+		if src[i+1] == '^' {
+			// Legacy #^meta reader macro (equivalent to modern ^meta, which
+			// clojureActiveFormStart already unwraps): the reader strips the
+			// metadata wrapper, so classify the underlying value form.
+			metaEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || metaEnd <= i+2 {
+				return false
+			}
+			return functionStepFormProvablyNonMap(src, metaEnd, mode)
+		}
+		// Non-tagged reader literals have fixed, provably non-map semantics:
+		//   #{...} set, #"..." regex, #(...) fn, #'x var, ##Inf/##NaN symbolic.
+		// Tagged literals (#inst, #uuid, #my/tag ...) run a data reader that may
+		// yield a map, so defer those to runtime validation.
+		switch src[i+1] {
+		case '{', '"', '(', '#', '\'':
+			return true
+		default:
+			return false
+		}
+	case '(':
+		if mode != quoteNone {
+			// A quoted list is literal data, never a map.
+			return true
+		}
+		elements, _, err := parseClojureListElements(src, i)
+		if err != nil {
+			// Unparseable — defer rather than risk a false positive.
+			return false
+		}
+		if len(elements) == 0 {
+			// The empty list () evaluates to itself, not a callable, so it can
+			// never be a map.
+			return true
+		}
+		// (quote X) / (clojure.core/quote X) yields the literal datum X.
+		if len(elements) >= 2 {
+			if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
+				return functionStepFormProvablyNonMap(src, elements[1].Start, quoteOrdinary)
+			}
+		}
+		// Any other call form may resolve to a map.
+		return false
+	default:
+		if mode != quoteNone {
+			// A quoted symbol or scalar is literal data, never a map.
+			return true
+		}
+		// A bare token: either a self-evaluating literal (number/nil/boolean,
+		// never a map) or a symbol (a runtime value that may resolve to a map).
+		// Flag only the literals; accept symbols.
+		return tokenIsScalarNonMapLiteral(src, i)
+	}
+}
+
+// tokenIsScalarNonMapLiteral reports whether the bare token starting at i is a
+// numeric, nil, or boolean literal — self-evaluating values that can never be a
+// map. Symbols (including sign-prefixed names like -main or +config) return
+// false so they stay valid runtime values.
+func tokenIsScalarNonMapLiteral(src string, i int) bool {
+	end := readClojureTokenEnd(src, i)
+	if end <= i {
+		return false
+	}
+	token := src[i:end]
+	switch token {
+	case "nil", "true", "false":
+		return true
+	}
+	// Clojure number rule: a token is numeric if it starts with a digit, or with
+	// a sign/dot immediately followed by a digit.
+	c := token[0]
+	if c >= '0' && c <= '9' {
+		return true
+	}
+	if (c == '+' || c == '-' || c == '.') && len(token) >= 2 {
+		if token[1] >= '0' && token[1] <= '9' {
+			return true
+		}
+		if token[1] == '.' && len(token) >= 3 && token[2] >= '0' && token[2] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 type functionCodeString struct {

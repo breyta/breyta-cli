@@ -8649,7 +8649,7 @@ func TestFlowsPull_PreservesLegacyFunctionInputCompatibilityForLocalLint(t *test
  :flow '(let [input (flow/input)]
           (flow/step :function :normalize-input-payload
                      {:ref :normalize-input-payload
-                      :input input}))}`
+                      :input [input]}))}`
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {
