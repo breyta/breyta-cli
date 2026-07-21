@@ -1214,6 +1214,9 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 		{"syntax-quoted-vector", "`[input]", true},
 		{"quote-form", "(quote [input])", true},
 		{"quoted-map", "'{:rows input}", false},
+		{"syntax-quoted-map", "`{:rows input}", false},
+		{"double-quoted-map", "''{:rows input}", true},
+		{"syntax-quote-of-quote", "`'input", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := `{:slug :quoted-literal-function-input

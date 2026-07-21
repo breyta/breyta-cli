@@ -2054,9 +2054,18 @@ func functionStepFormProvablyNonMap(src string, start int, mode functionStepQuot
 	}
 	switch src[i] {
 	case '\'':
+		if mode != quoteNone {
+			// A quote nested inside another quote is not transparent: 'X becomes
+			// literal (quote X) list data, which is never a map.
+			return true
+		}
 		// Ordinary quote: the following form is literal data.
 		return functionStepFormProvablyNonMap(src, i+1, quoteOrdinary)
 	case '`':
+		if mode != quoteNone {
+			// A syntax-quote nested inside another quote is literal list data.
+			return true
+		}
 		// Syntax-quote: literal data, but a top-level unquote escapes it.
 		return functionStepFormProvablyNonMap(src, i+1, quoteSyntax)
 	case '~':
