@@ -1,9 +1,29 @@
 package cli
 
 import (
+	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/breyta/breyta-cli/internal/api"
 )
+
+func TestClientWithRequestTimeoutPreservesTransport(t *testing.T) {
+	transport := http.DefaultTransport
+	client := api.Client{HTTP: &http.Client{Timeout: 5 * time.Minute, Transport: transport}}
+
+	configured := clientWithRequestTimeout(client, stepSidecarRequestTimeout)
+	if configured.HTTP == client.HTTP {
+		t.Fatal("expected sidecar timeout to use a client copy")
+	}
+	if configured.HTTP.Timeout != stepSidecarRequestTimeout {
+		t.Fatalf("expected sidecar timeout %s, got %s", stepSidecarRequestTimeout, configured.HTTP.Timeout)
+	}
+	if configured.HTTP.Transport != transport {
+		t.Fatal("expected sidecar timeout copy to preserve the configured transport")
+	}
+}
 
 func TestRenderNextActionsBlock_FromHints(t *testing.T) {
 	out := map[string]any{
