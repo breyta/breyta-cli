@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -2654,6 +2655,47 @@ func TestFlowsInstallations_List_AllUsersSendsCreatorFlag(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("flows installations list --all-users failed: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsInstallations_List_AllUsersRejectsSourceSelectors(t *testing.T) {
+	var apiCalled atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled.Store(true)
+		http.Error(w, "unexpected API call", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "source workspace", args: []string{"--source-workspace-id", "ws-public"}},
+		{name: "source flow", args: []string{"--source-flow-slug", "public-flow"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiCalled.Store(false)
+			args := []string{
+				"--dev",
+				"--workspace", "ws-acme",
+				"--api", srv.URL,
+				"--token", "user-dev",
+				"flows", "installations", "list", "public-flow",
+				"--all-users",
+			}
+			args = append(args, tt.args...)
+			stdout, stderr, err := runCLIArgs(t, args...)
+			if err == nil {
+				t.Fatalf("expected incompatible inventory selectors to fail, stdout=%s", stdout)
+			}
+			if apiCalled.Load() {
+				t.Fatal("expected incompatible inventory selectors to fail before the API call")
+			}
+			if !strings.Contains(stderr, "--all-users cannot be combined with --source-workspace-id or --source-flow-slug") {
+				t.Fatalf("expected incompatible inventory selector error, got stderr=%s stdout=%s", stderr, stdout)
+			}
+		})
 	}
 }
 

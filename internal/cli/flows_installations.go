@@ -83,6 +83,9 @@ func newFlowsInstallationsListCmd(app *App) *cobra.Command {
 					"workspaceFlowSlug": args[0],
 				})
 			}
+			if allUsers && (sourceWorkspaceID != "" || sourceFlowSlug != "") {
+				return writeErr(cmd, errors.New("--all-users cannot be combined with --source-workspace-id or --source-flow-slug"))
+			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if allUsers {
 				payload["all"] = true
