@@ -1184,6 +1184,45 @@ func TestFlowsLintLocalOnlyAcceptsSymbolLikeFunctionStepInput(t *testing.T) {
 	}
 }
 
+// Under a quote the value is literal data, so anything but a map literal is
+// provably not a map; quoting a constant must not smuggle a non-map :input past
+// local lint. A quoted map literal stays accepted.
+func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		flagged bool
+	}{
+		{"quoted-vector", "'[input]", true},
+		{"quoted-nil", "'nil", true},
+		{"quoted-keyword", "':id", true},
+		{"quoted-symbol", "'input", true},
+		{"quoted-list", "'(hash-map :a 1)", true},
+		{"quoted-number", "'42", true},
+		{"syntax-quoted-vector", "`[input]", true},
+		{"quote-form", "(quote [input])", true},
+		{"quoted-map", "'{:rows input}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := `{:slug :quoted-literal-function-input
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input {:ref :normalize :input ` + tc.input + `}))}
+`
+			body, _, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if tc.flagged {
+				requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+			} else {
+				rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+				_ = stdout
+			}
+		})
+	}
+}
+
 // Pulled source that carries a non-map literal :input on a recorded legacy step
 // is downgraded to a non-blocking warning instead of a hard error.
 func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing.T) {
