@@ -175,8 +175,7 @@ func readClojureFormEnd(src string, start int) (int, error) {
 		case '(':
 			return readDelimitedFormEnd(src, i+1, ')')
 		case '"':
-			_, _, next, err := readClojureStringToken(src, i+1)
-			return next, err
+			return readClojureRegexTokenEnd(src, i+1)
 		case '?':
 			if i+2 < len(src) && src[i+2] == '@' {
 				return readClojureFormEnd(src, i+3)
@@ -413,6 +412,32 @@ func readClojureStringToken(src string, start int) (token string, value string, 
 		}
 	}
 	return "", "", start, fmt.Errorf("unterminated string literal")
+}
+
+// readClojureRegexTokenEnd scans the quoted body of a Clojure regex literal.
+// Regex escapes such as \s and \d are valid for the regex reader but are not
+// valid Go/Clojure string escapes, so this deliberately does not unquote the
+// token as readClojureStringToken does.
+func readClojureRegexTokenEnd(src string, start int) (int, error) {
+	if start < 0 || start >= len(src) || src[start] != '"' {
+		return start, fmt.Errorf("expected opening quote")
+	}
+	escaped := false
+	for i := start + 1; i < len(src); i++ {
+		switch src[i] {
+		case '\\':
+			escaped = !escaped
+		case '"':
+			if escaped {
+				escaped = false
+				continue
+			}
+			return i + 1, nil
+		default:
+			escaped = false
+		}
+	}
+	return start, fmt.Errorf("unterminated regex literal")
 }
 
 func unquoteClojureString(token string) (string, error) {

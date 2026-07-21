@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -91,7 +92,7 @@ breyta flows lint --file ./flows/order-ingest.clj --local-only
 					expandedLiteral = expanded
 					diagnostics = append(diagnostics, localFlowLintDiagnostics(file, expandedLiteral, expandedLiteral != flowLiteral)...)
 					diagnostics = append(diagnostics, localUnsupportedFlowFormDiagnostics(expandedLiteral)...)
-					diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral)...)
+					diagnostics = append(diagnostics, localAuthoringShapeDiagnostics(expandedLiteral, pulledLegacyFunctionInputSteps(flowLiteral))...)
 					diagnostics = append(diagnostics, localFunctionCodeStringDiagnostics(expandedLiteral)...)
 				}
 			}
@@ -303,6 +304,15 @@ type unsupportedFlowFormMatch struct {
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
 	for i := 0; i < len(src); {
+		if strings.HasPrefix(src[i:], `#"`) {
+			next, err := readClojureRegexTokenEnd(src, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
 		if strings.HasPrefix(src[i:], "#?") {
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
@@ -392,6 +402,15 @@ func unwrapTopLevelReaderConditionalFlowSource(src string) (string, int) {
 
 func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	for i := 0; i < len(flowLiteral); {
+		if strings.HasPrefix(flowLiteral[i:], `#"`) {
+			next, err := readClojureRegexTokenEnd(flowLiteral, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
 		switch flowLiteral[i] {
 		case '"':
 			_, _, next, err := readClojureStringToken(flowLiteral, i)
@@ -504,8 +523,7 @@ func validateLocalClojureReaderForm(src string, start int) (int, error) {
 		case '(':
 			return validateLocalClojureDelimitedReaderForms(src, i+1, ')', false)
 		case '"':
-			_, _, next, err := readClojureStringToken(src, i+1)
-			return next, err
+			return readClojureRegexTokenEnd(src, i+1)
 		case '?':
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if !ok {
@@ -795,7 +813,36 @@ type clojureMapEntry struct {
 	ValueEnd   int
 }
 
-func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
+func pulledLegacyFunctionInputSteps(flowLiteral string) map[string]bool {
+	steps := map[string]bool{}
+	pulledSource := false
+	for _, line := range strings.Split(flowLiteral, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, ";") {
+			break
+		}
+		if trimmed == pulledFlowSourceMarker {
+			pulledSource = true
+			continue
+		}
+		if !strings.HasPrefix(trimmed, pulledLegacyFunctionInputMarker) {
+			continue
+		}
+		step, err := strconv.Unquote(strings.TrimSpace(strings.TrimPrefix(trimmed, pulledLegacyFunctionInputMarker)))
+		if err == nil && step != "" {
+			steps[step] = true
+		}
+	}
+	if !pulledSource {
+		return map[string]bool{}
+	}
+	return steps
+}
+
+func localAuthoringShapeDiagnostics(flowLiteral string, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
 	entries, err := extractTopLevelMapEntries(flowLiteral)
 	if err != nil {
 		return []flowLintDiagnostic{lintDiagnostic(
@@ -819,7 +866,7 @@ func localAuthoringShapeDiagnostics(flowLiteral string) []flowLintDiagnostic {
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
 	stepsEntry := byKey["steps"]
 	diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, stepsEntry, byKey["agents"])...)
-	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"))...)
+	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"), pulledLegacyInputSteps)...)
 	return diagnostics
 }
 
@@ -1793,13 +1840,22 @@ func localInterfaceShapeDiagnostics(src string, entry clojureMapEntry, invocatio
 	return diagnostics
 }
 
-func localFunctionStepShapeDiagnostics(src string, allowBareInput bool) []flowLintDiagnostic {
-	return localFunctionStepShapeDiagnosticsInRange(src, 0, len(src), allowBareInput)
+func localFunctionStepShapeDiagnostics(src string, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
+	return localFunctionStepShapeDiagnosticsInRange(src, 0, len(src), allowBareInput, pulledLegacyInputSteps)
 }
 
-func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, allowBareInput bool) []flowLintDiagnostic {
+func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
 	for i := start; i < end && i < len(src); {
+		if strings.HasPrefix(src[i:], `#"`) {
+			next, err := readClojureRegexTokenEnd(src, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
 		if strings.HasPrefix(src[i:], "#_") {
 			next, err := readClojureFormEnd(src, i)
 			if err != nil || next <= i {
@@ -1813,7 +1869,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
 				if formStart >= 0 && formEnd >= formStart {
-					diagnostics = append(diagnostics, localFunctionStepShapeDiagnosticsInRange(src, formStart, formEnd, allowBareInput)...)
+					diagnostics = append(diagnostics, localFunctionStepShapeDiagnosticsInRange(src, formStart, formEnd, allowBareInput, pulledLegacyInputSteps)...)
 				}
 				i = next
 				continue
@@ -1849,7 +1905,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
 			if err == nil {
-				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i, allowBareInput)...)
+				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i, allowBareInput, pulledLegacyInputSteps)...)
 			}
 		}
 		i++
@@ -1857,7 +1913,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 	return diagnostics
 }
 
-func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int, allowBareInput bool) []flowLintDiagnostic {
+func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
 	if len(elements) == 0 || clojureFormToken(src, elements[0]) != "flow/step" {
 		return nil
 	}
@@ -1869,11 +1925,13 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		return nil
 	}
 	stepID := "<missing>"
+	stepMarker := ""
 	if len(elements) >= 3 {
+		stepMarker = strings.TrimSpace(src[elements[2].Start:elements[2].End])
 		if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {
 			stepID = ":" + id
 		} else {
-			stepID = strings.TrimSpace(src[elements[2].Start:elements[2].End])
+			stepID = stepMarker
 		}
 	}
 	path := []string{":flow", stepID}
@@ -1939,12 +1997,20 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		))
 	}
 	if input, ok := mapEntryByKey(entries, "input"); ok && hasRef && !allowBareInput && !clojureFormStartsWith(src, input.ValueStart, '{') {
+		severity := "error"
+		message := "Function step :input must be a map when present."
+		hint := "Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}."
+		if pulledLegacyInputSteps[stepID] {
+			severity = "warning"
+			message = "Referenced function step :input uses a legacy bare value instead of a map."
+			hint = "Pulled legacy source can keep this compatibility shape. For new steps, prefer an input map such as :input {:input input} or :input {:rows rows}, then confirm compatibility with server lint."
+		}
 		diag := lintDiagnostic(
-			"error",
+			severity,
 			"function_step_input_shape_invalid",
 			append(path, ":input"),
-			"Function step :input must be a map when present.",
-			"Wrap runtime values in an input map, for example :input {:input input} or :input {:rows rows}.",
+			message,
+			hint,
 			"local",
 		)
 		diag["byteOffset"] = input.ValueStart
@@ -2133,6 +2199,16 @@ func skipTopLevelMapValueBestEffort(src string, start int) int {
 			if src[i] == '}' || isProbableTopLevelMapKey(src, i) {
 				return i
 			}
+		}
+		if strings.HasPrefix(src[i:], `#"`) {
+			next, err := readClojureRegexTokenEnd(src, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			consumed = true
+			continue
 		}
 
 		switch src[i] {

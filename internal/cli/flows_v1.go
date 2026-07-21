@@ -1041,6 +1041,57 @@ func newFlowsCreateCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+const (
+	pulledFlowSourceMarker          = ";; breyta: pulled-source"
+	pulledLegacyFunctionInputMarker = ";; breyta: legacy-bare-function-input "
+)
+
+func markPulledFlowSource(flowLiteral string) string {
+	flowLiteral = stripPulledFlowSourceMarkers(flowLiteral)
+	legacySteps := map[string]bool{}
+	for _, diagnostic := range localFunctionStepShapeDiagnostics(flowLiteral, false, nil) {
+		if diagnostic["code"] != "function_step_input_shape_invalid" {
+			continue
+		}
+		path, _ := diagnostic["path"].([]string)
+		if len(path) >= 2 && path[1] != "" && path[1] != "<missing>" {
+			legacySteps[path[1]] = true
+		}
+	}
+
+	var markers strings.Builder
+	markers.WriteString(pulledFlowSourceMarker)
+	markers.WriteByte('\n')
+	steps := make([]string, 0, len(legacySteps))
+	for step := range legacySteps {
+		steps = append(steps, step)
+	}
+	sort.Strings(steps)
+	for _, step := range steps {
+		markers.WriteString(pulledLegacyFunctionInputMarker)
+		markers.WriteString(strconv.Quote(step))
+		markers.WriteByte('\n')
+	}
+	return markers.String() + flowLiteral
+}
+
+func stripPulledFlowSourceMarkers(flowLiteral string) string {
+	lines := strings.Split(flowLiteral, "\n")
+	out := make([]string, 0, len(lines))
+	inHeader := true
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inHeader && trimmed != "" && !strings.HasPrefix(trimmed, ";") {
+			inHeader = false
+		}
+		if inHeader && (trimmed == pulledFlowSourceMarker || strings.HasPrefix(trimmed, pulledLegacyFunctionInputMarker)) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
 	var target string
@@ -1135,7 +1186,7 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			if err := makePublicDir(filepath.Dir(path)); err != nil {
 				return writeErr(cmd, err)
 			}
-			if err := writePublicFile(path, []byte(flowLiteral+"\n")); err != nil {
+			if err := writePublicFile(path, []byte(markPulledFlowSource(flowLiteral)+"\n")); err != nil {
 				return writeErr(cmd, err)
 			}
 			_ = recordConsultedFlow(provenanceSourceRef{

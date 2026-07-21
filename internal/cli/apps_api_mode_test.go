@@ -8636,6 +8636,63 @@ func TestFlowsPull_DefaultsToDraftSource(t *testing.T) {
 	}
 }
 
+func TestFlowsPull_PreservesLegacyFunctionInputCompatibilityForLocalLint(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "pulled-legacy.clj")
+	flowLiteral := `{:slug :pulled-legacy
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize-input-payload
+              :language :clojure
+              :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input-payload
+                     {:ref :normalize-input-payload
+                      :input input}))}`
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowLiteral": flowLiteral},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "pull", "pulled-legacy",
+		"--out", outPath,
+	)
+	if err != nil {
+		t.Fatalf("flows pull failed: %v\n%s", err, stdout)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read pulled flow: %v", err)
+	}
+	if !strings.HasPrefix(string(raw), ";; breyta: pulled-source\n") {
+		t.Fatalf("pulled flow did not contain source provenance marker: %s", string(raw))
+	}
+
+	stdout, _, err = runCLIArgs(t, "flows", "lint", "--file", outPath, "--local-only")
+	if err != nil {
+		t.Fatalf("pulled legacy flow should pass local lint with a warning: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"code":"function_step_input_shape_invalid"`) ||
+		!strings.Contains(stdout, `"severity":"warning"`) {
+		t.Fatalf("expected legacy function input warning after pull: %s", stdout)
+	}
+}
+
 func TestFlowsPull_VersionUsesVersionSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-version.clj")

@@ -1070,6 +1070,103 @@ func TestFlowsLintLocalOnlyRejectsFunctionStepAuthoringShapes(t *testing.T) {
 		"function_step_input_shape_invalid")
 }
 
+func TestFlowsLintLocalOnlyRejectsNewBareReferencedFunctionStepInput(t *testing.T) {
+	flowLiteral := `{:slug :new-bare-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize-input-payload
+              :language :clojure
+              :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input-payload
+                     {:ref :normalize-input-payload
+                      :input input}))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("new bare referenced function input should fail local lint\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_step_input_shape_invalid" && item["severity"] != "error" {
+			t.Fatalf("expected new bare function input to remain an error: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyWarnsForPulledLegacyFunctionStepInputShape(t *testing.T) {
+	flowLiteral := markPulledFlowSource(`{:slug :pulled-legacy-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize-input-payload
+              :language :clojure
+              :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input-payload
+                     {:ref :normalize-input-payload
+                      :input input}))}
+`)
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("pulled legacy function input should warn without blocking local lint: %v\n%s", err, stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] == "function_step_input_shape_invalid" && item["severity"] != "warning" {
+			t.Fatalf("expected compatibility diagnostic to be a warning: %#v", item)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsNewBareInputStepInPulledSource(t *testing.T) {
+	flowLiteral := markPulledFlowSource(`{:slug :edited-pulled-function-step-shape
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :legacy :language :clojure :code '(fn [input] input)}
+             {:id :new-step :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :legacy {:ref :legacy :input input}))}
+`)
+	flowLiteral = strings.Replace(flowLiteral,
+		`(flow/step :function :legacy {:ref :legacy :input input}))}`,
+		`(flow/step :function :legacy {:ref :legacy :input input})
+          (flow/step :function :new-step {:ref :new-step :input input}))}`,
+		1,
+	)
+
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("new bare input step in pulled source should fail local lint\n%s", stdout)
+	}
+
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	severities := map[string]string{}
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if item["code"] != "function_step_input_shape_invalid" {
+			continue
+		}
+		path, _ := item["path"].([]any)
+		if len(path) >= 2 {
+			step, _ := path[1].(string)
+			severities[step], _ = item["severity"].(string)
+		}
+	}
+	if severities[":legacy"] != "warning" || severities[":new-step"] != "error" {
+		t.Fatalf("expected only the recorded legacy step to warn, got %#v in %#v", severities, items)
+	}
+}
+
 func TestFlowsLintLocalOnlyIgnoresReaderDiscardedFunctionStepAuthoringShapes(t *testing.T) {
 	flowLiteral := `{:slug :discarded-function-step-shape
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -1635,6 +1732,90 @@ func TestFlowsLintLocalOnlyAcceptsLegacyMetadataAndSymbolicValuesInFunctionCodeS
 			t.Fatalf("unexpected function_code_string_invalid diagnostic: %#v", item)
 		}
 	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsRegexEscapesInPulledFunctionCodeStrings(t *testing.T) {
+	tmpDir := t.TempDir()
+	flowFile := filepath.Join(tmpDir, "flow.clj")
+	flowLiteral := `;; breyta: pulled-source
+{:slug :pulled-function-regex
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :blank-text?
+              :code "(fn [input]\n  (boolean (re-matches #\"\\s+\" (:text input))))"}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :check-text {:ref :blank-text? :input {:input input}}))}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatalf("write flow file: %v", err)
+	}
+
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("lint returned error for valid pulled regex code string: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "function_code_string_invalid")
+}
+
+func TestFlowsLintLocalOnlyIgnoresCodeLikeTextInRegexLiterals(t *testing.T) {
+	flowLiteral := `{:slug :regex-code-like-text
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [pattern #"\s+#=(->> fake)"
+              input (flow/input)]
+          {:pattern pattern :input input})}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("code-like regex contents should not produce lint errors: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_eval_disabled", "unsupported_visual_flow_form")
+}
+
+func TestFlowsLintLocalOnlyContinuesScanningAfterRegexLiterals(t *testing.T) {
+	flowLiteral := `{:slug :regex-before-invalid-forms
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [pattern #"\s+"
+              input (flow/input)
+              normalized (flow/step :function :normalize {:ref :normalize :input input})]
+          (->> normalized identity))}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("invalid forms after a regex should fail local lint\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid", "unsupported_visual_flow_form")
+}
+
+func TestFlowsLintLocalOnlyFindsReaderEvalAfterRegexLiteral(t *testing.T) {
+	flowLiteral := `{:slug :regex-before-reader-eval
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :pattern #"\s+"
+ :unsafe #=(identity true)
+ :flow '(flow/input)}
+`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("reader eval after a regex should fail local lint\n%s", stdout)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "clojure_reader_eval_disabled")
 }
 
 func TestFlowsLintLocalOnlyRejectsReaderEvalInFunctionCodeStrings(t *testing.T) {
