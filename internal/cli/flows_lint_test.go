@@ -1169,6 +1169,7 @@ func TestFlowsLintLocalOnlyAcceptsSymbolLikeFunctionStepInput(t *testing.T) {
 		{"namespaced-symbol", "my.ns/data"},
 		{"call-form", "(select-keys input [:id])"},
 		{"map-literal", "{:rows input}"},
+		{"deref", "@input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := `{:slug :symbol-like-function-input
@@ -1209,6 +1210,40 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := `{:slug :quoted-literal-function-input
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :normalize :language :clojure :code '(fn [input] input)}]
+ :flow '(let [input (flow/input)]
+          (flow/step :function :normalize-input {:ref :normalize :input ` + tc.input + `}))}
+`
+			body, _, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if tc.flagged {
+				requireFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+			} else {
+				rejectFlowLintDiagnosticCodes(t, body, "function_step_input_shape_invalid")
+				_ = stdout
+			}
+		})
+	}
+}
+
+// Metadata (legacy #^meta and modern ^meta) is stripped by the reader, so the
+// underlying value must be classified: a metadata-wrapped non-map literal is
+// flagged, a metadata-wrapped map or symbol is not.
+func TestFlowsLintLocalOnlyClassifiesMetadataWrappedFunctionStepInput(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		flagged bool
+	}{
+		{"legacy-meta-vector", "#^String [input]", true},
+		{"modern-meta-vector", "^String [input]", true},
+		{"legacy-meta-map", "#^Foo {:rows input}", false},
+		{"modern-meta-symbol", "^:tag input", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := `{:slug :metadata-wrapped-function-input
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}

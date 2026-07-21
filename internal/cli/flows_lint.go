@@ -2045,6 +2045,13 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 	case '\'', '`':
 		// Quote or syntax-quote: the following form is taken as literal data.
 		return functionStepFormProvablyNonMap(src, i+1, true)
+	case '~':
+		// Unquote / unquote-splice inside a syntax-quote escapes back to a runtime
+		// value that may be a map, so defer regardless of the surrounding quote.
+		return false
+	case '@':
+		// Deref yields a runtime value that may be a map, so defer.
+		return false
 	case '{':
 		// Map literal (quoted or not) — this is a map.
 		return false
@@ -2052,13 +2059,23 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 		// Vector, string, char, or keyword literal — none can ever be a map.
 		return true
 	case '#':
+		if i+1 >= len(src) {
+			return false
+		}
+		if src[i+1] == '^' {
+			// Legacy #^meta reader macro (equivalent to modern ^meta, which
+			// clojureActiveFormStart already unwraps): the reader strips the
+			// metadata wrapper, so classify the underlying value form.
+			metaEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || metaEnd <= i+2 {
+				return false
+			}
+			return functionStepFormProvablyNonMap(src, metaEnd, quoted)
+		}
 		// Non-tagged reader literals have fixed, provably non-map semantics:
 		//   #{...} set, #"..." regex, #(...) fn, #'x var, ##Inf/##NaN symbolic.
 		// Tagged literals (#inst, #uuid, #my/tag ...) run a data reader that may
 		// yield a map, so defer those to runtime validation.
-		if i+1 >= len(src) {
-			return false
-		}
 		switch src[i+1] {
 		case '{', '"', '(', '#', '\'':
 			return true
