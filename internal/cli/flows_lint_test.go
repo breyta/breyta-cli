@@ -1137,6 +1137,7 @@ func TestFlowsLintLocalOnlyRejectsNonMapLiteralFunctionStepInput(t *testing.T) {
 		{"boolean", "true"},
 		{"keyword", ":id"},
 		{"char", "\\a"},
+		{"empty-list", "()"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := `{:slug :non-map-literal-function-input
@@ -1168,6 +1169,7 @@ func TestFlowsLintLocalOnlyAcceptsSymbolLikeFunctionStepInput(t *testing.T) {
 		{"plus-prefixed-symbol", "+config"},
 		{"namespaced-symbol", "my.ns/data"},
 		{"call-form", "(select-keys input [:id])"},
+		{"no-arg-call", "(build-map)"},
 		{"map-literal", "{:rows input}"},
 		{"deref", "@input"},
 	} {
@@ -1203,6 +1205,7 @@ func TestFlowsLintLocalOnlyRejectsQuotedNonMapLiteralFunctionStepInput(t *testin
 		{"quoted-keyword", "':id", true},
 		{"quoted-symbol", "'input", true},
 		{"quoted-list", "'(hash-map :a 1)", true},
+		{"quoted-empty-list", "'()", true},
 		{"quoted-number", "'42", true},
 		{"syntax-quoted-vector", "`[input]", true},
 		{"quote-form", "(quote [input])", true},

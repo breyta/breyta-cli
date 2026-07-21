@@ -2087,8 +2087,18 @@ func functionStepFormProvablyNonMap(src string, start int, quoted bool) bool {
 			// A quoted list is literal data, never a map.
 			return true
 		}
+		elements, _, err := parseClojureListElements(src, i)
+		if err != nil {
+			// Unparseable — defer rather than risk a false positive.
+			return false
+		}
+		if len(elements) == 0 {
+			// The empty list () evaluates to itself, not a callable, so it can
+			// never be a map.
+			return true
+		}
 		// (quote X) / (clojure.core/quote X) yields the literal datum X.
-		if elements, _, err := parseClojureListElements(src, i); err == nil && len(elements) >= 2 {
+		if len(elements) >= 2 {
 			if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
 				return functionStepFormProvablyNonMap(src, elements[1].Start, true)
 			}
