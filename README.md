@@ -310,8 +310,10 @@ breyta flows run <slug> --installation-id <installation-id> --wait
 ```
 
 To inspect every installed app in the workspace without knowing a flow slug,
-use `breyta flows installations list --all`. For creator-scoped inventory of
-one flow, use `breyta flows installations list <flow-slug> --all`.
+use `breyta flows installations list --all`. To filter current-workspace
+inventory to one flow, use `breyta flows installations list <flow-slug> --all`.
+Flow creators can inspect installations across all consumer users with
+`breyta flows installations list <flow-slug> --all-users`.
 
 When browser access is available, also open the Discover install dialog and
 confirm setup fields, upload/resource fields, and output render as expected.
