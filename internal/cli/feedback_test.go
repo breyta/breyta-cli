@@ -119,3 +119,108 @@ func TestFeedbackSend_RejectsInvalidMetadataFlag(t *testing.T) {
 		t.Fatalf("expected metadata object validation to fail")
 	}
 }
+
+func TestFeedbackFlow_BuildsPayload(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	var gotPayload map[string]any
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		gotMethod = method
+		gotPayload = payload
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFeedbackCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"flow",
+		"--title", "Summarize step is broken",
+		"--description", "The summarize step returns empty output on long inputs",
+		"--flow", "daily-rollup",
+		"--workflow-id", "wf-987",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	if gotMethod != "feedback.flow.send" {
+		t.Fatalf("expected method feedback.flow.send, got %q", gotMethod)
+	}
+	if gotPayload["flowSlug"] != "daily-rollup" {
+		t.Fatalf("expected flowSlug=daily-rollup, got %#v", gotPayload["flowSlug"])
+	}
+	if gotPayload["workflowId"] != "wf-987" {
+		t.Fatalf("expected workflowId=wf-987, got %#v", gotPayload["workflowId"])
+	}
+	if gotPayload["type"] != "issue" {
+		t.Fatalf("expected default type=issue, got %#v", gotPayload["type"])
+	}
+}
+
+func TestFeedbackFlow_RequiresFlowTarget(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFeedbackCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"flow",
+		"--title", "No target",
+		"--description", "missing flow and workflow id",
+	})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected missing flow target to fail")
+	}
+}
+
+func TestFeedbackFlow_WorkflowIDAloneSatisfiesTarget(t *testing.T) {
+	origDo := doAPICommandFn
+	origUse := useDoAPICommandFn
+	t.Cleanup(func() {
+		doAPICommandFn = origDo
+		useDoAPICommandFn = origUse
+	})
+
+	var gotMethod string
+	doAPICommandFn = func(cmd *cobra.Command, app *App, method string, payload map[string]any) error {
+		_ = cmd
+		_ = app
+		_ = payload
+		gotMethod = method
+		return nil
+	}
+	useDoAPICommandFn = true
+
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFeedbackCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"flow",
+		"--title", "Only a workflow id",
+		"--description", "should be accepted",
+		"--workflow-id", "wf-555",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+	if gotMethod != "feedback.flow.send" {
+		t.Fatalf("expected method feedback.flow.send, got %q", gotMethod)
+	}
+}
