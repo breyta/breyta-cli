@@ -186,3 +186,29 @@ func TestReconcilePulledDraftVisibilityPreservesMetadataWrappedMaps(t *testing.T
 		}
 	}
 }
+
+func TestReconcilePulledDraftVisibilityPreservesLegacyMetadataForms(t *testing.T) {
+	source := `#^{:doc "flow"} {:slug :example
+ :discover #^{:doc "discover"} {:public #^:dynamic false :other true}
+ :flow '(identity 1)}`
+	data := map[string]any{
+		"flow": map[string]any{
+			"discover": map[string]any{"public": true},
+		},
+	}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`#^{:doc "flow"} {`,
+		`:discover #^{:doc "discover"} {`,
+		`:public #^:dynamic true`,
+		`:other true`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("legacy metadata source is missing %q:\n%s", want, got)
+		}
+	}
+}

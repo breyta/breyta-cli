@@ -1042,9 +1042,13 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 				return i, i, i, false, fmt.Errorf("reader conditional branch extends past its form near byte %d", branchStart)
 			}
 			return activeStart, activeEnd, next, true, nil
-		case src[i] == '^':
-			metaEnd, metaErr := readClojureFormEnd(src, i+1)
-			if metaErr != nil || metaEnd <= i+1 {
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, metaErr := readClojureFormEnd(src, metaValueStart)
+			if metaErr != nil || metaEnd <= metaValueStart {
 				if metaErr == nil {
 					metaErr = fmt.Errorf("could not read metadata near byte %d", i)
 				}
@@ -1140,9 +1144,13 @@ func clojureActiveFormStart(src string, start int) (int, bool) {
 				return i, false
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, formStart)
-		case src[i] == '^':
-			metaEnd, err := readClojureFormEnd(src, i+1)
-			if err != nil || metaEnd <= i+1 {
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, err := readClojureFormEnd(src, metaValueStart)
+			if err != nil || metaEnd <= metaValueStart {
 				return i, false
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
@@ -2514,13 +2522,17 @@ func topLevelFlowMapStart(src string) (int, error) {
 		switch {
 		case src[i] == '{':
 			return i, nil
-		case src[i] == '^':
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
 			metaStart := i
-			metaEnd, err := readClojureFormEnd(src, i+1)
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, err := readClojureFormEnd(src, metaValueStart)
 			if err != nil {
 				return -1, err
 			}
-			if metaEnd <= i+1 {
+			if metaEnd <= metaValueStart {
 				return -1, fmt.Errorf("could not read metadata before top-level map near byte %d", metaStart)
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
