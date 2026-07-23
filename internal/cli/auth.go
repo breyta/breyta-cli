@@ -384,18 +384,16 @@ via flows-api (/api/auth/token). Prefer browser login.
 				storePath = resolveAuthStorePath(app)
 			}
 			if strings.TrimSpace(storePath) != "" {
-				st, _ := authstore.Load(storePath)
-				if st == nil {
-					st = &authstore.Store{}
-				}
 				rec := authstore.Record{Token: token, RefreshToken: refreshToken}
 				if refreshToken != "" {
 					if n, ok := expiresInSeconds(expiresInStr, expiresIn); ok {
 						rec.ExpiresAt = time.Now().UTC().Add(time.Duration(n) * time.Second)
 					}
 				}
-				st.SetRecord(app.APIURL, rec)
-				if err := authstore.SaveAtomic(storePath, st); err != nil {
+				if err := authstore.UpdateAtomicOrReset(storePath, func(st *authstore.Store) error {
+					st.SetRecord(app.APIURL, rec)
+					return nil
+				}); err != nil {
 					return writeErr(cmd, err)
 				}
 			}
@@ -470,25 +468,20 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 				return writeErr(cmd, errors.New("cannot determine auth store path"))
 			}
 
-			st, err := authstore.Load(storePath)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return writeData(cmd, app, map[string]any{"stored": false, "storePath": storePath}, map[string]any{"tokenPresent": strings.TrimSpace(app.Token) != ""})
-				}
-				return writeErr(cmd, err)
-			}
-
-			if all {
-				st.Tokens = map[string]authstore.Record{}
-			} else {
+			if !all {
 				ensureAPIURL(app)
 				if strings.TrimSpace(app.APIURL) == "" {
 					return writeErr(cmd, errors.New("missing api url (or use --all)"))
 				}
-				st.Delete(app.APIURL)
 			}
-
-			if err := authstore.SaveAtomic(storePath, st); err != nil {
+			if err := authstore.UpdateAtomic(storePath, func(st *authstore.Store) error {
+				if all {
+					st.Tokens = map[string]authstore.Record{}
+				} else {
+					st.Delete(app.APIURL)
+				}
+				return nil
+			}); err != nil {
 				return writeErr(cmd, err)
 			}
 

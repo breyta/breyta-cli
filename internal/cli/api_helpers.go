@@ -130,6 +130,7 @@ func loadTokenFromAuthStore(app *App) {
 	if !ok {
 		return
 	}
+	loadedRec := rec
 	updated := false
 	if rec.ExpiresAt.IsZero() {
 		if exp, ok := parseJWTExpiry(rec.Token); ok {
@@ -137,23 +138,94 @@ func loadTokenFromAuthStore(app *App) {
 			updated = true
 		}
 	}
-	if strings.TrimSpace(rec.RefreshToken) != "" && rec.ExpiresAt.IsZero() {
+	shouldRefresh := strings.TrimSpace(rec.RefreshToken) != "" &&
+		(rec.ExpiresAt.IsZero() || time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime)
+	if shouldRefresh {
 		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
 			rec = next
 			updated = true
-		}
-	}
-	if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime {
-		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
-			rec = next
-			updated = true
+		} else if isDefinitiveRefreshRejection(err) {
+			if current, ok := invalidateRejectedAuthRecord(storePath, app.APIURL, rec); ok {
+				app.Token = current.Token
+			} else {
+				app.Token = ""
+			}
+			return
 		}
 	}
 	if updated {
-		st.SetRecord(app.APIURL, rec)
-		_ = authstore.SaveAtomic(storePath, st)
+		current, ok, err := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec)
+		if err == nil {
+			if !ok {
+				app.Token = ""
+				return
+			}
+			rec = current
+		}
+		// Persistence is best-effort for a token already usable by this
+		// invocation, matching the pre-locking behavior.
 	}
 	app.Token = rec.Token
+}
+
+type refreshHTTPError struct {
+	status int
+}
+
+func (e *refreshHTTPError) Error() string {
+	return fmt.Sprintf("refresh failed (status=%d)", e.status)
+}
+
+func isDefinitiveRefreshRejection(err error) bool {
+	var httpErr *refreshHTTPError
+	return errors.As(err, &httpErr) && httpErr.status == http.StatusUnauthorized
+}
+
+func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected authstore.Record) (authstore.Record, bool) {
+	var replacement authstore.Record
+	var replacementFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		// Another CLI process or login may have replaced the credentials while
+		// this refresh request was in flight. Preserve and use that newer record.
+		if current.Token != rejected.Token || current.RefreshToken != rejected.RefreshToken {
+			replacement = current
+			replacementFound = true
+			return nil
+		}
+		latest.Delete(apiURL)
+		return nil
+	})
+	if err != nil {
+		return authstore.Record{}, false
+	}
+	return replacement, replacementFound
+}
+
+func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool, error) {
+	var result authstore.Record
+	var resultFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		if current.Token != expected.Token || current.RefreshToken != expected.RefreshToken {
+			result = current
+			resultFound = true
+			return nil
+		}
+		latest.SetRecord(apiURL, next)
+		result, resultFound = latest.GetRecord(apiURL)
+		return nil
+	})
+	if err != nil {
+		return authstore.Record{}, false, err
+	}
+	return result, resultFound, nil
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {
@@ -223,7 +295,7 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 		return authstore.Record{}, err
 	}
 	if status < 200 || status > 299 {
-		return authstore.Record{}, fmt.Errorf("refresh failed (status=%d)", status)
+		return authstore.Record{}, &refreshHTTPError{status: status}
 	}
 
 	m, ok := out.(map[string]any)
