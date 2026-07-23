@@ -75,3 +75,49 @@ func TestReconcilePulledDraftVisibilityLeavesOmittedFalseFlagsAlone(t *testing.T
 		t.Fatalf("omitted false flags should not add source noise:\n%s", got)
 	}
 }
+
+func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
+	source := `{:slug :example
+ #_{:unused true}
+ :discover {:public false}
+ :flow '(identity 1)}`
+	data := map[string]any{
+		"flow": map[string]any{
+			"discover": map[string]any{"public": true},
+		},
+	}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "#_{:unused true}") ||
+		!strings.Contains(got, ":discover {:public true}") {
+		t.Fatalf("reader discard or visibility was changed incorrectly:\n%s", got)
+	}
+}
+
+func TestReconcilePulledDraftVisibilityPreservesMetadataWrappedMaps(t *testing.T) {
+	source := `{:slug :example
+ :discover ^{:doc "keep"} {:public ^:dynamic false :other true}
+ :flow '(identity 1)}`
+	data := map[string]any{
+		"flow": map[string]any{
+			"discover": map[string]any{"public": true},
+		},
+	}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`:discover ^{:doc "keep"} {`,
+		`:public ^:dynamic true`,
+		`:other true`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("metadata-wrapped visibility source is missing %q:\n%s", want, got)
+		}
+	}
+}

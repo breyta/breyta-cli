@@ -1139,8 +1139,8 @@ func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (st
 			flowLiteral[insertAt:], nil
 	}
 
-	sectionStart := skipClojureWhitespaceCommaAndComments(flowLiteral, entry.ValueStart)
-	if sectionStart >= entry.ValueEnd || flowLiteral[sectionStart] != '{' {
+	sectionStart, active := clojureActiveFormStart(flowLiteral, entry.ValueStart)
+	if !active || sectionStart >= entry.ValueEnd || flowLiteral[sectionStart] != '{' {
 		if !value && strings.TrimSpace(flowLiteral[entry.ValueStart:entry.ValueEnd]) == "nil" {
 			return flowLiteral, nil
 		}
@@ -1151,10 +1151,21 @@ func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (st
 		return "", err
 	}
 	if fieldEntry, found := mapEntryByKey(entries, field); found {
-		if strings.TrimSpace(flowLiteral[fieldEntry.ValueStart:fieldEntry.ValueEnd]) == valueLiteral {
+		fieldStart, active := clojureActiveFormStart(flowLiteral, fieldEntry.ValueStart)
+		if !active || fieldStart >= fieldEntry.ValueEnd {
+			return "", fmt.Errorf("locate active :%s value", field)
+		}
+		fieldEnd, err := readClojureFormEnd(flowLiteral, fieldStart)
+		if err != nil || fieldEnd > fieldEntry.ValueEnd {
+			if err == nil {
+				err = fmt.Errorf("active value extends beyond :%s entry", field)
+			}
+			return "", err
+		}
+		if strings.TrimSpace(flowLiteral[fieldStart:fieldEnd]) == valueLiteral {
 			return flowLiteral, nil
 		}
-		return replaceLocalFlowValue(flowLiteral, fieldEntry, valueLiteral), nil
+		return flowLiteral[:fieldStart] + valueLiteral + flowLiteral[fieldEnd:], nil
 	}
 	if !value {
 		return flowLiteral, nil

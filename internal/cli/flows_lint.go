@@ -888,6 +888,16 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 	var entries []clojureMapEntry
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
+		for strings.HasPrefix(src[i:], "#_") {
+			discardEnd, err := readClojureFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				if err == nil {
+					err = fmt.Errorf("could not read discarded map form near byte %d", i)
+				}
+				return entries, discardEnd, err
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		}
 		if i >= len(src) {
 			return entries, i, fmt.Errorf("unterminated map")
 		}
@@ -903,6 +913,16 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 			return entries, keyEnd, err
 		}
 		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		for strings.HasPrefix(src[valueStart:], "#_") {
+			discardEnd, err := readClojureFormEnd(src, valueStart+2)
+			if err != nil || discardEnd <= valueStart+2 {
+				if err == nil {
+					err = fmt.Errorf("could not read discarded map value near byte %d", valueStart)
+				}
+				return entries, discardEnd, err
+			}
+			valueStart = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		}
 		if valueStart >= len(src) || src[valueStart] == '}' {
 			return entries, valueStart, fmt.Errorf("missing map value for key %s near byte %d", src[keyStart:keyEnd], keyStart)
 		}
