@@ -1115,8 +1115,33 @@ func pulledFlowVisibility(data map[string]any, section, field string) (bool, boo
 	return value, ok
 }
 
+func pulledFlowEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool) {
+	keywordKey := ":" + strings.TrimPrefix(strings.TrimSpace(key), ":")
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.KeyToken) == keywordKey {
+			return entry, true
+		}
+	}
+	for _, entry := range entries {
+		token := strings.TrimSpace(entry.KeyToken)
+		if token == strconv.Quote(strings.TrimPrefix(keywordKey, ":")) {
+			return entry, true
+		}
+	}
+	return clojureMapEntry{}, false
+}
+
+func pulledFlowTopLevelEntry(source, key string) (clojureMapEntry, bool, error) {
+	entries, err := extractTopLevelMapEntries(source)
+	if err != nil {
+		return clojureMapEntry{}, false, err
+	}
+	entry, found := pulledFlowEntryByKey(entries, key)
+	return entry, found, nil
+}
+
 func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (string, error) {
-	entry, found, err := localTopLevelEntry(flowLiteral, section)
+	entry, found, err := pulledFlowTopLevelEntry(flowLiteral, section)
 	if err != nil {
 		return "", err
 	}
@@ -1125,7 +1150,7 @@ func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (st
 		if !value {
 			return flowLiteral, nil
 		}
-		flowEntry, hasFlow, err := localTopLevelEntry(flowLiteral, "flow")
+		flowEntry, hasFlow, err := pulledFlowTopLevelEntry(flowLiteral, "flow")
 		if err != nil {
 			return "", err
 		}
@@ -1160,7 +1185,7 @@ func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (st
 	if err != nil {
 		return "", err
 	}
-	if fieldEntry, found := mapEntryByKey(entries, field); found {
+	if fieldEntry, found := pulledFlowEntryByKey(entries, field); found {
 		fieldStart, active := clojureActiveFormStart(flowLiteral, fieldEntry.ValueStart)
 		if !active || fieldStart >= fieldEntry.ValueEnd {
 			return "", fmt.Errorf("locate active :%s value", field)

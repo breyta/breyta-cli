@@ -95,7 +95,7 @@ func TestReconcilePulledDraftVisibilityTreatsMissingMetadataAsPrivate(t *testing
 
 func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
 	source := `{:slug :example
- #_{:unused true}
+ #_ #_ :discarded-key :discarded-value
  :discover {:public false}
  :flow '(identity 1)}`
 	data := map[string]any{
@@ -108,9 +108,36 @@ func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "#_{:unused true}") ||
+	if !strings.Contains(got, "#_ #_ :discarded-key :discarded-value") ||
 		!strings.Contains(got, ":discover {:public true}") {
 		t.Fatalf("reader discard or visibility was changed incorrectly:\n%s", got)
+	}
+}
+
+func TestReconcilePulledDraftVisibilitySupportsStringKeys(t *testing.T) {
+	source := `{:slug :example
+ "discover" {"public" true}
+ "marketplace" {"visible" true "app" {"app-id" "example"}}
+ :flow '(identity 1)}`
+	data := map[string]any{
+		"flow": map[string]any{
+			"discover":    map[string]any{"public": false},
+			"marketplace": map[string]any{"visible": false},
+		},
+	}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"discover" {"public" false}`,
+		`"marketplace" {"visible" false`,
+		`"app" {"app-id" "example"}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("string-key visibility source is missing %q:\n%s", want, got)
+		}
 	}
 }
 

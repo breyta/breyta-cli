@@ -889,7 +889,7 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
 		for strings.HasPrefix(src[i:], "#_") {
-			discardEnd, err := readClojureFormEnd(src, i+2)
+			discardEnd, err := readClojureDiscardedFormEnd(src, i+2)
 			if err != nil || discardEnd <= i+2 {
 				if err == nil {
 					err = fmt.Errorf("could not read discarded map form near byte %d", i)
@@ -914,7 +914,7 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 		}
 		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
 		for strings.HasPrefix(src[valueStart:], "#_") {
-			discardEnd, err := readClojureFormEnd(src, valueStart+2)
+			discardEnd, err := readClojureDiscardedFormEnd(src, valueStart+2)
 			if err != nil || discardEnd <= valueStart+2 {
 				if err == nil {
 					err = fmt.Errorf("could not read discarded map value near byte %d", valueStart)

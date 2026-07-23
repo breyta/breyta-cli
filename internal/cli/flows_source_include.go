@@ -193,6 +193,24 @@ func readClojureFormEnd(src string, start int) (int, error) {
 	}
 }
 
+// readClojureDiscardedFormEnd advances past the object removed by a #_ reader
+// discard. Nested discards do not themselves produce an object, so the outer
+// discard must continue until it has consumed the next active form.
+func readClojureDiscardedFormEnd(src string, start int) (int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	for i < len(src) && strings.HasPrefix(src[i:], "#_") {
+		nestedEnd, err := readClojureDiscardedFormEnd(src, i+2)
+		if err != nil {
+			return 0, err
+		}
+		i = skipClojureWhitespaceCommaAndComments(src, nestedEnd)
+	}
+	if i >= len(src) {
+		return 0, fmt.Errorf("expected form after reader discard")
+	}
+	return readClojureFormEnd(src, i)
+}
+
 func readClojureCharLiteralEnd(src string, start int) (int, error) {
 	if start < 0 || start >= len(src) || src[start] != '\\' {
 		return start, fmt.Errorf("expected character literal")
