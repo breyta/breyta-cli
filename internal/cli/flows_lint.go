@@ -2526,7 +2526,7 @@ func topLevelFlowMapStart(src string) (int, error) {
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
 		case strings.HasPrefix(src[i:], "#_"):
 			discardStart := i
-			discardEnd, err := readClojureFormEnd(src, i+2)
+			discardEnd, err := readClojureDiscardedFormEnd(src, i+2)
 			if err != nil {
 				return -1, err
 			}

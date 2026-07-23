@@ -114,6 +114,27 @@ func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
 	}
 }
 
+func TestReconcilePulledDraftVisibilityPreservesLeadingNestedReaderDiscards(t *testing.T) {
+	source := `#_ #_ :discarded-inner :discarded-outer
+{:slug :example
+ :discover {:public false}
+ :flow '(identity 1)}`
+	data := map[string]any{
+		"flow": map[string]any{
+			"discover": map[string]any{"public": true},
+		},
+	}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "#_ #_ :discarded-inner :discarded-outer\n") ||
+		!strings.Contains(got, ":discover {:public true}") {
+		t.Fatalf("leading reader discard or visibility was changed incorrectly:\n%s", got)
+	}
+}
+
 func TestReconcilePulledDraftVisibilitySupportsStringKeys(t *testing.T) {
 	source := `{:slug :example
  "discover" {"public" true}
