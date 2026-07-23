@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -156,6 +157,182 @@ func TestRequireAPI_RefreshesTokenWellBeforeExpiry(t *testing.T) {
 	}
 	if refreshCalls.Load() != 1 {
 		t.Fatalf("expected refresh called once, got %d", refreshCalls.Load())
+	}
+}
+
+func TestRequireAPI_DefinitiveRefreshRejectionInvalidatesStoredCredentials(t *testing.T) {
+	var refreshCalls atomic.Int32
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/auth/refresh" || r.Method != http.MethodPost {
+				return httpJSON(404, map[string]any{"success": false, "error": "not found"})
+			}
+			refreshCalls.Add(1)
+			return httpJSON(401, map[string]any{"success": false, "error": "refresh failed"})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	st := &authstore.Store{
+		Tokens: map[string]authstore.Record{
+			baseURL: {
+				Token:        "expired-token",
+				RefreshToken: "revoked-refresh-token",
+				ExpiresAt:    time.Now().UTC().Add(-time.Minute),
+				UpdatedAt:    time.Now().UTC(),
+			},
+		},
+	}
+	if err := authstore.SaveAtomic(storePath, st); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	for invocation := 1; invocation <= 2; invocation++ {
+		app := &App{APIURL: baseURL}
+		if err := requireAPI(app); err == nil {
+			t.Fatalf("invocation %d: expected rejected credentials to fail locally", invocation)
+		}
+	}
+
+	if refreshCalls.Load() != 1 {
+		t.Fatalf("expected only the first invocation to call refresh, got %d", refreshCalls.Load())
+	}
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := loaded.GetRecord(baseURL); ok {
+		t.Fatal("expected definitively rejected credential to be removed")
+	}
+}
+
+func TestRequireAPI_DefinitiveRefreshRejectionPreservesRotatedCredentials(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	rejected := authstore.Record{
+		Token:        "expired-token",
+		RefreshToken: "rejected-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(-time.Minute),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{baseURL: rejected},
+	}); err != nil {
+		t.Fatalf("SaveAtomic rejected credentials: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	rotated := authstore.Record{
+		Token:        "fresh-token",
+		RefreshToken: "fresh-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			if err := authstore.SaveAtomic(storePath, &authstore.Store{
+				Tokens: map[string]authstore.Record{baseURL: rotated},
+			}); err != nil {
+				t.Fatalf("SaveAtomic rotated credentials: %v", err)
+			}
+			return httpJSON(401, map[string]any{"success": false, "error": "refresh failed"})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected concurrently rotated credentials to remain usable: %v", err)
+	}
+	if app.Token != rotated.Token {
+		t.Fatalf("expected rotated token %q, got %q", rotated.Token, app.Token)
+	}
+
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rec, ok := loaded.GetRecord(baseURL)
+	if !ok {
+		t.Fatal("expected rotated credentials to remain stored")
+	}
+	if rec.Token != rotated.Token || rec.RefreshToken != rotated.RefreshToken {
+		t.Fatalf("expected rotated credentials, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+}
+
+func TestRequireAPI_TransientRefreshFailureKeepsStoredCredentials(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport roundTripperFunc
+	}{
+		{
+			name: "service unavailable",
+			transport: func(*http.Request) (*http.Response, error) {
+				return httpJSON(503, map[string]any{"success": false, "error": "temporarily unavailable"})
+			},
+		},
+		{
+			name: "transport failure",
+			transport: func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection reset")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var refreshCalls atomic.Int32
+			authRefreshHTTPClient = &http.Client{
+				Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+					refreshCalls.Add(1)
+					return tt.transport(r)
+				}),
+			}
+			t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+			baseURL := "https://example.test"
+			storePath := filepath.Join(t.TempDir(), "auth.json")
+			st := &authstore.Store{
+				Tokens: map[string]authstore.Record{
+					baseURL: {
+						Token:        "still-valid-token",
+						RefreshToken: "refresh-later",
+						ExpiresAt:    time.Now().UTC().Add(10 * time.Minute),
+						UpdatedAt:    time.Now().UTC(),
+					},
+				},
+			}
+			if err := authstore.SaveAtomic(storePath, st); err != nil {
+				t.Fatalf("SaveAtomic: %v", err)
+			}
+			t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+			for invocation := 1; invocation <= 2; invocation++ {
+				app := &App{APIURL: baseURL}
+				if err := requireAPI(app); err != nil {
+					t.Fatalf("invocation %d: expected existing token to remain usable: %v", invocation, err)
+				}
+				if app.Token != "still-valid-token" {
+					t.Fatalf("invocation %d: expected existing token, got %q", invocation, app.Token)
+				}
+			}
+
+			if refreshCalls.Load() != 2 {
+				t.Fatalf("expected transient failure to remain retryable, got %d calls", refreshCalls.Load())
+			}
+			loaded, err := authstore.Load(storePath)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if _, ok := loaded.GetRecord(baseURL); !ok {
+				t.Fatal("expected transient failure to retain stored credentials")
+			}
+		})
 	}
 }
 
