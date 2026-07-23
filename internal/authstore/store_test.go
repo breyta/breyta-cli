@@ -91,7 +91,7 @@ func TestStore_Load_EmptyTokensMap(t *testing.T) {
 	}
 }
 
-func TestStore_UpdateAtomicSerializesWithSaveAtomic(t *testing.T) {
+func TestStore_UpdateAtomicSerializesTransactions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	initial := &Store{}
 	initial.Set("https://example.test", "initial")
@@ -99,44 +99,51 @@ func TestStore_UpdateAtomicSerializesWithSaveAtomic(t *testing.T) {
 		t.Fatalf("SaveAtomic initial: %v", err)
 	}
 
-	lockHeld := make(chan struct{})
-	releaseLock := make(chan struct{})
-	lockDone := make(chan error, 1)
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
 	go func() {
-		lockDone <- withStoreLock(path, func() error {
-			close(lockHeld)
-			<-releaseLock
+		firstDone <- UpdateAtomic(path, func(st *Store) error {
+			close(firstEntered)
+			<-releaseFirst
+			st.Set("https://first.example", "first")
 			return nil
 		})
 	}()
-	<-lockHeld
+	<-firstEntered
 
-	saveDone := make(chan error, 1)
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
 	go func() {
-		next := &Store{}
-		next.Set("https://example.test", "next")
-		saveDone <- SaveAtomic(path, next)
+		secondDone <- UpdateAtomic(path, func(st *Store) error {
+			close(secondEntered)
+			st.Set("https://second.example", "second")
+			return nil
+		})
 	}()
 
 	select {
-	case err := <-saveDone:
-		t.Fatalf("SaveAtomic completed before the store lock was released: %v", err)
+	case <-secondEntered:
+		t.Fatal("second transaction entered before the first transaction released the store lock")
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	close(releaseLock)
-	if err := <-lockDone; err != nil {
-		t.Fatalf("holding store lock: %v", err)
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first UpdateAtomic: %v", err)
 	}
-	if err := <-saveDone; err != nil {
-		t.Fatalf("SaveAtomic next: %v", err)
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second UpdateAtomic: %v", err)
 	}
 
 	loaded, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if token, ok := loaded.Get("https://example.test"); !ok || token != "next" {
-		t.Fatalf("expected serialized save to persist next token, got %q (ok=%v)", token, ok)
+	if token, ok := loaded.Get("https://first.example"); !ok || token != "first" {
+		t.Fatalf("expected first update to persist, got %q (ok=%v)", token, ok)
+	}
+	if token, ok := loaded.Get("https://second.example"); !ok || token != "second" {
+		t.Fatalf("expected second update to preserve the first and persist, got %q (ok=%v)", token, ok)
 	}
 }

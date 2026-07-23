@@ -265,6 +265,66 @@ func TestRequireAPI_DefinitiveRefreshRejectionPreservesRotatedCredentials(t *tes
 	}
 }
 
+func TestRequireAPI_SuccessfulRefreshPreservesCredentialsRotatedInFlight(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	original := authstore.Record{
+		Token:        "expiring-token",
+		RefreshToken: "original-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Minute),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{baseURL: original},
+	}); err != nil {
+		t.Fatalf("SaveAtomic original credentials: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	rotated := authstore.Record{
+		Token:        "concurrently-rotated-token",
+		RefreshToken: "concurrently-rotated-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			if err := authstore.SaveAtomic(storePath, &authstore.Store{
+				Tokens: map[string]authstore.Record{baseURL: rotated},
+			}); err != nil {
+				t.Fatalf("SaveAtomic rotated credentials: %v", err)
+			}
+			return httpJSON(200, map[string]any{
+				"success":      true,
+				"token":        "response-token",
+				"refreshToken": "response-refresh-token",
+				"expiresIn":    3600,
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected concurrently rotated credentials to remain usable: %v", err)
+	}
+	if app.Token != rotated.Token {
+		t.Fatalf("expected concurrently rotated token %q, got %q", rotated.Token, app.Token)
+	}
+
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rec, ok := loaded.GetRecord(baseURL)
+	if !ok {
+		t.Fatal("expected concurrently rotated credentials to remain stored")
+	}
+	if rec.Token != rotated.Token || rec.RefreshToken != rotated.RefreshToken {
+		t.Fatalf("expected concurrently rotated credentials, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+}
+
 func TestRequireAPI_TransientRefreshFailureKeepsStoredCredentials(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -83,7 +83,10 @@ func UpdateAtomic(path string, update func(*Store) error) error {
 	return withStoreLock(path, func() error {
 		s, err := Load(path)
 		if err != nil {
-			return err
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			s = &Store{Tokens: map[string]Record{}}
 		}
 		if err := update(s); err != nil {
 			return err

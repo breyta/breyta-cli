@@ -130,6 +130,7 @@ func loadTokenFromAuthStore(app *App) {
 	if !ok {
 		return
 	}
+	loadedRec := rec
 	updated := false
 	if rec.ExpiresAt.IsZero() {
 		if exp, ok := parseJWTExpiry(rec.Token); ok {
@@ -153,8 +154,12 @@ func loadTokenFromAuthStore(app *App) {
 		}
 	}
 	if updated {
-		st.SetRecord(app.APIURL, rec)
-		_ = authstore.SaveAtomic(storePath, st)
+		if current, ok := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec); ok {
+			rec = current
+		} else {
+			app.Token = ""
+			return
+		}
 	}
 	app.Token = rec.Token
 }
@@ -194,6 +199,29 @@ func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected auth
 		return authstore.Record{}, false
 	}
 	return replacement, replacementFound
+}
+
+func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool) {
+	var result authstore.Record
+	var resultFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		if current.Token != expected.Token || current.RefreshToken != expected.RefreshToken {
+			result = current
+			resultFound = true
+			return nil
+		}
+		latest.SetRecord(apiURL, next)
+		result, resultFound = latest.GetRecord(apiURL)
+		return nil
+	})
+	if err != nil {
+		return authstore.Record{}, false
+	}
+	return result, resultFound
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {

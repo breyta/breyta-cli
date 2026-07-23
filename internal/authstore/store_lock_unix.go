@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build android || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
 
 package authstore
 
