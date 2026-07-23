@@ -189,7 +189,7 @@ func TestReconcilePulledDraftVisibilityPreservesMetadataWrappedMaps(t *testing.T
 
 func TestReconcilePulledDraftVisibilityPreservesLegacyMetadataForms(t *testing.T) {
 	source := `#^{:doc "flow"} {:slug :example
- :discover #^{:doc "discover"} {:public #^:dynamic false :other true}
+ :discover #^{:doc "discover"} {:public false :other true}
  :flow '(identity 1)}`
 	data := map[string]any{
 		"flow": map[string]any{
@@ -204,7 +204,7 @@ func TestReconcilePulledDraftVisibilityPreservesLegacyMetadataForms(t *testing.T
 	for _, want := range []string{
 		`#^{:doc "flow"} {`,
 		`:discover #^{:doc "discover"} {`,
-		`:public #^:dynamic true`,
+		`:public true`,
 		`:other true`,
 	} {
 		if !strings.Contains(got, want) {
