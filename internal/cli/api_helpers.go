@@ -173,22 +173,27 @@ func isDefinitiveRefreshRejection(err error) bool {
 }
 
 func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected authstore.Record) (authstore.Record, bool) {
-	latest, err := authstore.Load(storePath)
-	if err != nil || latest == nil {
+	var replacement authstore.Record
+	var replacementFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		// Another CLI process or login may have replaced the credentials while
+		// this refresh request was in flight. Preserve and use that newer record.
+		if current.Token != rejected.Token || current.RefreshToken != rejected.RefreshToken {
+			replacement = current
+			replacementFound = true
+			return nil
+		}
+		latest.Delete(apiURL)
+		return nil
+	})
+	if err != nil {
 		return authstore.Record{}, false
 	}
-	current, ok := latest.GetRecord(apiURL)
-	if !ok {
-		return authstore.Record{}, false
-	}
-	// Another CLI process or login may have replaced the credentials while this
-	// refresh request was in flight. Preserve and use that newer record.
-	if current.Token != rejected.Token || current.RefreshToken != rejected.RefreshToken {
-		return current, true
-	}
-	latest.Delete(apiURL)
-	_ = authstore.SaveAtomic(storePath, latest)
-	return authstore.Record{}, false
+	return replacement, replacementFound
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {

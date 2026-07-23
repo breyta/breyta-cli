@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStore_SetGet_TrimsAndValidates(t *testing.T) {
@@ -87,5 +88,55 @@ func TestStore_Load_EmptyTokensMap(t *testing.T) {
 	}
 	if st.Tokens == nil {
 		t.Fatalf("expected tokens map initialized")
+	}
+}
+
+func TestStore_UpdateAtomicSerializesWithSaveAtomic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	initial := &Store{}
+	initial.Set("https://example.test", "initial")
+	if err := SaveAtomic(path, initial); err != nil {
+		t.Fatalf("SaveAtomic initial: %v", err)
+	}
+
+	lockHeld := make(chan struct{})
+	releaseLock := make(chan struct{})
+	lockDone := make(chan error, 1)
+	go func() {
+		lockDone <- withStoreLock(path, func() error {
+			close(lockHeld)
+			<-releaseLock
+			return nil
+		})
+	}()
+	<-lockHeld
+
+	saveDone := make(chan error, 1)
+	go func() {
+		next := &Store{}
+		next.Set("https://example.test", "next")
+		saveDone <- SaveAtomic(path, next)
+	}()
+
+	select {
+	case err := <-saveDone:
+		t.Fatalf("SaveAtomic completed before the store lock was released: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseLock)
+	if err := <-lockDone; err != nil {
+		t.Fatalf("holding store lock: %v", err)
+	}
+	if err := <-saveDone; err != nil {
+		t.Fatalf("SaveAtomic next: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if token, ok := loaded.Get("https://example.test"); !ok || token != "next" {
+		t.Fatalf("expected serialized save to persist next token, got %q (ok=%v)", token, ok)
 	}
 }
