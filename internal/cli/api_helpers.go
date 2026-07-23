@@ -154,12 +154,16 @@ func loadTokenFromAuthStore(app *App) {
 		}
 	}
 	if updated {
-		if current, ok := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec); ok {
+		current, ok, err := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec)
+		if err == nil {
+			if !ok {
+				app.Token = ""
+				return
+			}
 			rec = current
-		} else {
-			app.Token = ""
-			return
 		}
+		// Persistence is best-effort for a token already usable by this
+		// invocation, matching the pre-locking behavior.
 	}
 	app.Token = rec.Token
 }
@@ -201,7 +205,7 @@ func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected auth
 	return replacement, replacementFound
 }
 
-func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool) {
+func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool, error) {
 	var result authstore.Record
 	var resultFound bool
 	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
@@ -219,9 +223,9 @@ func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authsto
 		return nil
 	})
 	if err != nil {
-		return authstore.Record{}, false
+		return authstore.Record{}, false, err
 	}
-	return result, resultFound
+	return result, resultFound, nil
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {

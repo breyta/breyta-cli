@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -322,6 +323,50 @@ func TestRequireAPI_SuccessfulRefreshPreservesCredentialsRotatedInFlight(t *test
 	}
 	if rec.Token != rotated.Token || rec.RefreshToken != rotated.RefreshToken {
 		t.Fatalf("expected concurrently rotated credentials, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+}
+
+func TestRequireAPI_SuccessfulRefreshUsesTokenWhenStorePersistenceFails(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{
+			baseURL: {
+				Token:        "expiring-token",
+				RefreshToken: "refresh-token",
+				ExpiresAt:    time.Now().UTC().Add(time.Minute),
+				UpdatedAt:    time.Now().UTC(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+	if err := os.Remove(storePath + ".lock"); err != nil {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	if err := os.Mkdir(storePath+".lock", 0o700); err != nil {
+		t.Fatalf("create unusable lock path: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return httpJSON(200, map[string]any{
+				"success":      true,
+				"token":        "fresh-in-memory-token",
+				"refreshToken": "fresh-refresh-token",
+				"expiresIn":    3600,
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected fresh token to remain usable when persistence fails: %v", err)
+	}
+	if app.Token != "fresh-in-memory-token" {
+		t.Fatalf("expected fresh in-memory token, got %q", app.Token)
 	}
 }
 

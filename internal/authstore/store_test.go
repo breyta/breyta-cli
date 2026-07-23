@@ -147,3 +147,25 @@ func TestStore_UpdateAtomicSerializesTransactions(t *testing.T) {
 		t.Fatalf("expected second update to preserve the first and persist, got %q (ok=%v)", token, ok)
 	}
 }
+
+func TestStore_UpdateAtomicOrReset_ReplacesMalformedStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(path, []byte(`{"tokens":`), 0o600); err != nil {
+		t.Fatalf("write malformed store: %v", err)
+	}
+
+	if err := UpdateAtomicOrReset(path, func(st *Store) error {
+		st.Set("https://example.test", "recovered")
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateAtomicOrReset: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load recovered store: %v", err)
+	}
+	if token, ok := loaded.Get("https://example.test"); !ok || token != "recovered" {
+		t.Fatalf("expected recovered token, got %q (ok=%v)", token, ok)
+	}
+}

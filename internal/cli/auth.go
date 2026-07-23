@@ -390,7 +390,7 @@ via flows-api (/api/auth/token). Prefer browser login.
 						rec.ExpiresAt = time.Now().UTC().Add(time.Duration(n) * time.Second)
 					}
 				}
-				if err := authstore.UpdateAtomic(storePath, func(st *authstore.Store) error {
+				if err := authstore.UpdateAtomicOrReset(storePath, func(st *authstore.Store) error {
 					st.SetRecord(app.APIURL, rec)
 					return nil
 				}); err != nil {

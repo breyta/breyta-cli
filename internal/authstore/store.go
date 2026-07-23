@@ -74,6 +74,16 @@ func SaveAtomic(path string, s *Store) error {
 // UpdateAtomic serializes the complete load/mutate/save transaction with every
 // SaveAtomic call, including calls made by other CLI processes.
 func UpdateAtomic(path string, update func(*Store) error) error {
+	return updateAtomic(path, false, update)
+}
+
+// UpdateAtomicOrReset is used by successful login to recover an unreadable or
+// malformed auth store while keeping the replacement serialized with writers.
+func UpdateAtomicOrReset(path string, update func(*Store) error) error {
+	return updateAtomic(path, true, update)
+}
+
+func updateAtomic(path string, resetOnLoadError bool, update func(*Store) error) error {
 	if update == nil {
 		return errors.New("auth store update is required")
 	}
@@ -83,7 +93,7 @@ func UpdateAtomic(path string, update func(*Store) error) error {
 	return withStoreLock(path, func() error {
 		s, err := Load(path)
 		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+			if !resetOnLoadError && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 			s = &Store{Tokens: map[string]Record{}}
