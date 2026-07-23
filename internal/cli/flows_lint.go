@@ -888,6 +888,16 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 	var entries []clojureMapEntry
 	for i < len(src) {
 		i = skipClojureWhitespaceCommaAndComments(src, i)
+		for strings.HasPrefix(src[i:], "#_") {
+			discardEnd, err := readClojureDiscardedFormEnd(src, i+2)
+			if err != nil || discardEnd <= i+2 {
+				if err == nil {
+					err = fmt.Errorf("could not read discarded map form near byte %d", i)
+				}
+				return entries, discardEnd, err
+			}
+			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		}
 		if i >= len(src) {
 			return entries, i, fmt.Errorf("unterminated map")
 		}
@@ -903,6 +913,16 @@ func parseClojureMapEntries(src string, start int) ([]clojureMapEntry, int, erro
 			return entries, keyEnd, err
 		}
 		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		for strings.HasPrefix(src[valueStart:], "#_") {
+			discardEnd, err := readClojureDiscardedFormEnd(src, valueStart+2)
+			if err != nil || discardEnd <= valueStart+2 {
+				if err == nil {
+					err = fmt.Errorf("could not read discarded map value near byte %d", valueStart)
+				}
+				return entries, discardEnd, err
+			}
+			valueStart = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+		}
 		if valueStart >= len(src) || src[valueStart] == '}' {
 			return entries, valueStart, fmt.Errorf("missing map value for key %s near byte %d", src[keyStart:keyEnd], keyStart)
 		}
@@ -1022,9 +1042,13 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 				return i, i, i, false, fmt.Errorf("reader conditional branch extends past its form near byte %d", branchStart)
 			}
 			return activeStart, activeEnd, next, true, nil
-		case src[i] == '^':
-			metaEnd, metaErr := readClojureFormEnd(src, i+1)
-			if metaErr != nil || metaEnd <= i+1 {
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, metaErr := readClojureFormEnd(src, metaValueStart)
+			if metaErr != nil || metaEnd <= metaValueStart {
 				if metaErr == nil {
 					metaErr = fmt.Errorf("could not read metadata near byte %d", i)
 				}
@@ -1120,9 +1144,13 @@ func clojureActiveFormStart(src string, start int) (int, bool) {
 				return i, false
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, formStart)
-		case src[i] == '^':
-			metaEnd, err := readClojureFormEnd(src, i+1)
-			if err != nil || metaEnd <= i+1 {
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, err := readClojureFormEnd(src, metaValueStart)
+			if err != nil || metaEnd <= metaValueStart {
 				return i, false
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
@@ -2494,19 +2522,23 @@ func topLevelFlowMapStart(src string) (int, error) {
 		switch {
 		case src[i] == '{':
 			return i, nil
-		case src[i] == '^':
+		case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
 			metaStart := i
-			metaEnd, err := readClojureFormEnd(src, i+1)
+			metaValueStart := i + 1
+			if src[i] == '#' {
+				metaValueStart++
+			}
+			metaEnd, err := readClojureFormEnd(src, metaValueStart)
 			if err != nil {
 				return -1, err
 			}
-			if metaEnd <= i+1 {
+			if metaEnd <= metaValueStart {
 				return -1, fmt.Errorf("could not read metadata before top-level map near byte %d", metaStart)
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
 		case strings.HasPrefix(src[i:], "#_"):
 			discardStart := i
-			discardEnd, err := readClojureFormEnd(src, i+2)
+			discardEnd, err := readClojureDiscardedFormEnd(src, i+2)
 			if err != nil {
 				return -1, err
 			}

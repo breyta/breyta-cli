@@ -1092,6 +1092,145 @@ func stripPulledFlowSourceMarkers(flowLiteral string) string {
 	return strings.Join(out, "\n")
 }
 
+func pulledFlowVisibility(data map[string]any, section, field string) (bool, bool) {
+	flow, ok := data["flow"].(map[string]any)
+	if !ok {
+		return false, false
+	}
+	rawSection, present := flow[section]
+	if !present || rawSection == nil {
+		// flows.get omits empty visibility sections; absence is canonical false.
+		return false, true
+	}
+	sectionValue, ok := rawSection.(map[string]any)
+	if !ok {
+		return false, false
+	}
+	rawValue, present := sectionValue[field]
+	if !present || rawValue == nil {
+		// A section may contain app metadata without its opt-in visibility flag.
+		return false, true
+	}
+	value, ok := rawValue.(bool)
+	return value, ok
+}
+
+func pulledFlowEntryByKey(entries []clojureMapEntry, key string) (clojureMapEntry, bool) {
+	keywordKey := ":" + strings.TrimPrefix(strings.TrimSpace(key), ":")
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.KeyToken) == keywordKey {
+			return entry, true
+		}
+	}
+	for _, entry := range entries {
+		token := strings.TrimSpace(entry.KeyToken)
+		if token == strconv.Quote(strings.TrimPrefix(keywordKey, ":")) {
+			return entry, true
+		}
+	}
+	return clojureMapEntry{}, false
+}
+
+func pulledFlowTopLevelEntry(source, key string) (clojureMapEntry, bool, error) {
+	entries, err := extractTopLevelMapEntries(source)
+	if err != nil {
+		return clojureMapEntry{}, false, err
+	}
+	entry, found := pulledFlowEntryByKey(entries, key)
+	return entry, found, nil
+}
+
+func setPulledFlowVisibility(flowLiteral, section, field string, value bool) (string, error) {
+	entry, found, err := pulledFlowTopLevelEntry(flowLiteral, section)
+	if err != nil {
+		return "", err
+	}
+	valueLiteral := strconv.FormatBool(value)
+	if !found {
+		if !value {
+			return flowLiteral, nil
+		}
+		flowEntry, hasFlow, err := pulledFlowTopLevelEntry(flowLiteral, "flow")
+		if err != nil {
+			return "", err
+		}
+		if hasFlow {
+			insertAt := flowEntry.KeyStart
+			return flowLiteral[:insertAt] +
+				":" + section + " {:" + field + " " + valueLiteral + "}\n " +
+				flowLiteral[insertAt:], nil
+		}
+		mapStart, err := topLevelFlowMapStart(flowLiteral)
+		if err != nil {
+			return "", err
+		}
+		mapEnd, err := readClojureFormEnd(flowLiteral, mapStart)
+		if err != nil {
+			return "", err
+		}
+		insertAt := mapEnd - 1
+		return flowLiteral[:insertAt] +
+			"\n :" + section + " {:" + field + " " + valueLiteral + "}\n " +
+			flowLiteral[insertAt:], nil
+	}
+
+	sectionStart, active := clojureActiveFormStart(flowLiteral, entry.ValueStart)
+	if !active || sectionStart >= entry.ValueEnd || flowLiteral[sectionStart] != '{' {
+		if !value && strings.TrimSpace(flowLiteral[entry.ValueStart:entry.ValueEnd]) == "nil" {
+			return flowLiteral, nil
+		}
+		return replaceLocalFlowValue(flowLiteral, entry, "{:"+field+" "+valueLiteral+"}"), nil
+	}
+	entries, mapEnd, err := parseClojureMapEntries(flowLiteral, sectionStart)
+	if err != nil {
+		return "", err
+	}
+	if fieldEntry, found := pulledFlowEntryByKey(entries, field); found {
+		fieldStart, active := clojureActiveFormStart(flowLiteral, fieldEntry.ValueStart)
+		if !active || fieldStart >= fieldEntry.ValueEnd {
+			return "", fmt.Errorf("locate active :%s value", field)
+		}
+		fieldEnd, err := readClojureFormEnd(flowLiteral, fieldStart)
+		if err != nil || fieldEnd > fieldEntry.ValueEnd {
+			if err == nil {
+				err = fmt.Errorf("active value extends beyond :%s entry", field)
+			}
+			return "", err
+		}
+		if strings.TrimSpace(flowLiteral[fieldStart:fieldEnd]) == valueLiteral {
+			return flowLiteral, nil
+		}
+		return flowLiteral[:fieldStart] + valueLiteral + flowLiteral[fieldEnd:], nil
+	}
+	if !value {
+		return flowLiteral, nil
+	}
+	insertAt := mapEnd - 1
+	return flowLiteral[:insertAt] + " :" + field + " " + valueLiteral + flowLiteral[insertAt:], nil
+}
+
+func reconcilePulledDraftVisibility(flowLiteral string, data map[string]any) (string, error) {
+	reconciled := flowLiteral
+	for _, visibility := range []struct {
+		section string
+		field   string
+	}{
+		{section: "discover", field: "public"},
+		{section: "marketplace", field: "visible"},
+	} {
+		value, known := pulledFlowVisibility(data, visibility.section, visibility.field)
+		if !known {
+			continue
+		}
+		var err error
+		reconciled, err = setPulledFlowVisibility(reconciled, visibility.section, visibility.field, value)
+		if err != nil {
+			return "", fmt.Errorf("reconcile :%s :%s visibility: %w", visibility.section, visibility.field, err)
+		}
+	}
+	return reconciled, nil
+}
+
 func newFlowsPullCmd(app *App) *cobra.Command {
 	var out string
 	var target string
@@ -1181,6 +1320,12 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			flowLiteral, ok := data["flowLiteral"].(string)
 			if !ok || strings.TrimSpace(flowLiteral) == "" {
 				return writeErr(cmd, errors.New("missing data.flowLiteral in response"))
+			}
+			if resolvedTarget == "draft" && version == 0 {
+				flowLiteral, err = reconcilePulledDraftVisibility(flowLiteral, data)
+				if err != nil {
+					return writeErr(cmd, err)
+				}
 			}
 
 			if err := makePublicDir(filepath.Dir(path)); err != nil {
