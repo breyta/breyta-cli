@@ -1217,6 +1217,11 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing sourceFlowSlug"}})
 			return
 		}
+		if args["publicAppFunnelId"] != "public-app-ai-visibility-monitor-funnel-123" {
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing publicAppFunnelId"}})
+			return
+		}
 		if args["enabled"] != true {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing enabled"}})
@@ -1239,6 +1244,7 @@ func TestFlowsInstallations_Create_AllowsPublicInstallSourceRefs(t *testing.T) {
 		"flows", "installations", "create", "my-app",
 		"--source-workspace-id", "ws-source",
 		"--source-flow-slug", "public-source-flow",
+		"--public-app-funnel-id", "  public-app-ai-visibility-monitor-funnel-123  ",
 		"--enable",
 		"--local-private-test",
 	)
@@ -1351,6 +1357,8 @@ func TestFlowsInstallationsCreateHelpDocumentsLivePrerequisitesAndDefaults(t *te
 		"--local-private-test",
 		"active source version",
 		"--buyer-test-source-install",
+		"--public-app-funnel-id",
+		"preserve public app funnel attribution",
 		"breyta flows run <flow-slug> --buyer-test --installation-id <installation-id> --wait",
 	} {
 		if !strings.Contains(stdout, want) {
