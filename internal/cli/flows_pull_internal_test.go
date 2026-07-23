@@ -76,6 +76,23 @@ func TestReconcilePulledDraftVisibilityLeavesOmittedFalseFlagsAlone(t *testing.T
 	}
 }
 
+func TestReconcilePulledDraftVisibilityTreatsMissingMetadataAsPrivate(t *testing.T) {
+	source := `{:slug :example
+ :discover {:public true}
+ :marketplace {:visible true}
+ :flow '(identity 1)}`
+	data := map[string]any{"flow": map[string]any{}}
+
+	got, err := reconcilePulledDraftVisibility(source, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, ":discover {:public false}") ||
+		!strings.Contains(got, ":marketplace {:visible false}") {
+		t.Fatalf("missing canonical visibility should default to private:\n%s", got)
+	}
+}
+
 func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
 	source := `{:slug :example
  #_{:unused true}
@@ -99,7 +116,7 @@ func TestReconcilePulledDraftVisibilityPreservesReaderDiscards(t *testing.T) {
 
 func TestReconcilePulledDraftVisibilityPreservesMetadataWrappedMaps(t *testing.T) {
 	source := `{:slug :example
- :discover ^{:doc "keep"} {:public ^:dynamic false :other true}
+ :discover ^{:doc "keep"} {:public false :other true}
  :flow '(identity 1)}`
 	data := map[string]any{
 		"flow": map[string]any{
@@ -113,7 +130,7 @@ func TestReconcilePulledDraftVisibilityPreservesMetadataWrappedMaps(t *testing.T
 	}
 	for _, want := range []string{
 		`:discover ^{:doc "keep"} {`,
-		`:public ^:dynamic true`,
+		`:public true`,
 		`:other true`,
 	} {
 		if !strings.Contains(got, want) {

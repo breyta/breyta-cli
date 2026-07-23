@@ -1097,11 +1097,21 @@ func pulledFlowVisibility(data map[string]any, section, field string) (bool, boo
 	if !ok {
 		return false, false
 	}
-	sectionValue, ok := flow[section].(map[string]any)
+	rawSection, present := flow[section]
+	if !present || rawSection == nil {
+		// flows.get omits empty visibility sections; absence is canonical false.
+		return false, true
+	}
+	sectionValue, ok := rawSection.(map[string]any)
 	if !ok {
 		return false, false
 	}
-	value, ok := sectionValue[field].(bool)
+	rawValue, present := sectionValue[field]
+	if !present || rawValue == nil {
+		// A section may contain app metadata without its opt-in visibility flag.
+		return false, true
+	}
+	value, ok := rawValue.(bool)
 	return value, ok
 }
 
