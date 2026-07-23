@@ -153,6 +153,7 @@ func newFlowsInstallationsCreateCmd(app *App) *cobra.Command {
 	var name string
 	var sourceWorkspaceID string
 	var sourceFlowSlug string
+	var publicAppFunnelID string
 	var enable bool
 	var localPrivateTest bool
 	var buyerTestSourceInstall bool
@@ -169,6 +170,10 @@ For a public flow returned by ` + "`breyta flows discover list`" + ` or
 If more than one public source uses the same slug, pass the source fields from
 Discover:
 - breyta flows installations create <flow-slug> --source-workspace-id <workspace-id> --source-flow-slug <flow-slug>
+
+To preserve public app funnel attribution through installation and any returned
+checkout action, pass the funnel id from the public app entry point:
+- breyta flows installations create <flow-slug> --source-workspace-id <workspace-id> --source-flow-slug <flow-slug> --public-app-funnel-id <funnel-id>
 
 Before creating an installation for your own workspace flow, check the source with:
 - breyta flows release-check <flow-slug>
@@ -200,6 +205,7 @@ an active source version. Run the resulting installation with:
 			}
 			sourceWorkspaceID = strings.TrimSpace(sourceWorkspaceID)
 			sourceFlowSlug = strings.TrimSpace(sourceFlowSlug)
+			publicAppFunnelID = strings.TrimSpace(publicAppFunnelID)
 			if buyerTestSourceInstall && localPrivateTest {
 				return writeErr(cmd, errors.New("--buyer-test-source-install cannot be combined with --local-private-test"))
 			}
@@ -221,6 +227,9 @@ an active source version. Run the resulting installation with:
 			if sourceFlowSlug != "" {
 				payload["sourceFlowSlug"] = sourceFlowSlug
 			}
+			if publicAppFunnelID != "" {
+				payload["publicAppFunnelId"] = publicAppFunnelID
+			}
 			if enable {
 				payload["enabled"] = true
 			}
@@ -236,6 +245,7 @@ an active source version. Run the resulting installation with:
 	cmd.Flags().StringVar(&name, "name", "", "Installation name (optional)")
 	cmd.Flags().StringVar(&sourceWorkspaceID, "source-workspace-id", "", "Source workspace id for cross-workspace installs")
 	cmd.Flags().StringVar(&sourceFlowSlug, "source-flow-slug", "", "Source flow slug override for cross-workspace installs")
+	cmd.Flags().StringVar(&publicAppFunnelID, "public-app-funnel-id", "", "Public app funnel attribution id to preserve through install and checkout")
 	cmd.Flags().BoolVar(&enable, "enable", false, "Explicitly request enabled state after create; zero-setup installs enable by default")
 	cmd.Flags().BoolVar(&localPrivateTest, "local-private-test", false, "Local dev only: test a private cross-workspace source flow; requires source ids and an active source version")
 	cmd.Flags().BoolVar(&buyerTestSourceInstall, "buyer-test-source-install", false, "Buyer Test Mode: install a source flow from the paired source workspace")
