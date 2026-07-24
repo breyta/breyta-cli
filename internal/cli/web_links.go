@@ -2,8 +2,14 @@ package cli
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+// runOutputRouteRe matches only the canonical run output route
+// (…/runs/{flow}/{run}/output), so an arbitrary URL that merely ends in
+// "/output" is never rewritten into a ?output=panel deep-link.
+var runOutputRouteRe = regexp.MustCompile(`(^|/)runs/[^/]+/[^/]+/output$`)
 
 func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 	base := workspaceWebBaseURL(app)
@@ -181,6 +187,7 @@ func enrichDataWebLinks(base string, data map[string]any) {
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
 			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
+			normalizeFlowOutputWebURL(base, item, parentFlowSlug)
 		}
 	}
 
@@ -190,6 +197,59 @@ func enrichDataWebLinks(base string, data map[string]any) {
 
 	if primary := inferPrimaryDataWebURL(base, data, parentFlowSlug); primary != "" {
 		setIfMissing(data, "webUrl", primary)
+	}
+
+	// Override any server-provided full-page /output link on a flow-output
+	// resource with the in-context sidepeek deep-link, so these output links
+	// behave the same as run.outputWebUrl. Runs last so it wins over the
+	// pass-through webUrl absolutized earlier.
+	normalizeFlowOutputWebURL(base, data, parentFlowSlug)
+}
+
+// toPanelOutputURL converts a full-page run output URL
+// (…/runs/{slug}/{run}/output) into the in-context sidepeek deep-link
+// (…/runs/{slug}/{run}?output=panel). Returns "" when value is not a full-page
+// output URL, so callers can fall through to other strategies.
+func toPanelOutputURL(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" || !strings.HasSuffix(v, "/output") {
+		return ""
+	}
+	// Only rewrite the canonical run-output route, not an external link or
+	// another in-app page that happens to end in /output.
+	if !runOutputRouteRe.MatchString(v) {
+		return ""
+	}
+	return strings.TrimSuffix(v, "/output") + "?output=panel"
+}
+
+// normalizeFlowOutputWebURL points a flow-output run resource's webUrl at the
+// sidepeek panel deep-link (?output=panel). It rewrites an existing full-page
+// /output link in place, and otherwise builds the panel link from the resource's
+// flow slug + run id when webUrl is missing or is just the plain run page (as the
+// compacting path leaves it via enrichRunWebLinks). No-op for step-output or
+// non-resource objects, so canonical run-step links are left untouched.
+func normalizeFlowOutputWebURL(base string, m map[string]any, parentFlowSlug string) {
+	if m == nil {
+		return
+	}
+	workflowID, stepID, kind := parseRunResourceURI(asString(m, "uri"))
+	if stepID != "" || kind != "flow-output" {
+		return
+	}
+	if panel := toPanelOutputURL(asString(m, "webUrl")); panel != "" {
+		m["webUrl"] = panel
+		return
+	}
+	flowSlug := coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug"))
+	if base == "" || flowSlug == "" || workflowID == "" {
+		return
+	}
+	existing := asString(m, "webUrl")
+	if existing == "" || existing == runWebURL(base, flowSlug, workflowID) {
+		if u := runOutputWebURL(base, flowSlug, workflowID); u != "" {
+			m["webUrl"] = u
+		}
 	}
 }
 
@@ -265,6 +325,11 @@ func enrichRunWebLinks(base string, m map[string]any) {
 	}
 	setIfMissing(m, "webUrl", runWebURL(base, flowSlug, runID))
 	setIfMissing(m, "outputWebUrl", runOutputWebURL(base, flowSlug, runID))
+	// A server-provided outputWebUrl is preserved by setIfMissing above; rewrite
+	// its legacy full-page /output shape to the in-context panel deep-link.
+	if panel := toPanelOutputURL(asString(m, "outputWebUrl")); panel != "" {
+		m["outputWebUrl"] = panel
+	}
 }
 
 func enrichFlowWebLinks(base string, m map[string]any) {
@@ -512,7 +577,14 @@ func runWebURL(base, flowSlug, runID string) string {
 }
 
 func runOutputWebURL(base, flowSlug, runID string) string {
-	return webURL(base, "runs", flowSlug, runID, "output")
+	// Open the output inside the in-app sidepeek panel (in context) rather than
+	// navigating to the standalone full-page /output route. The run page reads
+	// ?output=panel on load and opens the artifact panel in normal mode.
+	run := runWebURL(base, flowSlug, runID)
+	if run == "" {
+		return ""
+	}
+	return run + "?output=panel"
 }
 
 func runStepWebURL(base, flowSlug, runID, stepID string) string {
