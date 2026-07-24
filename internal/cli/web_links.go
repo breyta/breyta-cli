@@ -181,7 +181,7 @@ func enrichDataWebLinks(base string, data map[string]any) {
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
 			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
-			normalizeFlowOutputWebURL(item)
+			normalizeFlowOutputWebURL(base, item, parentFlowSlug)
 		}
 	}
 
@@ -197,29 +197,48 @@ func enrichDataWebLinks(base string, data map[string]any) {
 	// resource with the in-context sidepeek deep-link, so these output links
 	// behave the same as run.outputWebUrl. Runs last so it wins over the
 	// pass-through webUrl absolutized earlier.
-	normalizeFlowOutputWebURL(data)
+	normalizeFlowOutputWebURL(base, data, parentFlowSlug)
 }
 
-// normalizeFlowOutputWebURL rewrites a flow-output run resource's full-page
-// /output webUrl to the sidepeek panel deep-link (?output=panel). The flow slug
-// is only present inside the server-provided webUrl (not as a structured
-// field), so we rewrite the trailing segment in place. No-op for step-output or
+// toPanelOutputURL converts a full-page run output URL
+// (…/runs/{slug}/{run}/output) into the in-context sidepeek deep-link
+// (…/runs/{slug}/{run}?output=panel). Returns "" when value is not a full-page
+// output URL, so callers can fall through to other strategies.
+func toPanelOutputURL(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" || !strings.HasSuffix(v, "/output") {
+		return ""
+	}
+	return strings.TrimSuffix(v, "/output") + "?output=panel"
+}
+
+// normalizeFlowOutputWebURL points a flow-output run resource's webUrl at the
+// sidepeek panel deep-link (?output=panel). It rewrites an existing full-page
+// /output link in place, and otherwise builds the panel link from the resource's
+// flow slug + run id when webUrl is missing or is just the plain run page (as the
+// compacting path leaves it via enrichRunWebLinks). No-op for step-output or
 // non-resource objects, so canonical run-step links are left untouched.
-func normalizeFlowOutputWebURL(m map[string]any) {
+func normalizeFlowOutputWebURL(base string, m map[string]any, parentFlowSlug string) {
 	if m == nil {
 		return
 	}
-	_, stepID, kind := parseRunResourceURI(asString(m, "uri"))
+	workflowID, stepID, kind := parseRunResourceURI(asString(m, "uri"))
 	if stepID != "" || kind != "flow-output" {
 		return
 	}
-	existing, ok := m["webUrl"].(string)
-	if !ok {
+	if panel := toPanelOutputURL(asString(m, "webUrl")); panel != "" {
+		m["webUrl"] = panel
 		return
 	}
-	trimmed := strings.TrimSpace(existing)
-	if strings.HasSuffix(trimmed, "/output") {
-		m["webUrl"] = strings.TrimSuffix(trimmed, "/output") + "?output=panel"
+	flowSlug := coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug"))
+	if base == "" || flowSlug == "" || workflowID == "" {
+		return
+	}
+	existing := asString(m, "webUrl")
+	if existing == "" || existing == runWebURL(base, flowSlug, workflowID) {
+		if u := runOutputWebURL(base, flowSlug, workflowID); u != "" {
+			m["webUrl"] = u
+		}
 	}
 }
 
@@ -295,6 +314,11 @@ func enrichRunWebLinks(base string, m map[string]any) {
 	}
 	setIfMissing(m, "webUrl", runWebURL(base, flowSlug, runID))
 	setIfMissing(m, "outputWebUrl", runOutputWebURL(base, flowSlug, runID))
+	// A server-provided outputWebUrl is preserved by setIfMissing above; rewrite
+	// its legacy full-page /output shape to the in-context panel deep-link.
+	if panel := toPanelOutputURL(asString(m, "outputWebUrl")); panel != "" {
+		m["outputWebUrl"] = panel
+	}
 }
 
 func enrichFlowWebLinks(base string, m map[string]any) {
