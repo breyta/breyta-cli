@@ -94,7 +94,7 @@ func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
 	if got, _ := run["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123" {
 		t.Fatalf("unexpected run.webUrl: %q", got)
 	}
-	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected run.outputWebUrl: %q", got)
 	}
 }

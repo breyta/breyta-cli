@@ -512,7 +512,14 @@ func runWebURL(base, flowSlug, runID string) string {
 }
 
 func runOutputWebURL(base, flowSlug, runID string) string {
-	return webURL(base, "runs", flowSlug, runID, "output")
+	// Open the output inside the in-app sidepeek panel (in context) rather than
+	// navigating to the standalone full-page /output route. The run page reads
+	// ?output=panel on load and opens the artifact panel in normal mode.
+	run := runWebURL(base, flowSlug, runID)
+	if run == "" {
+		return ""
+	}
+	return run + "?output=panel"
 }
 
 func runStepWebURL(base, flowSlug, runID, stepID string) string {
