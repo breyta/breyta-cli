@@ -142,6 +142,50 @@ func TestWebLinks_RunCommandNormalizesServerProvidedOutputWebURL(t *testing.T) {
 	}
 }
 
+func TestWebLinks_DoesNotRewriteNonRunOutputURL(t *testing.T) {
+	external := "https://example.com/reports/output"
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"run": map[string]any{
+					"flowSlug":     "daily-sales-report",
+					"workflowId":   "wf-123",
+					"outputWebUrl": external,
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"runs", "start", "--flow", "daily-sales-report",
+	)
+	if err != nil {
+		t.Fatalf("runs start failed: %v\n%s", err, stdout)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	run, _ := data["run"].(map[string]any)
+	// A URL that merely ends in /output but is not the run-output route must be left as-is.
+	if got, _ := run["outputWebUrl"].(string); got != external {
+		t.Fatalf("outputWebUrl should be untouched, got: %q", got)
+	}
+}
+
 func TestWebLinks_ResourcesListBuildsPanelURLForFlowOutputItemWithoutWebURL(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/resources" {

@@ -2,8 +2,14 @@ package cli
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+// runOutputRouteRe matches only the canonical run output route
+// (…/runs/{flow}/{run}/output), so an arbitrary URL that merely ends in
+// "/output" is never rewritten into a ?output=panel deep-link.
+var runOutputRouteRe = regexp.MustCompile(`(^|/)runs/[^/]+/[^/]+/output$`)
 
 func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 	base := workspaceWebBaseURL(app)
@@ -207,6 +213,11 @@ func enrichDataWebLinks(base string, data map[string]any) {
 func toPanelOutputURL(value string) string {
 	v := strings.TrimSpace(value)
 	if v == "" || !strings.HasSuffix(v, "/output") {
+		return ""
+	}
+	// Only rewrite the canonical run-output route, not an external link or
+	// another in-app page that happens to end in /output.
+	if !runOutputRouteRe.MatchString(v) {
 		return ""
 	}
 	return strings.TrimSuffix(v, "/output") + "?output=panel"
