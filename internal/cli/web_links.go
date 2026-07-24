@@ -181,6 +181,7 @@ func enrichDataWebLinks(base string, data map[string]any) {
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
 			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
+			normalizeFlowOutputWebURL(item)
 		}
 	}
 
@@ -190,6 +191,35 @@ func enrichDataWebLinks(base string, data map[string]any) {
 
 	if primary := inferPrimaryDataWebURL(base, data, parentFlowSlug); primary != "" {
 		setIfMissing(data, "webUrl", primary)
+	}
+
+	// Override any server-provided full-page /output link on a flow-output
+	// resource with the in-context sidepeek deep-link, so these output links
+	// behave the same as run.outputWebUrl. Runs last so it wins over the
+	// pass-through webUrl absolutized earlier.
+	normalizeFlowOutputWebURL(data)
+}
+
+// normalizeFlowOutputWebURL rewrites a flow-output run resource's full-page
+// /output webUrl to the sidepeek panel deep-link (?output=panel). The flow slug
+// is only present inside the server-provided webUrl (not as a structured
+// field), so we rewrite the trailing segment in place. No-op for step-output or
+// non-resource objects, so canonical run-step links are left untouched.
+func normalizeFlowOutputWebURL(m map[string]any) {
+	if m == nil {
+		return
+	}
+	_, stepID, kind := parseRunResourceURI(asString(m, "uri"))
+	if stepID != "" || kind != "flow-output" {
+		return
+	}
+	existing, ok := m["webUrl"].(string)
+	if !ok {
+		return
+	}
+	trimmed := strings.TrimSpace(existing)
+	if strings.HasSuffix(trimmed, "/output") {
+		m["webUrl"] = strings.TrimSuffix(trimmed, "/output") + "?output=panel"
 	}
 }
 

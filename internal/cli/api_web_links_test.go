@@ -216,11 +216,11 @@ func TestWebLinks_ResourcesGetAbsolutizesRelativeWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }
@@ -264,11 +264,11 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 	items, _ := data["items"].([]any)
@@ -276,7 +276,7 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 		t.Fatalf("unexpected items length: %d", len(items))
 	}
 	first, _ := items[0].(map[string]any)
-	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 	if got, _ := first["displayName"].(string); got != "demo-result.json" {
@@ -327,7 +327,7 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
@@ -336,7 +336,7 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 		t.Fatalf("unexpected items length: %d", len(items))
 	}
 	first, _ := items[0].(map[string]any)
-	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/output" {
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 	if got, _ := first["displayName"].(string); got != "transcript-jan-02.txt" {
