@@ -237,6 +237,38 @@ func TestFlowsLintLocalOnlyRejectsUnderArityBuiltInStepCall(t *testing.T) {
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintInspectsTopLevelSyntaxQuoteWrapper(t *testing.T) {
+	flowLiteral := `{:slug :syntax-quoted-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow ` + "`" + `(flow/step :http :example {} {:extra true})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected top-level syntax-quoted over-arity diagnostic\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintIgnoresReaderDiscardedStepArguments(t *testing.T) {
+	flowLiteral := `{:slug :discarded-step-argument
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch #_{:old true} {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("reader-discarded argument should not affect arity: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintLocalOnlyRejectsInvocationInputWithoutType(t *testing.T) {
 	flowLiteral := `{:slug :missing-input-type
  :concurrency {:type :singleton :on-new-version :coexist}

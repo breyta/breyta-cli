@@ -2039,9 +2039,15 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			}
 		case '`':
 			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
-				diagnostics = append(diagnostics,
-					localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
-						src, i+1, next, 1, allowBareInput, pulledLegacyInputSteps)...)
+				if localTopLevelFlowValuePosition(src, i) {
+					diagnostics = append(diagnostics,
+						localFunctionStepShapeDiagnosticsInRange(
+							src, i+1, next, allowBareInput, pulledLegacyInputSteps)...)
+				} else {
+					diagnostics = append(diagnostics,
+						localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
+							src, i+1, next, 1, allowBareInput, pulledLegacyInputSteps)...)
+				}
 				i = next
 				continue
 			}
@@ -2190,6 +2196,13 @@ func clojureListDirectlyQuoted(src string, listStart int) bool {
 }
 
 func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
+	activeElements := elements[:0]
+	for _, element := range elements {
+		if !strings.HasPrefix(strings.TrimSpace(src[element.Start:element.End]), "#_") {
+			activeElements = append(activeElements, element)
+		}
+	}
+	elements = activeElements
 	if len(elements) == 0 || clojureFormToken(src, elements[0]) != "flow/step" {
 		return nil
 	}
