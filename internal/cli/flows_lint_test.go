@@ -2973,8 +2973,12 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "one element warning", form: `(flow/step)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "packaged four elements extra argument warning", form: `(flow/step :tools/declared cfg extra)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
+		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
+		// design: reader semantics belong to the server.
 		{name: "reader conditional bails", form: `(flow/step #?@(:clj [:http :fetch]) {})`},
-		{name: "chained discards drop two objects", form: `(flow/step :http :fetch #_ #_ {:old true} {})`, wantErr: true, wantCode: "flow_step_missing_config", wantSeverity: "error"},
+		{name: "reader discards bail", form: `(flow/step :http :fetch #_ #_ {:old true} {})`},
+		{name: "metadata bails", form: `(flow/step :http :fetch ^:cache {} {:extra true})`},
+		{name: "unquote splice bails", form: `(flow/step :http :fetch {} ~@extras)`},
 	}
 	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
 	for _, tc := range cases {

@@ -1183,25 +1183,36 @@ func clojureFormToken(src string, span clojureFormSpan) string {
 // localFlowStepReference records one EXECUTABLE flow/step form found by the
 // quote-aware body walker (nested quoted forms are treated as data and never
 // collected). StepID is set only for the packaged (flow/step :ns/id ...) shape;
-// PathID is a best-effort display id for diagnostics; ElementCount counts only
-// ACTIVE list elements (reader-discarded #_ forms are excluded, matching what
-// the Clojure reader hands the runtime) including the flow/step head.
-// TypeToken is the raw token in the type position;
-// FirstArgKeyword/SecondArgKeyword record whether the first/second argument
-// are keyword literals — the fact the server's step-call? analysis keys its
-// push-time validation on — and SecondArgMap whether the second argument is a
-// map literal. HasReaderConditional marks forms whose arity can change at
-// read time (#? / #?@ among the arguments); shape diagnostics bail on those.
+// PathID is a best-effort display id for diagnostics; ElementCount is the raw
+// list arity including the flow/step head. TypeToken is the raw token in the
+// type position; FirstArgKeyword/SecondArgKeyword record whether the
+// first/second argument are keyword literals — the fact the server's
+// step-call? analysis keys its push-time validation on — and SecondArgMap
+// whether the second argument is a map literal. Plain marks forms whose every
+// element is free of reader macros; shape diagnostics only fire on those.
 type localFlowStepReference struct {
-	StepID               string
-	PathID               string
-	TypeToken            string
-	ByteOffset           int
-	ElementCount         int
-	FirstArgKeyword      bool
-	SecondArgKeyword     bool
-	SecondArgMap         bool
-	HasReaderConditional bool
+	StepID           string
+	PathID           string
+	TypeToken        string
+	ByteOffset       int
+	ElementCount     int
+	FirstArgKeyword  bool
+	SecondArgKeyword bool
+	SecondArgMap     bool
+	Plain            bool
+}
+
+// plainClojureForm reports whether a span's source text is completely free of
+// reader macros: discards (#_), reader conditionals (#?), sets/fns/regexes/
+// vars/tagged literals (any other #), syntax quotes and unquotes (` ~ @),
+// metadata (^), and quote characters ('). The check is deliberately a dumb
+// text scan (string contents included): it can only produce false negatives,
+// never false positives, which is the right direction for gating diagnostics.
+func plainClojureForm(src string, span clojureFormSpan) bool {
+	if span.Start < 0 || span.End > len(src) || span.End < span.Start {
+		return false
+	}
+	return !strings.ContainsAny(src[span.Start:span.End], "#`~^'@")
 }
 
 func localQualifiedStepIDFromForm(src string, span clojureFormSpan) (string, bool) {
@@ -1365,62 +1376,39 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		}
 	}
 	var references []localFlowStepReference
-	if syntaxQuoteDepth == 0 && len(elements) >= 1 {
-		// Reader-discarded #_ forms never reach the runtime call, so argument
-		// positions and the arity count must use only active elements. A
-		// discard consumes the NEXT produced object, and consecutive discards
-		// chain: a span like `#_ #_ A` carries two markers around one inner
-		// form and therefore also swallows the following element.
-		hasReaderConditional := false
-		pendingDiscards := 0
-		active := make([]clojureFormSpan, 0, len(elements))
+	if syntaxQuoteDepth == 0 && len(elements) >= 1 && clojureFormToken(src, elements[0]) == "flow/step" {
+		plain := true
 		for _, element := range elements {
-			if pendingDiscards > 0 {
-				pendingDiscards--
-				continue
+			if !plainClojureForm(src, element) {
+				plain = false
+				break
 			}
-			markers := 0
-			j := element.Start
-			for j+1 < element.End && src[j] == '#' && src[j+1] == '_' {
-				markers++
-				j = skipClojureWhitespaceCommaAndComments(src, j+2)
-			}
-			if markers > 0 {
-				pendingDiscards = markers - 1
-				continue
-			}
-			if strings.HasPrefix(src[element.Start:], "#?") {
-				hasReaderConditional = true
-			}
-			active = append(active, element)
 		}
-		if len(active) >= 1 && clojureFormToken(src, active[0]) == "flow/step" {
-			reference := localFlowStepReference{
-				ByteOffset:           baseOffset + active[0].Start,
-				ElementCount:         len(active),
-				HasReaderConditional: hasReaderConditional,
-			}
-			if len(active) >= 2 {
-				reference.FirstArgKeyword = clojureFormStartsWith(src, active[1].Start, ':')
-				reference.TypeToken = clojureFormToken(src, active[1])
-			}
-			if len(active) >= 3 {
-				reference.SecondArgKeyword = clojureFormStartsWith(src, active[2].Start, ':')
-				reference.SecondArgMap = clojureFormStartsWith(src, active[2].Start, '{')
-			}
-			if len(active) >= 2 {
-				if stepID, ok := localQualifiedStepIDFromForm(src, active[1]); ok {
-					reference.StepID = stepID
-					reference.PathID = ":" + stepID
-					reference.ByteOffset = baseOffset + active[1].Start
-				} else if len(active) >= 3 {
-					if id, ok := clojureIdentifierFromForm(src, active[2].Start); ok {
-						reference.PathID = ":" + id
-					}
+		reference := localFlowStepReference{
+			ByteOffset:   baseOffset + elements[0].Start,
+			ElementCount: len(elements),
+			Plain:        plain,
+		}
+		if len(elements) >= 2 {
+			reference.FirstArgKeyword = clojureFormStartsWith(src, elements[1].Start, ':')
+			reference.TypeToken = clojureFormToken(src, elements[1])
+		}
+		if len(elements) >= 3 {
+			reference.SecondArgKeyword = clojureFormStartsWith(src, elements[2].Start, ':')
+			reference.SecondArgMap = clojureFormStartsWith(src, elements[2].Start, '{')
+		}
+		if len(elements) >= 2 {
+			if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
+				reference.StepID = stepID
+				reference.PathID = ":" + stepID
+				reference.ByteOffset = baseOffset + elements[1].Start
+			} else if len(elements) >= 3 {
+				if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {
+					reference.PathID = ":" + id
 				}
 			}
-			references = append(references, reference)
 		}
+		references = append(references, reference)
 	}
 	for _, element := range elements {
 		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
@@ -1514,8 +1502,12 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	// body nor exposed via any :tools {:steps [...]} vector is dead weight and
 	// usually signals a forgotten wiring step. Warning only — the server
 	// accepts such flows — and the tools scan deliberately over-suppresses
-	// (see localToolsExposedStepIDs).
-	toolsExposed := localToolsExposedStepIDs(src)
+	// (see localToolsExposedStepIDs). An opaque :tools value anywhere makes
+	// the exposure set unknowable, so the warning is suppressed entirely.
+	toolsExposed, toolsKnown := localToolsExposedStepIDs(src)
+	if !toolsKnown {
+		return diagnostics
+	}
 	for _, step := range declaredSteps {
 		if !localStepIDValid(step.id) || referenced[step.id] || toolsExposed[step.id] {
 			continue
@@ -1596,10 +1588,12 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 		if reference.TypeToken == ":function" || reference.TypeToken == ":code" {
 			continue
 		}
-		// Reader conditionals (#? / #?@) change arity at read time; bail
-		// rather than guess — a lint diagnostic must have near-zero false
-		// positives, so exotic reader syntax is skipped entirely.
-		if reference.HasReaderConditional {
+		// Diagnostics cover plain-literal forms only; forms using reader
+		// macros (discards, conditionals, syntax quotes/unquotes, metadata,
+		// tagged literals, quotes) are excluded by design — a lint warning
+		// must have near-zero false positives and reader semantics belong to
+		// the server.
+		if !reference.Plain {
 			continue
 		}
 		packaged := reference.StepID != ""
@@ -1655,36 +1649,41 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 // cost more than false negatives, so quoting semantics are ignored and a
 // tools-shaped map anywhere over-suppresses the unreferenced warning rather
 // than risking a false warning (or a quoting-semantics arms race) here.
-func localToolsExposedStepIDs(src string) map[string]bool {
+// localToolsExposedStepIDs returns the ids exposed via :tools vectors plus
+// whether every :tools value in the source was fully understood. When any
+// value was opaque (allKnown=false), the caller cannot know which steps it
+// exposes and must suppress the unreferenced warning entirely.
+func localToolsExposedStepIDs(src string) (map[string]bool, bool) {
 	ids := map[string]bool{}
-	collectToolsExposedStepIDs(src, 0, len(src), ids)
-	return ids
+	allKnown := true
+	collectToolsExposedStepIDs(src, 0, len(src), ids, &allKnown)
+	return ids, allKnown
 }
 
-func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool) {
+func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool, allKnown *bool) {
 	i, ok := clojureActiveFormStart(src, start)
 	if !ok || i >= end || i >= len(src) {
 		return
 	}
 	switch src[i] {
 	case '\'', '`', '@':
-		collectToolsExposedStepIDs(src, i+1, end, ids)
+		collectToolsExposedStepIDs(src, i+1, end, ids, allKnown)
 		return
 	case '~':
 		next := i + 1
 		if next < end && next < len(src) && src[next] == '@' {
 			next++
 		}
-		collectToolsExposedStepIDs(src, next, end, ids)
+		collectToolsExposedStepIDs(src, next, end, ids, allKnown)
 		return
 	}
 	if strings.HasPrefix(src[i:], "#(") {
-		collectToolsExposedStepIDsInSpans(src, ids, parseListSpans(src, i+1))
+		collectToolsExposedStepIDsInSpans(src, ids, parseListSpans(src, i+1), allKnown)
 		return
 	}
 	if strings.HasPrefix(src[i:], "#{") {
 		if spans, _, err := parseClojureSetElements(src, i); err == nil {
-			collectToolsExposedStepIDsInSpans(src, ids, spans)
+			collectToolsExposedStepIDsInSpans(src, ids, spans, allKnown)
 		}
 		return
 	}
@@ -1696,22 +1695,24 @@ func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool)
 		}
 		for _, entry := range entries {
 			if entry.KeyName == "tools" {
-				collectToolsStepsVectorIDs(src, entry, ids)
+				if !collectToolsStepsVectorIDs(src, entry, ids) {
+					*allKnown = false
+				}
 			}
-			collectToolsExposedStepIDs(src, entry.ValueStart, entry.ValueEnd, ids)
+			collectToolsExposedStepIDs(src, entry.ValueStart, entry.ValueEnd, ids, allKnown)
 		}
 	case '[':
 		if spans, _, err := parseClojureVectorElements(src, i); err == nil {
-			collectToolsExposedStepIDsInSpans(src, ids, spans)
+			collectToolsExposedStepIDsInSpans(src, ids, spans, allKnown)
 		}
 	case '(':
-		collectToolsExposedStepIDsInSpans(src, ids, parseListSpans(src, i))
+		collectToolsExposedStepIDsInSpans(src, ids, parseListSpans(src, i), allKnown)
 	}
 }
 
-func collectToolsExposedStepIDsInSpans(src string, ids map[string]bool, spans []clojureFormSpan) {
+func collectToolsExposedStepIDsInSpans(src string, ids map[string]bool, spans []clojureFormSpan, allKnown *bool) {
 	for _, span := range spans {
-		collectToolsExposedStepIDs(src, span.Start, span.End, ids)
+		collectToolsExposedStepIDs(src, span.Start, span.End, ids, allKnown)
 	}
 }
 
@@ -1723,29 +1724,32 @@ func parseListSpans(src string, start int) []clojureFormSpan {
 	return spans
 }
 
-func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[string]bool) {
-	// The scan is quote-transparent, so a quoted value like
-	// :tools '{:steps [...]} or :steps '[...] must be unwrapped before the
-	// shape checks.
-	valueStart, ok := skipReaderQuotePrefixes(src, toolsEntry.ValueStart)
+// collectToolsStepsVectorIDs reads one :tools entry and records its
+// {:steps [...]} ids. It reports whether the value was fully understood: a
+// value that is not a plain map/vector shape after ONE simple reader-quote
+// unwrap is opaque, and callers must then treat every packaged step as
+// potentially exposed (suppress the warning; over-suppression is the accepted
+// direction for this warning-severity dead-code lint).
+func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[string]bool) bool {
+	valueStart, ok := unwrapSingleReaderQuote(src, toolsEntry.ValueStart)
 	if !ok || valueStart >= len(src) || src[valueStart] != '{' {
-		return
+		return false
 	}
 	entries, _, err := parseClojureMapEntries(src, valueStart)
 	if err != nil {
-		return
+		return false
 	}
 	for _, entry := range entries {
 		if entry.KeyName != "steps" {
 			continue
 		}
-		stepsStart, ok := skipReaderQuotePrefixes(src, entry.ValueStart)
-		if !ok {
-			continue
+		stepsStart, ok := unwrapSingleReaderQuote(src, entry.ValueStart)
+		if !ok || stepsStart >= len(src) || src[stepsStart] != '[' {
+			return false
 		}
 		spans, _, err := parseClojureVectorElements(src, stepsStart)
 		if err != nil {
-			continue
+			return false
 		}
 		for _, span := range spans {
 			if id, ok := localQualifiedStepIDFromForm(src, span); ok {
@@ -1753,35 +1757,16 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 			}
 		}
 	}
+	return true
 }
 
-// skipReaderQuotePrefixes advances past reader quote characters (', `, ~, ~@,
-// @) and explicit (quote ...) / (clojure.core/quote ...) wrappers in front of
-// a form so quote-transparent scanning sees the datum itself.
-func skipReaderQuotePrefixes(src string, start int) (int, bool) {
+// unwrapSingleReaderQuote performs the one simple unwrap the tools-value scan
+// allows: a single leading reader quote ('). Anything more exotic makes the
+// value opaque for the caller.
+func unwrapSingleReaderQuote(src string, start int) (int, bool) {
 	i, ok := clojureActiveFormStart(src, start)
-	for ok && i < len(src) {
-		switch src[i] {
-		case '\'', '`', '@':
-			i, ok = clojureActiveFormStart(src, i+1)
-		case '~':
-			next := i + 1
-			if next < len(src) && src[next] == '@' {
-				next++
-			}
-			i, ok = clojureActiveFormStart(src, next)
-		case '(':
-			elements := parseListSpans(src, i)
-			if len(elements) >= 2 {
-				if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
-					i, ok = clojureActiveFormStart(src, elements[1].Start)
-					continue
-				}
-			}
-			return i, ok
-		default:
-			return i, ok
-		}
+	if ok && i < len(src) && src[i] == '\'' {
+		return clojureActiveFormStart(src, i+1)
 	}
 	return i, ok
 }
