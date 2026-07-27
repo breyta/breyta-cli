@@ -2091,8 +2091,13 @@ func localTopLevelFlowValuePosition(src string, position int) bool {
 		previousOffset := offset
 		_, readerOffset := unwrapTopLevelReaderConditionalFlowSource(src[offset:])
 		offset += readerOffset
-		for offset < len(src) && src[offset] == '^' {
-			metadataStart := skipClojureWhitespaceCommaAndComments(src, offset+1)
+		for offset < len(src) &&
+			(src[offset] == '^' || strings.HasPrefix(src[offset:], "#^")) {
+			prefixLength := 1
+			if strings.HasPrefix(src[offset:], "#^") {
+				prefixLength = 2
+			}
+			metadataStart := skipClojureWhitespaceCommaAndComments(src, offset+prefixLength)
 			metadataEnd, err := readClojureFormEnd(src, metadataStart)
 			if err != nil || metadataEnd <= metadataStart {
 				return false
@@ -2228,7 +2233,9 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 	stepType := clojureFormToken(src, elements[1])
 	qualifiedPackagedStep := strings.Contains(strings.TrimPrefix(stepType, ":"), "/")
 	if stepType != ":function" && stepType != ":code" &&
-		(effectiveElementCount > 4 || (effectiveElementCount < 4 && !qualifiedPackagedStep)) {
+		(effectiveElementCount > 4 ||
+			effectiveElementCount < 3 ||
+			(effectiveElementCount < 4 && !qualifiedPackagedStep)) {
 		stepID := "<missing>"
 		if len(elements) >= 3 {
 			if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {

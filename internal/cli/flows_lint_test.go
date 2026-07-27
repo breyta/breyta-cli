@@ -270,6 +270,22 @@ func TestFlowsLintNormalizesMetadataBeforeReaderConditionalWrapper(t *testing.T)
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintNormalizesLegacyMetadataWrapper(t *testing.T) {
+	flowLiteral := `{:slug :legacy-metadata-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow #^String '(flow/step :http :example {} {:extra true})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected legacy-metadata wrapped over-arity diagnostic\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintIgnoresReaderDiscardedStepArguments(t *testing.T) {
 	flowLiteral := `{:slug :discarded-step-argument
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -340,6 +356,22 @@ func TestFlowsLintLocalOnlyAllowsTwoArgumentPackagedStepCall(t *testing.T) {
 		t.Fatalf("two-argument packaged call should remain valid: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintRejectsQualifiedPackagedCallWithoutInstanceID(t *testing.T) {
+	flowLiteral := `{:slug :packaged-step-missing-id
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/fetch)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged instance id diagnostic\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
 func TestFlowsLintLocalOnlyIgnoresQuotedOverArityStepData(t *testing.T) {
