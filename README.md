@@ -94,12 +94,18 @@ use:
 ```bash
 breyta discover list
 breyta discover search "<idea>"
+breyta discover show <workspace-id>/<flow-slug>
 ```
 
 Discover list/search excludes flows owned by the current workspace by default
 because it shows what this workspace can install. Add `--include-own` only when
 debugging whether your own public flow is indexed; verify buyer/install behavior
 from another workspace.
+
+To evaluate one hit in depth, use `breyta discover show` with the hit's
+workspace-id/flow-slug pair — it returns the full public listing (publish copy,
+pricing, connections, versions) and works across workspaces. `breyta flows show`
+cannot inspect flows in workspaces you are not a member of.
 
 Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
 when a flow should move onto or off marketplace, Discover, and public app-page

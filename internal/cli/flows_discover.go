@@ -41,7 +41,7 @@ copy from. Approved examples are not the same thing as public installables.`,
 	}
 	cmd.AddCommand(newFlowsDiscoverListCmd(app))
 	cmd.AddCommand(newFlowsDiscoverSearchCmd(app))
-	cmd.AddCommand(newFlowsDiscoverShowCmd(app))
+	cmd.AddCommand(newFlowsDiscoverShowCmdWithPath(app, commandPath))
 	cmd.AddCommand(newFlowsDiscoverUpdateCmd(app, commandPath))
 	return cmd
 }
@@ -63,6 +63,10 @@ func splitDiscoverAppRef(ref string) (string, string, bool) {
 }
 
 func newFlowsDiscoverShowCmd(app *App) *cobra.Command {
+	return newFlowsDiscoverShowCmdWithPath(app, "breyta flows discover")
+}
+
+func newFlowsDiscoverShowCmdWithPath(app *App, commandPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <workspace-id>/<flow-slug>",
 		Short: "Show the full public listing for one installable public app",
@@ -70,16 +74,16 @@ func newFlowsDiscoverShowCmd(app *App) *cobra.Command {
 publish copy, pricing, connections, versions, install counts, and ratings.
 
 This works across workspaces because it reads only public catalog data.
-Use it to evaluate a hit from ` + "`breyta flows discover search`" + ` in depth;
+Use it to evaluate a hit from ` + "`" + commandPath + " search`" + ` in depth;
 ` + "`breyta flows show`" + ` cannot inspect flows in workspaces you are not a
 member of and fails with access denied.
 
 The app ref accepts the id shown in Discover hits ("<workspace-id>:<flow-slug>"),
 "<workspace-id>/<flow-slug>", or two separate arguments.`,
 		Example: strings.TrimSpace(`
-breyta flows discover show BN2zoJYkBlO1DlDwQJoS/lead-research
-breyta flows discover show BN2zoJYkBlO1DlDwQJoS:lead-research
-breyta flows discover show BN2zoJYkBlO1DlDwQJoS lead-research
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS/lead-research
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS:lead-research
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS lead-research
 `),
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {

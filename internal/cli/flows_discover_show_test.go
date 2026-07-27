@@ -173,6 +173,35 @@ func TestEnrichCommandHints_FlowsGetMembershipForbidden(t *testing.T) {
 			t.Fatalf("discover hint must be gated to flows.get, got %#v", otherMeta)
 		}
 	}
+
+	// Installation-scoped lookups are a different failure domain: no hint.
+	installation := map[string]any{"error": "Access denied: not a workspace member"}
+	enrichCommandHints(app, "flows.get", map[string]any{
+		"flowSlug":       "lead-research",
+		"installationId": "inst-1",
+	}, http.StatusForbidden, installation)
+	if instMeta, ok := installation["meta"].(map[string]any); ok {
+		if hint, _ := instMeta["hint"].(string); hint != "" {
+			t.Fatalf("installation-scoped flows.get must not get the discover hint, got %#v", instMeta)
+		}
+	}
+
+	// When the payload names a source workspace, the ref must use it.
+	sourced := map[string]any{"error": "Access denied: not a workspace member"}
+	enrichCommandHints(app, "flows.get", map[string]any{
+		"flowSlug":          "lead-research",
+		"sourceWorkspaceId": "ws-other",
+	}, http.StatusForbidden, sourced)
+	sourcedMeta, _ := sourced["meta"].(map[string]any)
+	sourcedNext, _ := sourcedMeta["nextCommands"].([]any)
+	sourcedJoined := ""
+	for _, n := range sourcedNext {
+		s, _ := n.(string)
+		sourcedJoined += s + "\n"
+	}
+	if !strings.Contains(sourcedJoined, "'ws-other/lead-research'") {
+		t.Fatalf("expected source workspace in discover show ref, got %#v", sourcedNext)
+	}
 }
 
 func TestWriteAPIResult_MembershipForbiddenHint(t *testing.T) {

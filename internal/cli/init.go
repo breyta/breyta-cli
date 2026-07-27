@@ -413,6 +413,7 @@ Advanced ideas:
   - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
   - approved template copy-first: when a hit closely matches, run ` + "`breyta flows templates duplicate <template-slug>`" + `, prove the copied draft, then edit
   - existing data lookup: use ` + "`breyta resources search \"<query>\" --limit 5`" + ` (or ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets) and ` + "`breyta resources read <resource-uri> --limit 5`" + ` for one selected resource
+  - installable public apps: search with ` + "`breyta flows discover search \"<outcome>\" --limit 5`" + `; inspect one hit's full public listing with ` + "`breyta flows discover show <workspace-id>/<flow-slug>`" + ` (works across workspaces; ` + "`breyta flows show`" + ` cannot open flows in workspaces you are not a member of)
   - use primitive snippets and referenced dependencies before a full template
   - inspect one full template only when architecture-level reuse is needed
   - compare the touched surface against the closest local or approved template example before changing structure

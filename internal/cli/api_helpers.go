@@ -813,7 +813,7 @@ func membershipForbidden(status int, out map[string]any) bool {
 // Discover listing surface: flows show can never open a flow in a workspace
 // the caller is not a member of, but a public app's listing stays readable
 // via flows discover show.
-func addDiscoverInspectHint(app *App, out map[string]any, slug string) {
+func addDiscoverInspectHint(workspaceID string, out map[string]any, slug string) {
 	meta := ensureMeta(out)
 	if meta == nil {
 		return
@@ -821,7 +821,7 @@ func addDiscoverInspectHint(app *App, out map[string]any, slug string) {
 	if _, exists := meta["hint"]; exists {
 		return
 	}
-	ws := strings.TrimSpace(app.WorkspaceID)
+	ws := strings.TrimSpace(workspaceID)
 	if ws == "" {
 		ws = "<workspace-id>"
 	}
@@ -843,7 +843,13 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 	switch command {
 	case "flows.get":
 		if membershipForbidden(status, out) {
-			addDiscoverInspectHint(app, out, slug)
+			// Skip installation-scoped lookups: they carry their own source
+			// refs and fail for different reasons than a user-addressed
+			// cross-workspace flows show/pull.
+			if _, installationLookup := args["installationId"]; !installationLookup {
+				ws := firstNonBlankString(args["sourceWorkspaceId"], app.WorkspaceID)
+				addDiscoverInspectHint(ws, out, slug)
+			}
 		} else if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
