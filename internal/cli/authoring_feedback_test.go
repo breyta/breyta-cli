@@ -196,6 +196,20 @@ func TestSavedRunNilServerFailureDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestSavedInitPushFailureOmitsStepRunWithoutSeededStep(t *testing.T) {
+	cmd := &cobra.Command{}
+	apiOut := map[string]any{
+		"ok":    false,
+		"error": map[string]any{"message": "invalid flow"},
+	}
+	_ = writeSavedLocalAuthoringFailure(cmd, &App{}, apiOut, 400, nil,
+		"/tmp/flow.clj", "orders", "", "push", "")
+	commands, _ := mapStringAny(apiOut["meta"])["nextCommands"].([]any)
+	if len(commands) != 1 || firstNonBlankString(commands[0]) != "breyta flows push --file /tmp/flow.clj" {
+		t.Fatalf("expected only the valid flow push retry, got %#v", commands)
+	}
+}
+
 func TestSavedRunRecoveryPreservesChangedFlags(t *testing.T) {
 	cmd := newFlowsStepsLocalCreateCmd(&App{})
 	_ = cmd.Flags().Set("params", `{"orderId":"123"}`)
