@@ -1976,7 +1976,13 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			}
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
-			if err == nil && !clojureListDirectlyQuoted(src, i) {
+			if err == nil && clojureListDirectlyQuoted(src, i) {
+				if next, readErr := readClojureFormEnd(src, i); readErr == nil && next > i {
+					i = next
+					continue
+				}
+			}
+			if err == nil {
 				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i, allowBareInput, pulledLegacyInputSteps)...)
 			}
 		}

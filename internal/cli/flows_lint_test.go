@@ -189,6 +189,22 @@ func TestFlowsLintLocalOnlyIgnoresQuotedOverArityStepData(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintLocalOnlyIgnoresNestedListsInsideQuotedData(t *testing.T) {
+	flowLiteral := `{:slug :nested-quoted-over-arity
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example '((flow/step :http :example {} {:extra true}))] example)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("nested quoted data should not fail lint: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintLocalOnlyAcceptsDeclaredAgentReference(t *testing.T) {
 	flowLiteral := `{:slug :declared-agent-reference
  :concurrency {:type :singleton :on-new-version :coexist}

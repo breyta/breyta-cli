@@ -141,6 +141,25 @@ func TestSavedRunTransportFailureRequiresReconciliation(t *testing.T) {
 	}
 }
 
+func TestSavedRunServerFailureRequiresReconciliation(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	apiOut := map[string]any{
+		"ok":    false,
+		"error": map[string]any{"message": "internal error"},
+	}
+	err := writeSavedLocalAuthoringFailure(cmd, &App{}, apiOut, 500, nil,
+		"/tmp/flow.clj", "orders", "tools/send", "run", "stable-key")
+	if err == nil {
+		t.Fatal("expected server failure")
+	}
+	if hint := firstNonBlankString(mapStringAny(apiOut["meta"])["hint"]); !strings.Contains(hint, "Reconcile before retrying") {
+		t.Fatalf("expected ambiguity-safe 5xx hint, got %q", hint)
+	}
+}
+
 func TestRunLocalFlowStepRejectsNonPositiveTimeout(t *testing.T) {
 	_, _, err := runLocalFlowStep(nil, &App{Token: "token", APIURL: "https://example.invalid"}, "flow", "flow.clj", "{}", "tools/x", nil, "", "", 0*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "--timeout must be > 0") {

@@ -703,12 +703,19 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 		retry = "breyta flows steps run " + slug + " " + stepID + " --flow-file " + shellQuotePath(path)
 	}
 	message := fmt.Sprintf("step saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", path, operation, retry)
-	if err != nil {
+	if err != nil || status >= 500 {
 		reconcile := fmt.Sprintf("step saved locally to %s; the %s request ended before a definitive server response. Reconcile before retrying to avoid duplicate side effects", path, operation)
 		if key := strings.TrimSpace(idempotencyKey); key != "" {
 			reconcile += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
 		}
-		return writeErr(cmd, fmt.Errorf("%s: %w", reconcile, err))
+		if err != nil {
+			return writeErr(cmd, fmt.Errorf("%s: %w", reconcile, err))
+		}
+		meta := ensureMeta(out)
+		meta["saved"] = true
+		meta["path"] = path
+		meta["hint"] = reconcile
+		return writeAPIResult(cmd, app, out, status)
 	}
 	if out == nil {
 		return writeErr(cmd, errors.New(message))
