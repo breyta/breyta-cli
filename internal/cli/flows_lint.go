@@ -1299,10 +1299,22 @@ func clojureNeverKeywordLiteral(src string, span clojureFormSpan) bool {
 		return true
 	}
 	switch clojureFormToken(src, span) {
-	case "nil", "true", "false", "()":
+	case "nil", "true", "false":
 		return true
 	}
-	return false
+	return clojureEmptyListForm(src, span)
+}
+
+// clojureEmptyListForm reports whether the span is an empty list literal —
+// (), ( ), (,,), or parens around only comments — which evaluates to itself
+// and can never be a keyword or a map.
+func clojureEmptyListForm(src string, span clojureFormSpan) bool {
+	i, ok := clojureActiveFormStart(src, span.Start)
+	if !ok || i >= len(src) || src[i] != '(' {
+		return false
+	}
+	j := skipClojureWhitespaceCommaAndComments(src, i+1)
+	return j < len(src) && src[j] == ')'
 }
 
 func localQualifiedStepIDFromForm(src string, span clojureFormSpan) (string, bool) {
@@ -1535,10 +1547,15 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 					reference.ThirdArgNeverMap = true
 				default:
 					switch clojureFormToken(src, elements[3]) {
-					case "nil", "true", "false", "()":
-						// The empty list evaluates to itself and can never be
-						// a map; non-empty list forms stay ambiguous.
+					case "nil", "true", "false":
 						reference.ThirdArgNeverMap = true
+					default:
+						// The empty list — (), ( ), (,,) — evaluates to
+						// itself and can never be a map; non-empty list
+						// forms stay ambiguous.
+						if clojureEmptyListForm(src, elements[3]) {
+							reference.ThirdArgNeverMap = true
+						}
 					}
 				}
 			}
@@ -1556,7 +1573,27 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		}
 		references = append(references, reference)
 	}
+	pendingDiscards := 0
 	for _, element := range elements {
+		if pendingDiscards > 0 {
+			// Consumed by a preceding discard chain: neither diagnosed nor
+			// recorded as a reference.
+			pendingDiscards--
+			continue
+		}
+		if element.Start < len(src) && strings.HasPrefix(src[element.Start:], "#_") {
+			// The parser folds `#_ #_ X` into one span carrying two markers
+			// around one inner form, so markers-1 FOLLOWING siblings are also
+			// consumed — the same chain rule as the :steps handling.
+			markers := 0
+			j := element.Start
+			for j+1 < element.End && src[j] == '#' && src[j+1] == '_' {
+				markers++
+				j = skipClojureWhitespaceCommaAndComments(src, j+2)
+			}
+			pendingDiscards = markers - 1
+			continue
+		}
 		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 		if err != nil {
 			return references, err

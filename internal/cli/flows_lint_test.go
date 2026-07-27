@@ -2985,6 +2985,7 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "typed four elements with nil step id warns", form: `(flow/step :http nil {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "typed four elements with string step id warns", form: `(flow/step :http "fetch" {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "typed four elements with empty list step id warns", form: `(flow/step :http () {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
+		{name: "typed four elements with spaced empty list step id warns", form: `(flow/step :http ( ) {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "typed four elements with nil config warns", form: `(flow/step :http :fetch nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with vector config warns", form: `(flow/step :http :fetch [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with empty list config warns", form: `(flow/step :http :fetch ())`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
@@ -3587,4 +3588,70 @@ func TestFlowsLintLocalOnlyTaggedLiteralInBodyMarksToolsOpaque(t *testing.T) {
 		t.Fatalf("tagged literal must suppress, not fail: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyShadowedCommentBindingDoesNotFalselyWarn(t *testing.T) {
+	// DESIGN DECLINE EVIDENCE: detecting lexical shadowing of comment/quote
+	// requires scope analysis a text-level lint deliberately does not do.
+	// The consequence is under-linting only (the shadowed call executes but
+	// gets no diagnostics — the accepted direction), and the usage scan stays
+	// protected: the flow/step TOKEN inside the shadowed call trips the
+	// token-count mismatch and suppresses the unreferenced warning, so no
+	// false positive fires.
+	flowLiteral := `{:slug :shadowed-comment-binding
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [comment (fn [x] x)]
+          (comment (flow/step :http :fetch)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("shadowed comment binding must not fail lint: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step", "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainConsumesSiblingFlowStep(t *testing.T) {
+	// (do #_ #_ :old (flow/step ...) ...): the chain consumes :old AND the
+	// flow/step form — the walker must neither diagnose it nor record it.
+	flowLiteral := `{:slug :discard-chain-sibling
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #_ #_ :old (flow/step :http :fetch {} {:extra true})
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("a chain-consumed flow/step form must produce zero diagnostics: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
+		"flow_step_arity_invalid",
+		"flow_step_missing_config",
+		"flow_step_missing_step_id",
+		"flow_step_invalid_type",
+		"flow_step_packaged_extra_argument")
+}
+
+func TestFlowsLintLocalOnlySingleDiscardSkipsOnlyNextSibling(t *testing.T) {
+	// A single #_ consumes exactly one sibling: the flow/step form after it
+	// is still visited and its real arity error fires.
+	flowLiteral := `{:slug :single-discard-sibling
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #_ :old (flow/step :http :fetch {} {:extra true}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("the form after a single discard is still executable and must error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
