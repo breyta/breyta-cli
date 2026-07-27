@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -224,6 +225,10 @@ func TestSavedRunRecoveryPreservesChangedFlags(t *testing.T) {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("recovery hint missing %q: %s", want, hint)
 		}
+	}
+	commands := fmt.Sprint(mapStringAny(apiOut["meta"])["nextCommands"])
+	if !strings.Contains(commands, "--flow-file '/tmp/custom flow.clj'") {
+		t.Fatalf("step follow-up lost the saved flow path: %s", commands)
 	}
 }
 

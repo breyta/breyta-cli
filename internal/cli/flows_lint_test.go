@@ -221,6 +221,39 @@ func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintLocalOnlyRejectsUnderArityBuiltInStepCall(t *testing.T) {
+	flowLiteral := `{:slug :under-arity-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected under-arity built-in step lint error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyAllowsTwoArgumentPackagedStepCall(t *testing.T) {
+	flowLiteral := `{:slug :packaged-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/fetch :type :http :description "Fetch"
+          :input-schema [:map] :defaults {:method :get :url "https://example.com"}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/fetch :run)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("two-argument packaged call should remain valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintLocalOnlyIgnoresQuotedOverArityStepData(t *testing.T) {
 	flowLiteral := `{:slug :quoted-over-arity
  :concurrency {:type :singleton :on-new-version :coexist}

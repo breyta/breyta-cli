@@ -2188,7 +2188,9 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		return nil
 	}
 	stepType := clojureFormToken(src, elements[1])
-	if len(elements) > 4 && stepType != ":function" && stepType != ":code" {
+	qualifiedPackagedStep := strings.Contains(strings.TrimPrefix(stepType, ":"), "/")
+	if stepType != ":function" && stepType != ":code" &&
+		(len(elements) > 4 || (len(elements) < 4 && !qualifiedPackagedStep)) {
 		stepID := "<missing>"
 		if len(elements) >= 3 {
 			if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {

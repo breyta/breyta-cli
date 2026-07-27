@@ -742,7 +742,7 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 		meta["hint"] = message
 		appendMetaNextCommands(meta, retry)
 		if stepID != "" {
-			appendMetaNextCommands(meta, "breyta flows steps run "+slug+" "+stepID)
+			appendMetaNextCommands(meta, "breyta flows steps run "+slug+" "+stepID+" --flow-file "+shellQuotePath(path))
 		}
 	}
 	return writeAPIResult(cmd, app, out, status)
