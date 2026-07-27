@@ -731,12 +731,12 @@ This is designed for fast iteration while authoring: provide an explicit step ty
 step id, and step params; the server executes the step using the same runtime
 dispatcher as normal flows.
 
-The request waits up to five minutes by default. Use --timeout for a different
+The request waits up to 15 minutes by default. Use --timeout for a different
 bound when probing a slow LLM or other remote provider. For a flow-local template,
 pass --flow <slug> --source draft and put its variables under data, for example:
 
   breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post \\
-    --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' --timeout 5m
+    --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' --timeout 30m
 
 ` + "`--params`" + ` and ` + "`--params-file`" + ` accept JSON. Safe step-config keys are normalized to
 the authored Clojure shape on the server, so JSON like ` + "`responseAs`" + ` and
@@ -900,7 +900,7 @@ Run a single step and persist the observed input/output as step sidecars:
 - Snapshot test: input=params, expected=result
 
 This is a convenience wrapper around steps run + steps examples add + steps tests add.
-The underlying step request waits up to five minutes by default; use --timeout for
+The underlying step request waits up to 15 minutes by default; use --timeout for
 a different bound when probing a slow LLM or other remote provider.
 
 Examples:
