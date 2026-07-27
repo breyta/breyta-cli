@@ -173,6 +173,37 @@ func TestFlowsLintDoesNotTreatAgentDescriptionAsToolExposure(t *testing.T) {
 	requireFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
 }
 
+func TestFlowsLintParsesCommaSeparatedAgentToolsAndIgnoresComments(t *testing.T) {
+	flowLiteral := `{:slug :agent-tools
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/search :type :http :description "Search" :defaults {}}
+         {:id :tools/commented :type :http :description "Commented" :defaults {}}]
+ :agents [{:id :agents/researcher :description "Research"
+           :tools [:tools/search, ; :tools/commented
+                   :tools/other]}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warnings should not fail lint: %v\n%s", err, output)
+	}
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	var messages []string
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		if firstNonBlankString(item["code"]) == "unreferenced_packaged_step" {
+			messages = append(messages, firstNonBlankString(item["message"]))
+		}
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0], "tools/commented") {
+		t.Fatalf("unexpected tool-reference diagnostics: %#v", messages)
+	}
+}
+
 func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
 	flowLiteral := `{:slug :over-arity-step
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -283,6 +314,43 @@ func TestFlowsLintIgnoresOrdinaryQuotedUnquoteInsideSyntaxQuote(t *testing.T) {
 		t.Fatalf("ordinary-quoted unquote should stay literal: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintHandlesReaderConditionalWrapperAndSyntaxReaderLiterals(t *testing.T) {
+	t.Run("reader-conditional-wrapper", func(t *testing.T) {
+		flowLiteral := `{:slug :conditional-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow #?(:clj '(flow/step :http :example {} {:extra true})
+          :default '(flow/input))}
+`
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("expected over-arity diagnostic\n%s", output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+	})
+
+	t.Run("character-and-discarded-tilde", func(t *testing.T) {
+		flowLiteral := `{:slug :syntax-reader-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example ` + "`" + `(vector \~ (flow/step :http :example {} {:extra true})
+                                  #_~(flow/step :http :discarded {} {:extra true}))]
+          example)}
+`
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("reader literals should remain data: %v\n%s", err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+	})
 }
 
 func TestFlowsLintUnreferencedStepDiagnosticsPreserveSourceOrder(t *testing.T) {

@@ -1473,15 +1473,21 @@ func localAgentToolsReferenceStep(src string, agentsEntry clojureMapEntry, id st
 	if err != nil {
 		return false
 	}
-	pattern := regexp.MustCompile(`(^|[\s\[\]{}()'"])` + regexp.QuoteMeta(":"+id) + `($|[\s\[\]{}()'"])`)
 	for _, span := range spans {
 		entries, _, parseErr := parseClojureMapEntries(src, span.Start)
 		if parseErr != nil {
 			continue
 		}
-		if tools, ok := mapEntryByKey(entries, "tools"); ok &&
-			pattern.MatchString(src[tools.ValueStart:tools.ValueEnd]) {
-			return true
+		if tools, ok := mapEntryByKey(entries, "tools"); ok {
+			toolSpans, _, vectorErr := parseClojureVectorElements(src, tools.ValueStart)
+			if vectorErr != nil {
+				continue
+			}
+			for _, tool := range toolSpans {
+				if strings.TrimPrefix(clojureFormToken(src, tool), ":") == id {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -2035,10 +2041,12 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 }
 
 func localTopLevelFlowValuePosition(src string, position int) bool {
-	_, offset, ok := topLevelFlowValueSource(src)
+	flowSource, offset, ok := topLevelFlowValueSource(src)
 	if !ok {
 		return false
 	}
+	_, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	offset += readerOffset
 	if position == offset {
 		return true
 	}
@@ -2049,6 +2057,18 @@ func localTopLevelFlowValuePosition(src string, position int) bool {
 func localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(src string, start, end, depth int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
 	for i := start; i < end; i++ {
+		if strings.HasPrefix(src[i:], "#_") {
+			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				i = next - 1
+				continue
+			}
+		}
+		if strings.HasPrefix(src[i:], `#"`) {
+			if next, err := readClojureRegexTokenEnd(src, i+1); err == nil && next > i {
+				i = next - 1
+				continue
+			}
+		}
 		switch src[i] {
 		case '"':
 			_, _, next, err := readClojureStringToken(src, i)
@@ -2057,6 +2077,10 @@ func localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(src string, start,
 			}
 		case ';':
 			i = readCommentEnd(src, i) - 1
+		case '\\':
+			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				i = next - 1
+			}
 		case '\'':
 			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
 				i = next - 1

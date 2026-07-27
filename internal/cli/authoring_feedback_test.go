@@ -189,6 +189,15 @@ func TestSavedRunRecoveryPreservesChangedFlags(t *testing.T) {
 	}
 }
 
+func TestShellQuotePathQuotesMetacharacters(t *testing.T) {
+	for _, path := range []string{"flows/order;backup.clj", "flows/a&b.clj", "flows/*.clj", "flows/`cmd`.clj"} {
+		quoted := shellQuotePath(path)
+		if !strings.HasPrefix(quoted, "'") || !strings.HasSuffix(quoted, "'") {
+			t.Fatalf("unsafe path was not quoted: %q -> %q", path, quoted)
+		}
+	}
+}
+
 func TestRunLocalFlowStepRejectsNonPositiveTimeout(t *testing.T) {
 	_, _, err := runLocalFlowStep(nil, &App{Token: "token", APIURL: "https://example.invalid"}, "flow", "flow.clj", "{}", "tools/x", nil, "", "", 0*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "--timeout must be > 0") {
