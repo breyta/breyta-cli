@@ -247,8 +247,9 @@ func TestFlowsLintLocalOnlyIgnoresNamedAndSyntaxQuoteStepData(t *testing.T) {
 
 func TestFlowsLintInspectsTopLevelExplicitQuoteAndSyntaxUnquote(t *testing.T) {
 	for name, flowSource := range map[string]string{
-		"explicit-flow-quote": "(quote (flow/step :http :example {} {:extra true}))",
-		"syntax-unquote":      "'(let [x `(payload ~(flow/step :http :example {} {:extra true}))] x)",
+		"explicit-flow-quote":  "(quote (flow/step :http :example {} {:extra true}))",
+		"commented-flow-quote": "; explanation\n (quote (flow/step :http :example {} {:extra true}))",
+		"syntax-unquote":       "'(let [x `(payload ~(flow/step :http :example {} {:extra true}))] x)",
 	} {
 		t.Run(name, func(t *testing.T) {
 			flowLiteral := fmt.Sprintf(`{:slug :executable-quote
@@ -266,6 +267,22 @@ func TestFlowsLintInspectsTopLevelExplicitQuoteAndSyntaxUnquote(t *testing.T) {
 			requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 		})
 	}
+}
+
+func TestFlowsLintIgnoresOrdinaryQuotedUnquoteInsideSyntaxQuote(t *testing.T) {
+	flowLiteral := `{:slug :quoted-unquote-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example ` + "`" + `(payload '~(flow/step :http :example {} {:extra true}))] example)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("ordinary-quoted unquote should stay literal: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
 func TestFlowsLintUnreferencedStepDiagnosticsPreserveSourceOrder(t *testing.T) {

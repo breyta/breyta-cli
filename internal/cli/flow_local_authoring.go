@@ -749,7 +749,7 @@ func localStepScaffold(stepID, stepType, description string) string {
 	case "function":
 		defaults = "\n  :defaults {:code '(fn [input] input)}"
 	case "llm":
-		defaults = "\n  :defaults {:connection :ai\n             :model \"gpt-5.4\"\n             :prompt \"Replace with the step prompt.\"}"
+		defaults = "\n  :defaults {:connection nil\n             :model \"gpt-5.4\"\n             :prompt \"Replace with the step prompt and connection.\"}"
 	}
 	return fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]%s}", stepID, stepType, description, defaults)
 }

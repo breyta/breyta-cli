@@ -21,7 +21,7 @@ func TestLocalStepScaffoldIncludesExecutableDefaults(t *testing.T) {
 	}{
 		{"http", []string{":defaults", ":method :get", `:url "https://example.com"`}},
 		{"function", []string{":defaults", ":code '(fn [input] input)"}},
-		{"llm", []string{":defaults", ":connection :ai", `:model "gpt-5.4"`, ":prompt"}},
+		{"llm", []string{":defaults", ":connection nil", `:model "gpt-5.4"`, ":prompt"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.stepType, func(t *testing.T) {

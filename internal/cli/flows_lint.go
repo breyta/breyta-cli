@@ -19,7 +19,6 @@ type flowLintDiagnostic map[string]any
 var (
 	flowLintWorkspaceIDRe    = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
-	flowLintFlowQuoteRe      = regexp.MustCompile(`:flow\s*$`)
 	flowLintInvocationTypes  = map[string]bool{
 		"string": true, "text": true, "number": true, "email": true, "password": true,
 		"textarea": true, "boolean": true, "checkbox": true, "select": true,
@@ -1977,7 +1976,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			i = readCommentEnd(src, i)
 			continue
 		case '\'':
-			if !flowLintFlowQuoteRe.MatchString(src[:i]) {
+			if !localTopLevelFlowValuePosition(src, i) {
 				if next, err := readClojureFormEnd(src, i); err == nil && next > i {
 					i = next
 					continue
@@ -2000,8 +1999,8 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 		case '`':
 			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
 				diagnostics = append(diagnostics,
-					localFunctionStepShapeDiagnosticsInSyntaxUnquotes(
-						src, i+1, next, allowBareInput, pulledLegacyInputSteps)...)
+					localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
+						src, i+1, next, 1, allowBareInput, pulledLegacyInputSteps)...)
 				i = next
 				continue
 			}
@@ -2010,7 +2009,7 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			if err == nil && len(elements) > 0 {
 				head := clojureFormToken(src, elements[0])
 				if head == "quote" || head == "clojure.core/quote" {
-					if !flowLintFlowQuoteRe.MatchString(src[:i]) {
+					if !localTopLevelFlowValuePosition(src, i) {
 						next, readErr := readClojureFormEnd(src, i)
 						if readErr != nil || next <= i {
 							break
@@ -2035,7 +2034,19 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 	return diagnostics
 }
 
-func localFunctionStepShapeDiagnosticsInSyntaxUnquotes(src string, start, end int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
+func localTopLevelFlowValuePosition(src string, position int) bool {
+	_, offset, ok := topLevelFlowValueSource(src)
+	if !ok {
+		return false
+	}
+	if position == offset {
+		return true
+	}
+	return offset < len(src) && src[offset] == '\'' &&
+		position == skipClojureWhitespaceCommaAndComments(src, offset+1)
+}
+
+func localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(src string, start, end, depth int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
 	var diagnostics []flowLintDiagnostic
 	for i := start; i < end; i++ {
 		switch src[i] {
@@ -2046,6 +2057,17 @@ func localFunctionStepShapeDiagnosticsInSyntaxUnquotes(src string, start, end in
 			}
 		case ';':
 			i = readCommentEnd(src, i) - 1
+		case '\'':
+			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				i = next - 1
+			}
+		case '`':
+			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				diagnostics = append(diagnostics,
+					localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
+						src, i+1, next, depth+1, allowBareInput, pulledLegacyInputSteps)...)
+				i = next - 1
+			}
 		case '~':
 			formStart := i + 1
 			if formStart < end && src[formStart] == '@' {
@@ -2054,9 +2076,15 @@ func localFunctionStepShapeDiagnosticsInSyntaxUnquotes(src string, start, end in
 			formStart = skipClojureWhitespaceCommaAndComments(src, formStart)
 			formEnd, err := readClojureFormEnd(src, formStart)
 			if err == nil && formEnd > formStart && formEnd <= end {
-				diagnostics = append(diagnostics,
-					localFunctionStepShapeDiagnosticsInRange(
-						src, formStart, formEnd, allowBareInput, pulledLegacyInputSteps)...)
+				if depth == 1 {
+					diagnostics = append(diagnostics,
+						localFunctionStepShapeDiagnosticsInRange(
+							src, formStart, formEnd, allowBareInput, pulledLegacyInputSteps)...)
+				} else {
+					diagnostics = append(diagnostics,
+						localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
+							src, formStart, formEnd, depth-1, allowBareInput, pulledLegacyInputSteps)...)
+				}
 				i = formEnd - 1
 			}
 		}
@@ -2076,8 +2104,7 @@ func clojureListDirectlyQuoted(src string, listStart int) bool {
 			// The flow DSL convention quotes the top-level :flow form, but
 			// nested quotes represent literal data and must not be linted as
 			// executable calls.
-			prefix := src[:i]
-			return !flowLintFlowQuoteRe.MatchString(prefix)
+			return !localTopLevelFlowValuePosition(src, i)
 		}
 	}
 	return false
