@@ -334,6 +334,54 @@ func TestFlowsLintHandlesReaderConditionalWrapperAndSyntaxReaderLiterals(t *test
 		requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 	})
 
+	t.Run("inactive-reader-conditional-unquote", func(t *testing.T) {
+		flowLiteral := `{:slug :inactive-conditional-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example ` + "`" + `#?(:clj :ok :cljs ~(flow/step :http :example {} {:extra true}))] example)}
+`
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("inactive reader branch should remain data: %v\n%s", err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+	})
+
+	t.Run("character-literal-before-executable-step", func(t *testing.T) {
+		flowLiteral := `{:slug :character-before-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [separator \;] (flow/step :http :example {} {:extra true}))}
+`
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("expected executable over-arity diagnostic\n%s", output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+	})
+
+	t.Run("metadata-wrapped-flow-quote", func(t *testing.T) {
+		flowLiteral := `{:slug :metadata-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow ^:tag '(flow/step :http :example {} {:extra true})}
+`
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("expected metadata-wrapped executable over-arity diagnostic\n%s", output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+	})
+
 	t.Run("character-and-discarded-tilde", func(t *testing.T) {
 		flowLiteral := `{:slug :syntax-reader-data
  :concurrency {:type :singleton :on-new-version :coexist}

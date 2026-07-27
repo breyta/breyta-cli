@@ -348,6 +348,9 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
+		case '\\':
+			i = readClojureCharacterTokenEnd(src, i)
+			continue
 		case '\'', '`':
 			next, err := readClojureFormEnd(src, i+1)
 			if err != nil || next <= i+1 {
@@ -369,6 +372,26 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 		i++
 	}
 	return matches
+}
+
+func readClojureCharacterTokenEnd(src string, start int) int {
+	if start+1 >= len(src) {
+		return len(src)
+	}
+	// A character literal may name a delimiter or comment/string marker
+	// directly (for example \; or \"). Those bytes are data, not reader
+	// syntax. Named characters such as \newline continue to the next token
+	// boundary.
+	switch src[start+1] {
+	case ';', '"', '(', ')', '[', ']', '{', '}', '\\', '\'', '`', '~', '^', '@':
+		return start + 2
+	default:
+		next := readClojureTokenEnd(src, start+1)
+		if next <= start+1 {
+			return start + 2
+		}
+		return next
+	}
 }
 
 func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
@@ -1981,6 +2004,9 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
+		case '\\':
+			i = readClojureCharacterTokenEnd(src, i)
+			continue
 		case '\'':
 			if !localTopLevelFlowValuePosition(src, i) {
 				if next, err := readClojureFormEnd(src, i); err == nil && next > i {
@@ -2047,6 +2073,14 @@ func localTopLevelFlowValuePosition(src string, position int) bool {
 	}
 	_, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
 	offset += readerOffset
+	for offset < len(src) && src[offset] == '^' {
+		metadataStart := skipClojureWhitespaceCommaAndComments(src, offset+1)
+		metadataEnd, err := readClojureFormEnd(src, metadataStart)
+		if err != nil || metadataEnd <= metadataStart {
+			return false
+		}
+		offset = skipClojureWhitespaceCommaAndComments(src, metadataEnd)
+	}
 	if position == offset {
 		return true
 	}
@@ -2065,6 +2099,18 @@ func localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(src string, start,
 		}
 		if strings.HasPrefix(src[i:], `#"`) {
 			if next, err := readClojureRegexTokenEnd(src, i+1); err == nil && next > i {
+				i = next - 1
+				continue
+			}
+		}
+		if strings.HasPrefix(src[i:], "#?") {
+			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
+			if ok && next <= end {
+				if formStart >= 0 && formEnd > formStart {
+					diagnostics = append(diagnostics,
+						localFunctionStepShapeDiagnosticsInSyntaxUnquotesAtDepth(
+							src, formStart, formEnd, depth, allowBareInput, pulledLegacyInputSteps)...)
+				}
 				i = next - 1
 				continue
 			}

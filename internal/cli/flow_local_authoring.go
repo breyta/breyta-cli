@@ -710,9 +710,13 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 			}
 		}
 	}
-	message := fmt.Sprintf("step saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", path, operation, retry)
+	subject := "step"
+	if stepID == "" {
+		subject = "flow"
+	}
+	message := fmt.Sprintf("%s saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", subject, path, operation, retry)
 	if err != nil || status >= 500 {
-		reconcile := fmt.Sprintf("step saved locally to %s; the %s request ended before a definitive server response. Reconcile before retrying to avoid duplicate side effects", path, operation)
+		reconcile := fmt.Sprintf("%s saved locally to %s; the %s request ended before a definitive server response. Reconcile before retrying to avoid duplicate side effects with `breyta flows show %s --target draft` or `breyta flows validate %s`", subject, path, operation, slug, slug)
 		if key := strings.TrimSpace(idempotencyKey); key != "" {
 			reconcile += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
 		}
@@ -969,10 +973,10 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 			if push {
 				remote, remoteStatus, err = pushLocalFlowLiteral(cmd, app, path, updated)
 				if err != nil {
-					return writeErr(cmd, err)
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, err, path, slug, stepID, "push", "")
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					return writeAPIResult(cmd, app, remote, remoteStatus)
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
 				}
 			}
 			extra := map[string]any{"flowSlug": slug, "stepId": stepID}
@@ -983,10 +987,10 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 				}
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, params, idempotencyKey, profileID, timeout)
 				if runErr != nil {
-					return writeErr(cmd, runErr)
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
 				}
-				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
-					return runErr
+				if runStatus >= 400 || !isOK(runOut) {
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
@@ -1461,24 +1465,10 @@ Examples:
 				var pushErr error
 				remote, remoteStatus, pushErr = pushLocalFlowLiteral(cmd, app, path, literal)
 				if pushErr != nil {
-					if stepID != "" {
-						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, pushErr, path, slug, stepID, "push", "")
-					}
-					return writeErr(cmd, fmt.Errorf("flow saved locally to %s; server rejected push: %w", path, pushErr))
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, pushErr, path, slug, stepID, "push", "")
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					if stepID != "" {
-						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
-					}
-					meta := ensureMeta(remote)
-					if meta != nil {
-						meta["saved"] = true
-						meta["path"] = path
-						quotedPath := shellQuotePath(path)
-						meta["hint"] = fmt.Sprintf("flow saved locally to %s; server rejected push. Fix the source and rerun `breyta flows push --file %s`.", path, quotedPath)
-						appendMetaNextCommands(meta, "breyta flows push --file "+quotedPath)
-					}
-					return writeAPIResult(cmd, app, remote, remoteStatus)
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
 				}
 			}
 			extra := map[string]any{"flowSlug": slug}
