@@ -1345,23 +1345,28 @@ func localFlowStepReferences(flowLiteral string) ([]localFlowStepReference, erro
 }
 
 func localFlowStepReferencesInRange(src string, start, end, baseOffset int, enclosed bool) ([]localFlowStepReference, error) {
-	var references []localFlowStepReference
+	var spans []clojureFormSpan
 	for i := skipClojureWhitespaceCommaAndComments(src, start); i < end; {
 		formEnd, err := readClojureFormEnd(src, i)
 		if err != nil {
-			return references, err
+			return nil, err
 		}
 		if formEnd <= i || formEnd > end {
-			return references, fmt.Errorf("could not read flow form near byte %d", i)
+			return nil, fmt.Errorf("could not read flow form near byte %d", i)
 		}
-		found, err := localFlowStepReferencesForForm(src, clojureFormSpan{Start: i, End: formEnd}, baseOffset, enclosed)
-		if err != nil {
-			return references, err
-		}
-		references = append(references, found...)
+		spans = append(spans, clojureFormSpan{Start: i, End: formEnd})
 		i = skipClojureWhitespaceCommaAndComments(src, formEnd)
 	}
-	return references, nil
+	var references []localFlowStepReference
+	err := forEachActiveSiblingSpan(src, spans, func(span clojureFormSpan) error {
+		found, err := localFlowStepReferencesForForm(src, span, baseOffset, enclosed)
+		if err != nil {
+			return err
+		}
+		references = append(references, found...)
+		return nil
+	})
+	return references, err
 }
 
 func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int, enclosed bool) ([]localFlowStepReference, error) {
@@ -1460,7 +1465,16 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		// marks every element enclosed.
 		childEnclosed := enclosed || strings.Contains(stripClojureStringLiterals(src[i:vecEnd]), "#?")
 		var references []localFlowStepReference
+		// The vector parser strips discard prefixes into FormStart/Start, so
+		// chain debt must be recovered from the prefix regions: a consumed
+		// element is neither diagnosed nor recorded as a reference.
+		pending := 0
 		for _, element := range elements {
+			pending += discardDebtBefore(src, element)
+			if pending > 0 {
+				pending--
+				continue
+			}
 			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, childEnclosed)
 			if err != nil {
 				return references, err
@@ -1583,6 +1597,46 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		return nil
 	})
 	return references, err
+}
+
+// discardDebtBefore simulates the reader-discard forms the element parsers
+// stripped into the [FormStart, Start) prefix region of a span: each folded
+// `#_ ... form` group carries N markers around one inner object, leaving a
+// debt of N-1 objects that the ACTIVE span (and its following siblings) must
+// pay. Non-discard prefixes (metadata, reader conditionals) contribute no
+// debt.
+func discardDebtBefore(src string, span clojureFormSpan) int {
+	if span.FormStart <= 0 || span.FormStart >= span.Start || span.Start > len(src) {
+		return 0
+	}
+	debt := 0
+	i := span.FormStart
+	for i < span.Start {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= span.Start {
+			break
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			markers := 0
+			for i+1 < span.Start && src[i] == '#' && src[i+1] == '_' {
+				markers++
+				i = skipClojureWhitespaceCommaAndComments(src, i+2)
+			}
+			end, err := readClojureFormEnd(src, i)
+			if err != nil || end <= i || end > span.Start {
+				break
+			}
+			i = end
+			debt += markers - 1
+			continue
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			break
+		}
+		i = end
+	}
+	return debt
 }
 
 // forEachActiveSiblingSpan invokes visit for each element span that survives
@@ -1963,6 +2017,12 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 			appendDiag(reference, "warning", "flow_step_missing_config",
 				"flow/step config must be a map: packaged forms take id and config map.",
 				shapeHint)
+		case packaged && reference.ElementCount == 4 && reference.SecondArgKeyword && reference.ThirdArgNeverMap:
+			// (flow/step :ns/id :run nil): the explicit-step-id packaged
+			// shape puts the config in the FOURTH position.
+			appendDiag(reference, "warning", "flow_step_missing_config",
+				"flow/step config must be a map: packaged forms with an explicit step id take id, step id, and config map.",
+				shapeHint)
 		case !packaged && reference.ElementCount == 4 && reference.ThirdArgNeverMap:
 			// (flow/step :http :fetch nil) / (flow/step :http :fetch []): the
 			// config position holds a literal that can never be a map.
@@ -2052,7 +2112,9 @@ func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool,
 			return
 		}
 		for _, entry := range entries {
-			if entry.KeyName == "tools" {
+			// Exact namespace-less match: :custom/tools is a different key
+			// and must not count as tool exposure.
+			if strings.TrimSpace(entry.KeyToken) == ":tools" {
 				if !collectToolsStepsVectorIDs(src, entry, ids) {
 					*allKnown = false
 				}
@@ -2098,7 +2160,8 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 		return false
 	}
 	for _, entry := range entries {
-		if entry.KeyName != "steps" {
+		// Exact namespace-less match: :custom/steps is a different key.
+		if strings.TrimSpace(entry.KeyToken) != ":steps" {
 			continue
 		}
 		stepsStart, ok := unwrapSingleReaderQuote(src, entry.ValueStart)

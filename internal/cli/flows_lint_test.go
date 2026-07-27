@@ -2990,6 +2990,8 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "typed four elements with vector config warns", form: `(flow/step :http :fetch [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with empty list config warns", form: `(flow/step :http :fetch ())`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "packaged three elements with nil config warns", form: `(flow/step :tools/declared nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "packaged explicit id with nil config warns", form: `(flow/step :tools/declared :run nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "packaged explicit id with vector config warns", form: `(flow/step :tools/declared :run [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "packaged three elements with vector config warns", form: `(flow/step :tools/declared [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		// Two elements are invalid for both shapes regardless of what the
 		// first argument resolves to, so the dynamic form still warns.
@@ -3723,4 +3725,73 @@ func TestFlowsLintLocalOnlyDiscardChainThroughArithmeticPinsSurvivor(t *testing.
 		t.Fatalf("the surviving form must still get its real arity error\n%s", output)
 	}
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainInVectorConsumesReference(t *testing.T) {
+	// The vector parser strips discard prefixes into FormStart/Start; the
+	// walker recovers the chain debt, so a discarded packaged call inside a
+	// vector is NOT recorded as a reference — an undeclared id there must not
+	// produce a missing-reference error.
+	flowLiteral := `{:slug :discard-chain-vector-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do [#_ #_ :old (flow/step :tools/missing {})]
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("a chain-consumed vector reference must not error: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainInVectorDoesNotCountAsUsage(t *testing.T) {
+	// Codex's example: the discarded call is not recorded as usage. Its
+	// flow/step TOKEN still trips the token-count mismatch, so the
+	// unreferenced warning is suppressed (the accepted direction) rather
+	// than firing or being satisfied by a phantom reference.
+	flowLiteral := `{:slug :discard-chain-vector-usage
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do [#_ #_ :old (flow/step :tools/orphan {})]
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("discarded vector usage must lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step", "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyNamespacedToolsKeysDoNotCountAsExposure(t *testing.T) {
+	// :custom/tools and :custom/steps are different keys: they must not
+	// suppress the unreferenced warning for a genuinely dead step.
+	for _, tools := range []string{
+		`:custom/tools {:steps [:tools/orphan]}`,
+		`:tools {:custom/steps [:tools/orphan]}`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :namespaced-tools-keys
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :agents [{:id :review/helper :description "Helper" %s}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`, tools)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("%s must lint clean (warning only): %v\n%s", tools, err, output)
+		}
+		diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+		if got, _ := diag["severity"].(string); got != "warning" {
+			t.Fatalf("%s: expected the dead step to warn, got %#v", tools, diag)
+		}
+	}
 }
