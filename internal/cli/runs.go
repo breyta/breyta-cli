@@ -931,7 +931,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				if full {
 					annotateFullRunInspectOutput(out, workflowID)
 				} else {
-					compactRunInspectOutput(out, workflowID)
+					compactRunInspectOutput(out, workflowID, effectiveInstallationID)
 				}
 				reconcileRunResponseWithTerminalEvents(apiClient(app), out, workflowID, effectiveInstallationID)
 			}
@@ -965,7 +965,7 @@ func annotateFullRunInspectOutput(out map[string]any, workflowID string) {
 	appendMetaNextCommands(meta, "breyta resources workflow list "+workflowID)
 }
 
-func compactRunInspectOutput(out map[string]any, workflowID string) {
+func compactRunInspectOutput(out map[string]any, workflowID string, installationID string) {
 	data := mapStringAny(out["data"])
 	run := mapStringAny(data["run"])
 	if run == nil {
@@ -1002,7 +1002,17 @@ func compactRunInspectOutput(out map[string]any, workflowID string) {
 	meta["compactInspect"] = true
 	meta["stepsTotal"] = len(steps)
 	if _, ok := meta["hint"]; !ok {
-		meta["hint"] = "Run inspection is compact. Use --full only for full payloads."
+		showID := strings.TrimSpace(workflowID)
+		if showID == "" {
+			showID = "<workflow-id>"
+		}
+		showCmd := "breyta runs show " + showID + " --include-result"
+		// Installation-scoped runs only resolve with --installation-id, so the
+		// suggested command must carry it to be directly runnable.
+		if id := strings.TrimSpace(installationID); id != "" {
+			showCmd += " --installation-id " + id
+		}
+		meta["hint"] = "Run inspection is compact. Use `" + showCmd + "` for the full run result, or --full for full step payloads too."
 	}
 }
 

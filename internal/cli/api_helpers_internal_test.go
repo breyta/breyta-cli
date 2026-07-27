@@ -694,3 +694,160 @@ func TestAddWaitRunNextCommands_InstallationScopedHintIsRunnable(t *testing.T) {
 		}
 	})
 }
+
+func TestAddWaitRunNextCommands_SuggestsRunsShowIncludeResultForResultPreview(t *testing.T) {
+	t.Run("resultPreview present puts runs show --include-result first", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": map[string]any{"truncated": true, "data": map[string]any{"rows": 3}},
+		}}}
+		addWaitRunNextCommands(out, "wf-done", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result" {
+			t.Fatalf("expected runs show --include-result as the first next command, got %#v", cmds)
+		}
+	})
+
+	t.Run("installation id is threaded into the runs show hint", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":         "completed",
+			"installationId": "prof-consumer",
+			"resultPreview":  map[string]any{"data": "..."},
+		}}}
+		addWaitRunNextCommands(out, "wf-done", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result --installation-id prof-consumer" {
+			t.Fatalf("expected installation-scoped runs show hint first, got %#v", cmds)
+		}
+	})
+
+	t.Run("no resultPreview keeps the hint out", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{"status": "completed"}}}
+		addWaitRunNextCommands(out, "wf-empty", "")
+		for _, c := range waitRunNextCommands(t, out) {
+			if strings.Contains(c, "--include-result") {
+				t.Fatalf("did not expect an --include-result hint without a resultPreview, got %#v", c)
+			}
+		}
+	})
+
+	t.Run("nil resultPreview keeps the hint out", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": nil,
+		}}}
+		addWaitRunNextCommands(out, "wf-nil", "")
+		for _, c := range waitRunNextCommands(t, out) {
+			if strings.Contains(c, "--include-result") {
+				t.Fatalf("did not expect an --include-result hint for a nil resultPreview, got %#v", c)
+			}
+		}
+	})
+}
+
+func TestAddWaitRunNextCommands_RunsShowHintIsPrependedAndDeduped(t *testing.T) {
+	out := map[string]any{
+		"meta": map[string]any{"nextCommands": []any{
+			"breyta flows show my-flow",
+			"breyta runs show wf-done --include-result",
+		}},
+		"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": map[string]any{"data": "..."},
+		}},
+	}
+	addWaitRunNextCommands(out, "wf-done", "")
+	cmds := waitRunNextCommands(t, out)
+	if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result" {
+		t.Fatalf("runs show hint must be first even with pre-existing nextCommands, got %#v", cmds)
+	}
+	count := 0
+	for _, c := range cmds {
+		if c == "breyta runs show wf-done --include-result" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("runs show hint must be deduplicated, got %#v", cmds)
+	}
+	if !containsString(cmds, "breyta flows show my-flow") {
+		t.Fatalf("pre-existing nextCommands must be preserved, got %#v", cmds)
+	}
+}
+
+func TestAddWaitRunNextCommands_KebabCaseResultPreviewAlsoFires(t *testing.T) {
+	// Legacy/compat snapshots spell the key result-preview; the runs show
+	// hint must fire for that spelling exactly like the camelCase one.
+	out := map[string]any{"data": map[string]any{"run": map[string]any{
+		"status":         "completed",
+		"result-preview": map[string]any{"data": map[string]any{"rows": 1}},
+	}}}
+	addWaitRunNextCommands(out, "wf-kebab", "")
+	cmds := waitRunNextCommands(t, out)
+	if len(cmds) == 0 || cmds[0] != "breyta runs show wf-kebab --include-result" {
+		t.Fatalf("expected runs show hint for kebab-case resultPreview, got %#v", cmds)
+	}
+
+	// A nil kebab-case value still keeps the hint out.
+	out = map[string]any{"data": map[string]any{"run": map[string]any{
+		"status":         "completed",
+		"result-preview": nil,
+	}}}
+	addWaitRunNextCommands(out, "wf-kebab-nil", "")
+	for _, c := range waitRunNextCommands(t, out) {
+		if strings.Contains(c, "--include-result") {
+			t.Fatalf("did not expect an --include-result hint for a nil result-preview, got %#v", c)
+		}
+	}
+}
+
+func TestAddWaitRunNextCommands_LegacyInstallationAndOutputPreviewAliases(t *testing.T) {
+	t.Run("kebab-case installation id scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":          "completed",
+			"installation-id": "prof-legacy",
+			"resultPreview":   map[string]any{"data": "..."},
+		}}}
+		addWaitRunNextCommands(out, "wf-legacy", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-legacy --include-result --installation-id prof-legacy" {
+			t.Fatalf("expected kebab installation id to scope the runs show hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("profileId alias scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":    "completed",
+			"profileId": "prof-alias",
+		}}}
+		addWaitRunNextCommands(out, "wf-alias", "")
+		if cmds := waitRunNextCommands(t, out); !containsString(cmds, "breyta runs inspect wf-alias --installation-id prof-alias") {
+			t.Fatalf("expected profileId alias to scope the inspect hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("data-level installationId scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{
+			"installationId": "prof-data",
+			"run":            map[string]any{"status": "completed"},
+		}}
+		addWaitRunNextCommands(out, "wf-data", "")
+		if cmds := waitRunNextCommands(t, out); !containsString(cmds, "breyta runs inspect wf-data --installation-id prof-data") {
+			t.Fatalf("expected data-level installation id to scope the inspect hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("legacy outputPreview keys trigger the runs show hint", func(t *testing.T) {
+		for _, key := range []string{"outputPreview", "output-preview"} {
+			out := map[string]any{"data": map[string]any{"run": map[string]any{
+				"status": "completed",
+				key:      map[string]any{"data": "..."},
+			}}}
+			addWaitRunNextCommands(out, "wf-output", "")
+			cmds := waitRunNextCommands(t, out)
+			if len(cmds) == 0 || cmds[0] != "breyta runs show wf-output --include-result" {
+				t.Fatalf("expected %s to trigger the runs show hint, got %#v", key, cmds)
+			}
+		}
+	})
+}
