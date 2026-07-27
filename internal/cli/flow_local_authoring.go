@@ -936,7 +936,7 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slug, stepID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
 			if !localStepIDValid(stepID) {
-				return writeErr(cmd, fmt.Errorf("invalid step id %q", stepID))
+				return writeErr(cmd, fmt.Errorf("invalid packaged step id %q (flows steps run only probes qualified top-level :steps ids such as tools/fetch; for a named flow-local :function, :code, or bound :llm step use `breyta flows run-step %s %s --target draft --input '{...}' --wait`)", stepID, slug, stepID))
 			}
 			if strings.TrimSpace(stepFile) == "" {
 				return writeErr(cmd, errors.New("update requires --step-file; edit the flow body with compose"))
@@ -1059,7 +1059,7 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slug, stepID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
 			if !localStepIDValid(stepID) {
-				return writeErr(cmd, fmt.Errorf("invalid step id %q", stepID))
+				return writeErr(cmd, fmt.Errorf("invalid packaged step id %q (flows steps run only probes qualified top-level :steps ids such as tools/fetch; for a named flow-local :function, :code, or bound :llm step use `breyta flows run-step %s %s --target draft --input '{...}' --wait`)", stepID, slug, stepID))
 			}
 			path, source, err := readLocalFlowSource(slug, flowFile)
 			if err != nil {

@@ -731,6 +731,13 @@ This is designed for fast iteration while authoring: provide an explicit step ty
 step id, and step params; the server executes the step using the same runtime
 dispatcher as normal flows.
 
+This is a lower-level primitive/config probe, even when --flow/--source are
+provided for templates or context. It does not select a named step from the
+flow body or automatically apply that step's input wiring. For named inline
+function/code steps or LLM steps using draft-bound connection slots, prefer:
+
+  breyta flows run-step <flow> <step-id> --target draft --input '{...}' --wait
+
 The request waits up to 15 minutes by default. Use --timeout for a different
 bound when probing a slow LLM or other remote provider. For a flow-local template,
 pass --flow <slug> --source draft and put its variables under data, for example:

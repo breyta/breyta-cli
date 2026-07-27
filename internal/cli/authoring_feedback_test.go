@@ -80,6 +80,30 @@ func TestLocalStepRunCommandsDefaultToFlowWaitTimeout(t *testing.T) {
 	}
 }
 
+func TestFlowsStepsRunRoutesInlineStepIDsToRunStep(t *testing.T) {
+	cmd := newFlowsStepsLocalRunCmd(&App{})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"pitch-studio", "build-copy-request"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected unqualified packaged-step id rejection")
+	}
+	if got := out.String(); !strings.Contains(got, "flows run-step pitch-studio build-copy-request") ||
+		!strings.Contains(got, "bound :llm") {
+		t.Fatalf("missing canonical inline-step guidance:\n%s", got)
+	}
+}
+
+func TestFlowRunStepHelpExplainsCanonicalDraftProbe(t *testing.T) {
+	help := newFlowsRunStepCmd(&App{}).Long
+	for _, want := range []string{"canonical authoring-time probe", "draft-bound connection slots", "do not wrap it"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("run-step help missing %q:\n%s", want, help)
+		}
+	}
+}
+
 func TestFlowsStepsCreatePushFailureReportsPersistedLocalStep(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 	path := filepath.Join(t.TempDir(), "order-sync.clj")
