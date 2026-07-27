@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,6 +53,13 @@ func TestFlowsInitSeedsInvocationInputs(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("initialized source missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestLocalInvocationInputsRejectDuplicateNames(t *testing.T) {
+	if _, err := localInvocationInputsLiteral([]string{"site-url:text", "site-url:textarea"}); err == nil ||
+		!strings.Contains(err.Error(), "duplicate invocation input name") {
+		t.Fatalf("expected duplicate input rejection, got %v", err)
 	}
 }
 
@@ -106,12 +114,30 @@ func TestFlowsStepsCreatePushFailureReportsPersistedLocalStep(t *testing.T) {
 	if !strings.Contains(firstNonBlankString(meta["hint"]), "step saved locally") {
 		t.Fatalf("expected explicit saved-local hint, got %#v", meta)
 	}
+	hint := firstNonBlankString(meta["hint"])
+	if strings.Contains(hint, "<step-file>") || !strings.Contains(hint, path) {
+		t.Fatalf("expected recovery command to preserve the saved path without placeholders: %q", hint)
+	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(source), ":id :tools/fetch") {
 		t.Fatalf("rejected step was not retained locally:\n%s", source)
+	}
+}
+
+func TestSavedRunTransportFailureRequiresReconciliation(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	err := writeSavedLocalAuthoringFailure(cmd, &App{}, nil, 0, errors.New("timeout"),
+		"/tmp/custom flow.clj", "orders", "tools/send", "run", "stable-key")
+	if err == nil || !strings.Contains(err.Error(), "Reconcile before retrying") ||
+		!strings.Contains(err.Error(), "--idempotency-key") ||
+		strings.Contains(err.Error(), "server rejected") {
+		t.Fatalf("expected ambiguity-safe recovery guidance, got %v", err)
 	}
 }
 

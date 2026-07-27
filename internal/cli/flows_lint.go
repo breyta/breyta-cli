@@ -19,6 +19,7 @@ type flowLintDiagnostic map[string]any
 var (
 	flowLintWorkspaceIDRe    = regexp.MustCompile(`\bws-[A-Za-z0-9_-]+\b`)
 	flowLintUnboundedRangeRe = regexp.MustCompile(`\(\s*range\s*\)`)
+	flowLintFlowQuoteRe      = regexp.MustCompile(`:flow\s*$`)
 	flowLintInvocationTypes  = map[string]bool{
 		"string": true, "text": true, "number": true, "email": true, "password": true,
 		"textarea": true, "boolean": true, "checkbox": true, "select": true,
@@ -1396,8 +1397,10 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		declared[normalizedStepID] = true
 		declaredPackaged[normalizedStepID] = true
 		if entries, _, parseErr := parseClojureMapEntries(src, span.Start); parseErr == nil {
-			_, hasDefaults := mapEntryByKey(entries, "defaults")
-			_, hasPrepare := mapEntryByKey(entries, "prepare")
+			defaults, hasDefaults := mapEntryByKey(entries, "defaults")
+			prepare, hasPrepare := mapEntryByKey(entries, "prepare")
+			hasDefaults = hasDefaults && !clojureFormIsNil(src, defaults.ValueStart)
+			hasPrepare = hasPrepare && !clojureFormIsNil(src, prepare.ValueStart)
 			if !hasDefaults && !hasPrepare {
 				diagnostics = append(diagnostics, lintDiagnostic(
 					"warning",
@@ -1444,7 +1447,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		diagnostics = append(diagnostics, diag)
 	}
 	for stepID := range declaredPackaged {
-		if referenced[stepID] {
+		if referenced[stepID] || clojureEntryContainsQualifiedID(src, agentsEntry, stepID) {
 			continue
 		}
 		diagnostics = append(diagnostics, lintDiagnostic(
@@ -1457,6 +1460,15 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		))
 	}
 	return diagnostics
+}
+
+func clojureEntryContainsQualifiedID(src string, entry clojureMapEntry, id string) bool {
+	if entry.ValueEnd <= entry.ValueStart {
+		return false
+	}
+	value := src[entry.ValueStart:entry.ValueEnd]
+	pattern := regexp.MustCompile(`(^|[\s\[\]{}()'"])` + regexp.QuoteMeta(":"+id) + `($|[\s\[\]{}()'"])`)
+	return pattern.MatchString(value)
 }
 
 func localDeclaredQualifiedIDs(src string, entry clojureMapEntry) []string {
@@ -1964,13 +1976,32 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			}
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
-			if err == nil {
+			if err == nil && !clojureListDirectlyQuoted(src, i) {
 				diagnostics = append(diagnostics, localFunctionStepDiagnosticsForList(src, elements, i, allowBareInput, pulledLegacyInputSteps)...)
 			}
 		}
 		i++
 	}
 	return diagnostics
+}
+
+func clojureListDirectlyQuoted(src string, listStart int) bool {
+	for i := listStart - 1; i >= 0; i-- {
+		switch src[i] {
+		case ' ', '\t', '\r', '\n', ',':
+			continue
+		default:
+			if src[i] != '\'' {
+				return false
+			}
+			// The flow DSL convention quotes the top-level :flow form, but
+			// nested quotes represent literal data and must not be linted as
+			// executable calls.
+			prefix := src[:i]
+			return !flowLintFlowQuoteRe.MatchString(prefix)
+		}
+	}
+	return false
 }
 
 func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan, listStart int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {

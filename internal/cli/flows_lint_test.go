@@ -122,6 +122,40 @@ func TestFlowsLintLocalOnlyReportsUnreferencedAndConfiglessPackagedStep(t *testi
 		"packaged_step_missing_executable_config")
 }
 
+func TestFlowsLintLocalOnlyTreatsNilPackagedConfigAsMissing(t *testing.T) {
+	flowLiteral := `{:slug :nil-config-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/unused :type :http :description "Unused" :defaults nil :prepare nil}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warnings should not fail lint: %v\n%s", err, output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "packaged_step_missing_executable_config")
+}
+
+func TestFlowsLintLocalOnlyAcceptsPackagedStepExposedByAgent(t *testing.T) {
+	flowLiteral := `{:slug :agent-tool-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/search :type :http :description "Search"
+          :defaults {:method :get :url "https://example.com"}}]
+ :agents [{:id :agents/researcher :description "Research" :tools [:tools/search]}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("agent tool exposure should lint: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
 func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
 	flowLiteral := `{:slug :over-arity-step
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -137,6 +171,22 @@ func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
 		t.Fatalf("expected over-arity packaged step lint error\n%s", output)
 	}
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyIgnoresQuotedOverArityStepData(t *testing.T) {
+	flowLiteral := `{:slug :quoted-over-arity
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example '(flow/step :http :example {} {:extra true})] example)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted data should not fail lint: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
 func TestFlowsLintLocalOnlyAcceptsDeclaredAgentReference(t *testing.T) {

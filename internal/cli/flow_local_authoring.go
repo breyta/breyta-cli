@@ -691,19 +691,24 @@ func writeLocalAuthoringResult(cmd *cobra.Command, app *App, path string, pushed
 	return writeData(cmd, app, nil, result)
 }
 
-func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[string]any, status int, err error, path, slug, stepID, operation string) error {
+func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[string]any, status int, err error, path, slug, stepID, operation, idempotencyKey string) error {
 	path = strings.TrimSpace(path)
 	slug = strings.TrimSpace(slug)
 	stepID = strings.TrimSpace(stepID)
-	retry := "breyta flows steps update " + slug + " " + stepID + " --step-file <step-file>"
+	retry := "breyta flows push --file " + shellQuotePath(path)
 	if operation == "push" {
-		retry += " --push"
+		// The persisted flow file is the source of truth; no placeholder step
+		// file should be advertised after a create/init failure.
 	} else {
-		retry += " --run"
+		retry = "breyta flows steps run " + slug + " " + stepID + " --flow-file " + shellQuotePath(path)
 	}
 	message := fmt.Sprintf("step saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", path, operation, retry)
 	if err != nil {
-		return writeErr(cmd, fmt.Errorf("%s: %w", message, err))
+		reconcile := fmt.Sprintf("step saved locally to %s; the %s request ended before a definitive server response. Reconcile before retrying to avoid duplicate side effects", path, operation)
+		if key := strings.TrimSpace(idempotencyKey); key != "" {
+			reconcile += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
+		}
+		return writeErr(cmd, fmt.Errorf("%s: %w", reconcile, err))
 	}
 	if out == nil {
 		return writeErr(cmd, errors.New(message))
@@ -766,7 +771,13 @@ func localInvocationInputsLiteral(specs []string) (string, error) {
 		return "[]", nil
 	}
 	items := make([]string, 0, len(specs))
+	seen := make(map[string]bool, len(specs))
 	for _, spec := range specs {
+		name := strings.TrimPrefix(strings.TrimSpace(strings.SplitN(spec, ":", 2)[0]), ":")
+		if seen[name] {
+			return "", fmt.Errorf("duplicate invocation input name %q", name)
+		}
+		seen[name] = true
 		item, err := localInvocationInputLiteral(spec)
 		if err != nil {
 			return "", err
@@ -843,10 +854,10 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 			if push {
 				remote, remoteStatus, err = pushLocalFlowLiteral(cmd, app, path, updated)
 				if err != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, err, path, slug, stepID, "push")
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, err, path, slug, stepID, "push", "")
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push")
+					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
 				}
 			}
 			extra := map[string]any{"flowSlug": slug, "stepId": stepID}
@@ -857,10 +868,10 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				}
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, params, idempotencyKey, profileID, timeout)
 				if runErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run")
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
 				}
 				if runStatus >= 400 || !isOK(runOut) {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run")
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
@@ -1433,13 +1444,13 @@ Examples:
 				remote, remoteStatus, pushErr = pushLocalFlowLiteral(cmd, app, path, literal)
 				if pushErr != nil {
 					if stepID != "" {
-						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, pushErr, path, slug, stepID, "push")
+						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, pushErr, path, slug, stepID, "push", "")
 					}
 					return writeErr(cmd, fmt.Errorf("flow saved locally to %s; server rejected push: %w", path, pushErr))
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
 					if stepID != "" {
-						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push")
+						return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
 					}
 					meta := ensureMeta(remote)
 					if meta != nil {
@@ -1462,10 +1473,10 @@ Examples:
 				}
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, params, idempotencyKey, profileID, timeout)
 				if runErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run")
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
 				}
 				if runStatus >= 400 || !isOK(runOut) {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run")
+					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
