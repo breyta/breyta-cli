@@ -633,14 +633,14 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 
 func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, stepID string, params map[string]any, idempotencyKey, profileID string, timeout time.Duration) (map[string]any, int, error) {
 	if err := requireAPI(app); err != nil {
-		return nil, 0, err
+		return nil, 0, localAuthoringPreRequestError{err}
 	}
 	if timeout <= 0 {
-		return nil, 0, errors.New("--timeout must be > 0")
+		return nil, 0, localAuthoringPreRequestError{errors.New("--timeout must be > 0")}
 	}
 	expanded, err := expandFlowSourceIncludes(sourcePath, source)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, localAuthoringPreRequestError{err}
 	}
 	payload := map[string]any{
 		"flowSlug":    strings.TrimSpace(slug),
@@ -656,6 +656,13 @@ func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, st
 	}
 	return runAPICommandWithContextAndTimeout(cmd.Context(), app, "steps.run", payload, timeout)
 }
+
+type localAuthoringPreRequestError struct {
+	err error
+}
+
+func (e localAuthoringPreRequestError) Error() string { return e.err.Error() }
+func (e localAuthoringPreRequestError) Unwrap() error { return e.err }
 
 func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any, status int) error {
 	if status < 400 && isOK(out) {
@@ -715,6 +722,11 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 		subject = "flow"
 	}
 	message := fmt.Sprintf("%s saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", subject, path, operation, retry)
+	var preRequestErr localAuthoringPreRequestError
+	if errors.As(err, &preRequestErr) {
+		return writeErr(cmd, fmt.Errorf("%s saved locally to %s; the %s request was not sent: %w",
+			subject, path, operation, preRequestErr.err))
+	}
 	if err != nil || status >= 500 {
 		reconcile := fmt.Sprintf("%s saved locally to %s; the %s request ended before a definitive server response.", subject, path, operation)
 		if operation == "run" {

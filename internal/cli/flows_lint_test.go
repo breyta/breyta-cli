@@ -269,6 +269,29 @@ func TestFlowsLintIgnoresReaderDiscardedStepArguments(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintExpandsReaderConditionalSplicesForStepArity(t *testing.T) {
+	for name, splice := range map[string]string{
+		"over-arity":  "#?@(:clj [{} {}] :cljs [])",
+		"under-arity": "#?@(:clj [] :cljs [{}])",
+	} {
+		t.Run(name, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :spliced-step-arguments
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch %s)}
+`, splice)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err == nil {
+				t.Fatalf("expected reader-spliced arity diagnostic\n%s", output)
+			}
+			requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+		})
+	}
+}
+
 func TestFlowsLintLocalOnlyRejectsInvocationInputWithoutType(t *testing.T) {
 	flowLiteral := `{:slug :missing-input-type
  :concurrency {:type :singleton :on-new-version :coexist}

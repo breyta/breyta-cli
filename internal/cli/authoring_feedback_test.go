@@ -198,6 +198,17 @@ func TestSavedRunNilServerFailureDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestSavedRunPreRequestFailureIsNotReportedAsAmbiguous(t *testing.T) {
+	cmd := &cobra.Command{}
+	err := writeSavedLocalAuthoringFailure(cmd, &App{}, nil, 0,
+		localAuthoringPreRequestError{errors.New("--timeout must be > 0")},
+		"/tmp/flow.clj", "orders", "tools/send", "run", "")
+	if err == nil || !strings.Contains(err.Error(), "request was not sent") ||
+		strings.Contains(err.Error(), "Reconcile") {
+		t.Fatalf("expected definitive local failure guidance, got %v", err)
+	}
+}
+
 func TestSavedInitPushFailureOmitsStepRunWithoutSeededStep(t *testing.T) {
 	cmd := &cobra.Command{}
 	apiOut := map[string]any{

@@ -2203,6 +2203,15 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		}
 	}
 	elements = activeElements
+	effectiveElementCount := len(elements)
+	for _, element := range elements {
+		form := strings.TrimSpace(src[element.Start:element.End])
+		if strings.HasPrefix(form, "#?@") {
+			if count, err := readerConditionalSpliceFormCount(src, element.Start); err == nil {
+				effectiveElementCount += count - 1
+			}
+		}
+	}
 	if len(elements) == 0 || clojureFormToken(src, elements[0]) != "flow/step" {
 		return nil
 	}
@@ -2212,7 +2221,7 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 	stepType := clojureFormToken(src, elements[1])
 	qualifiedPackagedStep := strings.Contains(strings.TrimPrefix(stepType, ":"), "/")
 	if stepType != ":function" && stepType != ":code" &&
-		(len(elements) > 4 || (len(elements) < 4 && !qualifiedPackagedStep)) {
+		(effectiveElementCount > 4 || (effectiveElementCount < 4 && !qualifiedPackagedStep)) {
 		stepID := "<missing>"
 		if len(elements) >= 3 {
 			if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {
