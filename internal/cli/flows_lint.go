@@ -1330,13 +1330,18 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth, enclosed)
 		}
 		if strings.HasPrefix(src[i:], "#{") {
-			elements, _, err := parseClojureSetElements(src, i)
+			elements, setEnd, err := parseClojureSetElements(src, i)
 			if err != nil {
 				return nil, err
 			}
+			// The element parsers splice #?@ branches flat, losing the
+			// enclosing marker on the spliced spans (FormStart == Start).
+			// Crude, over-suppressing recovery: if the raw container text has
+			// a reader conditional anywhere, treat every element as enclosed.
+			childEnclosed := enclosed || strings.Contains(src[i:setEnd], "#?")
 			var references []localFlowStepReference
 			for _, element := range elements {
-				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, childEnclosed)
 				if err != nil {
 					return references, err
 				}
@@ -1348,13 +1353,17 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 	case '(':
 		return localFlowStepReferencesInListAtDepth(src, i, baseOffset, syntaxQuoteDepth, enclosed)
 	case '[':
-		elements, _, err := parseClojureVectorElements(src, i)
+		elements, vecEnd, err := parseClojureVectorElements(src, i)
 		if err != nil {
 			return nil, err
 		}
+		// Same crude recovery as the set case: spliced #?@ branches lose the
+		// enclosing marker, so any reader conditional in the raw vector text
+		// marks every element enclosed.
+		childEnclosed := enclosed || strings.Contains(src[i:vecEnd], "#?")
 		var references []localFlowStepReference
 		for _, element := range elements {
-			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
+			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, childEnclosed)
 			if err != nil {
 				return references, err
 			}
@@ -1535,6 +1544,15 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	// accepts such flows — and the tools scan deliberately over-suppresses
 	// (see localToolsExposedStepIDs). An opaque :tools value anywhere makes
 	// the exposure set unknowable, so the warning is suppressed entirely.
+	// The same over-suppression applies to DYNAMIC calls: a flow/step whose
+	// first argument is not a literal keyword — (flow/step kind {}) — could
+	// invoke any packaged step at runtime, so the usage set is unknowable and
+	// the warning is suppressed for the whole flow.
+	for _, reference := range references {
+		if reference.ElementCount >= 2 && !reference.FirstArgKeyword {
+			return diagnostics
+		}
+	}
 	toolsExposed, toolsKnown := localToolsExposedStepIDs(src)
 	if !toolsKnown {
 		return diagnostics
@@ -1625,6 +1643,12 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 		// must have near-zero false positives and reader semantics belong to
 		// the server.
 		if !reference.Plain {
+			continue
+		}
+		// A non-keyword FIRST argument — (flow/step kind {config}) — could
+		// resolve to any packaged or typed call at runtime; the shape is
+		// unknowable, so bail from all shape diagnostics for the form.
+		if reference.ElementCount >= 2 && !reference.FirstArgKeyword {
 			continue
 		}
 		packaged := reference.StepID != ""

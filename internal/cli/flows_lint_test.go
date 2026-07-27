@@ -2986,6 +2986,10 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// bail, even though the form's own elements look plain.
 		{name: "enclosing metadata bails", form: `^:audited (flow/step :http :fetch)`},
 		{name: "enclosing reader conditional bails", form: `#?(:clj (flow/step :http :fetch))`},
+		{name: "spliced reader conditional in vector bails", form: `[#?@(:clj [(flow/step :http :fetch)])]`},
+		// A non-keyword first argument could resolve to any packaged or typed
+		// call at runtime; the shape is unknowable, so no diagnostics.
+		{name: "dynamic first argument bails", form: `(flow/step kind {})`},
 	}
 	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
 	for _, tc := range cases {
@@ -3173,4 +3177,29 @@ func TestFlowsLintLocalOnlyMarksWholeVectorIncludeSteps(t *testing.T) {
 	if got, _ := diag["message"].(string); !strings.Contains(got, "#flow/include") {
 		t.Fatalf("whole-vector include warning must name include provenance, got %#v", diag)
 	}
+}
+
+func TestFlowsLintLocalOnlySuppressesUnreferencedWarningForDynamicCalls(t *testing.T) {
+	// A flow/step call whose first argument is not a literal keyword could
+	// invoke ANY packaged step at runtime — the usage set is unknowable, so
+	// the unreferenced warning is suppressed for the whole flow.
+	flowLiteral := `{:slug :dynamic-call-usage
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [kind :tools/declared]
+          (flow/step kind {}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("dynamic flow/step call should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
+		"unreferenced_packaged_step",
+		"flow_step_missing_step_id",
+		"flow_step_missing_config",
+		"flow_step_arity_invalid",
+		"flow_step_packaged_extra_argument")
 }
