@@ -1428,12 +1428,18 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 			reference.SecondArgMap = clojureFormStartsWith(src, elements[2].Start, '{')
 			if start, ok := clojureActiveFormStart(src, elements[2].Start); ok && start < len(src) {
 				switch c := src[start]; {
-				case c == '{' || c == '[' || c == '"':
+				case c == '{' || c == '[' || c == '"' || c == '\\':
+					// Map, vector, string, or character literal.
 					reference.SecondArgNeverStepID = true
 				case c >= '0' && c <= '9':
 					reference.SecondArgNeverStepID = true
 				case (c == '-' || c == '+') && start+1 < len(src) && src[start+1] >= '0' && src[start+1] <= '9':
 					reference.SecondArgNeverStepID = true
+				default:
+					switch clojureFormToken(src, elements[2]) {
+					case "nil", "true", "false":
+						reference.SecondArgNeverStepID = true
+					}
 				}
 			}
 		}
@@ -1470,7 +1476,7 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	var spans []clojureFormSpan
 	if stepsEntry.ValueEnd > stepsEntry.ValueStart {
 		var err error
-		spans, err = localFlowStepVector(src, stepsEntry)
+		spans, err = localLintStepDefinitionSpans(src, stepsEntry)
 		if err != nil {
 			return []flowLintDiagnostic{lintDiagnostic(
 				"warning",
@@ -1602,6 +1608,81 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	return diagnostics
 }
 
+// activeClojureSpans filters reader-discarded forms out of RAW element spans:
+// #_ consumes the NEXT produced object and consecutive discards chain, so a
+// span like `#_ #_ A` also swallows the following span. Spans must come from
+// a raw tokenizer (readClojureFormEnd) that keeps discard prefixes visible.
+func activeClojureSpans(src string, spans []clojureFormSpan) []clojureFormSpan {
+	active := make([]clojureFormSpan, 0, len(spans))
+	pendingDiscards := 0
+	for _, span := range spans {
+		if pendingDiscards > 0 {
+			pendingDiscards--
+			continue
+		}
+		markers := 0
+		j := span.Start
+		for j+1 < span.End && j+1 < len(src) && src[j] == '#' && src[j+1] == '_' {
+			markers++
+			j = skipClojureWhitespaceCommaAndComments(src, j+2)
+		}
+		if markers > 0 {
+			pendingDiscards = markers - 1
+			continue
+		}
+		active = append(active, span)
+	}
+	return active
+}
+
+// rawClojureVectorSpans tokenizes a vector's elements WITHOUT stripping reader
+// prefixes, so reader-discard chains stay visible to activeClojureSpans.
+func rawClojureVectorSpans(src string, start int) ([]clojureFormSpan, error) {
+	i, ok := clojureActiveFormStart(src, start)
+	if !ok || i >= len(src) || src[i] != '[' {
+		return nil, fmt.Errorf("expected vector near byte %d", start)
+	}
+	i++
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return nil, fmt.Errorf("unterminated vector")
+		}
+		if src[i] == ']' {
+			return out, nil
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			if err == nil {
+				err = fmt.Errorf("could not read vector element near byte %d", i)
+			}
+			return nil, err
+		}
+		out = append(out, clojureFormSpan{Start: i, End: end})
+		i = end
+	}
+	return nil, fmt.Errorf("unterminated vector")
+}
+
+// localLintStepDefinitionSpans returns the ACTIVE packaged-step definition
+// spans of the :steps vector: raw tokenization plus the reader-discard chain
+// rule, so a definition consumed by a #_ #_ chain is not treated as declared.
+func localLintStepDefinitionSpans(src string, stepsEntry clojureMapEntry) ([]clojureFormSpan, error) {
+	value := strings.TrimSpace(src[stepsEntry.ValueStart:stepsEntry.ValueEnd])
+	if value == "nil" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(value, "[") {
+		return nil, fmt.Errorf("top-level :steps must be a vector or nil")
+	}
+	spans, err := rawClojureVectorSpans(src, stepsEntry.ValueStart)
+	if err != nil {
+		return nil, err
+	}
+	return activeClojureSpans(src, spans), nil
+}
+
 // localFlowBodyExecutableSource extracts the executable :flow body source the
 // same way the reference walker does (top-level reader conditional and quote
 // unwrapped).
@@ -1718,18 +1799,24 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 		if !reference.Plain {
 			continue
 		}
+		// More than four elements is invalid for BOTH the packaged and the
+		// typed shape regardless of what any argument resolves to, so this
+		// count-based, value-independent check fires before the dynamic-type
+		// bail below.
+		if reference.ElementCount > 4 {
+			appendDiag(reference, "error", "flow_step_arity_invalid",
+				"flow/step expects exactly three arguments: step type, step id, and config map.",
+				"Merge extra arguments into the single config map.")
+			continue
+		}
 		// A non-keyword FIRST argument — (flow/step kind {config}) — could
 		// resolve to any packaged or typed call at runtime; the shape is
-		// unknowable, so bail from all shape diagnostics for the form.
+		// unknowable, so bail from all remaining shape diagnostics.
 		if reference.ElementCount >= 2 && !reference.FirstArgKeyword {
 			continue
 		}
 		packaged := reference.StepID != ""
 		switch {
-		case reference.ElementCount > 4:
-			appendDiag(reference, "error", "flow_step_arity_invalid",
-				"flow/step expects exactly three arguments: step type, step id, and config map.",
-				"Merge extra arguments into the single config map.")
 		case reference.ElementCount == 3 && reference.FirstArgKeyword && reference.SecondArgKeyword:
 			// (flow/step :type :id) with no config: the server rejects this at
 			// push with config "should be a map". A packaged (flow/step :ns/id

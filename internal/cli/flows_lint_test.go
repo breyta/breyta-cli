@@ -2981,6 +2981,7 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// A symbol second argument COULD evaluate to the legal keyword step
 		// id at runtime, so the form is ambiguous and gets no warning.
 		{name: "packaged four elements with symbol second arg is ambiguous", form: `(flow/step :tools/declared step-id cfg)`},
+		{name: "packaged four elements with nil second arg warns extra argument", form: `(flow/step :tools/declared nil cfg)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
@@ -2996,6 +2997,10 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// A non-keyword first argument could resolve to any packaged or typed
 		// call at runtime; the shape is unknowable, so no diagnostics.
 		{name: "dynamic first argument bails", form: `(flow/step kind {})`},
+		{name: "dynamic first argument with legal arity stays clean", form: `(flow/step kind :run {})`},
+		// More than four elements is invalid regardless of what the first
+		// argument resolves to, so the count-based check still fires.
+		{name: "dynamic first argument with five elements errors", form: `(flow/step kind :run {} extra)`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 	}
 	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
 	for _, tc := range cases {
@@ -3290,4 +3295,42 @@ func TestFlowsLintLocalOnlyOmitsShapeDiagnosticOffsetsForIncludeBearingFlows(t *
 	if _, ok := diag["byteOffset"]; ok {
 		t.Fatalf("include-bearing flows must omit shape-diagnostic byte offsets, got %#v", diag)
 	}
+}
+
+func TestFlowsLintLocalOnlyChainedDiscardsInStepsVectorConsumeDefinitions(t *testing.T) {
+	// #_ #_ before two step maps discards BOTH definitions: referencing the
+	// second one from the body must report it as missing, not declared.
+	flowLiteral := `{:slug :discarded-step-definitions
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#_ #_ {:id :tools/old :type :function :description "Old"}
+              {:id :tools/also :type :function :description "Also"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/also :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("a definition consumed by a discard chain must not count as declared\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlySingleDiscardInStepsVectorKeepsNextDefinition(t *testing.T) {
+	// A single #_ discards only the next definition; the one after stays
+	// declared.
+	flowLiteral := `{:slug :single-discard-step-definition
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#_ {:id :tools/old :type :function :description "Old"}
+             {:id :tools/kept :type :function :description "Kept"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/kept :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("the definition after a single discard stays declared: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "unreferenced_packaged_step")
 }
