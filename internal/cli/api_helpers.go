@@ -629,12 +629,7 @@ func waitRunResultPreviewTruncated(out map[string]any) bool {
 }
 
 func installationIDFromWaitRunSnapshot(out map[string]any) string {
-	data := mapStringAny(out["data"])
-	run := mapStringAny(data["run"])
-	if run == nil {
-		return ""
-	}
-	return strings.TrimSpace(firstNonBlankString(run["installationId"]))
+	return strings.TrimSpace(installationIDFromRunData(mapStringAny(out["data"])))
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {

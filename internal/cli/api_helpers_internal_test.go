@@ -680,6 +680,18 @@ func TestAddWaitRunNextCommands_InstallationScopedHintIsRunnable(t *testing.T) {
 		}
 	})
 
+	t.Run("legacy profile alias falls back from the run snapshot", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":     "completed",
+			"profile-id": "prof-consumer",
+		}}}
+		addWaitRunNextCommands(out, "wf-linked", "")
+		cmds := waitRunNextCommands(t, out)
+		if !containsString(cmds, "breyta runs inspect wf-linked --installation-id prof-consumer") {
+			t.Fatalf("expected inspect hint to use legacy profile alias, got %#v", cmds)
+		}
+	})
+
 	t.Run("workspace-owned runs keep the plain inspect hint", func(t *testing.T) {
 		out := map[string]any{"data": map[string]any{"run": map[string]any{"status": "completed"}}}
 		addWaitRunNextCommands(out, "wf-local", "")
