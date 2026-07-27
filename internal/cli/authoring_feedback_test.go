@@ -21,7 +21,7 @@ func TestLocalStepScaffoldIncludesExecutableDefaults(t *testing.T) {
 	}{
 		{"http", []string{":defaults", ":method :get", `:url "https://example.com"`}},
 		{"function", []string{":defaults", ":code '(fn [input] input)"}},
-		{"llm", []string{":defaults", ":connection :ai", `:model "gpt-5.6-terra"`, ":prompt"}},
+		{"llm", []string{":defaults", ":connection :ai", `:model "gpt-5.4"`, ":prompt"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.stepType, func(t *testing.T) {
@@ -157,6 +157,35 @@ func TestSavedRunServerFailureRequiresReconciliation(t *testing.T) {
 	}
 	if hint := firstNonBlankString(mapStringAny(apiOut["meta"])["hint"]); !strings.Contains(hint, "Reconcile before retrying") {
 		t.Fatalf("expected ambiguity-safe 5xx hint, got %q", hint)
+	}
+}
+
+func TestSavedRunNilServerFailureDoesNotPanic(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	err := writeSavedLocalAuthoringFailure(cmd, &App{}, nil, 500, nil,
+		"/tmp/flow.clj", "orders", "tools/send", "run", "stable-key")
+	if err == nil || !strings.Contains(err.Error(), "Reconcile before retrying") {
+		t.Fatalf("expected safe nil-envelope failure, got %v", err)
+	}
+}
+
+func TestSavedRunRecoveryPreservesChangedFlags(t *testing.T) {
+	cmd := newFlowsStepsLocalCreateCmd(&App{})
+	_ = cmd.Flags().Set("params", `{"orderId":"123"}`)
+	_ = cmd.Flags().Set("profile-id", "profile-1")
+	_ = cmd.Flags().Set("idempotency-key", "stable-key")
+	_ = cmd.Flags().Set("timeout", "20m")
+	apiOut := map[string]any{"ok": false, "error": map[string]any{"message": "invalid"}}
+	_ = writeSavedLocalAuthoringFailure(cmd, &App{}, apiOut, 400, nil,
+		"/tmp/custom flow.clj", "orders", "tools/send", "run", "stable-key")
+	hint := firstNonBlankString(mapStringAny(apiOut["meta"])["hint"])
+	for _, want := range []string{"--profile-id", "profile-1", "--params", "orderId", "--idempotency-key", "stable-key", "--timeout", "20m"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("recovery hint missing %q: %s", want, hint)
+		}
 	}
 }
 

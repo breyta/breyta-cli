@@ -156,6 +156,23 @@ func TestFlowsLintLocalOnlyAcceptsPackagedStepExposedByAgent(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
 }
 
+func TestFlowsLintDoesNotTreatAgentDescriptionAsToolExposure(t *testing.T) {
+	flowLiteral := `{:slug :agent-description
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/search :type :http :description "Search" :defaults {}}]
+ :agents [{:id :agents/researcher :description "Does not use :tools/search" :tools []}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warnings should not fail lint: %v\n%s", err, output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
 func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
 	flowLiteral := `{:slug :over-arity-step
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -224,6 +241,29 @@ func TestFlowsLintLocalOnlyIgnoresNamedAndSyntaxQuoteStepData(t *testing.T) {
 				t.Fatalf("quoted data should not fail lint: %v\n%s", err, output)
 			}
 			rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+		})
+	}
+}
+
+func TestFlowsLintInspectsTopLevelExplicitQuoteAndSyntaxUnquote(t *testing.T) {
+	for name, flowSource := range map[string]string{
+		"explicit-flow-quote": "(quote (flow/step :http :example {} {:extra true}))",
+		"syntax-unquote":      "'(let [x `(payload ~(flow/step :http :example {} {:extra true}))] x)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :executable-quote
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow %s}
+`, flowSource)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err == nil {
+				t.Fatalf("expected executable over-arity diagnostic\n%s", output)
+			}
+			requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 		})
 	}
 }

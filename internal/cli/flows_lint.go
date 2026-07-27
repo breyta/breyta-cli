@@ -1396,8 +1396,10 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		}
 		normalizedStepID := strings.TrimPrefix(strings.TrimSpace(stepID), ":")
 		declared[normalizedStepID] = true
-		declaredPackaged[normalizedStepID] = true
-		declaredPackagedOrder = append(declaredPackagedOrder, normalizedStepID)
+		if !declaredPackaged[normalizedStepID] {
+			declaredPackaged[normalizedStepID] = true
+			declaredPackagedOrder = append(declaredPackagedOrder, normalizedStepID)
+		}
 		if entries, _, parseErr := parseClojureMapEntries(src, span.Start); parseErr == nil {
 			defaults, hasDefaults := mapEntryByKey(entries, "defaults")
 			prepare, hasPrepare := mapEntryByKey(entries, "prepare")
@@ -1449,7 +1451,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		diagnostics = append(diagnostics, diag)
 	}
 	for _, stepID := range declaredPackagedOrder {
-		if referenced[stepID] || clojureEntryContainsQualifiedID(src, agentsEntry, stepID) {
+		if referenced[stepID] || localAgentToolsReferenceStep(src, agentsEntry, stepID) {
 			continue
 		}
 		diagnostics = append(diagnostics, lintDiagnostic(
@@ -1464,13 +1466,26 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 	return diagnostics
 }
 
-func clojureEntryContainsQualifiedID(src string, entry clojureMapEntry, id string) bool {
-	if entry.ValueEnd <= entry.ValueStart {
+func localAgentToolsReferenceStep(src string, agentsEntry clojureMapEntry, id string) bool {
+	if agentsEntry.ValueEnd <= agentsEntry.ValueStart {
 		return false
 	}
-	value := src[entry.ValueStart:entry.ValueEnd]
+	spans, _, err := parseClojureVectorElements(src, agentsEntry.ValueStart)
+	if err != nil {
+		return false
+	}
 	pattern := regexp.MustCompile(`(^|[\s\[\]{}()'"])` + regexp.QuoteMeta(":"+id) + `($|[\s\[\]{}()'"])`)
-	return pattern.MatchString(value)
+	for _, span := range spans {
+		entries, _, parseErr := parseClojureMapEntries(src, span.Start)
+		if parseErr != nil {
+			continue
+		}
+		if tools, ok := mapEntryByKey(entries, "tools"); ok &&
+			pattern.MatchString(src[tools.ValueStart:tools.ValueEnd]) {
+			return true
+		}
+	}
+	return false
 }
 
 func localDeclaredQualifiedIDs(src string, entry clojureMapEntry) []string {
@@ -1984,6 +1999,9 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			}
 		case '`':
 			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				diagnostics = append(diagnostics,
+					localFunctionStepShapeDiagnosticsInSyntaxUnquotes(
+						src, i+1, next, allowBareInput, pulledLegacyInputSteps)...)
 				i = next
 				continue
 			}
@@ -1992,7 +2010,11 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			if err == nil && len(elements) > 0 {
 				head := clojureFormToken(src, elements[0])
 				if head == "quote" || head == "clojure.core/quote" {
-					if next, readErr := readClojureFormEnd(src, i); readErr == nil && next > i {
+					if !flowLintFlowQuoteRe.MatchString(src[:i]) {
+						next, readErr := readClojureFormEnd(src, i)
+						if readErr != nil || next <= i {
+							break
+						}
 						i = next
 						continue
 					}
@@ -2009,6 +2031,35 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 			}
 		}
 		i++
+	}
+	return diagnostics
+}
+
+func localFunctionStepShapeDiagnosticsInSyntaxUnquotes(src string, start, end int, allowBareInput bool, pulledLegacyInputSteps map[string]bool) []flowLintDiagnostic {
+	var diagnostics []flowLintDiagnostic
+	for i := start; i < end; i++ {
+		switch src[i] {
+		case '"':
+			_, _, next, err := readClojureStringToken(src, i)
+			if err == nil && next > i {
+				i = next - 1
+			}
+		case ';':
+			i = readCommentEnd(src, i) - 1
+		case '~':
+			formStart := i + 1
+			if formStart < end && src[formStart] == '@' {
+				formStart++
+			}
+			formStart = skipClojureWhitespaceCommaAndComments(src, formStart)
+			formEnd, err := readClojureFormEnd(src, formStart)
+			if err == nil && formEnd > formStart && formEnd <= end {
+				diagnostics = append(diagnostics,
+					localFunctionStepShapeDiagnosticsInRange(
+						src, formStart, formEnd, allowBareInput, pulledLegacyInputSteps)...)
+				i = formEnd - 1
+			}
+		}
 	}
 	return diagnostics
 }

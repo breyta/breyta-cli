@@ -701,6 +701,14 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 		// file should be advertised after a create/init failure.
 	} else {
 		retry = "breyta flows steps run " + slug + " " + stepID + " --flow-file " + shellQuotePath(path)
+		for _, flag := range []string{"profile-id", "params", "params-file", "idempotency-key", "timeout"} {
+			if cmd != nil && cmd.Flags().Changed(flag) {
+				value := cmd.Flags().Lookup(flag).Value.String()
+				if strings.TrimSpace(value) != "" {
+					retry += " --" + flag + " " + shellQuotePath(value)
+				}
+			}
+		}
 	}
 	message := fmt.Sprintf("step saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", path, operation, retry)
 	if err != nil || status >= 500 {
@@ -710,6 +718,9 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 		}
 		if err != nil {
 			return writeErr(cmd, fmt.Errorf("%s: %w", reconcile, err))
+		}
+		if out == nil {
+			return writeErr(cmd, errors.New(reconcile))
 		}
 		meta := ensureMeta(out)
 		meta["saved"] = true
@@ -738,7 +749,7 @@ func localStepScaffold(stepID, stepType, description string) string {
 	case "function":
 		defaults = "\n  :defaults {:code '(fn [input] input)}"
 	case "llm":
-		defaults = "\n  :defaults {:connection :ai\n             :model \"gpt-5.6-terra\"\n             :prompt \"Replace with the step prompt.\"}"
+		defaults = "\n  :defaults {:connection :ai\n             :model \"gpt-5.4\"\n             :prompt \"Replace with the step prompt.\"}"
 	}
 	return fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]%s}", stepID, stepType, description, defaults)
 }
@@ -1463,8 +1474,9 @@ Examples:
 					if meta != nil {
 						meta["saved"] = true
 						meta["path"] = path
-						meta["hint"] = fmt.Sprintf("flow saved locally to %s; server rejected push. Fix the source and rerun `breyta flows push --file %s`.", path, path)
-						appendMetaNextCommands(meta, "breyta flows push --file "+path)
+						quotedPath := shellQuotePath(path)
+						meta["hint"] = fmt.Sprintf("flow saved locally to %s; server rejected push. Fix the source and rerun `breyta flows push --file %s`.", path, quotedPath)
+						appendMetaNextCommands(meta, "breyta flows push --file "+quotedPath)
 					}
 					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
