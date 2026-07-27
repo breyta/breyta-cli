@@ -249,7 +249,7 @@ The same timeout rule applies to `flows run-step`, installed runs, and Buyer
 Test runs: `ok=true` with `timedOut=true` means the run is still pending, not
 that the smoke proof completed.
 
-`breyta steps run` waits up to five minutes by default. For a slow flow-local
+`breyta steps run` waits up to 15 minutes by default. For a slow flow-local
 template/data probe, pass an explicit longer timeout, for example:
 
 ```bash

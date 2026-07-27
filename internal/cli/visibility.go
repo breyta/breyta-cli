@@ -59,28 +59,43 @@ func configureVisibility(root *cobra.Command, app *App) {
 	allowFlows := map[string]bool{
 		"list":          true,
 		"search":        true,
+		"grep":          true,
 		"show":          true,
 		"create":        true,
+		"init":          true,
 		"configure":     true,
 		"diff":          true,
 		"pull":          true,
 		"push":          true,
 		"update":        true,
 		"validate":      true,
+		"lint":          true,
+		"paren-check":   true,
+		"compose":       true,
+		"steps":         true,
+		"schedules":     true,
+		"templates":     true,
+		"interfaces":    true,
+		"import":        true,
+		"versions":      true,
+		"readiness":     true,
+		"release-check": true,
 		"release":       true,
 		"promote":       true,
 		"run":           true,
+		"run-step":      true,
 		"archive":       true,
 		"delete":        true,
 		"installations": true,
 		"marketplace":   true,
+		"discover":      true,
 		"public":        true,
 	}
 	for _, sc := range flowsCmd.Commands() {
 		if !allowFlows[sc.Name()] {
 			sc.Hidden = true
 		}
-		// Hide nested trees like "steps", "versions" entirely.
+		// Keep unnamed commands hidden.
 		if strings.TrimSpace(sc.Name()) == "" {
 			sc.Hidden = true
 		}
