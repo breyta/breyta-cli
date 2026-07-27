@@ -159,7 +159,8 @@ func TestSavedRunTransportFailureRequiresReconciliation(t *testing.T) {
 	cmd.SetErr(&out)
 	err := writeSavedLocalAuthoringFailure(cmd, &App{}, nil, 0, errors.New("timeout"),
 		"/tmp/custom flow.clj", "orders", "tools/send", "run", "stable-key")
-	if err == nil || !strings.Contains(err.Error(), "Reconcile before retrying") ||
+	if err == nil || !strings.Contains(err.Error(), "Reconcile the execution") ||
+		!strings.Contains(err.Error(), "breyta runs list") ||
 		!strings.Contains(err.Error(), "--idempotency-key") ||
 		strings.Contains(err.Error(), "server rejected") {
 		t.Fatalf("expected ambiguity-safe recovery guidance, got %v", err)
@@ -180,7 +181,7 @@ func TestSavedRunServerFailureRequiresReconciliation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected server failure")
 	}
-	if hint := firstNonBlankString(mapStringAny(apiOut["meta"])["hint"]); !strings.Contains(hint, "Reconcile before retrying") {
+	if hint := firstNonBlankString(mapStringAny(apiOut["meta"])["hint"]); !strings.Contains(hint, "Reconcile the execution") {
 		t.Fatalf("expected ambiguity-safe 5xx hint, got %q", hint)
 	}
 }
@@ -192,7 +193,7 @@ func TestSavedRunNilServerFailureDoesNotPanic(t *testing.T) {
 	cmd.SetErr(&out)
 	err := writeSavedLocalAuthoringFailure(cmd, &App{}, nil, 500, nil,
 		"/tmp/flow.clj", "orders", "tools/send", "run", "stable-key")
-	if err == nil || !strings.Contains(err.Error(), "Reconcile before retrying") {
+	if err == nil || !strings.Contains(err.Error(), "Reconcile the execution") {
 		t.Fatalf("expected safe nil-envelope failure, got %v", err)
 	}
 }

@@ -716,7 +716,12 @@ func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[strin
 	}
 	message := fmt.Sprintf("%s saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", subject, path, operation, retry)
 	if err != nil || status >= 500 {
-		reconcile := fmt.Sprintf("%s saved locally to %s; the %s request ended before a definitive server response. Reconcile before retrying to avoid duplicate side effects with `breyta flows show %s --target draft` or `breyta flows validate %s`", subject, path, operation, slug, slug)
+		reconcile := fmt.Sprintf("%s saved locally to %s; the %s request ended before a definitive server response.", subject, path, operation)
+		if operation == "run" {
+			reconcile += fmt.Sprintf(" Reconcile the execution and any external effect before retrying to avoid duplicates; inspect recent runs with `breyta runs list --query %s --limit 10`", shellQuotePath("flow:"+slug))
+		} else {
+			reconcile += fmt.Sprintf(" Reconcile before retrying with `breyta flows show %s --target draft` or `breyta flows validate %s`", slug, slug)
+		}
 		if key := strings.TrimSpace(idempotencyKey); key != "" {
 			reconcile += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
 		}
