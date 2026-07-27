@@ -1782,6 +1782,15 @@ func localInvocationInputsDiagnostics(src string, invocationToken string, inputs
 					"local",
 				))
 			}
+		} else {
+			diagnostics = append(diagnostics, lintDiagnostic(
+				"error",
+				"missing_invocation_input_type",
+				append(path, ":type"),
+				"Invocation input is missing required :type.",
+				"Add a supported type such as :text, :string, :number, :boolean, :json, :file, :resource, or :secret.",
+				"local",
+			))
 		}
 	}
 	return diagnostics

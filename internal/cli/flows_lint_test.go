@@ -237,6 +237,22 @@ func TestFlowsLintLocalOnlyRejectsUnderArityBuiltInStepCall(t *testing.T) {
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintLocalOnlyRejectsInvocationInputWithoutType(t *testing.T) {
+	flowLiteral := `{:slug :missing-input-type
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs [{:name :query :label "Query"}]}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing invocation input type lint error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_invocation_input_type")
+}
+
 func TestFlowsLintLocalOnlyAllowsTwoArgumentPackagedStepCall(t *testing.T) {
 	flowLiteral := `{:slug :packaged-step
  :concurrency {:type :singleton :on-new-version :coexist}
