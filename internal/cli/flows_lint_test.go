@@ -2994,6 +2994,16 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// first argument resolves to, so the dynamic form still warns.
 		{name: "dynamic two element form warns", form: `(flow/step kind)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
+		// String literal CONTENTS are blanked before the plain scan, so a #
+		// inside a URL no longer hides a real arity error...
+		{name: "url fragment in config stays plain and errors", form: `(flow/step :http :fetch {:url "https://example.com/#part"} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
+		// ...while a regex literal still reads as non-plain via its # PREFIX
+		// outside the string and bails.
+		{name: "regex config stays non-plain and bails", form: `(flow/step :http :fetch {:pattern #"x"} {:extra true})`},
+		// Fixed non-keyword literals in the type position can never be a
+		// valid step type or packaged id.
+		{name: "nil type warns invalid type", form: `(flow/step nil :fetch {})`, wantCode: "flow_step_invalid_type", wantSeverity: "warning"},
+		{name: "vector type warns invalid type", form: `(flow/step [] :fetch {})`, wantCode: "flow_step_invalid_type", wantSeverity: "warning"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
 		{name: "reader conditional bails", form: `(flow/step #?@(:clj [:http :fetch]) {})`},
@@ -3013,7 +3023,7 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// argument resolves to, so the count-based check still fires.
 		{name: "dynamic first argument with five elements errors", form: `(flow/step kind :run {} extra)`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 	}
-	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
+	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid", "flow_step_invalid_type"}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := fmt.Sprintf(`{:slug :shape-matrix
@@ -3478,4 +3488,45 @@ func TestFlowsLintLocalOnlyDiscardChainInToolsVectorMarksOpaque(t *testing.T) {
 		t.Fatalf("discard chain in tools vector must suppress, not fail: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyDiscardTokenInsideStringDoesNotSuppress(t *testing.T) {
+	// "#_" inside a step description is string content, not a reader discard:
+	// the declared set stays knowable and the missing-reference error still
+	// fires for an undeclared step.
+	flowLiteral := `{:slug :discard-token-in-string
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "uses #_ in prose"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/missing :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected missing packaged step error despite #_ in a string\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyFlowStepTokenInsideStringDoesNotSuppress(t *testing.T) {
+	// "flow/step" inside a string literal is content, not an invocation: the
+	// token counter ignores it, so the unreferenced warning still fires.
+	flowLiteral := `{:slug :token-in-string
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [note "see the flow/step docs"]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warning-severity diagnostics must not fail lint: %v\n%s", err, output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+	if got, _ := diag["severity"].(string); got != "warning" {
+		t.Fatalf("expected warning severity, got %#v", diag)
+	}
 }
