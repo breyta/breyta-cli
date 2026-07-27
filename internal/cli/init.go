@@ -323,7 +323,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - Treat ` + "`ok=true`" + ` with ` + "`meta.timedOut=true`" + ` or ` + "`data.wait.timedOut=true`" + ` as still in progress, not as completed proof; inspect the workflow or rerun with a longer ` + "`--timeout`" + `.
 - When a whole-flow proof could trigger unsafe downstream side effects, verify one existing step with ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + `.
 - For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
-- ` + "`breyta steps run`" + ` waits up to five minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 10m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 10m`" + `.
+- ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.
 - Release/promote only after draft proof, explicit sign-off, and a release note.
@@ -413,6 +413,7 @@ Advanced ideas:
   - ` + "`breyta flows templates search \"<problem or integration query>\" --limit 5`" + `
   - approved template copy-first: when a hit closely matches, run ` + "`breyta flows templates duplicate <template-slug>`" + `, prove the copied draft, then edit
   - existing data lookup: use ` + "`breyta resources search \"<query>\" --limit 5`" + ` (or ` + "`--keyword-mode balanced`" + ` for natural-language questions over small resource sets) and ` + "`breyta resources read <resource-uri> --limit 5`" + ` for one selected resource
+  - installable public apps: search with ` + "`breyta flows discover search \"<outcome>\" --limit 5`" + `; inspect one hit's full public listing with ` + "`breyta flows discover show <workspace-id>/<flow-slug>`" + ` (works across workspaces; ` + "`breyta flows show`" + ` cannot open flows in workspaces you are not a member of)
   - use primitive snippets and referenced dependencies before a full template
   - inspect one full template only when architecture-level reuse is needed
   - compare the touched surface against the closest local or approved template example before changing structure
@@ -428,7 +429,7 @@ Advanced ideas:
 - ` + "`breyta flows push --file ...`" + ` waits up to two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, check ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 - When a provider/model or primitive change only needs one existing step, use ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + ` to avoid triggering downstream flow side effects.
 - For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
-- ` + "`breyta steps run`" + ` waits up to five minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 10m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 10m`" + `.
+- ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows run <slug> --input-file ./input.json`" + ` or ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + ` instead of inline ` + "`--input '{...}'`" + ` when per-run payloads may hit shell or OS argument limits.
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound

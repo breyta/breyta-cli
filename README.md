@@ -94,12 +94,18 @@ use:
 ```bash
 breyta discover list
 breyta discover search "<idea>"
+breyta discover show <workspace-id>/<flow-slug>
 ```
 
 Discover list/search excludes flows owned by the current workspace by default
 because it shows what this workspace can install. Add `--include-own` only when
 debugging whether your own public flow is indexed; verify buyer/install behavior
 from another workspace.
+
+To evaluate one hit in depth, use `breyta discover show` with the hit's
+workspace-id/flow-slug pair — it returns the full public listing (publish copy,
+pricing, connections, versions) and works across workspaces. `breyta flows show`
+cannot inspect flows in workspaces you are not a member of.
 
 Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
 when a flow should move onto or off marketplace, Discover, and public app-page
@@ -256,14 +262,14 @@ The same timeout rule applies to `flows run-step`, installed runs, and Buyer
 Test runs: `ok=true` with `timedOut=true` means the run is still pending, not
 that the smoke proof completed.
 
-`breyta steps run` waits up to five minutes by default. For a slow flow-local
+`breyta steps run` waits up to 15 minutes by default. For a slow flow-local
 template/data probe, pass an explicit longer timeout, for example:
 
 ```bash
 breyta steps run --flow update-blog-post --source draft --type llm \
   --id refresh-blog-post \
   --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' \
-  --timeout 10m
+  --timeout 30m
 ```
 
 A timeout may mean the server-side step continued; reconcile any external

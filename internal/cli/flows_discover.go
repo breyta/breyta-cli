@@ -22,6 +22,8 @@ func newDiscoverCmdWithPath(app *App, commandPath string) *cobra.Command {
 		Long: `Public discover is the catalog of installable public flows shown in the web app discover surface.
 
 Use ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + ` to browse installables.
+Use ` + "`" + commandPath + " show <workspace-id>/<flow-slug>`" + ` to inspect one public app's full listing
+(publish copy, pricing, connections, versions); it works across workspaces, unlike ` + "`breyta flows show`" + `.
 Use ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + ` to change all public surfaces together.
 Use ` + "`" + commandPath + " update <slug> --public=true|false`" + ` only when you need to control the Discover flag directly.
 Add ` + "`--include-own`" + ` to list/search only when debugging whether your own public flow is indexed.
@@ -39,7 +41,77 @@ copy from. Approved examples are not the same thing as public installables.`,
 	}
 	cmd.AddCommand(newFlowsDiscoverListCmd(app))
 	cmd.AddCommand(newFlowsDiscoverSearchCmd(app))
+	cmd.AddCommand(newFlowsDiscoverShowCmdWithPath(app, commandPath))
 	cmd.AddCommand(newFlowsDiscoverUpdateCmd(app, commandPath))
+	return cmd
+}
+
+// splitDiscoverAppRef splits "<workspace-id>/<flow-slug>", "<workspace-id>:<flow-slug>",
+// or the catalog id "<workspace-id>__<flow-slug>" into its parts. Slash wins
+// because it is the one separator forbidden inside workspace ids, so
+// path-style refs stay unambiguous even when the id contains ":" or "__".
+func splitDiscoverAppRef(ref string) (string, string, bool) {
+	ref = strings.TrimSpace(ref)
+	for _, sep := range []string{"/", ":", "__"} {
+		if idx := strings.Index(ref, sep); idx > 0 {
+			ws := strings.TrimSpace(ref[:idx])
+			slug := strings.TrimSpace(ref[idx+len(sep):])
+			if ws != "" && slug != "" {
+				return ws, slug, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func newFlowsDiscoverShowCmd(app *App) *cobra.Command {
+	return newFlowsDiscoverShowCmdWithPath(app, "breyta flows discover")
+}
+
+func newFlowsDiscoverShowCmdWithPath(app *App, commandPath string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show <workspace-id>/<flow-slug>",
+		Short: "Show the full public listing for one installable public app",
+		Long: `Show the full public Discover listing for one installable public app:
+publish copy, pricing, connections, versions, install counts, and ratings.
+
+This works across workspaces because it reads only public catalog data.
+Use it to evaluate a hit from ` + "`" + commandPath + " search`" + ` in depth;
+` + "`breyta flows show`" + ` cannot inspect flows in workspaces you are not a
+member of and fails with access denied.
+
+The app ref accepts the id shown in Discover hits ("<workspace-id>:<flow-slug>"),
+"<workspace-id>/<flow-slug>", or two separate arguments.`,
+		Example: strings.TrimSpace(`
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS/lead-research
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS:lead-research
+` + commandPath + ` show BN2zoJYkBlO1DlDwQJoS lead-research
+`),
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isAPIMode(app) {
+				return writeErr(cmd, discoverRequiresAPIModeError(cmd))
+			}
+			var workspaceID, flowSlug string
+			if len(args) == 2 {
+				workspaceID = strings.TrimSpace(args[0])
+				flowSlug = strings.TrimSpace(args[1])
+			} else {
+				var ok bool
+				workspaceID, flowSlug, ok = splitDiscoverAppRef(args[0])
+				if !ok {
+					return writeErr(cmd, errors.New("app ref must be <workspace-id>/<flow-slug> (or <workspace-id>:<flow-slug> from a Discover hit)"))
+				}
+			}
+			if workspaceID == "" || flowSlug == "" {
+				return writeErr(cmd, errors.New("app ref must include both workspace id and flow slug"))
+			}
+			return doAPICommand(cmd, app, "flows.discover.get", map[string]any{
+				"sourceWorkspaceId": workspaceID,
+				"flowSlug":          flowSlug,
+			})
+		},
+	}
 	return cmd
 }
 
