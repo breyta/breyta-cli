@@ -2971,7 +2971,10 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "typed three elements with config map warns missing step id", form: `(flow/step :http {:url "https://example.com"})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "two elements warning", form: `(flow/step :llm)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "one element warning", form: `(flow/step)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
-		{name: "packaged four elements extra argument warning", form: `(flow/step :tools/declared cfg extra)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
+		{name: "packaged four elements with literal second arg warns extra argument", form: `(flow/step :tools/declared {:n 1} extra)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
+		// A symbol second argument COULD evaluate to the legal keyword step
+		// id at runtime, so the form is ambiguous and gets no warning.
+		{name: "packaged four elements with symbol second arg is ambiguous", form: `(flow/step :tools/declared step-id cfg)`},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
@@ -2979,6 +2982,10 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "reader discards bail", form: `(flow/step :http :fetch #_ #_ {:old true} {})`},
 		{name: "metadata bails", form: `(flow/step :http :fetch ^:cache {} {:extra true})`},
 		{name: "unquote splice bails", form: `(flow/step :http :fetch {} ~@extras)`},
+		// Enclosing reader prefixes stripped on the way TO the form also
+		// bail, even though the form's own elements look plain.
+		{name: "enclosing metadata bails", form: `^:audited (flow/step :http :fetch)`},
+		{name: "enclosing reader conditional bails", form: `#?(:clj (flow/step :http :fetch))`},
 	}
 	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
 	for _, tc := range cases {

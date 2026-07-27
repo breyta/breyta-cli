@@ -1199,7 +1199,12 @@ type localFlowStepReference struct {
 	FirstArgKeyword  bool
 	SecondArgKeyword bool
 	SecondArgMap     bool
-	Plain            bool
+	// SecondArgNeverStepID is true when the second argument is a literal that
+	// can never evaluate to a keyword step id: a map, vector, string, or
+	// number. Symbols and call forms COULD evaluate to a keyword at runtime,
+	// so they stay ambiguous and never trigger shape warnings.
+	SecondArgNeverStepID bool
+	Plain                bool
 }
 
 // plainClojureForm reports whether a span's source text is completely free of
@@ -1237,10 +1242,12 @@ func localFlowStepReferences(flowLiteral string) ([]localFlowStepReference, erro
 	baseOffset += readerOffset
 	flowSource, quotedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
 	baseOffset += quotedOffset
-	return localFlowStepReferencesInRange(flowSource, 0, len(flowSource), baseOffset)
+	// The customary top-level quote is not an enclosing reader prefix, but a
+	// top-level reader conditional is: forms below it get no shape diagnostics.
+	return localFlowStepReferencesInRange(flowSource, 0, len(flowSource), baseOffset, readerOffset > 0)
 }
 
-func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]localFlowStepReference, error) {
+func localFlowStepReferencesInRange(src string, start, end, baseOffset int, enclosed bool) ([]localFlowStepReference, error) {
 	var references []localFlowStepReference
 	for i := skipClojureWhitespaceCommaAndComments(src, start); i < end; {
 		formEnd, err := readClojureFormEnd(src, i)
@@ -1250,7 +1257,7 @@ func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]l
 		if formEnd <= i || formEnd > end {
 			return references, fmt.Errorf("could not read flow form near byte %d", i)
 		}
-		found, err := localFlowStepReferencesForForm(src, clojureFormSpan{Start: i, End: formEnd}, baseOffset)
+		found, err := localFlowStepReferencesForForm(src, clojureFormSpan{Start: i, End: formEnd}, baseOffset, enclosed)
 		if err != nil {
 			return references, err
 		}
@@ -1260,11 +1267,22 @@ func localFlowStepReferencesInRange(src string, start, end, baseOffset int) ([]l
 	return references, nil
 }
 
-func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int) ([]localFlowStepReference, error) {
-	return localFlowStepReferencesForFormAtDepth(src, span, baseOffset, 0)
+func localFlowStepReferencesForForm(src string, span clojureFormSpan, baseOffset int, enclosed bool) ([]localFlowStepReference, error) {
+	return localFlowStepReferencesForFormAtDepth(src, span, baseOffset, 0, enclosed)
 }
 
-func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
+// localFlowStepReferencesForFormAtDepth walks one form. enclosed records that
+// a reader prefix (metadata, reader conditional, deref, unquote) was stripped
+// at THIS or ANY ancestor level on the way to the current form; references
+// found below such a prefix are excluded from shape diagnostics (non-plain).
+func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, baseOffset, syntaxQuoteDepth int, enclosed bool) ([]localFlowStepReference, error) {
+	// The vector/set element parsers strip reader prefixes before handing out
+	// spans: FormStart keeps the raw start, Start the active form. When they
+	// differ, a prefix (metadata, reader conditional, discard chain) was
+	// erased on the way to this form — everything below counts as enclosed.
+	if span.FormStart > 0 && span.FormStart < span.Start {
+		enclosed = true
+	}
 	i := skipClojureWhitespaceCommaAndComments(src, span.Start)
 	if i >= span.End || i >= len(src) {
 		return nil, nil
@@ -1280,22 +1298,22 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		if formStart < 0 {
 			return nil, nil
 		}
-		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset, syntaxQuoteDepth)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: formStart, End: formEnd}, baseOffset, syntaxQuoteDepth, true)
 	}
 	if src[i] == '^' {
 		metaEnd, err := readClojureFormEnd(src, i+1)
 		if err != nil || metaEnd >= span.End {
 			return nil, err
 		}
-		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset, syntaxQuoteDepth)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: metaEnd, End: span.End}, baseOffset, syntaxQuoteDepth, true)
 	}
 	switch src[i] {
 	case '\'':
 		return nil, nil
 	case '`':
-		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth+1)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth+1, enclosed)
 	case '@':
-		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: i + 1, End: span.End}, baseOffset, syntaxQuoteDepth, true)
 	case '~':
 		if syntaxQuoteDepth <= 0 {
 			return nil, nil
@@ -1304,12 +1322,12 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		if next < span.End && src[next] == '@' {
 			next++
 		}
-		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: next, End: span.End}, baseOffset, syntaxQuoteDepth-1)
+		return localFlowStepReferencesForFormAtDepth(src, clojureFormSpan{Start: next, End: span.End}, baseOffset, syntaxQuoteDepth-1, true)
 	case '"':
 		return nil, nil
 	case '#':
 		if strings.HasPrefix(src[i:], "#(") {
-			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth)
+			return localFlowStepReferencesInListAtDepth(src, i+1, baseOffset, syntaxQuoteDepth, enclosed)
 		}
 		if strings.HasPrefix(src[i:], "#{") {
 			elements, _, err := parseClojureSetElements(src, i)
@@ -1318,7 +1336,7 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 			}
 			var references []localFlowStepReference
 			for _, element := range elements {
-				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 				if err != nil {
 					return references, err
 				}
@@ -1328,7 +1346,7 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		}
 		return nil, nil
 	case '(':
-		return localFlowStepReferencesInListAtDepth(src, i, baseOffset, syntaxQuoteDepth)
+		return localFlowStepReferencesInListAtDepth(src, i, baseOffset, syntaxQuoteDepth, enclosed)
 	case '[':
 		elements, _, err := parseClojureVectorElements(src, i)
 		if err != nil {
@@ -1336,7 +1354,7 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		}
 		var references []localFlowStepReference
 		for _, element := range elements {
-			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+			found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 			if err != nil {
 				return references, err
 			}
@@ -1351,7 +1369,7 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 		var references []localFlowStepReference
 		for _, entry := range entries {
 			for _, element := range []clojureFormSpan{{Start: entry.KeyStart, End: entry.KeyEnd}, {Start: entry.ValueStart, End: entry.ValueEnd}} {
-				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 				if err != nil {
 					return references, err
 				}
@@ -1364,7 +1382,7 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 	}
 }
 
-func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syntaxQuoteDepth int) ([]localFlowStepReference, error) {
+func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syntaxQuoteDepth int, enclosed bool) ([]localFlowStepReference, error) {
 	elements, _, err := parseClojureListElements(src, listStart)
 	if err != nil {
 		return nil, err
@@ -1377,11 +1395,14 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 	}
 	var references []localFlowStepReference
 	if syntaxQuoteDepth == 0 && len(elements) >= 1 && clojureFormToken(src, elements[0]) == "flow/step" {
-		plain := true
+		// Plain also requires that no enclosing reader prefix (metadata,
+		// reader conditional, deref, unquote) was stripped on the way here:
+		// ^:meta (flow/step ...) or #?(:clj (flow/step ...)) must bail even
+		// though the form's own elements look plain.
+		plain := !enclosed
 		for _, element := range elements {
-			if !plainClojureForm(src, element) {
+			if plain && !plainClojureForm(src, element) {
 				plain = false
-				break
 			}
 		}
 		reference := localFlowStepReference{
@@ -1396,6 +1417,16 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		if len(elements) >= 3 {
 			reference.SecondArgKeyword = clojureFormStartsWith(src, elements[2].Start, ':')
 			reference.SecondArgMap = clojureFormStartsWith(src, elements[2].Start, '{')
+			if start, ok := clojureActiveFormStart(src, elements[2].Start); ok && start < len(src) {
+				switch c := src[start]; {
+				case c == '{' || c == '[' || c == '"':
+					reference.SecondArgNeverStepID = true
+				case c >= '0' && c <= '9':
+					reference.SecondArgNeverStepID = true
+				case (c == '-' || c == '+') && start+1 < len(src) && src[start+1] >= '0' && src[start+1] <= '9':
+					reference.SecondArgNeverStepID = true
+				}
+			}
 		}
 		if len(elements) >= 2 {
 			if stepID, ok := localQualifiedStepIDFromForm(src, elements[1]); ok {
@@ -1411,7 +1442,7 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		references = append(references, reference)
 	}
 	for _, element := range elements {
-		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth)
+		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 		if err != nil {
 			return references, err
 		}
@@ -1610,13 +1641,16 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 			appendDiag(reference, "error", "flow_step_missing_config",
 				"flow/step is missing its config map; the server rejects this form with: config should be a map.",
 				shapeHint)
-		case packaged && reference.ElementCount == 4 && !reference.SecondArgKeyword:
-			// (flow/step :ns/id config extra): the two-argument packaged form
-			// with a stray extra argument. Without a keyword id in the second
-			// position the server's step-call analysis skips the form, so push
-			// accepts it and it fails first at runtime. The keyword-id shape
-			// (flow/step :ns/id :step-id {config}) is the legal typed-style
-			// invocation and stays clean.
+		case packaged && reference.ElementCount == 4 && reference.SecondArgNeverStepID:
+			// (flow/step :ns/id {config} extra): the second argument is a
+			// literal that can never be a keyword step id, so this cannot be
+			// the legal typed-style invocation — it is the two-argument
+			// packaged form with a stray extra argument, which the server's
+			// step-call analysis skips (push accepts it; it fails at runtime).
+			// AMBIGUITY RULE: a symbol or call form in the second position
+			// COULD evaluate to the legal keyword step id at runtime —
+			// (flow/step :ns/id step-id cfg) is syntactically identical to
+			// (flow/step :ns/id cfg extra) — so those forms get no warning.
 			appendDiag(reference, "warning", "flow_step_packaged_extra_argument",
 				"Packaged flow/step takes step id and config map; the extra argument is invalid at runtime.",
 				"Use (flow/step :ns/id {config}), or the typed shape (flow/step :ns/id :step-id {config}) with a keyword step id.")
