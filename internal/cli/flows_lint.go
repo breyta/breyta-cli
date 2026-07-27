@@ -1189,15 +1189,19 @@ func clojureFormToken(src string, span clojureFormSpan) string {
 // TypeToken is the raw token in the type position;
 // FirstArgKeyword/SecondArgKeyword record whether the first/second argument
 // are keyword literals — the fact the server's step-call? analysis keys its
-// push-time validation on.
+// push-time validation on — and SecondArgMap whether the second argument is a
+// map literal. HasReaderConditional marks forms whose arity can change at
+// read time (#? / #?@ among the arguments); shape diagnostics bail on those.
 type localFlowStepReference struct {
-	StepID           string
-	PathID           string
-	TypeToken        string
-	ByteOffset       int
-	ElementCount     int
-	FirstArgKeyword  bool
-	SecondArgKeyword bool
+	StepID               string
+	PathID               string
+	TypeToken            string
+	ByteOffset           int
+	ElementCount         int
+	FirstArgKeyword      bool
+	SecondArgKeyword     bool
+	SecondArgMap         bool
+	HasReaderConditional bool
 }
 
 func localQualifiedStepIDFromForm(src string, span clojureFormSpan) (string, bool) {
@@ -1363,18 +1367,38 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 	var references []localFlowStepReference
 	if syntaxQuoteDepth == 0 && len(elements) >= 1 {
 		// Reader-discarded #_ forms never reach the runtime call, so argument
-		// positions and the arity count must use only active elements.
+		// positions and the arity count must use only active elements. A
+		// discard consumes the NEXT produced object, and consecutive discards
+		// chain: a span like `#_ #_ A` carries two markers around one inner
+		// form and therefore also swallows the following element.
+		hasReaderConditional := false
+		pendingDiscards := 0
 		active := make([]clojureFormSpan, 0, len(elements))
 		for _, element := range elements {
-			if element.Start < len(src) && strings.HasPrefix(src[element.Start:], "#_") {
+			if pendingDiscards > 0 {
+				pendingDiscards--
 				continue
+			}
+			markers := 0
+			j := element.Start
+			for j+1 < element.End && src[j] == '#' && src[j+1] == '_' {
+				markers++
+				j = skipClojureWhitespaceCommaAndComments(src, j+2)
+			}
+			if markers > 0 {
+				pendingDiscards = markers - 1
+				continue
+			}
+			if strings.HasPrefix(src[element.Start:], "#?") {
+				hasReaderConditional = true
 			}
 			active = append(active, element)
 		}
 		if len(active) >= 1 && clojureFormToken(src, active[0]) == "flow/step" {
 			reference := localFlowStepReference{
-				ByteOffset:   baseOffset + active[0].Start,
-				ElementCount: len(active),
+				ByteOffset:           baseOffset + active[0].Start,
+				ElementCount:         len(active),
+				HasReaderConditional: hasReaderConditional,
 			}
 			if len(active) >= 2 {
 				reference.FirstArgKeyword = clojureFormStartsWith(src, active[1].Start, ':')
@@ -1382,6 +1406,7 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 			}
 			if len(active) >= 3 {
 				reference.SecondArgKeyword = clojureFormStartsWith(src, active[2].Start, ':')
+				reference.SecondArgMap = clojureFormStartsWith(src, active[2].Start, '{')
 			}
 			if len(active) >= 2 {
 				if stepID, ok := localQualifiedStepIDFromForm(src, active[1]); ok {
@@ -1525,7 +1550,14 @@ func localStepDefinedViaInclude(expandedSrc, rootSrc, stepID string) bool {
 		return false
 	}
 	_, _, index, err := localStepSpansForID(rootSrc, stepID)
-	return err == nil && index < 0
+	if err != nil {
+		// The root :steps value could not be resolved as a vector — for
+		// example the ENTIRE value is a tagged include
+		// (:steps #flow/include "steps.edn"). Includes exist (the sources
+		// differ), so never claim the step is root-defined.
+		return true
+	}
+	return index < 0
 }
 
 // localFlowStepArityDiagnostics flags every EXECUTABLE flow/step form whose
@@ -1564,6 +1596,12 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 		if reference.TypeToken == ":function" || reference.TypeToken == ":code" {
 			continue
 		}
+		// Reader conditionals (#? / #?@) change arity at read time; bail
+		// rather than guess — a lint diagnostic must have near-zero false
+		// positives, so exotic reader syntax is skipped entirely.
+		if reference.HasReaderConditional {
+			continue
+		}
 		packaged := reference.StepID != ""
 		switch {
 		case reference.ElementCount > 4:
@@ -1588,12 +1626,17 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 			appendDiag(reference, "warning", "flow_step_packaged_extra_argument",
 				"Packaged flow/step takes step id and config map; the extra argument is invalid at runtime.",
 				"Use (flow/step :ns/id {config}), or the typed shape (flow/step :ns/id :step-id {config}) with a keyword step id.")
+		case reference.ElementCount == 3 && !packaged && reference.SecondArgMap:
+			// (flow/step :type {config}): the config map is present — the
+			// missing piece is the step id. The server's step-call analysis
+			// skips the form (no keyword id), so warning severity.
+			appendDiag(reference, "warning", "flow_step_missing_step_id",
+				"flow/step is missing its step id: typed forms take type, id, and config.",
+				shapeHint)
 		case reference.ElementCount <= 2 || (reference.ElementCount == 3 && !packaged):
 			// Under-specified shapes the server's step-call analysis skips
 			// (push accepts them as plain expressions; they fail at runtime):
-			// (flow/step), (flow/step :llm), (flow/step :ns/id), and
-			// (flow/step :llm {config}). A three-element non-packaged form
-			// with a non-keyword second argument is missing its step id.
+			// (flow/step), (flow/step :llm), and (flow/step :ns/id).
 			// Packaged three-element forms with an expression config are
 			// legal and stay clean.
 			appendDiag(reference, "warning", "flow_step_missing_config",
@@ -1713,7 +1756,8 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 }
 
 // skipReaderQuotePrefixes advances past reader quote characters (', `, ~, ~@,
-// @) in front of a form so quote-transparent scanning sees the datum itself.
+// @) and explicit (quote ...) / (clojure.core/quote ...) wrappers in front of
+// a form so quote-transparent scanning sees the datum itself.
 func skipReaderQuotePrefixes(src string, start int) (int, bool) {
 	i, ok := clojureActiveFormStart(src, start)
 	for ok && i < len(src) {
@@ -1726,6 +1770,15 @@ func skipReaderQuotePrefixes(src string, start int) (int, bool) {
 				next++
 			}
 			i, ok = clojureActiveFormStart(src, next)
+		case '(':
+			elements := parseListSpans(src, i)
+			if len(elements) >= 2 {
+				if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
+					i, ok = clojureActiveFormStart(src, elements[1].Start)
+					continue
+				}
+			}
+			return i, ok
 		default:
 			return i, ok
 		}

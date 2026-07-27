@@ -2968,12 +2968,15 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "packaged three elements clean", form: `(flow/step :tools/declared {})`},
 		{name: "packaged four elements with keyword id clean", form: `(flow/step :tools/declared :run {})`},
 		{name: "typed three elements error", form: `(flow/step :http :fetch)`, wantErr: true, wantCode: "flow_step_missing_config", wantSeverity: "error"},
+		{name: "typed three elements with config map warns missing step id", form: `(flow/step :http {:url "https://example.com"})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "two elements warning", form: `(flow/step :llm)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "one element warning", form: `(flow/step)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "packaged four elements extra argument warning", form: `(flow/step :tools/declared cfg extra)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
+		{name: "reader conditional bails", form: `(flow/step #?@(:clj [:http :fetch]) {})`},
+		{name: "chained discards drop two objects", form: `(flow/step :http :fetch #_ #_ {:old true} {})`, wantErr: true, wantCode: "flow_step_missing_config", wantSeverity: "error"},
 	}
-	allCodes := []string{"flow_step_missing_config", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
+	allCodes := []string{"flow_step_missing_config", "flow_step_missing_step_id", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			flowLiteral := fmt.Sprintf(`{:slug :shape-matrix
@@ -3059,6 +3062,10 @@ func TestFlowsLintLocalOnlyUnwrapsQuotedToolsValues(t *testing.T) {
 	for _, tools := range []string{
 		`:tools '{:steps [:tools/orphan]}`,
 		`:tools {:steps '[:tools/orphan]}`,
+		`:tools (quote {:steps [:tools/orphan]})`,
+		`:tools (clojure.core/quote {:steps [:tools/orphan]})`,
+		`:tools {:steps (quote [:tools/orphan])}`,
+		`:tools {:steps (clojure.core/quote [:tools/orphan])}`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :quoted-tools-value
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -3114,5 +3121,45 @@ func TestFlowsLintLocalOnlyMarksIncludedUnreferencedSteps(t *testing.T) {
 	}
 	if got, _ := diag["hint"].(string); !strings.Contains(got, "included source file") {
 		t.Fatalf("included-step hint must point at the included file, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyMarksWholeVectorIncludeSteps(t *testing.T) {
+	// When the ENTIRE :steps value is a tagged include, root spans cannot be
+	// resolved; the warning must not claim the step is editable in the root
+	// flow file.
+	dir := t.TempDir()
+	flowFile := filepath.Join(dir, "flow.clj")
+	includeFile := filepath.Join(dir, "steps.edn")
+	if err := os.WriteFile(includeFile, []byte(`[{:id :tools/orphan :type :function :description "Included orphan"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flowLiteral := `{:slug :whole-vector-include
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps #flow/include "steps.edn"
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("whole-vector include with unreferenced step must stay a warning: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+	if got, _ := diag["message"].(string); !strings.Contains(got, "#flow/include") {
+		t.Fatalf("whole-vector include warning must name include provenance, got %#v", diag)
 	}
 }
