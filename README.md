@@ -256,7 +256,7 @@ template/data probe, pass an explicit longer timeout, for example:
 breyta steps run --flow update-blog-post --source draft --type llm \
   --id refresh-blog-post \
   --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' \
-  --timeout 10m
+  --timeout 30m
 ```
 
 A timeout may mean the server-side step continued; reconcile any external
