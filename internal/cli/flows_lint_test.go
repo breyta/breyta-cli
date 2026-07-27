@@ -2875,6 +2875,9 @@ func TestFlowsLintLocalOnlyWarnsOnTwoElementFlowStep(t *testing.T) {
 	if got, _ := diag["severity"].(string); got != "warning" {
 		t.Fatalf("expected warning severity, got %#v", diag)
 	}
+	if _, ok := diag["byteOffset"]; !ok {
+		t.Fatalf("include-free files keep exact shape-diagnostic offsets, got %#v", diag)
+	}
 }
 
 func TestFlowsLintLocalOnlyAcceptsLegalFlowStepShapesWithoutMissingConfig(t *testing.T) {
@@ -3247,4 +3250,44 @@ func TestFlowsLintLocalOnlySuppressesUnreferencedWarningForSymbolToolsElements(t
 		t.Fatalf("symbol tools element should lint clean: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyOmitsShapeDiagnosticOffsetsForIncludeBearingFlows(t *testing.T) {
+	// Shape-diagnostic byte offsets are measured against the include-EXPANDED
+	// literal; with an include present they would point into the wrong place
+	// in the root file, so they are omitted.
+	dir := t.TempDir()
+	flowFile := filepath.Join(dir, "flow.clj")
+	includeFile := filepath.Join(dir, "steps.edn")
+	if err := os.WriteFile(includeFile, []byte(`{:id :tools/declared :type :function :description "Included"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flowLiteral := `{:slug :include-shape-offsets
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#flow/include "steps.edn"]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :llm)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warning-severity diagnostics must not fail lint: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	diag := flowLintDiagnosticByCode(t, body, "flow_step_missing_config")
+	if _, ok := diag["byteOffset"]; ok {
+		t.Fatalf("include-bearing flows must omit shape-diagnostic byte offsets, got %#v", diag)
+	}
 }

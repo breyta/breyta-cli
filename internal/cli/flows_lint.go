@@ -866,7 +866,7 @@ func localAuthoringShapeDiagnostics(flowLiteral, rootLiteral string, pulledLegac
 	diagnostics = append(diagnostics, localInterfaceShapeDiagnostics(flowLiteral, byKey["interfaces"], invocationIDs, foundInvocations)...)
 	stepsEntry := byKey["steps"]
 	diagnostics = append(diagnostics, localPackagedStepReferenceDiagnostics(flowLiteral, rootLiteral, stepsEntry, byKey["agents"])...)
-	diagnostics = append(diagnostics, localFlowStepArityDiagnostics(flowLiteral)...)
+	diagnostics = append(diagnostics, localFlowStepArityDiagnostics(flowLiteral, rootLiteral != "" && rootLiteral != flowLiteral)...)
 	diagnostics = append(diagnostics, localFunctionStepShapeDiagnostics(flowLiteral, localFlowHasTag(flowLiteral, byKey["tags"], "n8n-import"), pulledLegacyInputSteps)...)
 	return diagnostics
 }
@@ -1679,7 +1679,12 @@ func localStepDefinedViaInclude(expandedSrc, rootSrc, stepID string) bool {
 //   - two elements, or three elements the server's step-call analysis skips
 //     (missing keyword id): warning only — push accepts the form as a plain
 //     expression and it fails first at runtime.
-func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
+//
+// sourceExpanded marks that src is the include-EXPANDED literal: byte offsets
+// would point into the wrong place in the root file, so they are omitted —
+// same rule as the packaged-step reference diagnostics. Offsets stay exact
+// for include-free files.
+func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDiagnostic {
 	references, err := localFlowStepReferences(src)
 	if err != nil {
 		// The reference scan already reports its own scan-incomplete warning.
@@ -1692,7 +1697,9 @@ func localFlowStepArityDiagnostics(src string) []flowLintDiagnostic {
 			pathID = "<unknown>"
 		}
 		diag := lintDiagnostic(severity, code, []string{":flow", pathID}, message, hint, "local")
-		diag["byteOffset"] = reference.ByteOffset
+		if !sourceExpanded {
+			diag["byteOffset"] = reference.ByteOffset
+		}
 		diagnostics = append(diagnostics, diag)
 	}
 	const shapeHint = "Typed forms take step type, step id, and config map; packaged forms take step id and config map."
