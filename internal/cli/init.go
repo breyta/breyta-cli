@@ -433,7 +433,7 @@ Advanced ideas:
 - Use ` + "`breyta flows run <slug> --input-file ./input.json`" + ` or ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + ` instead of inline ` + "`--input '{...}'`" + ` when per-run payloads may hit shell or OS argument limits.
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
-- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for editable source.
+- Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for formatting-preserving editable source; ` + "`flows grep --raw-definition`" + ` is normalized template inspection data and must not be pushed.
 - ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.
 - Treat ` + "`--pretty`" + ` as formatting only; it must not imply full payload access.
 - For large reports and research artifacts, persist the full body as a resource and move refs, URLs, short summaries, and previews through tables or run output.

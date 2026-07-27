@@ -446,6 +446,22 @@ func TestFlowsLintLocalOnlyAcceptsDelimiterCharacterLiteral(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
 }
 
+func TestFlowsLintLocalOnlyAcceptsCSVDelimiterCharacterLiterals(t *testing.T) {
+	flowLiteral := `{:slug :csv-character-literals
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :parse-csv
+              :language :clojure
+              :code '(fn [ch] (or (= ch \") (= ch \,)))}]
+ :flow '(identity)}`
+	body, err, stdout := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("valid CSV character literals should pass local lint: %v\n%s", err, stdout)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "clojure_reader_invalid", "clojure_syntax_invalid")
+}
+
 func TestFlowsParenRepairDryRunDoesNotWriteByDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
