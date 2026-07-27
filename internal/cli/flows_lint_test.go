@@ -2987,6 +2987,10 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "typed four elements with empty list step id warns", form: `(flow/step :http () {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "typed four elements with nil config warns", form: `(flow/step :http :fetch nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with vector config warns", form: `(flow/step :http :fetch [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "typed four elements with empty list config warns", form: `(flow/step :http :fetch ())`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		// Two elements are invalid for both shapes regardless of what the
+		// first argument resolves to, so the dynamic form still warns.
+		{name: "dynamic two element form warns", form: `(flow/step kind)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
@@ -3405,4 +3409,51 @@ func TestFlowsLintLocalOnlyUnparseableMapInBodyMarksToolsOpaque(t *testing.T) {
 		t.Fatalf("unparseable map must suppress, not fail: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlySkipsCommentMacroBodies(t *testing.T) {
+	// Clojure comment macros discard their bodies: a malformed call inside
+	// (comment ...) / (clojure.core/comment ...) produces zero diagnostics.
+	for _, commentForm := range []string{"comment", "clojure.core/comment"} {
+		flowLiteral := fmt.Sprintf(`{:slug :comment-body-%s
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do (%s (flow/step :http :fetch {} {:extra true}))
+            (flow/input))}
+`, strings.ReplaceAll(commentForm, ".", "-"), commentForm)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("malformed call inside (%s ...) must produce zero diagnostics: %v\n%s", commentForm, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body,
+			"flow_step_arity_invalid",
+			"flow_step_missing_config",
+			"flow_step_missing_step_id",
+			"flow_step_packaged_extra_argument",
+			"missing_packaged_step_reference")
+	}
+}
+
+func TestFlowsLintLocalOnlyCommentOnlyReferenceSuppressesUnreferencedWarning(t *testing.T) {
+	// A step referenced ONLY inside a comment macro yields no walker
+	// reference, but the flow/step token in the comment trips the token-count
+	// mismatch — the accepted over-suppression direction — so the
+	// unreferenced warning is suppressed rather than firing falsely.
+	flowLiteral := `{:slug :comment-only-reference
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do (comment (flow/step :tools/orphan :run {}))
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("comment-only reference must lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step", "missing_packaged_step_reference")
 }

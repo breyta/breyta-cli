@@ -1400,8 +1400,15 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		return nil, err
 	}
 	if len(elements) >= 2 {
-		head := clojureFormToken(src, elements[0])
-		if head == "quote" || head == "clojure.core/quote" {
+		switch clojureFormToken(src, elements[0]) {
+		case "quote", "clojure.core/quote":
+			return nil, nil
+		case "comment", "clojure.core/comment":
+			// Clojure comment macros discard their bodies: no shape
+			// diagnostics and no references from them. A flow/step token
+			// inside a comment still trips the token-count mismatch and
+			// suppresses the unreferenced warning — the accepted
+			// over-suppression direction.
 			return nil, nil
 		}
 	}
@@ -1462,7 +1469,9 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 					reference.ThirdArgNeverMap = true
 				default:
 					switch clojureFormToken(src, elements[3]) {
-					case "nil", "true", "false":
+					case "nil", "true", "false", "()":
+						// The empty list evaluates to itself and can never be
+						// a map; non-empty list forms stay ambiguous.
 						reference.ThirdArgNeverMap = true
 					}
 				}
@@ -1769,9 +1778,21 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 				"Merge extra arguments into the single config map.")
 			continue
 		}
+		// Two list elements are invalid for BOTH shapes regardless of what
+		// the first argument resolves to (packaged needs three, typed four) —
+		// count-based and value-independent like the >4 check, so it fires
+		// before the dynamic bail.
+		if reference.ElementCount == 2 {
+			appendDiag(reference, "warning", "flow_step_missing_config",
+				"flow/step is missing its config map: typed forms take type, id, and config; packaged forms take id and config.",
+				shapeHint)
+			continue
+		}
 		// A non-keyword FIRST argument — (flow/step kind {config}) — could
 		// resolve to any packaged or typed call at runtime; the shape is
-		// unknowable, so bail from all remaining shape diagnostics.
+		// unknowable, so bail from all remaining shape diagnostics. Dynamic
+		// three-element forms could be valid packaged calls, so they stay
+		// silent.
 		if reference.ElementCount >= 2 && !reference.FirstArgKeyword {
 			continue
 		}
@@ -1820,12 +1841,11 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 			appendDiag(reference, "warning", "flow_step_missing_step_id",
 				"flow/step is missing its step id: typed forms take type, id, and config.",
 				shapeHint)
-		case reference.ElementCount <= 2 || (reference.ElementCount == 3 && !packaged):
+		case reference.ElementCount == 1 || (reference.ElementCount == 3 && !packaged):
 			// Under-specified shapes the server's step-call analysis skips
 			// (push accepts them as plain expressions; they fail at runtime):
-			// (flow/step), (flow/step :llm), and (flow/step :ns/id).
-			// Packaged three-element forms with an expression config are
-			// legal and stay clean.
+			// bare (flow/step) and (flow/step :ns/id). Packaged three-element
+			// forms with an expression config are legal and stay clean.
 			appendDiag(reference, "warning", "flow_step_missing_config",
 				"flow/step is missing its config map: typed forms take type, id, and config; packaged forms take id and config.",
 				shapeHint)
