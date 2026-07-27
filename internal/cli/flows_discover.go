@@ -47,10 +47,12 @@ copy from. Approved examples are not the same thing as public installables.`,
 }
 
 // splitDiscoverAppRef splits "<workspace-id>/<flow-slug>", "<workspace-id>:<flow-slug>",
-// or the catalog id "<workspace-id>__<flow-slug>" into its parts.
+// or the catalog id "<workspace-id>__<flow-slug>" into its parts. Slash wins
+// because it is the one separator forbidden inside workspace ids, so
+// path-style refs stay unambiguous even when the id contains ":" or "__".
 func splitDiscoverAppRef(ref string) (string, string, bool) {
 	ref = strings.TrimSpace(ref)
-	for _, sep := range []string{"__", ":", "/"} {
+	for _, sep := range []string{"/", ":", "__"} {
 		if idx := strings.Index(ref, sep); idx > 0 {
 			ws := strings.TrimSpace(ref[:idx])
 			slug := strings.TrimSpace(ref[idx+len(sep):])
