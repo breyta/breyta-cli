@@ -265,6 +265,10 @@ breyta steps run --flow update-blog-post --source draft --type llm \
   --timeout 30m
 ```
 
+`breyta flows steps run` and the `--run` mode of `flows init` /
+`flows steps create` / `flows steps update` accept `--timeout` (default 15m);
+extend past the default for slow probes.
+
 A timeout may mean the server-side step continued; reconcile any external
 effect before retrying.
 

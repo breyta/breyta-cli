@@ -964,3 +964,630 @@ func TestFlowsStepsRunSendsFullLocalLiteralToEphemeralAPI(t *testing.T) {
 		t.Fatalf("--full should preserve data.result: %#v", fullData)
 	}
 }
+
+func TestLocalStepRunCommandsRegisterTimeoutFlag(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test"}
+	for name, cmd := range map[string]*cobra.Command{
+		"flows steps run":    newFlowsStepsLocalRunCmd(app),
+		"flows steps create": newFlowsStepsLocalCreateCmd(app),
+		"flows steps update": newFlowsStepsLocalUpdateCmd(app),
+		"flows init":         newFlowsInitCmd(app),
+	} {
+		flag := cmd.Flags().Lookup("timeout")
+		if flag == nil {
+			t.Fatalf("expected %s to register --timeout", name)
+		}
+		if flag.DefValue != "15m0s" {
+			t.Fatalf("expected %s --timeout default of 15m0s (defaultFlowRunWaitTimeout), got %s", name, flag.DefValue)
+		}
+	}
+}
+
+func TestLocalStepRunHonorsTimeoutFlag(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	release := make(chan struct{})
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspaceId": "ws-acme", "data": map[string]any{}})
+	}))
+	defer srv.Close()
+	// Unblock the handler before srv.Close (defers run LIFO) so shutdown does
+	// not wait on the still-parked request.
+	defer close(release)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalRunCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--timeout", "100ms"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected a 100ms --timeout to abort the slow server call\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "timed out after 100ms") {
+		t.Fatalf("expected a timeout error naming the --timeout bound, got:\n%s", out.String())
+	}
+}
+
+func TestLocalStepRunRejectsNonPositiveTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "--out", path)
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalRunCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--timeout", "0s"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --timeout 0s to be rejected\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "--timeout must be > 0") {
+		t.Fatalf("expected --timeout validation error, got:\n%s", out.String())
+	}
+}
+
+func TestLocalStepCreateFailureAfterSaveExplainsRecovery(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "step validation failed"},
+		})
+	}))
+	defer srv.Close()
+
+	for _, mode := range []string{"--push", "--run"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "order-sync.clj")
+		stepPath := filepath.Join(dir, "add-one.edn")
+		if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+		executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+		var out bytes.Buffer
+		cmd := newFlowsStepsLocalCreateCmd(app)
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, mode})
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("create %s failure returned nil\n%s", mode, out.String())
+		}
+		text := out.String()
+		if !strings.Contains(text, `"savedLocally":true`) {
+			t.Fatalf("create %s failure must report the step as saved locally: %s", mode, text)
+		}
+		if !strings.Contains(text, path) {
+			t.Fatalf("create %s failure must include the local flow path: %s", mode, text)
+		}
+		// The flow file lives outside the default flows/<slug>.clj, so every
+		// recovery command must carry --flow-file with the saved path. (JSON
+		// escapes < and >, so match around the <step.edn> placeholder.)
+		if !strings.Contains(text, "breyta flows steps update order-sync tools/add-one --step-file") || !strings.Contains(text, "--flow-file "+path) {
+			t.Fatalf("create %s failure must point at flows steps update with --flow-file: %s", mode, text)
+		}
+		if !strings.Contains(text, "'steps update' in place of 'steps create'") {
+			t.Fatalf("create %s failure hint must point at the shell-history retry: %s", mode, text)
+		}
+		// The step must actually be on disk so the recovery guidance is true.
+		saved, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(saved), ":id :tools/add-one") {
+			t.Fatalf("expected the step literal saved locally despite %s failure:\n%s", mode, saved)
+		}
+	}
+}
+
+func TestLocalStepUpdateRunFailureAfterSaveExplainsRecovery(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "step validation failed"},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	updatedStepPath := filepath.Join(dir, "add-two.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/add-one :type :function :description "Add two"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalUpdateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", updatedStepPath, "--run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("update --run failure returned nil\n%s", out.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, `"savedLocally":true`) {
+		t.Fatalf("update --run failure must report the step as saved locally: %s", text)
+	}
+	if !strings.Contains(text, path) {
+		t.Fatalf("update --run failure must include the local flow path: %s", text)
+	}
+}
+
+func TestLocalStepScaffoldIncludesPerTypeDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	app := &App{WorkspaceID: "ws-test"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/fetch", "--flow-file", path, "--type", "http")
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/transform", "--flow-file", path, "--type", "function")
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/compute", "--flow-file", path, "--type", "code")
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/summarize", "--flow-file", path, "--type", "llm")
+
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if !strings.Contains(text, `:defaults {:method :get :url "https://example.com"}`) {
+		t.Fatalf("http scaffold missing runnable :defaults:\n%s", text)
+	}
+	// The emitted quotes must be plain double quotes, never backslash-escaped:
+	// a literal \" in the source file would make the scaffold malformed.
+	if strings.Contains(text, `\"`) {
+		t.Fatalf("scaffolded source must not contain backslash-escaped quotes:\n%s", text)
+	}
+	// Both function and its supported alias code get the identity-function defaults.
+	if got := strings.Count(text, ":defaults {:code '(fn [input] input)}"); got != 2 {
+		t.Fatalf("expected function AND code scaffolds to carry identity :defaults (got %d):\n%s", got, text)
+	}
+	if !strings.Contains(text, ":defaults {}") {
+		t.Fatalf("generic scaffold missing explicit empty :defaults:\n%s", text)
+	}
+	if !strings.Contains(text, "fill :defaults with the step config") {
+		t.Fatalf("generic scaffold description missing the fill-in note:\n%s", text)
+	}
+
+	// The scaffolded flow must survive the real scaffold-then-lint path: the
+	// local linter parses the complete literal, so a malformed :defaults map
+	// (for example escaped quotes) would surface as delimiter/parse errors.
+	lintCmd := newFlowsLintCmd(app)
+	var lintOut bytes.Buffer
+	lintCmd.SetOut(&lintOut)
+	lintCmd.SetErr(&lintOut)
+	lintCmd.SetArgs([]string{"--file", path, "--local-only"})
+	if err := lintCmd.Execute(); err != nil {
+		t.Fatalf("scaffolded flow must pass local lint: %v\n%s", err, lintOut.String())
+	}
+}
+
+func TestStepSaveFailureRecoveryFlowFileHandling(t *testing.T) {
+	defaultPath := filepath.Join("flows", "order-sync.clj")
+	rec := stepSaveFailureRecovery(true, false, false, defaultPath, "order-sync", "tools/add-one")
+	for _, cmdText := range rec.nextCommands {
+		if strings.Contains(cmdText, "--flow-file") {
+			t.Fatalf("default flow path must not add --flow-file, got %#v", rec.nextCommands)
+		}
+	}
+	if !strings.Contains(rec.hint, "'steps update' in place of 'steps create'") {
+		t.Fatalf("create recovery hint must point at the shell-history retry, got %q", rec.hint)
+	}
+
+	customPath := "/tmp/elsewhere/order.clj"
+	rec = stepSaveFailureRecovery(true, false, false, customPath, "order-sync", "tools/add-one")
+	wantUpdate := "breyta flows steps update order-sync tools/add-one --step-file <step.edn> --flow-file " + customPath
+	if len(rec.nextCommands) != 1 || rec.nextCommands[0] != wantUpdate {
+		t.Fatalf("custom flow path must carry --flow-file on the single recovery command, got %#v", rec.nextCommands)
+	}
+	if rec.path != customPath {
+		t.Fatalf("recovery must carry the saved path for the envelope, got %q", rec.path)
+	}
+
+	rec = stepSaveFailureRecovery(false, false, false, customPath, "order-sync", "tools/add-one")
+	if len(rec.nextCommands) != 1 || rec.nextCommands[0] != wantUpdate {
+		t.Fatalf("update recovery must keep the single update command, got %#v", rec.nextCommands)
+	}
+}
+
+func TestLocalStepSaveTransportFailureEmitsStructuredEnvelope(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	for _, mode := range []string{"--push", "--run"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "order-sync.clj")
+		stepPath := filepath.Join(dir, "add-one.edn")
+		if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Nothing listens on port 1: the --push/--run call fails at the
+		// transport layer (connection refused), after the local save.
+		app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev", DevMode: true}
+		executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "--out", path)
+
+		var out bytes.Buffer
+		cmd := newFlowsStepsLocalCreateCmd(app)
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, mode})
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("create %s transport failure returned nil\n%s", mode, out.String())
+		}
+		text := out.String()
+		if !strings.Contains(text, `"ok":false`) {
+			t.Fatalf("create %s transport failure must emit a structured failure envelope: %s", mode, text)
+		}
+		if !strings.Contains(text, `"savedLocally":true`) {
+			t.Fatalf("create %s transport failure must report the step as saved locally: %s", mode, text)
+		}
+		if !strings.Contains(text, `"nextCommands"`) ||
+			!strings.Contains(text, "breyta flows steps update order-sync tools/add-one --step-file") ||
+			!strings.Contains(text, "--flow-file "+path) {
+			t.Fatalf("create %s transport failure must carry recovery nextCommands: %s", mode, text)
+		}
+		saved, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(saved), ":id :tools/add-one") {
+			t.Fatalf("expected the step literal saved locally despite %s transport failure:\n%s", mode, saved)
+		}
+	}
+}
+
+func TestStepSaveFailureRecoveryShellQuotesSpacedPaths(t *testing.T) {
+	spacedPath := "/tmp/My Flows/order sync.clj"
+	rec := stepSaveFailureRecovery(true, false, false, spacedPath, "order-sync", "tools/add-one")
+	wantUpdate := "breyta flows steps update order-sync tools/add-one --step-file <step.edn> --flow-file '/tmp/My Flows/order sync.clj'"
+	if len(rec.nextCommands) != 1 || rec.nextCommands[0] != wantUpdate {
+		t.Fatalf("spaced path must be shell-quoted in the recovery command, got %#v", rec.nextCommands)
+	}
+
+	// A path with an embedded single quote must stay a valid shell word.
+	quoted := stepSaveFailureRecovery(true, false, false, "/tmp/it's here.clj", "order-sync", "tools/add-one")
+	if want := `--flow-file '/tmp/it'"'"'s here.clj'`; !strings.Contains(quoted.nextCommands[0], want) {
+		t.Fatalf("single quotes in the path must be escaped, got %#v", quoted.nextCommands)
+	}
+}
+
+func TestLocalStepCreateRejectsMalformedRunParamsBeforeSaving(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, "--run", "--params", "{not json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("malformed --params must fail the create\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "the local flow file was not modified") {
+		t.Fatalf("expected pre-save params validation error, got:\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("malformed --params must not write the step to the flow file:\n%s", current)
+	}
+
+	// Same guarantee for update: the previous step body must stay untouched.
+	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedStepPath := filepath.Join(dir, "add-two.edn")
+	if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/add-one :type :function :description "Add two"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	cmd = newFlowsStepsLocalUpdateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", updatedStepPath, "--run", "--params", "{not json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("malformed --params must fail the update\n%s", out.String())
+	}
+	current, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(saved) {
+		t.Fatalf("malformed --params must not rewrite the flow file on update:\n%s", current)
+	}
+
+	// And for init --run: no flow file may be created at all.
+	initPath := filepath.Join(dir, "fresh-flow.clj")
+	out.Reset()
+	initCmd := newFlowsInitCmd(app)
+	initCmd.SetOut(&out)
+	initCmd.SetErr(&out)
+	initCmd.SetArgs([]string{"fresh-flow", "--out", initPath, "--step-id", "tools/add-one", "--step-file", stepPath, "--run", "--params", "{not json"})
+	if err := initCmd.Execute(); err == nil {
+		t.Fatalf("malformed --params must fail init --run\n%s", out.String())
+	}
+	if _, err := os.Stat(initPath); !os.IsNotExist(err) {
+		t.Fatalf("malformed --params must not create the flow file (stat err=%v)", err)
+	}
+}
+
+func TestShellQuoteIfNeededQuotesHistoryExpansion(t *testing.T) {
+	if got := shellQuoteIfNeeded("/tmp/wow!echo.clj"); got != "'/tmp/wow!echo.clj'" {
+		t.Fatalf("'!' must trigger quoting (bash history expansion), got %q", got)
+	}
+	if got := shellQuoteIfNeeded("/tmp/plain/order-sync_v2.clj"); got != "/tmp/plain/order-sync_v2.clj" {
+		t.Fatalf("allowlisted plain path must stay unquoted, got %q", got)
+	}
+	rec := stepSaveFailureRecovery(true, false, false, "/tmp/wow!echo.clj", "order-sync", "tools/add-one")
+	if want := "--flow-file '/tmp/wow!echo.clj'"; !strings.Contains(rec.nextCommands[0], want) {
+		t.Fatalf("recovery command must quote '!' paths, got %#v", rec.nextCommands)
+	}
+}
+
+func TestLocalStepCreateRejectsNonPositiveTimeoutBeforeSaving(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, "--run", "--timeout", "0s"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("--run --timeout 0s must fail the create\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "--timeout must be > 0; the local flow file was not modified") {
+		t.Fatalf("expected pre-save timeout validation error, got:\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("bad --timeout must not write the step to the flow file:\n%s", current)
+	}
+}
+
+func TestFlowsInitForceRejectsNonPositiveTimeoutBeforeOverwriting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path, "--description", "keep me")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := newFlowsInitCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"order-sync", "--out", path, "--force", "--step-id", "tools/add-one", "--step-file", stepPath, "--run", "--timeout", "-5s"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("init --force --run with negative --timeout must fail\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "--timeout must be > 0; no local flow file was written") {
+		t.Fatalf("expected pre-write timeout validation error, got:\n%s", out.String())
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(original) {
+		t.Fatalf("bad --timeout must leave the existing flow file untouched under --force:\n%s", current)
+	}
+}
+
+func TestLocalStepSaveFailureMergesServerHint(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "step validation failed"},
+			"meta":        map[string]any{"hint": "Server-side setup is incomplete."},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, "--run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --run failure\n%s", out.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, "Server-side setup is incomplete.") {
+		t.Fatalf("server hint must be retained: %s", text)
+	}
+	if !strings.Contains(text, "'steps update' in place of 'steps create'") {
+		t.Fatalf("local-save recovery hint must be merged alongside the server hint: %s", text)
+	}
+}
+
+func TestLocalStepPushFailureWithPendingRunSaysRunDidNotHappen(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		command, _ := got["command"].(string)
+		commands = append(commands, command)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "draft rejected"},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, "--push", "--run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected --push failure\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "The requested --run did NOT happen.") {
+		t.Fatalf("push failure with a pending --run must state the run never happened: %s", out.String())
+	}
+	for _, command := range commands {
+		if command == "steps.run" {
+			t.Fatalf("the run must not execute after a failed push, got commands %#v", commands)
+		}
+	}
+}
+
+func TestLocalStepPushNullEnvelopeStillCarriesRecoveryMetadata(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte("null"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+	for _, mode := range []string{"--push", "--run"} {
+		var out bytes.Buffer
+		cmd := newFlowsStepsLocalCreateCmd(app)
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath, mode})
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("null envelope %s failure returned nil\n%s", mode, out.String())
+		}
+		text := out.String()
+		if !strings.Contains(text, `"savedLocally":true`) || !strings.Contains(text, `"nextCommands"`) || !strings.Contains(text, `"localPath"`) {
+			t.Fatalf("null envelope %s failure must still carry recovery metadata: %s", mode, text)
+		}
+		// Reset the flow file for the second mode: remove the created step.
+		executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "--out", path, "--force")
+	}
+}
+
+func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "step validation failed"},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "order-sync.clj")
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
+
+	var out bytes.Buffer
+	cmd := newFlowsStepsLocalCreateCmd(app)
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "tools/fetch", "--flow-file", path, "--type", "http", "--run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("scaffold create --run failure returned nil\n%s", out.String())
+	}
+	text := out.String()
+	// A create-to-update substitution would carry create-only flags that
+	// update rejects; scaffolded creates get edit-then-run guidance instead.
+	if !strings.Contains(text, "breyta flows steps run order-sync tools/fetch --flow-file "+path) {
+		t.Fatalf("scaffold recovery must suggest flows steps run: %s", text)
+	}
+	if !strings.Contains(text, "scaffolded step") || !strings.Contains(text, "edit it in the flow file") {
+		t.Fatalf("scaffold recovery hint must point at editing the flow file: %s", text)
+	}
+	if strings.Contains(text, "steps update' in place of") {
+		t.Fatalf("scaffold recovery must not suggest the create-to-update substitution: %s", text)
+	}
+}
