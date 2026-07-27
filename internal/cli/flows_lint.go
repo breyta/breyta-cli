@@ -1437,14 +1437,15 @@ func localFlowStepReferencesForFormAtDepth(src string, span clojureFormSpan, bas
 			// a reader conditional anywhere, treat every element as enclosed.
 			childEnclosed := enclosed || strings.Contains(stripClojureStringLiterals(src[i:setEnd]), "#?")
 			var references []localFlowStepReference
-			for _, element := range elements {
+			err = forEachActiveSiblingSpan(src, elements, func(element clojureFormSpan) error {
 				found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, childEnclosed)
 				if err != nil {
-					return references, err
+					return err
 				}
 				references = append(references, found...)
-			}
-			return references, nil
+				return nil
+			})
+			return references, err
 		}
 		return nil, nil
 	case '(':
@@ -1573,34 +1574,48 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 		}
 		references = append(references, reference)
 	}
-	pendingDiscards := 0
-	for _, element := range elements {
-		if pendingDiscards > 0 {
-			// Consumed by a preceding discard chain: neither diagnosed nor
-			// recorded as a reference.
-			pendingDiscards--
-			continue
-		}
-		if element.Start < len(src) && strings.HasPrefix(src[element.Start:], "#_") {
-			// The parser folds `#_ #_ X` into one span carrying two markers
-			// around one inner form, so markers-1 FOLLOWING siblings are also
-			// consumed — the same chain rule as the :steps handling.
-			markers := 0
-			j := element.Start
-			for j+1 < element.End && src[j] == '#' && src[j+1] == '_' {
-				markers++
-				j = skipClojureWhitespaceCommaAndComments(src, j+2)
-			}
-			pendingDiscards = markers - 1
-			continue
-		}
+	err = forEachActiveSiblingSpan(src, elements, func(element clojureFormSpan) error {
 		found, err := localFlowStepReferencesForFormAtDepth(src, element, baseOffset, syntaxQuoteDepth, enclosed)
 		if err != nil {
-			return references, err
+			return err
 		}
 		references = append(references, found...)
+		return nil
+	})
+	return references, err
+}
+
+// forEachActiveSiblingSpan invokes visit for each element span that survives
+// reader-discard chain consumption, mirroring the Clojure reader: a folded
+// `#_ ... form` span carries N markers around ONE inner object (which absorbs
+// one discard immediately), so it raises the pending count by N-1; pending
+// discards then consume following sibling objects — INCLUDING further
+// discard-headed spans, whose own markers chain through. Verified against the
+// reader: (do #_ #_ :a #_ #_ :b :c X) consumes :a, :b, :c, AND X, while
+// (do #_ #_ :a #_ :b :c X) consumes :a, :b, :c and leaves X live. Consumed
+// elements are neither diagnosed nor recorded as references.
+func forEachActiveSiblingSpan(src string, elements []clojureFormSpan, visit func(clojureFormSpan) error) error {
+	pending := 0
+	for _, element := range elements {
+		markers := 0
+		j := element.Start
+		for j+1 < element.End && j+1 < len(src) && src[j] == '#' && src[j+1] == '_' {
+			markers++
+			j = skipClojureWhitespaceCommaAndComments(src, j+2)
+		}
+		if markers > 0 {
+			pending += markers - 1
+			continue
+		}
+		if pending > 0 {
+			pending--
+			continue
+		}
+		if err := visit(element); err != nil {
+			return err
+		}
 	}
-	return references, nil
+	return nil
 }
 
 func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agentsEntry clojureMapEntry) []flowLintDiagnostic {

@@ -3655,3 +3655,72 @@ func TestFlowsLintLocalOnlySingleDiscardSkipsOnlyNextSibling(t *testing.T) {
 	}
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
+
+func TestFlowsLintLocalOnlyDiscardChainConsumesSetSiblings(t *testing.T) {
+	// Mirror of the list fix for SET traversal: the chain consumes :old AND
+	// the flow/step form inside #{...}.
+	flowLiteral := `{:slug :discard-chain-set-sibling
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #{#_ #_ :old (flow/step :http :fetch {} {:extra true})}
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("a chain-consumed set element must produce zero diagnostics: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
+		"flow_step_arity_invalid",
+		"flow_step_missing_config",
+		"flow_step_missing_step_id",
+		"flow_step_invalid_type",
+		"flow_step_packaged_extra_argument")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainsChainThroughDiscardHeadedSiblings(t *testing.T) {
+	// Clojure reader semantics: in (do #_ #_ :a #_ #_ :b :c X) the first
+	// chain's pending discard consumes the second discard-headed sibling,
+	// whose own markers still demand objects — so :c AND X are consumed too
+	// (verified against the reader: everything is discarded).
+	flowLiteral := `{:slug :discard-chain-through
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #_ #_ :a #_ #_ :b :c (flow/step :http :fetch {} {:extra true})
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("a chain-through-consumed flow/step form must produce zero diagnostics: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body,
+		"flow_step_arity_invalid",
+		"flow_step_missing_config",
+		"flow_step_missing_step_id",
+		"flow_step_invalid_type",
+		"flow_step_packaged_extra_argument")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainThroughArithmeticPinsSurvivor(t *testing.T) {
+	// Pins the arithmetic on the simpler variant: in
+	// (do #_ #_ :a #_ :b :c X) the reader consumes :a, :b, and :c but X
+	// survives — so a malformed X still gets its real arity error.
+	flowLiteral := `{:slug :discard-chain-survivor
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #_ #_ :a #_ :b :c (flow/step :http :fetch {} {:extra true}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("the surviving form must still get its real arity error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
