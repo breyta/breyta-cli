@@ -1379,6 +1379,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 	}
 	declared := map[string]bool{}
 	declaredPackaged := map[string]bool{}
+	declaredPackagedOrder := make([]string, 0, len(spans))
 	var diagnostics []flowLintDiagnostic
 	for _, span := range spans {
 		stepID, idErr := localStepIDFromMap(src, span)
@@ -1396,6 +1397,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		normalizedStepID := strings.TrimPrefix(strings.TrimSpace(stepID), ":")
 		declared[normalizedStepID] = true
 		declaredPackaged[normalizedStepID] = true
+		declaredPackagedOrder = append(declaredPackagedOrder, normalizedStepID)
 		if entries, _, parseErr := parseClojureMapEntries(src, span.Start); parseErr == nil {
 			defaults, hasDefaults := mapEntryByKey(entries, "defaults")
 			prepare, hasPrepare := mapEntryByKey(entries, "prepare")
@@ -1446,7 +1448,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		diag["byteOffset"] = reference.ByteOffset
 		diagnostics = append(diagnostics, diag)
 	}
-	for stepID := range declaredPackaged {
+	for _, stepID := range declaredPackagedOrder {
 		if referenced[stepID] || clojureEntryContainsQualifiedID(src, agentsEntry, stepID) {
 			continue
 		}
@@ -1959,7 +1961,13 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
-		case '\'', '`':
+		case '\'':
+			if !flowLintFlowQuoteRe.MatchString(src[:i]) {
+				if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+					i = next
+					continue
+				}
+			}
 			formStart := skipClojureWhitespaceCommaAndComments(src, i+1)
 			if formStart < len(src) && src[formStart] == '(' {
 				elements, _, err := parseClojureListElements(src, formStart)
@@ -1974,8 +1982,22 @@ func localFunctionStepShapeDiagnosticsInRange(src string, start int, end int, al
 					}
 				}
 			}
+		case '`':
+			if next, err := readClojureFormEnd(src, i); err == nil && next > i {
+				i = next
+				continue
+			}
 		case '(':
 			elements, _, err := parseClojureListElements(src, i)
+			if err == nil && len(elements) > 0 {
+				head := clojureFormToken(src, elements[0])
+				if head == "quote" || head == "clojure.core/quote" {
+					if next, readErr := readClojureFormEnd(src, i); readErr == nil && next > i {
+						i = next
+						continue
+					}
+				}
+			}
 			if err == nil && clojureListDirectlyQuoted(src, i) {
 				if next, readErr := readClojureFormEnd(src, i); readErr == nil && next > i {
 					i = next

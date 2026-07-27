@@ -205,6 +205,58 @@ func TestFlowsLintLocalOnlyIgnoresNestedListsInsideQuotedData(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintLocalOnlyIgnoresNamedAndSyntaxQuoteStepData(t *testing.T) {
+	for name, literal := range map[string]string{
+		"named-quote":  "(quote (flow/step :http :example {} {:extra true}))",
+		"syntax-quote": "`(flow/step :http :example {} {:extra true})",
+	} {
+		t.Run(name, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :quoted-form
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [example %s] example)}
+`, literal)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err != nil {
+				t.Fatalf("quoted data should not fail lint: %v\n%s", err, output)
+			}
+			rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+		})
+	}
+}
+
+func TestFlowsLintUnreferencedStepDiagnosticsPreserveSourceOrder(t *testing.T) {
+	flowLiteral := `{:slug :ordered-unused
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/z-last :type :http :description "Z" :defaults {}}
+         {:id :tools/a-first :type :http :description "A" :defaults {}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warnings should not fail lint: %v\n%s", err, output)
+	}
+	data, _ := body["data"].(map[string]any)
+	diagnostics, _ := data["diagnostics"].([]any)
+	var ordered []string
+	for _, raw := range diagnostics {
+		diagnostic, _ := raw.(map[string]any)
+		if firstNonBlankString(diagnostic["code"]) == "unreferenced_packaged_step" {
+			ordered = append(ordered, firstNonBlankString(diagnostic["message"]))
+		}
+	}
+	if len(ordered) != 2 || !strings.Contains(ordered[0], "tools/z-last") ||
+		!strings.Contains(ordered[1], "tools/a-first") {
+		t.Fatalf("unexpected unreferenced diagnostic order: %#v", ordered)
+	}
+}
+
 func TestFlowsLintLocalOnlyAcceptsDeclaredAgentReference(t *testing.T) {
 	flowLiteral := `{:slug :declared-agent-reference
  :concurrency {:type :singleton :on-new-version :coexist}
