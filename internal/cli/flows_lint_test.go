@@ -2686,3 +2686,433 @@ func TestFlowsLintOptionalServerFailureKeepsLocalResult(t *testing.T) {
 		t.Fatalf("expected local-only stages after optional server failure, got %#v", meta["stages"])
 	}
 }
+
+func flowLintDiagnosticByCode(t *testing.T, body map[string]any, code string) map[string]any {
+	t.Helper()
+	data, _ := body["data"].(map[string]any)
+	items, _ := data["diagnostics"].([]any)
+	for _, itemAny := range items {
+		item, _ := itemAny.(map[string]any)
+		if got, _ := item["code"].(string); got == code {
+			return item
+		}
+	}
+	t.Fatalf("expected diagnostic code %q, got items=%#v", code, items)
+	return nil
+}
+
+func TestFlowsLintLocalOnlyRejectsFlowStepArityAboveFour(t *testing.T) {
+	flowLiteral := `{:slug :flow-step-arity
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch {:url "https://example.com"} {:extra true})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected five-element flow/step form to fail local lint like the server rejects it\n%s", output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "flow_step_arity_invalid")
+	if got, _ := diag["message"].(string); !strings.Contains(got, "flow/step expects exactly three arguments") {
+		t.Fatalf("expected the server arity message, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsFourElementFlowStepForm(t *testing.T) {
+	flowLiteral := `{:slug :flow-step-arity-ok
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch {:url "https://example.com"})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("four-element flow/step form should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyAcceptsThreeElementPackagedFlowStepForm(t *testing.T) {
+	flowLiteral := `{:slug :flow-step-packaged-arity-ok
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("three-element packaged flow/step form should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyWarnsOnUnreferencedPackagedStep(t *testing.T) {
+	flowLiteral := `{:slug :unreferenced-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("unreferenced packaged step must stay a warning, not a lint failure: %v\n%s", err, output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+	if got, _ := diag["severity"].(string); got != "warning" {
+		t.Fatalf("expected warning severity, got %#v", diag)
+	}
+	if got, _ := diag["message"].(string); !strings.Contains(got, ":tools/orphan is defined but never referenced from :flow") {
+		t.Fatalf("expected unreferenced-step message, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyDoesNotWarnWhenPackagedStepIsReferenced(t *testing.T) {
+	flowLiteral := `{:slug :referenced-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("referenced packaged step should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyDoesNotWarnWhenPackagedStepIsExposedAsAgentTool(t *testing.T) {
+	flowLiteral := `{:slug :tools-exposed-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Tool-only step"}]
+ :agents [{:id :review/helper :description "Helper" :tools {:steps [:tools/orphan]}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("tool-exposed packaged step should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyIgnoresQuotedFlowStepArityData(t *testing.T) {
+	// A five-element flow/step form nested as QUOTED data never executes, so
+	// the arity check must not fire on it (the executable body is clean).
+	flowLiteral := `{:slug :quoted-arity-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [literal '(flow/step :http :example {} {:extra true})
+              explicit (quote (flow/step :http :other {} {:extra true}))]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted flow/step data must not trip the arity check: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyRejectsThreeElementTypedFlowStepWithoutConfig(t *testing.T) {
+	// (flow/step :http :fetch) IS picked up by the server's step-call analysis
+	// (both arguments are keywords) with a nil config, and push rejects it with
+	// config "should be a map" — so local lint mirrors it as an error.
+	flowLiteral := `{:slug :typed-step-no-config
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :http :fetch)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected config-less typed flow/step to fail local lint like the server rejects it\n%s", output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "flow_step_missing_config")
+	if got, _ := diag["severity"].(string); got != "error" {
+		t.Fatalf("expected error severity for the server-rejected shape, got %#v", diag)
+	}
+	if got, _ := diag["message"].(string); !strings.Contains(got, "config should be a map") {
+		t.Fatalf("expected the server rejection message, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyWarnsOnTwoElementFlowStep(t *testing.T) {
+	// (flow/step :llm) fails the server's step-call analysis (no keyword id),
+	// so push accepts it as a plain expression and it fails first at runtime —
+	// local lint flags it as a warning without overclaiming push behavior.
+	flowLiteral := `{:slug :two-element-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :llm)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("two-element flow/step must warn, not fail lint: %v\n%s", err, output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "flow_step_missing_config")
+	if got, _ := diag["severity"].(string); got != "warning" {
+		t.Fatalf("expected warning severity, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyAcceptsLegalFlowStepShapesWithoutMissingConfig(t *testing.T) {
+	// Both legal shapes stay clean: the four-element typed form and the
+	// three-element packaged form (expression configs included).
+	flowLiteral := `{:slug :legal-step-shapes
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [cfg {:url "https://example.com"}
+              typed (flow/step :http :fetch {:url "https://example.com"})
+              packaged (flow/step :tools/declared cfg)]
+          [typed packaged])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("legal flow/step shapes should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_missing_config", "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyIgnoresQuotedShortFlowStepData(t *testing.T) {
+	// Short flow/step forms nested as quoted data never execute and must not
+	// trip the missing-config diagnostics.
+	flowLiteral := `{:slug :quoted-short-step-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [a '(flow/step :http :fetch)
+              b (quote (flow/step :llm))]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted short flow/step data must not be flagged: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_missing_config", "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyWarnsOnBareFlowStepForm(t *testing.T) {
+	// A bare executable (flow/step) fails the server's step-call analysis like
+	// (flow/step :llm) does, so push accepts it and it fails first at runtime:
+	// warning severity, same code.
+	flowLiteral := `{:slug :bare-step-form
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("bare flow/step must warn, not fail lint: %v\n%s", err, output)
+	}
+	diag := flowLintDiagnosticByCode(t, body, "flow_step_missing_config")
+	if got, _ := diag["severity"].(string); got != "warning" {
+		t.Fatalf("expected warning severity, got %#v", diag)
+	}
+}
+
+func TestFlowsLintLocalOnlyIgnoresQuotedBareFlowStepData(t *testing.T) {
+	flowLiteral := `{:slug :quoted-bare-step-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [data '(flow/step)]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted bare flow/step data must not be flagged: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_missing_config", "flow_step_arity_invalid")
+}
+
+func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
+	// Full arity matrix for executable flow/step forms, mirroring server
+	// push-time behavior (errors) and runtime-only failures (warnings).
+	cases := []struct {
+		name         string
+		form         string
+		wantErr      bool
+		wantCode     string
+		wantSeverity string
+	}{
+		{name: "typed four elements clean", form: `(flow/step :http :fetch {:url "https://example.com"})`},
+		{name: "packaged three elements clean", form: `(flow/step :tools/declared {})`},
+		{name: "packaged four elements with keyword id clean", form: `(flow/step :tools/declared :run {})`},
+		{name: "typed three elements error", form: `(flow/step :http :fetch)`, wantErr: true, wantCode: "flow_step_missing_config", wantSeverity: "error"},
+		{name: "two elements warning", form: `(flow/step :llm)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "one element warning", form: `(flow/step)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "packaged four elements extra argument warning", form: `(flow/step :tools/declared cfg extra)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
+		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
+	}
+	allCodes := []string{"flow_step_missing_config", "flow_step_packaged_extra_argument", "flow_step_arity_invalid"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :shape-matrix
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [cfg {:n 1}
+              result %s]
+          result)}
+`, tc.form)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected lint failure for %s\n%s", tc.form, output)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected lint to pass for %s: %v\n%s", tc.form, err, output)
+			}
+			if tc.wantCode == "" {
+				rejectFlowLintDiagnosticCodes(t, body, allCodes...)
+				return
+			}
+			diag := flowLintDiagnosticByCode(t, body, tc.wantCode)
+			if got, _ := diag["severity"].(string); got != tc.wantSeverity {
+				t.Fatalf("expected %s severity for %s, got %#v", tc.wantSeverity, tc.form, diag)
+			}
+			for _, code := range allCodes {
+				if code != tc.wantCode {
+					rejectFlowLintDiagnosticCodes(t, body, code)
+				}
+			}
+		})
+	}
+}
+
+func TestFlowsLintLocalOnlyIgnoresReaderDiscardedFlowStepArguments(t *testing.T) {
+	// Reader-discarded #_ forms never reach the runtime call, so neither a
+	// trailing nor an inline discard may count toward the arity.
+	for _, form := range []string{
+		`(flow/step :http :fetch {:url "https://example.com"} #_{:old true})`,
+		`(flow/step :http :fetch #_{:old true} {:url "https://example.com"})`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :discarded-args
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '%s}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("discarded arguments must not count toward flow/step arity for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid", "flow_step_missing_config")
+	}
+}
+
+func TestFlowsLintLocalOnlySkipsGenericArityForFunctionSteps(t *testing.T) {
+	// Function/code step shapes are owned by the function-step check; the
+	// generic arity scan must not double-report them.
+	flowLiteral := `{:slug :function-arity-owned
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions [{:id :shape :language :clojure :code '(fn [input] input)}]
+ :flow '(flow/step :function :shape {:ref :shape :input {:n 1}}
+                   :code '(fn [_] nil))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected function-step arity error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "function_step_arity_invalid")
+	rejectFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid", "flow_step_missing_config")
+}
+
+func TestFlowsLintLocalOnlyUnwrapsQuotedToolsValues(t *testing.T) {
+	// A quoted :tools value (or quoted :steps vector inside it) still counts
+	// as tool exposure for the over-suppressing scan.
+	for _, tools := range []string{
+		`:tools '{:steps [:tools/orphan]}`,
+		`:tools {:steps '[:tools/orphan]}`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :quoted-tools-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Tool-only step"}]
+ :agents [{:id :review/helper :description "Helper" %s}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`, tools)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("quoted tools value should lint clean for %s: %v\n%s", tools, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+	}
+}
+
+func TestFlowsLintLocalOnlyMarksIncludedUnreferencedSteps(t *testing.T) {
+	dir := t.TempDir()
+	flowFile := filepath.Join(dir, "flow.clj")
+	includeFile := filepath.Join(dir, "steps.edn")
+	if err := os.WriteFile(includeFile, []byte(`{:id :tools/orphan :type :function :description "Included orphan"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flowLiteral := `{:slug :included-orphan
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#flow/include "steps.edn"]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/input)}
+`
+	if err := os.WriteFile(flowFile, []byte(flowLiteral), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme"}
+	cmd := newFlowsLintCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--file", flowFile, "--local-only"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("included unreferenced step must stay a warning: %v\n%s", err, out.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out.String())
+	}
+	diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+	if got, _ := diag["message"].(string); !strings.Contains(got, "#flow/include") {
+		t.Fatalf("included-step warning must name the include provenance, got %#v", diag)
+	}
+	if got, _ := diag["hint"].(string); !strings.Contains(got, "included source file") {
+		t.Fatalf("included-step hint must point at the included file, got %#v", diag)
+	}
+}
