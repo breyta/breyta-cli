@@ -1221,11 +1221,28 @@ type localFlowStepReference struct {
 func stripClojureStringLiterals(src string) string {
 	out := []byte(src)
 	inString := false
+	inComment := false
 	for i := 0; i < len(out); i++ {
 		c := out[i]
+		if inComment {
+			// Comment text is not syntax either: blank it so an unmatched
+			// quote inside a ; comment cannot lock the scanner in string
+			// mode and blank real forms on later lines.
+			if c == '\n' {
+				inComment = false
+			} else {
+				out[i] = ' '
+			}
+			continue
+		}
 		if !inString {
 			if c == '\\' && i+1 < len(out) {
 				i++ // char literal: the quoted character is not syntax
+				continue
+			}
+			if c == ';' {
+				inComment = true
+				out[i] = ' '
 				continue
 			}
 			if c == '"' {
@@ -1964,6 +1981,13 @@ func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool,
 		if spans, _, err := parseClojureSetElements(src, i); err == nil {
 			collectToolsExposedStepIDsInSpans(src, ids, spans, allKnown)
 		}
+		return
+	}
+	if src[i] == '#' {
+		// Any other dispatch form — tagged literals like #my/tag {...},
+		// namespaced maps, regexes, var quotes — may hide a :tools entry the
+		// collector cannot see: the exposure set is unknowable.
+		*allKnown = false
 		return
 	}
 	switch src[i] {

@@ -3530,3 +3530,61 @@ func TestFlowsLintLocalOnlyFlowStepTokenInsideStringDoesNotSuppress(t *testing.T
 		t.Fatalf("expected warning severity, got %#v", diag)
 	}
 }
+
+func TestFlowsLintLocalOnlyCommentQuoteDoesNotBreakStringStripping(t *testing.T) {
+	// An unmatched quote inside a ; comment must not lock the stripper in
+	// string mode: the real #_ #_ chain after the comment is still detected
+	// and suppresses the reference diagnostics.
+	flowLiteral := `{:slug :comment-quote-steps
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [ ; don't "start a string here
+         #_ #_ {:id :tools/old :type :function :description "Old"}
+              {:id :tools/also :type :function :description "Also"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/also :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("discards after a quoted comment must still suppress, not fail: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlySemicolonInsideStringIsHarmless(t *testing.T) {
+	// A ';' inside a string literal is content, not a comment start: scans
+	// stay correct and a referenced step lints clean.
+	flowLiteral := `{:slug :semicolon-in-string
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "semi;colon \"quoted\" text"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("semicolon inside a string should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyTaggedLiteralInBodyMarksToolsOpaque(t *testing.T) {
+	// A tagged literal may hide a tools map the collector cannot see, so any
+	// unhandled # dispatch form marks the exposure set opaque.
+	flowLiteral := `{:slug :tagged-literal-tools
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(do #my/tag {:tools {:steps [:tools/orphan]}}
+            (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("tagged literal must suppress, not fail: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
