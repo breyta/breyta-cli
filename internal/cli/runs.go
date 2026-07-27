@@ -931,7 +931,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 				if full {
 					annotateFullRunInspectOutput(out, workflowID)
 				} else {
-					compactRunInspectOutput(out, workflowID)
+					compactRunInspectOutput(out, workflowID, effectiveInstallationID)
 				}
 				reconcileRunResponseWithTerminalEvents(apiClient(app), out, workflowID, effectiveInstallationID)
 			}
@@ -965,7 +965,7 @@ func annotateFullRunInspectOutput(out map[string]any, workflowID string) {
 	appendMetaNextCommands(meta, "breyta resources workflow list "+workflowID)
 }
 
-func compactRunInspectOutput(out map[string]any, workflowID string) {
+func compactRunInspectOutput(out map[string]any, workflowID, installationID string) {
 	data := mapStringAny(out["data"])
 	run := mapStringAny(data["run"])
 	if run == nil {
@@ -1002,8 +1002,13 @@ func compactRunInspectOutput(out map[string]any, workflowID string) {
 	meta["compactInspect"] = true
 	meta["stepsTotal"] = len(steps)
 	if _, ok := meta["hint"]; !ok {
-		meta["hint"] = "Run inspection is compact. Use --full only for full payloads."
+		meta["hint"] = "Run inspection is compact. Use runs show --include-result for the final output; use --full only when full step captures are needed."
 	}
+	resultCmd := "breyta runs show " + strings.TrimSpace(workflowID) + " --include-result"
+	if installationID = strings.TrimSpace(installationID); installationID != "" {
+		resultCmd += " --installation-id " + installationID
+	}
+	appendMetaNextCommands(meta, resultCmd)
 }
 
 func writeLocalRunInspect(cmd *cobra.Command, app *App, runID string) error {

@@ -694,3 +694,16 @@ func TestAddWaitRunNextCommands_InstallationScopedHintIsRunnable(t *testing.T) {
 		}
 	})
 }
+
+func TestAddWaitRunNextCommands_TruncatedResultPrefersBoundedResultFetch(t *testing.T) {
+	out := map[string]any{"data": map[string]any{"run": map[string]any{
+		"status":         "completed",
+		"installationId": "prof-consumer",
+		"resultPreview":  map[string]any{"truncated": true},
+	}}}
+	addWaitRunNextCommands(out, "wf-linked", "")
+	cmds := waitRunNextCommands(t, out)
+	if len(cmds) == 0 || cmds[0] != "breyta runs show wf-linked --include-result --installation-id prof-consumer" {
+		t.Fatalf("expected bounded result fetch as first next command, got %#v", cmds)
+	}
+}

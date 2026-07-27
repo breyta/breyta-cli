@@ -7489,6 +7489,14 @@ func TestRunsInspect_CompactsServerRunPayloadInAPIMode(t *testing.T) {
 	if meta["outputView"] != "compact" || meta["compactInspect"] != true {
 		t.Fatalf("expected compact inspect metadata, got %#v", meta)
 	}
+	nextCommands, _ := meta["nextCommands"].([]any)
+	firstCommand := ""
+	if len(nextCommands) > 0 {
+		firstCommand, _ = nextCommands[0].(string)
+	}
+	if firstCommand != "breyta runs show wf-inspect --include-result" {
+		t.Fatalf("expected compact inspect to guide to bounded final result, got %#v", nextCommands)
+	}
 }
 
 func TestRunsInspectFullRequestsAndPreservesServerRunPayloadInAPIMode(t *testing.T) {

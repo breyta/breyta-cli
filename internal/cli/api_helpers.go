@@ -599,13 +599,33 @@ func addWaitRunNextCommands(out map[string]any, workflowID string, installationI
 		installationID = installationIDFromWaitRunSnapshot(out)
 	}
 	inspectCmd := "breyta runs inspect " + workflowID
+	resultCmd := "breyta runs show " + workflowID + " --include-result"
 	if installationID != "" {
 		inspectCmd += " --installation-id " + installationID
+		resultCmd += " --installation-id " + installationID
 	}
 	meta := ensureMeta(out)
-	appendMetaNextCommands(meta,
-		inspectCmd,
-		"breyta resources workflow list "+workflowID)
+	if waitRunResultPreviewTruncated(out) {
+		appendMetaNextCommands(meta,
+			resultCmd,
+			inspectCmd,
+			"breyta resources workflow list "+workflowID)
+	} else {
+		appendMetaNextCommands(meta,
+			inspectCmd,
+			"breyta resources workflow list "+workflowID)
+	}
+}
+
+func waitRunResultPreviewTruncated(out map[string]any) bool {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	preview := mapStringAny(firstPresent(run, "resultPreview", "result-preview"))
+	if preview == nil {
+		return false
+	}
+	truncated, _ := preview["truncated"].(bool)
+	return truncated
 }
 
 func installationIDFromWaitRunSnapshot(out map[string]any) string {

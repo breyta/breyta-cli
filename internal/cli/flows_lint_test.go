@@ -104,6 +104,41 @@ func TestFlowsLintLocalOnlyAcceptsDeclaredPackagedStepReference(t *testing.T) {
 	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
 }
 
+func TestFlowsLintLocalOnlyReportsUnreferencedAndConfiglessPackagedStep(t *testing.T) {
+	flowLiteral := `{:slug :unused-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/unused :type :http :description "Unused" :input-schema [:map]}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [input (flow/input)] input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("warnings should not make local lint fail: %v\n%s", err, output)
+	}
+	requireFlowLintDiagnosticCodes(t, body,
+		"unreferenced_packaged_step",
+		"packaged_step_missing_executable_config")
+}
+
+func TestFlowsLintLocalOnlyRejectsOverArityPackagedStepCall(t *testing.T) {
+	flowLiteral := `{:slug :over-arity-step
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/fetch :type :http :description "Fetch" :input-schema [:map]
+          :defaults {:method :get :url "https://example.com"}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/fetch :run {} {:on-error :continue})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected over-arity packaged step lint error\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintLocalOnlyAcceptsDeclaredAgentReference(t *testing.T) {
 	flowLiteral := `{:slug :declared-agent-reference
  :concurrency {:type :singleton :on-new-version :coexist}

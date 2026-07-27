@@ -1377,6 +1377,7 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		}
 	}
 	declared := map[string]bool{}
+	declaredPackaged := map[string]bool{}
 	var diagnostics []flowLintDiagnostic
 	for _, span := range spans {
 		stepID, idErr := localStepIDFromMap(src, span)
@@ -1391,7 +1392,23 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 			))
 			continue
 		}
-		declared[strings.TrimPrefix(strings.TrimSpace(stepID), ":")] = true
+		normalizedStepID := strings.TrimPrefix(strings.TrimSpace(stepID), ":")
+		declared[normalizedStepID] = true
+		declaredPackaged[normalizedStepID] = true
+		if entries, _, parseErr := parseClojureMapEntries(src, span.Start); parseErr == nil {
+			_, hasDefaults := mapEntryByKey(entries, "defaults")
+			_, hasPrepare := mapEntryByKey(entries, "prepare")
+			if !hasDefaults && !hasPrepare {
+				diagnostics = append(diagnostics, lintDiagnostic(
+					"warning",
+					"packaged_step_missing_executable_config",
+					[]string{":steps", ":" + normalizedStepID},
+					fmt.Sprintf("Packaged step :%s has no :defaults or :prepare executable configuration.", normalizedStepID),
+					"Add the wrapped step's required config under :defaults, or use :prepare to build it from invocation input.",
+					"local",
+				))
+			}
+		}
 	}
 	for _, agentID := range localDeclaredQualifiedIDs(src, agentsEntry) {
 		declared[agentID] = true
@@ -1408,7 +1425,9 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		))
 	}
 	seen := map[string]bool{}
+	referenced := map[string]bool{}
 	for _, reference := range references {
+		referenced[reference.StepID] = true
 		if declared[reference.StepID] || seen[reference.StepID] {
 			continue
 		}
@@ -1423,6 +1442,19 @@ func localPackagedStepReferenceDiagnostics(src string, stepsEntry, agentsEntry c
 		)
 		diag["byteOffset"] = reference.ByteOffset
 		diagnostics = append(diagnostics, diag)
+	}
+	for stepID := range declaredPackaged {
+		if referenced[stepID] {
+			continue
+		}
+		diagnostics = append(diagnostics, lintDiagnostic(
+			"warning",
+			"unreferenced_packaged_step",
+			[]string{":steps", ":" + stepID},
+			fmt.Sprintf("Packaged step :%s is defined but never referenced from :flow.", stepID),
+			"Invoke it with `flow/step` from :flow, or remove the unused definition.",
+			"local",
+		))
 	}
 	return diagnostics
 }
@@ -1949,6 +1981,26 @@ func localFunctionStepDiagnosticsForList(src string, elements []clojureFormSpan,
 		return nil
 	}
 	stepType := clojureFormToken(src, elements[1])
+	if len(elements) > 4 && stepType != ":function" && stepType != ":code" {
+		stepID := "<missing>"
+		if len(elements) >= 3 {
+			if id, ok := clojureIdentifierFromForm(src, elements[2].Start); ok {
+				stepID = ":" + id
+			} else {
+				stepID = strings.TrimSpace(src[elements[2].Start:elements[2].End])
+			}
+		}
+		diag := lintDiagnostic(
+			"error",
+			"flow_step_arity_invalid",
+			[]string{":flow", stepID},
+			"flow/step expects exactly three arguments: step type, step id, and config map.",
+			"Put :on-error, :retry, :timeout, :persist, and related controls inside the single config map.",
+			"local",
+		)
+		diag["byteOffset"] = listStart
+		return []flowLintDiagnostic{diag}
+	}
 	if stepType != ":function" && stepType != ":code" {
 		return nil
 	}
