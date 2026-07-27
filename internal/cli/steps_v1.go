@@ -736,7 +736,7 @@ bound when probing a slow LLM or other remote provider. For a flow-local templat
 pass --flow <slug> --source draft and put its variables under data, for example:
 
   breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post \\
-    --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' --timeout 5m
+    --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' --timeout 30m
 
 ` + "`--params`" + ` and ` + "`--params-file`" + ` accept JSON. Safe step-config keys are normalized to
 the authored Clojure shape on the server, so JSON like ` + "`responseAs`" + ` and
