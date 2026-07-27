@@ -145,8 +145,38 @@ func TestFlowsDiscoverSearch_CompactHitsCarryDiscoverRefs(t *testing.T) {
 	}
 }
 
+func TestEnrichCommandHints_FlowsGetMembershipForbidden(t *testing.T) {
+	app := &App{WorkspaceID: "ws-source"}
+	envelope := map[string]any{"error": "Access denied: not a workspace member"}
+	enrichCommandHints(app, "flows.get", map[string]any{"flowSlug": "lead-research"}, http.StatusForbidden, envelope)
+
+	meta, _ := envelope["meta"].(map[string]any)
+	hint, _ := meta["hint"].(string)
+	if !strings.Contains(hint, "flows show cannot open it") {
+		t.Fatalf("expected discover inspect hint for flows.get 403, got %#v", meta)
+	}
+	next, _ := meta["nextCommands"].([]any)
+	joined := ""
+	for _, n := range next {
+		s, _ := n.(string)
+		joined += s + "\n"
+	}
+	if !strings.Contains(joined, "breyta flows discover show 'ws-source/lead-research'") {
+		t.Fatalf("expected concrete discover show next command, got %#v", next)
+	}
+
+	// Unrelated commands must not get the Discover suggestion.
+	other := map[string]any{"error": "Access denied: not a workspace member"}
+	enrichCommandHints(app, "flows.put_draft", map[string]any{"flowSlug": "lead-research"}, http.StatusForbidden, other)
+	if otherMeta, ok := other["meta"].(map[string]any); ok {
+		if hint, _ := otherMeta["hint"].(string); strings.Contains(hint, "Discover") {
+			t.Fatalf("discover hint must be gated to flows.get, got %#v", otherMeta)
+		}
+	}
+}
+
 func TestWriteAPIResult_MembershipForbiddenHint(t *testing.T) {
-	t.Run("non-dev points at discover show", func(t *testing.T) {
+	t.Run("non-dev gives generic workspace-selection hint", func(t *testing.T) {
 		app := &App{WorkspaceID: "ws-consumer"}
 		cmd := newFlowsDiscoverShowCmd(app)
 		var out bytes.Buffer
@@ -164,7 +194,7 @@ func TestWriteAPIResult_MembershipForbiddenHint(t *testing.T) {
 		meta, _ := body["meta"].(map[string]any)
 		hint, _ := meta["hint"].(string)
 		if !strings.Contains(hint, "not a member of the addressed workspace") {
-			t.Fatalf("expected cross-workspace hint, got %#v", meta)
+			t.Fatalf("expected generic membership hint, got %#v", meta)
 		}
 		next, _ := meta["nextCommands"].([]any)
 		joined := ""
@@ -172,11 +202,33 @@ func TestWriteAPIResult_MembershipForbiddenHint(t *testing.T) {
 			s, _ := n.(string)
 			joined += s + "\n"
 		}
-		if !strings.Contains(joined, "breyta flows discover show") {
-			t.Fatalf("expected discover show next command, got %#v", next)
+		if !strings.Contains(joined, "breyta workspaces list") {
+			t.Fatalf("expected workspaces list next command, got %#v", next)
 		}
 		if strings.Contains(joined, "workspaces bootstrap") {
 			t.Fatalf("bootstrap hint must stay dev-only, got %#v", next)
+		}
+	})
+
+	t.Run("command-aware hint from enrich wins over the generic one", func(t *testing.T) {
+		app := &App{WorkspaceID: "ws-source"}
+		cmd := newFlowsDiscoverShowCmd(app)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+
+		envelope := map[string]any{"error": "Access denied: not a workspace member"}
+		enrichCommandHints(app, "flows.get", map[string]any{"flowSlug": "lead-research"}, http.StatusForbidden, envelope)
+		if err := writeAPIResult(cmd, app, envelope, http.StatusForbidden); err == nil {
+			t.Fatalf("expected guided error for 403")
+		}
+		var body map[string]any
+		if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+			t.Fatalf("invalid json output: %v\n%s", err, out.String())
+		}
+		meta, _ := body["meta"].(map[string]any)
+		if hint, _ := meta["hint"].(string); !strings.Contains(hint, "flows show cannot open it") {
+			t.Fatalf("expected discover inspect hint to survive writeAPIResult, got %#v", meta)
 		}
 	})
 

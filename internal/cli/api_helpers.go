@@ -802,6 +802,34 @@ func runFailureShouldUseDraftBindings(command string, args map[string]any, out m
 	}
 }
 
+// membershipForbidden reports whether an envelope is the workspace-membership
+// 403 emitted by the workspace authorization middleware.
+func membershipForbidden(status int, out map[string]any) bool {
+	return status == http.StatusForbidden &&
+		strings.Contains(strings.ToLower(getErrorMessage(out)), "not a workspace member")
+}
+
+// addDiscoverInspectHint points a membership 403 on flows.get at the public
+// Discover listing surface: flows show can never open a flow in a workspace
+// the caller is not a member of, but a public app's listing stays readable
+// via flows discover show.
+func addDiscoverInspectHint(app *App, out map[string]any, slug string) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	if _, exists := meta["hint"]; exists {
+		return
+	}
+	ws := strings.TrimSpace(app.WorkspaceID)
+	if ws == "" {
+		ws = "<workspace-id>"
+	}
+	meta["hint"] = "You are not a member of this flow's workspace, so flows show cannot open it. If it is a public Discover app, inspect its public listing instead."
+	appendMetaNextCommands(meta,
+		"breyta flows discover show "+shellSingleQuote(ws+"/"+strings.TrimSpace(slug)))
+}
+
 func enrichCommandHints(app *App, command string, args map[string]any, status int, out map[string]any) {
 	slug, _ := args["flowSlug"].(string)
 	if strings.TrimSpace(slug) == "" {
@@ -814,7 +842,9 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 
 	switch command {
 	case "flows.get":
-		if flowLiteralDeclaresRequires(out) {
+		if membershipForbidden(status, out) {
+			addDiscoverInspectHint(app, out, slug)
+		} else if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
 	case "runs.start", "flows.run", "flows.run_step":
@@ -1701,9 +1731,10 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 	}
 
 	// Workspace membership 403s have two common causes with different fixes:
-	// local dev flakes (mock auth + restarts) and addressing a workspace the
-	// caller is not a member of - typically while inspecting another
-	// workspace's public Discover app, where flows show can never work.
+	// local dev flakes (mock auth + restarts) get the bootstrap recovery, and
+	// everything else gets a generic workspace-selection hint. Command-aware
+	// guidance (for example pointing a cross-workspace flows.get at the public
+	// Discover listing) is added earlier by enrichCommandHints and wins here.
 	if status == http.StatusForbidden && strings.Contains(msg, "not a workspace member") {
 		meta := ensureMeta(v)
 		if meta != nil {
@@ -1716,10 +1747,8 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 					meta["hint"] = "Local workspace membership missing."
 					appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
 				} else {
-					meta["hint"] = "You are not a member of the addressed workspace. Public Discover apps in other workspaces cannot be opened with flows show; inspect their public listing instead."
-					appendMetaNextCommands(meta,
-						"breyta flows discover show <workspace-id>/<flow-slug>",
-						"breyta flows discover search \"<query>\"")
+					meta["hint"] = "You are not a member of the addressed workspace. Verify the workspace id or switch to one of your workspaces."
+					appendMetaNextCommands(meta, "breyta workspaces list")
 				}
 			}
 		}
