@@ -1473,10 +1473,17 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	// the include provenance) carries the location instead. Offsets stay
 	// exact for include-free files.
 	sourceExpanded := rootSrc != "" && rootSrc != src
+	// Over-suppression rule for reader discards in :steps: the shared vector
+	// parser drops single discards span-wise but cannot honor #_ #_ chain
+	// consumption, so ANY discard in the raw :steps text makes the declared
+	// set unknowable — both missing_packaged_step_reference and
+	// unreferenced_packaged_step are suppressed for the flow.
+	stepsUnknowable := stepsEntry.ValueEnd > stepsEntry.ValueStart &&
+		strings.Contains(src[stepsEntry.ValueStart:stepsEntry.ValueEnd], "#_")
 	var spans []clojureFormSpan
 	if stepsEntry.ValueEnd > stepsEntry.ValueStart {
 		var err error
-		spans, err = localLintStepDefinitionSpans(src, stepsEntry)
+		spans, err = localFlowStepVector(src, stepsEntry)
 		if err != nil {
 			return []flowLintDiagnostic{lintDiagnostic(
 				"warning",
@@ -1535,7 +1542,7 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 			continue
 		}
 		referenced[reference.StepID] = true
-		if declared[reference.StepID] || seen[reference.StepID] {
+		if stepsUnknowable || declared[reference.StepID] || seen[reference.StepID] {
 			continue
 		}
 		seen[reference.StepID] = true
@@ -1558,6 +1565,9 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 	// accepts such flows — and the tools scan deliberately over-suppresses
 	// (see localToolsExposedStepIDs). An opaque :tools value anywhere makes
 	// the exposure set unknowable, so the warning is suppressed entirely.
+	if stepsUnknowable {
+		return diagnostics
+	}
 	// The same over-suppression applies to DYNAMIC calls: a flow/step whose
 	// first argument is not a literal keyword — (flow/step kind {}) — could
 	// invoke any packaged step at runtime, so the usage set is unknowable and
@@ -1606,81 +1616,6 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 		diagnostics = append(diagnostics, diag)
 	}
 	return diagnostics
-}
-
-// activeClojureSpans filters reader-discarded forms out of RAW element spans:
-// #_ consumes the NEXT produced object and consecutive discards chain, so a
-// span like `#_ #_ A` also swallows the following span. Spans must come from
-// a raw tokenizer (readClojureFormEnd) that keeps discard prefixes visible.
-func activeClojureSpans(src string, spans []clojureFormSpan) []clojureFormSpan {
-	active := make([]clojureFormSpan, 0, len(spans))
-	pendingDiscards := 0
-	for _, span := range spans {
-		if pendingDiscards > 0 {
-			pendingDiscards--
-			continue
-		}
-		markers := 0
-		j := span.Start
-		for j+1 < span.End && j+1 < len(src) && src[j] == '#' && src[j+1] == '_' {
-			markers++
-			j = skipClojureWhitespaceCommaAndComments(src, j+2)
-		}
-		if markers > 0 {
-			pendingDiscards = markers - 1
-			continue
-		}
-		active = append(active, span)
-	}
-	return active
-}
-
-// rawClojureVectorSpans tokenizes a vector's elements WITHOUT stripping reader
-// prefixes, so reader-discard chains stay visible to activeClojureSpans.
-func rawClojureVectorSpans(src string, start int) ([]clojureFormSpan, error) {
-	i, ok := clojureActiveFormStart(src, start)
-	if !ok || i >= len(src) || src[i] != '[' {
-		return nil, fmt.Errorf("expected vector near byte %d", start)
-	}
-	i++
-	var out []clojureFormSpan
-	for i < len(src) {
-		i = skipClojureWhitespaceCommaAndComments(src, i)
-		if i >= len(src) {
-			return nil, fmt.Errorf("unterminated vector")
-		}
-		if src[i] == ']' {
-			return out, nil
-		}
-		end, err := readClojureFormEnd(src, i)
-		if err != nil || end <= i {
-			if err == nil {
-				err = fmt.Errorf("could not read vector element near byte %d", i)
-			}
-			return nil, err
-		}
-		out = append(out, clojureFormSpan{Start: i, End: end})
-		i = end
-	}
-	return nil, fmt.Errorf("unterminated vector")
-}
-
-// localLintStepDefinitionSpans returns the ACTIVE packaged-step definition
-// spans of the :steps vector: raw tokenization plus the reader-discard chain
-// rule, so a definition consumed by a #_ #_ chain is not treated as declared.
-func localLintStepDefinitionSpans(src string, stepsEntry clojureMapEntry) ([]clojureFormSpan, error) {
-	value := strings.TrimSpace(src[stepsEntry.ValueStart:stepsEntry.ValueEnd])
-	if value == "nil" {
-		return nil, nil
-	}
-	if !strings.HasPrefix(value, "[") {
-		return nil, fmt.Errorf("top-level :steps must be a vector or nil")
-	}
-	spans, err := rawClojureVectorSpans(src, stepsEntry.ValueStart)
-	if err != nil {
-		return nil, err
-	}
-	return activeClojureSpans(src, spans), nil
 }
 
 // localFlowBodyExecutableSource extracts the executable :flow body source the
@@ -1838,6 +1773,15 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 			appendDiag(reference, "warning", "flow_step_packaged_extra_argument",
 				"Packaged flow/step takes step id and config map; the extra argument is invalid at runtime.",
 				"Use (flow/step :ns/id {config}), or the typed shape (flow/step :ns/id :step-id {config}) with a keyword step id.")
+		case !packaged && reference.ElementCount == 4 && reference.SecondArgNeverStepID:
+			// (flow/step :http nil {}) / (flow/step :http "fetch" {}): the id
+			// position holds a literal that can never be a keyword step id.
+			// Same ambiguity rule as the packaged case: symbols and calls
+			// could evaluate to a keyword, so only never-a-step-id literals
+			// warn.
+			appendDiag(reference, "warning", "flow_step_missing_step_id",
+				"flow/step step id must be a keyword: typed forms take type, id, and config.",
+				shapeHint)
 		case reference.ElementCount == 3 && !packaged && reference.SecondArgMap:
 			// (flow/step :type {config}): the config map is present — the
 			// missing piece is the step id. The server's step-call analysis
@@ -1983,12 +1927,23 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 }
 
 // unwrapSingleReaderQuote performs the one simple unwrap the tools-value scan
-// allows: a single leading reader quote ('). Anything more exotic makes the
-// value opaque for the caller.
+// allows: a single leading reader quote (') or one explicit (quote ...) /
+// (clojure.core/quote ...) wrapper — the two spellings must behave
+// identically. Anything more exotic makes the value opaque for the caller.
 func unwrapSingleReaderQuote(src string, start int) (int, bool) {
 	i, ok := clojureActiveFormStart(src, start)
-	if ok && i < len(src) && src[i] == '\'' {
+	if !ok || i >= len(src) {
+		return i, ok
+	}
+	if src[i] == '\'' {
 		return clojureActiveFormStart(src, i+1)
+	}
+	if src[i] == '(' {
+		if elements := parseListSpans(src, i); len(elements) >= 2 {
+			if head := clojureFormToken(src, elements[0]); head == "quote" || head == "clojure.core/quote" {
+				return clojureActiveFormStart(src, elements[1].Start)
+			}
+		}
 	}
 	return i, ok
 }

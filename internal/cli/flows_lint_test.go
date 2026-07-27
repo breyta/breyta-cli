@@ -2982,6 +2982,8 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		// id at runtime, so the form is ambiguous and gets no warning.
 		{name: "packaged four elements with symbol second arg is ambiguous", form: `(flow/step :tools/declared step-id cfg)`},
 		{name: "packaged four elements with nil second arg warns extra argument", form: `(flow/step :tools/declared nil cfg)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
+		{name: "typed four elements with nil step id warns", form: `(flow/step :http nil {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
+		{name: "typed four elements with string step id warns", form: `(flow/step :http "fetch" {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
@@ -3297,9 +3299,11 @@ func TestFlowsLintLocalOnlyOmitsShapeDiagnosticOffsetsForIncludeBearingFlows(t *
 	}
 }
 
-func TestFlowsLintLocalOnlyChainedDiscardsInStepsVectorConsumeDefinitions(t *testing.T) {
-	// #_ #_ before two step maps discards BOTH definitions: referencing the
-	// second one from the body must report it as missing, not declared.
+func TestFlowsLintLocalOnlyDiscardsInStepsVectorSuppressReferenceDiagnostics(t *testing.T) {
+	// The shared vector parser drops single discards span-wise but cannot
+	// honor #_ #_ chain consumption, so ANY discard in the raw :steps text
+	// makes the declared set unknowable: both reference diagnostics are
+	// suppressed for the flow.
 	flowLiteral := `{:slug :discarded-step-definitions
  :concurrency {:type :singleton :on-new-version :coexist}
  :steps [#_ #_ {:id :tools/old :type :function :description "Old"}
@@ -3310,15 +3314,15 @@ func TestFlowsLintLocalOnlyChainedDiscardsInStepsVectorConsumeDefinitions(t *tes
  :flow '(flow/step :tools/also :run {})}
 `
 	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
-	if err == nil {
-		t.Fatalf("a definition consumed by a discard chain must not count as declared\n%s", output)
+	if err != nil {
+		t.Fatalf("discards in :steps must suppress, not fail: %v\n%s", err, output)
 	}
-	requireFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference")
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "unreferenced_packaged_step")
 }
 
-func TestFlowsLintLocalOnlySingleDiscardInStepsVectorKeepsNextDefinition(t *testing.T) {
-	// A single #_ discards only the next definition; the one after stays
-	// declared.
+func TestFlowsLintLocalOnlySingleDiscardInStepsVectorAlsoSuppresses(t *testing.T) {
+	// Single discards fall under the same over-suppression rule: the
+	// declared set is treated as unknowable whenever :steps contains #_.
 	flowLiteral := `{:slug :single-discard-step-definition
  :concurrency {:type :singleton :on-new-version :coexist}
  :steps [#_ {:id :tools/old :type :function :description "Old"}
@@ -3330,7 +3334,52 @@ func TestFlowsLintLocalOnlySingleDiscardInStepsVectorKeepsNextDefinition(t *test
 `
 	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
 	if err != nil {
-		t.Fatalf("the definition after a single discard stays declared: %v\n%s", err, output)
+		t.Fatalf("discards in :steps must suppress, not fail: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlyDeclaresStepsFromSplicedReaderConditionalVector(t *testing.T) {
+	// Regression guard for the raw-tokenizer detour: the shared vector parser
+	// splices #?@ branches, so definitions inside them stay declared.
+	flowLiteral := `{:slug :spliced-steps-definitions
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [#?@(:clj [{:id :tools/declared :type :function :description "Declared"}])]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :tools/declared :run {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("spliced step definitions must stay declared: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "missing_packaged_step_reference", "step_reference_scan_incomplete")
+}
+
+func TestFlowsLintLocalOnlyExplicitQuoteToolsValuesResolvePrecisely(t *testing.T) {
+	// Explicit (quote ...) / (clojure.core/quote ...) tools values must behave
+	// exactly like the ' spelling: ids resolve precisely (allKnown stays
+	// true), so a genuinely dead second step still warns instead of being
+	// blanket-suppressed by an opaque signal.
+	for _, quoteForm := range []string{"quote", "clojure.core/quote"} {
+		flowLiteral := fmt.Sprintf(`{:slug :explicit-quote-tools-precise-%s
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Tool-only step"}
+         {:id :tools/dead :type :function :description "Dead step"}]
+ :agents [{:id :review/helper :description "Helper" :tools (%s {:steps [:tools/orphan]})}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`, strings.ReplaceAll(quoteForm, ".", "-"), quoteForm)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("%s tools value should lint clean: %v\n%s", quoteForm, err, output)
+		}
+		diag := flowLintDiagnosticByCode(t, body, "unreferenced_packaged_step")
+		if got, _ := diag["message"].(string); !strings.Contains(got, ":tools/dead") {
+			t.Fatalf("%s: expected the dead step to warn (precise resolution, not opaque suppression), got %#v", quoteForm, diag)
+		}
+	}
 }
