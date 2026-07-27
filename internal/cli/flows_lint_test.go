@@ -253,6 +253,23 @@ func TestFlowsLintInspectsTopLevelSyntaxQuoteWrapper(t *testing.T) {
 	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
 }
 
+func TestFlowsLintNormalizesMetadataBeforeReaderConditionalWrapper(t *testing.T) {
+	flowLiteral := `{:slug :metadata-conditional-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps []
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow ^:tag #?(:clj '(flow/step :http :example {} {:extra true})
+                :cljs '(flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected wrapped over-arity diagnostic\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "flow_step_arity_invalid")
+}
+
 func TestFlowsLintIgnoresReaderDiscardedStepArguments(t *testing.T) {
 	flowLiteral := `{:slug :discarded-step-argument
  :concurrency {:type :singleton :on-new-version :coexist}

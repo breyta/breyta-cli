@@ -209,6 +209,17 @@ func TestSavedRunPreRequestFailureIsNotReportedAsAmbiguous(t *testing.T) {
 	}
 }
 
+func TestDirectRunTransportFailureRequiresEffectReconciliation(t *testing.T) {
+	cmd := &cobra.Command{}
+	err := writeAmbiguousLocalStepRunFailure(cmd, &App{}, nil, 0,
+		errors.New("timeout"), "orders", "stable-key")
+	if err == nil || !strings.Contains(err.Error(), "Reconcile the execution") ||
+		!strings.Contains(err.Error(), "breyta runs list") ||
+		!strings.Contains(err.Error(), "--idempotency-key") {
+		t.Fatalf("expected ambiguity-safe direct-run guidance, got %v", err)
+	}
+}
+
 func TestSavedInitPushFailureOmitsStepRunWithoutSeededStep(t *testing.T) {
 	cmd := &cobra.Command{}
 	apiOut := map[string]any{

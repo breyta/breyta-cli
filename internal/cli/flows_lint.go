@@ -2086,15 +2086,22 @@ func localTopLevelFlowValuePosition(src string, position int) bool {
 	if !ok {
 		return false
 	}
-	_, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
-	offset += readerOffset
-	for offset < len(src) && src[offset] == '^' {
-		metadataStart := skipClojureWhitespaceCommaAndComments(src, offset+1)
-		metadataEnd, err := readClojureFormEnd(src, metadataStart)
-		if err != nil || metadataEnd <= metadataStart {
-			return false
+	_ = flowSource
+	for {
+		previousOffset := offset
+		_, readerOffset := unwrapTopLevelReaderConditionalFlowSource(src[offset:])
+		offset += readerOffset
+		for offset < len(src) && src[offset] == '^' {
+			metadataStart := skipClojureWhitespaceCommaAndComments(src, offset+1)
+			metadataEnd, err := readClojureFormEnd(src, metadataStart)
+			if err != nil || metadataEnd <= metadataStart {
+				return false
+			}
+			offset = skipClojureWhitespaceCommaAndComments(src, metadataEnd)
 		}
-		offset = skipClojureWhitespaceCommaAndComments(src, metadataEnd)
+		if offset == previousOffset {
+			break
+		}
 	}
 	if position == offset {
 		return true

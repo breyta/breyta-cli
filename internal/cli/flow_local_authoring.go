@@ -664,6 +664,26 @@ type localAuthoringPreRequestError struct {
 func (e localAuthoringPreRequestError) Error() string { return e.err.Error() }
 func (e localAuthoringPreRequestError) Unwrap() error { return e.err }
 
+func writeAmbiguousLocalStepRunFailure(cmd *cobra.Command, app *App, out map[string]any, status int, err error, slug, idempotencyKey string) error {
+	var preRequestErr localAuthoringPreRequestError
+	if errors.As(err, &preRequestErr) {
+		return writeErr(cmd, preRequestErr.err)
+	}
+	hint := fmt.Sprintf("The step run ended before a definitive server response. Reconcile the execution and any external effect before retrying; inspect recent runs with `breyta runs list --query %s --limit 10`",
+		shellQuotePath("flow:"+strings.TrimSpace(slug)))
+	if key := strings.TrimSpace(idempotencyKey); key != "" {
+		hint += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
+	}
+	if err != nil {
+		return writeErr(cmd, fmt.Errorf("%s: %w", hint, err))
+	}
+	if out == nil {
+		return writeErr(cmd, errors.New(hint))
+	}
+	ensureMeta(out)["hint"] = hint
+	return writeAPIResult(cmd, app, out, status)
+}
+
 func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any, status int) error {
 	if status < 400 && isOK(out) {
 		return nil
@@ -1092,7 +1112,10 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 			}
 			out, status, err := runLocalFlowStep(cmd, app, slug, path, source, stepID, params, idempotencyKey, profileID, timeout)
 			if err != nil {
-				return writeErr(cmd, err)
+				return writeAmbiguousLocalStepRunFailure(cmd, app, out, status, err, slug, idempotencyKey)
+			}
+			if status >= 500 {
+				return writeAmbiguousLocalStepRunFailure(cmd, app, out, status, nil, slug, idempotencyKey)
 			}
 			if err := compactStepsRunResult(out, stepID, previewOpts); err != nil {
 				return writeErr(cmd, err)
