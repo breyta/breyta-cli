@@ -1200,10 +1200,13 @@ type localFlowStepReference struct {
 	SecondArgKeyword bool
 	SecondArgMap     bool
 	// SecondArgNeverStepID is true when the second argument is a literal that
-	// can never evaluate to a keyword step id: a map, vector, string, or
-	// number. Symbols and call forms COULD evaluate to a keyword at runtime,
+	// can never evaluate to a keyword step id: a map, vector, string, number,
+	// nil/boolean/character, or the empty list. ThirdArgNeverMap is the mirror
+	// for the config position: a literal that can never evaluate to a map.
+	// Symbols and call forms COULD evaluate to the required type at runtime,
 	// so they stay ambiguous and never trigger shape warnings.
 	SecondArgNeverStepID bool
+	ThirdArgNeverMap     bool
 	Plain                bool
 }
 
@@ -1437,8 +1440,30 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 					reference.SecondArgNeverStepID = true
 				default:
 					switch clojureFormToken(src, elements[2]) {
-					case "nil", "true", "false":
+					case "nil", "true", "false", "()":
+						// The empty list evaluates to itself and can never be
+						// a keyword; non-empty list forms stay ambiguous.
 						reference.SecondArgNeverStepID = true
+					}
+				}
+			}
+		}
+		if len(elements) >= 4 {
+			if start, ok := clojureActiveFormStart(src, elements[3].Start); ok && start < len(src) {
+				switch c := src[start]; {
+				case c == '[' || c == '"' || c == ':' || c == '\\':
+					// Vector, string, keyword, or character literal — never a
+					// map. Sets and other dispatch forms bail at the plain
+					// gate; symbols and calls stay ambiguous.
+					reference.ThirdArgNeverMap = true
+				case c >= '0' && c <= '9':
+					reference.ThirdArgNeverMap = true
+				case (c == '-' || c == '+') && start+1 < len(src) && src[start+1] >= '0' && src[start+1] <= '9':
+					reference.ThirdArgNeverMap = true
+				default:
+					switch clojureFormToken(src, elements[3]) {
+					case "nil", "true", "false":
+						reference.ThirdArgNeverMap = true
 					}
 				}
 			}
@@ -1782,6 +1807,12 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 			appendDiag(reference, "warning", "flow_step_missing_step_id",
 				"flow/step step id must be a keyword: typed forms take type, id, and config.",
 				shapeHint)
+		case !packaged && reference.ElementCount == 4 && reference.ThirdArgNeverMap:
+			// (flow/step :http :fetch nil) / (flow/step :http :fetch []): the
+			// config position holds a literal that can never be a map.
+			appendDiag(reference, "warning", "flow_step_missing_config",
+				"flow/step config must be a map: typed forms take type, id, and config map.",
+				shapeHint)
 		case reference.ElementCount == 3 && !packaged && reference.SecondArgMap:
 			// (flow/step :type {config}): the config map is present — the
 			// missing piece is the step id. The server's step-call analysis
@@ -1853,6 +1884,9 @@ func collectToolsExposedStepIDs(src string, start, end int, ids map[string]bool,
 	case '{':
 		entries, _, err := parseClojureMapEntries(src, i)
 		if err != nil {
+			// An unparseable map (for example a #?@ splice among its entries)
+			// may hide a :tools entry: the exposure set is unknowable.
+			*allKnown = false
 			return
 		}
 		for _, entry := range entries {

@@ -2984,6 +2984,9 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "packaged four elements with nil second arg warns extra argument", form: `(flow/step :tools/declared nil cfg)`, wantCode: "flow_step_packaged_extra_argument", wantSeverity: "warning"},
 		{name: "typed four elements with nil step id warns", form: `(flow/step :http nil {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
 		{name: "typed four elements with string step id warns", form: `(flow/step :http "fetch" {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
+		{name: "typed four elements with empty list step id warns", form: `(flow/step :http () {})`, wantCode: "flow_step_missing_step_id", wantSeverity: "warning"},
+		{name: "typed four elements with nil config warns", form: `(flow/step :http :fetch nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "typed four elements with vector config warns", form: `(flow/step :http :fetch [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "more than four elements error", form: `(flow/step :http :fetch {} {:extra true})`, wantErr: true, wantCode: "flow_step_arity_invalid", wantSeverity: "error"},
 		// Non-plain forms (reader macros anywhere) produce ZERO diagnostics by
 		// design: reader semantics belong to the server.
@@ -3382,4 +3385,24 @@ func TestFlowsLintLocalOnlyExplicitQuoteToolsValuesResolvePrecisely(t *testing.T
 			t.Fatalf("%s: expected the dead step to warn (precise resolution, not opaque suppression), got %#v", quoteForm, diag)
 		}
 	}
+}
+
+func TestFlowsLintLocalOnlyUnparseableMapInBodyMarksToolsOpaque(t *testing.T) {
+	// A map the scanner cannot parse (a #?@ splice among its entries) may
+	// hide a :tools entry, so the exposure set goes opaque and the
+	// unreferenced warning is suppressed.
+	flowLiteral := `{:slug :opaque-map-tools
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(let [m {#?@(:clj [:tools {:steps [:tools/orphan]}])}]
+          (flow/input))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("unparseable map must suppress, not fail: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
 }
