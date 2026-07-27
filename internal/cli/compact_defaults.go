@@ -111,8 +111,11 @@ func compactTemplateSearchHit(hit map[string]any) bool {
 	setCompactField(compacted, "matchedPatterns", firstPresentAny(hit["matchedPatterns"], hit["matched_patterns"]))
 	setCompactField(compacted, "matchPreviews", firstPresentAny(hit["matchPreviews"], hit["match_previews"]))
 	setCompactField(compacted, "flow_web_url", firstNonBlankString(hit["flow_web_url"], hit["flowWebUrl"], hit["webUrl"]))
+	setCompactField(compacted, "discover_web_url", firstNonBlankString(hit["discover_web_url"], hit["discoverWebUrl"]))
+	setCompactField(compacted, "public_app_url", firstNonBlankString(hit["public_app_url"], hit["publicAppUrl"]))
 	setCompactField(compacted, "workspace_name", firstNonBlankString(hit["workspace_name"], hit["workspaceName"]))
 	setCompactField(compacted, "score", firstPresentAny(hit["score"]))
+	addDiscoverHitRefs(hit, compacted)
 	addFlowSearchHitRefs(compacted)
 	if len(compacted) == 0 {
 		return changed
@@ -214,6 +217,29 @@ func compactResourceListItem(item map[string]any) map[string]any {
 		out["snippet"] = truncateRunes(snippet, compactResourceSnippetRunes)
 	}
 	return out
+}
+
+// addDiscoverHitRefs marks public Discover hits (identified by catalog metadata
+// on the original hit) with a ref and the cross-workspace inspection command.
+// flows show cannot open another workspace's flow, so the next command for a
+// Discover hit is always flows discover show.
+func addDiscoverHitRefs(original map[string]any, hit map[string]any) {
+	if original == nil || hit == nil {
+		return
+	}
+	if firstNonBlankString(original["catalog_id"], original["catalogId"]) == "" &&
+		firstPresentAny(original["discover_visible"], original["discoverVisible"]) == nil {
+		return
+	}
+	workspaceID := firstNonBlankString(original["workspace_id"], original["workspaceId"])
+	slug := firstNonBlankString(original["flow_slug"], original["flowSlug"], original["slug"])
+	if workspaceID == "" || slug == "" {
+		return
+	}
+	ref := workspaceID + "/" + slug
+	hit["workspace_id"] = workspaceID
+	hit["hitRef"] = "discover:" + ref
+	hit["nextCommand"] = "breyta flows discover show " + shellSingleQuote(ref)
 }
 
 func addFlowSearchHitRefs(hit map[string]any) {

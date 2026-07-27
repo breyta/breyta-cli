@@ -1700,18 +1700,27 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		}
 	}
 
-	// Workspace membership flakes are common in local dev (mock auth + restarts).
-	// When we recognize the server message, give a direct recovery hint.
+	// Workspace membership 403s have two common causes with different fixes:
+	// local dev flakes (mock auth + restarts) and addressing a workspace the
+	// caller is not a member of - typically while inspecting another
+	// workspace's public Discover app, where flows show can never work.
 	if status == http.StatusForbidden && strings.Contains(msg, "not a workspace member") {
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				ws := strings.TrimSpace(app.WorkspaceID)
-				if ws == "" {
-					ws = "<workspace-id>"
+				if app.DevMode {
+					ws := strings.TrimSpace(app.WorkspaceID)
+					if ws == "" {
+						ws = "<workspace-id>"
+					}
+					meta["hint"] = "Local workspace membership missing."
+					appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
+				} else {
+					meta["hint"] = "You are not a member of the addressed workspace. Public Discover apps in other workspaces cannot be opened with flows show; inspect their public listing instead."
+					appendMetaNextCommands(meta,
+						"breyta flows discover show <workspace-id>/<flow-slug>",
+						"breyta flows discover search \"<query>\"")
 				}
-				meta["hint"] = "Local workspace membership missing."
-				appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
 			}
 		}
 	}
