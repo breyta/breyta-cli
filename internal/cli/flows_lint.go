@@ -1461,6 +1461,12 @@ func localFlowStepReferencesInListAtDepth(src string, listStart, baseOffset, syn
 }
 
 func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agentsEntry clojureMapEntry) []flowLintDiagnostic {
+	// Byte offsets are measured against the include-EXPANDED literal; when
+	// expansion changed the source they would point into the wrong place in
+	// the root file, so they are omitted and the message/hint (which names
+	// the include provenance) carries the location instead. Offsets stay
+	// exact for include-free files.
+	sourceExpanded := rootSrc != "" && rootSrc != src
 	var spans []clojureFormSpan
 	if stepsEntry.ValueEnd > stepsEntry.ValueStart {
 		var err error
@@ -1535,7 +1541,9 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 			"Add it with `breyta flows steps create ...` or update the flow body to use a declared step.",
 			"local",
 		)
-		diag["byteOffset"] = reference.ByteOffset
+		if !sourceExpanded {
+			diag["byteOffset"] = reference.ByteOffset
+		}
 		diagnostics = append(diagnostics, diag)
 	}
 	// Inverse check: a packaged step that is neither referenced from the :flow
@@ -1552,6 +1560,15 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 		if reference.ElementCount >= 2 && !reference.FirstArgKeyword {
 			return diagnostics
 		}
+	}
+	// Indirect invocations — (apply flow/step [...]) or flow/step bound to
+	// another symbol — produce no direct-call reference at all. Cheapest
+	// sound rule: if the executable body mentions the flow/step token more
+	// (or less) often than the walker found direct call heads, some usage is
+	// indirect (or quoted data inflates the count) and the usage set is
+	// unknowable → suppress the unreferenced warning for the whole flow.
+	if bodySource, ok := localFlowBodyExecutableSource(src); !ok || countFlowStepTokens(bodySource) != len(references) {
+		return diagnostics
 	}
 	toolsExposed, toolsKnown := localToolsExposedStepIDs(src)
 	if !toolsKnown {
@@ -1577,10 +1594,59 @@ func localPackagedStepReferenceDiagnostics(src, rootSrc string, stepsEntry, agen
 			hint,
 			"local",
 		)
-		diag["byteOffset"] = step.byteOffset
+		if !sourceExpanded {
+			diag["byteOffset"] = step.byteOffset
+		}
 		diagnostics = append(diagnostics, diag)
 	}
 	return diagnostics
+}
+
+// localFlowBodyExecutableSource extracts the executable :flow body source the
+// same way the reference walker does (top-level reader conditional and quote
+// unwrapped).
+func localFlowBodyExecutableSource(flowLiteral string) (string, bool) {
+	flowSource, _, ok := topLevelFlowValueSource(flowLiteral)
+	if !ok {
+		return "", false
+	}
+	flowSource, _ = unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	flowSource, _ = unwrapTopLevelQuotedFlowSource(flowSource)
+	return flowSource, true
+}
+
+// countFlowStepTokens counts standalone occurrences of the flow/step token in
+// the source text — a deliberately crude scan (strings, comments, and quoted
+// data included) whose only job is to disagree with the walker's direct-call
+// count whenever the token appears in a non-head position.
+func countFlowStepTokens(src string) int {
+	const token = "flow/step"
+	count := 0
+	for i := 0; ; {
+		j := strings.Index(src[i:], token)
+		if j < 0 {
+			break
+		}
+		pos := i + j
+		end := pos + len(token)
+		prevOK := pos == 0 || !isFlowStepTokenChar(src[pos-1])
+		nextOK := end >= len(src) || !isFlowStepTokenChar(src[end])
+		if prevOK && nextOK {
+			count++
+		}
+		i = end
+	}
+	return count
+}
+
+func isFlowStepTokenChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '-' || c == '_' || c == '.' || c == '/' || c == '*' || c == '?' || c == '!' || c == '+':
+		return true
+	}
+	return false
 }
 
 // localStepDefinedViaInclude reports whether a packaged step id that exists in
@@ -1810,9 +1876,13 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 			return false
 		}
 		for _, span := range spans {
-			if id, ok := localQualifiedStepIDFromForm(src, span); ok {
-				ids[id] = true
+			id, ok := localQualifiedStepIDFromForm(src, span)
+			if !ok {
+				// A symbol or call element could name any step at runtime:
+				// the exposure set is incomplete → opaque.
+				return false
 			}
+			ids[id] = true
 		}
 	}
 	return true

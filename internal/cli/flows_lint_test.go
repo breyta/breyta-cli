@@ -2772,6 +2772,9 @@ func TestFlowsLintLocalOnlyWarnsOnUnreferencedPackagedStep(t *testing.T) {
 	if got, _ := diag["message"].(string); !strings.Contains(got, ":tools/orphan is defined but never referenced from :flow") {
 		t.Fatalf("expected unreferenced-step message, got %#v", diag)
 	}
+	if _, ok := diag["byteOffset"]; !ok {
+		t.Fatalf("include-free files keep exact byte offsets, got %#v", diag)
+	}
 }
 
 func TestFlowsLintLocalOnlyDoesNotWarnWhenPackagedStepIsReferenced(t *testing.T) {
@@ -3137,6 +3140,9 @@ func TestFlowsLintLocalOnlyMarksIncludedUnreferencedSteps(t *testing.T) {
 	if got, _ := diag["hint"].(string); !strings.Contains(got, "included source file") {
 		t.Fatalf("included-step hint must point at the included file, got %#v", diag)
 	}
+	if _, ok := diag["byteOffset"]; ok {
+		t.Fatalf("include-expanded sources must omit the misleading byte offset, got %#v", diag)
+	}
 }
 
 func TestFlowsLintLocalOnlyMarksWholeVectorIncludeSteps(t *testing.T) {
@@ -3202,4 +3208,43 @@ func TestFlowsLintLocalOnlySuppressesUnreferencedWarningForDynamicCalls(t *testi
 		"flow_step_missing_config",
 		"flow_step_arity_invalid",
 		"flow_step_packaged_extra_argument")
+}
+
+func TestFlowsLintLocalOnlySuppressesUnreferencedWarningForIndirectInvocations(t *testing.T) {
+	// (apply flow/step [...]) produces no direct-call reference; the token
+	// count disagreeing with the walker's head count marks the usage set
+	// unknowable and suppresses the warning for the whole flow.
+	flowLiteral := `{:slug :indirect-call-usage
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/declared :type :function :description "Declared"}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(apply flow/step [:tools/declared {}])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("indirect flow/step invocation should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
+}
+
+func TestFlowsLintLocalOnlySuppressesUnreferencedWarningForSymbolToolsElements(t *testing.T) {
+	// A symbol element in a :tools {:steps [...]} vector could name any step
+	// at runtime: the exposure set is incomplete, so it goes opaque and the
+	// warning is suppressed.
+	flowLiteral := `{:slug :symbol-tools-element
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :agents [{:id :review/helper :description "Helper" :tools {:steps [tool-id]}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("symbol tools element should lint clean: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
 }
