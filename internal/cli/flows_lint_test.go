@@ -2988,6 +2988,8 @@ func TestFlowsLintLocalOnlyFlowStepShapeMatrix(t *testing.T) {
 		{name: "typed four elements with nil config warns", form: `(flow/step :http :fetch nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with vector config warns", form: `(flow/step :http :fetch [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		{name: "typed four elements with empty list config warns", form: `(flow/step :http :fetch ())`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "packaged three elements with nil config warns", form: `(flow/step :tools/declared nil)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
+		{name: "packaged three elements with vector config warns", form: `(flow/step :tools/declared [])`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
 		// Two elements are invalid for both shapes regardless of what the
 		// first argument resolves to, so the dynamic form still warns.
 		{name: "dynamic two element form warns", form: `(flow/step kind)`, wantCode: "flow_step_missing_config", wantSeverity: "warning"},
@@ -3456,4 +3458,24 @@ func TestFlowsLintLocalOnlyCommentOnlyReferenceSuppressesUnreferencedWarning(t *
 		t.Fatalf("comment-only reference must lint clean: %v\n%s", err, output)
 	}
 	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step", "missing_packaged_step_reference")
+}
+
+func TestFlowsLintLocalOnlyDiscardChainInToolsVectorMarksOpaque(t *testing.T) {
+	// The shared parser cannot honor #_ #_ chain consumption inside a
+	// :tools {:steps [...]} vector, so any discard there makes the exposure
+	// set unknowable and suppresses the unreferenced warning.
+	flowLiteral := `{:slug :discard-chain-tools-vector
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :steps [{:id :tools/orphan :type :function :description "Orphan"}]
+ :agents [{:id :review/helper :description "Helper" :tools {:steps [#_ #_ :tools/orphan :tools/other]}}]
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :schedules []
+ :flow '(flow/step :review/helper :review {})}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("discard chain in tools vector must suppress, not fail: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "unreferenced_packaged_step")
 }

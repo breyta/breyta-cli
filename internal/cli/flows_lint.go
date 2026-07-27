@@ -1828,6 +1828,15 @@ func localFlowStepArityDiagnostics(src string, sourceExpanded bool) []flowLintDi
 			appendDiag(reference, "warning", "flow_step_missing_step_id",
 				"flow/step step id must be a keyword: typed forms take type, id, and config.",
 				shapeHint)
+		case packaged && reference.ElementCount == 3 && reference.SecondArgNeverStepID && !reference.SecondArgMap:
+			// (flow/step :ns/id nil) / (flow/step :ns/id []): in the packaged
+			// shape the CONFIG is the second argument, and never-step-id
+			// minus the map literal is exactly the never-map literal set
+			// (keyword configs are caught by the both-keywords error above).
+			// Symbols and calls stay ambiguous and silent.
+			appendDiag(reference, "warning", "flow_step_missing_config",
+				"flow/step config must be a map: packaged forms take id and config map.",
+				shapeHint)
 		case !packaged && reference.ElementCount == 4 && reference.ThirdArgNeverMap:
 			// (flow/step :http :fetch nil) / (flow/step :http :fetch []): the
 			// config position holds a literal that can never be a map.
@@ -1963,8 +1972,14 @@ func collectToolsStepsVectorIDs(src string, toolsEntry clojureMapEntry, ids map[
 		if !ok || stepsStart >= len(src) || src[stepsStart] != '[' {
 			return false
 		}
-		spans, _, err := parseClojureVectorElements(src, stepsStart)
+		spans, stepsEnd, err := parseClojureVectorElements(src, stepsStart)
 		if err != nil {
+			return false
+		}
+		// Mirror of the stepsUnknowable rule: the shared parser cannot honor
+		// #_ #_ chain consumption, so ANY discard in the raw vector text makes
+		// the keyword set unknowable → opaque.
+		if stepsEnd > stepsStart && stepsEnd <= len(src) && strings.Contains(src[stepsStart:stepsEnd], "#_") {
 			return false
 		}
 		for _, span := range spans {
