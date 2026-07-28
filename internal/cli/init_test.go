@@ -113,7 +113,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta flows templates search \"<query>\" --limit 5`",
 		"`breyta resources search \"<query>\" --limit 5`",
 		"`--keyword-mode balanced` for natural-language questions over small resource sets",
-		"repeat `--input 'name:type:required|optional:Label'` to seed invocation fields",
+		"edit the generated `:invocations` contract when manual inputs are required",
 		"`--timeout` defaults to 15 minutes and is also available on init/create/update `--run`",
 		"Persist large or unknown payloads with `:persist`",
 		"`:tier :ephemeral` on streaming `:http` steps",

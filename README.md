@@ -151,8 +151,7 @@ For a new flow, create the local source, compose it in small pieces, then push
 it explicitly when you want a workspace draft:
 
 ```bash
-breyta flows init order-sync --name "Order sync" \
-  --input 'order-id:text:required:Order ID'
+breyta flows init order-sync --name "Order sync"
 breyta flows steps create order-sync tools/fetch-order --step-file ./steps/fetch-order.edn
 breyta flows compose order-sync --body-file ./flows/order-sync.body.clj
 breyta flows lint --file ./flows/order-sync.clj --local-only
@@ -177,9 +176,9 @@ breyta flows init order-sync \
 `flows steps create/update/remove` edits only the local top-level `:steps`
 vector. `flows compose` edits only the quoted `:flow` body. The generated
 source includes a manual `run` interface and an empty `:schedules` vector.
-Repeat `--input 'name:type:required|optional:Label'` during init to seed its
-invocation contract. The seeded init path uses those same local semantics: it writes the
-packaged step into `:steps`, and `--run` sends the complete literal for
+Edit the generated `:invocations` contract in the local flow source when manual
+inputs are required. The seeded init path uses those same local semantics: it
+writes the packaged step into `:steps`, and `--run` sends the complete literal for
 just-in-time server execution without creating or updating a draft. Use
 `flows push` (or an explicit command-level `--push`) for remote persistence.
 Flow-local `steps run` and the `--run` modes on init/create/update default to a
