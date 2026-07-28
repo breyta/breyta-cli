@@ -17,7 +17,26 @@ import (
 const (
 	defaultFlowRunWaitTimeout     = 15 * time.Minute
 	defaultFlowRunWaitTimeoutFlag = "15m"
+	runWaitProgressInterval       = 15 * time.Second
 )
+
+func printRunWaitProgress(cmd *cobra.Command, workflowID string, status string, elapsed time.Duration) {
+	status = canonicalRunStatus(status)
+	if status == "" {
+		status = "running"
+	}
+	if elapsed < time.Second {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Run %s is %s; waiting for completion...\n", workflowID, status)
+		return
+	}
+	_, _ = fmt.Fprintf(
+		cmd.ErrOrStderr(),
+		"Run %s is still %s after %s; continuing to wait...\n",
+		workflowID,
+		status,
+		elapsed.Truncate(time.Second),
+	)
+}
 
 func asInt(v any) int {
 	switch t := v.(type) {
@@ -230,11 +249,15 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	if startRunStatus == "" {
 		startRunStatus = "running"
 	}
-	deadline := time.Now().Add(timeout)
+	waitStartedAt := time.Now()
+	deadline := waitStartedAt.Add(timeout)
 	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
 	defer cancelWait()
 	polls := 0
 	var nextTerminalFallback time.Time
+	nextProgress := waitStartedAt.Add(runWaitProgressInterval)
+	lastObservedStatus := startRunStatus
+	printRunWaitProgress(cmd, workflowID, lastObservedStatus, 0)
 	avgMs := avgDurationMsFromRunData(startResp)
 	// In --wait mode the start response is swallowed and one of the responses
 	// below is written instead; carry the run-start ETA meta onto whichever
@@ -325,6 +348,11 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	for {
+		now := time.Now()
+		if !now.Before(nextProgress) {
+			printRunWaitProgress(cmd, workflowID, lastObservedStatus, now.Sub(waitStartedAt))
+			nextProgress = now.Add(runWaitProgressInterval)
+		}
 		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
 			runsGetPayload["installationId"] = installationID
@@ -382,6 +410,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		execData, _ := execResp["data"].(map[string]any)
 		run, _ := execData["run"].(map[string]any)
 		s := canonicalRunStatus(run["status"])
+		if s != "" {
+			lastObservedStatus = s
+		}
 		if isTerminalRunStatus(s) {
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 				"product":     "flows",
