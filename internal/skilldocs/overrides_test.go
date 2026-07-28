@@ -54,6 +54,9 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
+		t.Fatalf("expected named-step probe distinction in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
 		!strings.Contains(body, "shell or OS argument limits") {
 		t.Fatalf("expected input-file payload guidance in override, got:\n%s", body)
@@ -568,6 +571,8 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "## Local flow source authoring (Local-first)") ||
 		!strings.Contains(body, "breyta flows init <slug>") ||
+		!strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") ||
+		!strings.Contains(body, "`meta.localPath` and `meta.nextCommands`") ||
 		!strings.Contains(body, "breyta flows steps create/update/remove") ||
 		!strings.Contains(body, "breyta flows push --file ./flows/<slug>.clj") {
 		t.Fatalf("expected local-first flow authoring guidance, got:\n%s", body)
@@ -600,6 +605,7 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 		"SKILL.md": []byte(strings.Join([]string{
 			"## Local flow source authoring (Local-first)",
 			"- existing content",
+			manualInvocationContractGuidance,
 			"",
 			"## Capability Discovery",
 			"- breyta docs",
@@ -614,6 +620,33 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	if !strings.Contains(body, "two minutes per draft-upload") ||
 		!strings.Contains(body, "draft may already be saved") {
 		t.Fatalf("expected flow push timeout recovery guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
+		t.Fatalf("expected refreshed manual-input contract guidance, got:\n%s", body)
+	}
+	if count := strings.Count(body, manualInvocationContractGuidance); count != 1 {
+		t.Fatalf("expected manual-input contract guidance exactly once, got %d\n%s", count, body)
+	}
+	if !strings.Contains(body, "`meta.localPath` and `meta.nextCommands`") {
+		t.Fatalf("expected saved-local recovery guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "- existing content") {
+		t.Fatalf("expected upstream local-authoring guidance to be preserved, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_RefreshesOlderFocusedStepRunGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Default Loop",
+			"- Use `breyta flows run-step <slug> <step-id>` for a focused proof.",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
+		t.Fatalf("expected refreshed named-step probe distinction, got:\n%s", body)
 	}
 }
 

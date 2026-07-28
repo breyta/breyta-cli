@@ -609,7 +609,12 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 
 	validateOut, validateStatus, err := validateDraftFlow(cmd, app, flowSlug)
 	if err != nil {
-		return nil, 0, err
+		validateOut = map[string]any{
+			"ok":    false,
+			"error": map[string]any{"message": err.Error()},
+		}
+		annotatePostPushValidationFailure(validateOut, flowSlug)
+		return validateOut, 0, nil
 	}
 	if validateStatus >= 400 || !isOK(validateOut) {
 		if postPushValidationFlowNotFound(validateOut, validateStatus, flowSlug) {
@@ -622,6 +627,7 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 			}
 			return out, status, nil
 		}
+		annotatePostPushValidationFailure(validateOut, flowSlug)
 		return validateOut, validateStatus, nil
 	}
 	meta := ensureMeta(out)
@@ -630,6 +636,17 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 		meta["validateSource"] = "draft"
 	}
 	return out, status, nil
+}
+
+func annotatePostPushValidationFailure(out map[string]any, flowSlug string) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["draftSaved"] = true
+	meta["validated"] = false
+	meta["validateSource"] = "draft"
+	appendMetaNextCommands(meta, "breyta flows validate "+flowSlug, "breyta flows show "+flowSlug)
 }
 
 func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, stepID string, params map[string]any, idempotencyKey, profileID string, timeout time.Duration) (map[string]any, int, error) {
@@ -733,6 +750,53 @@ func stepSaveFailureRecovery(created, scaffolded, runPending bool, path, slug, s
 		hint += " The requested --run did NOT happen."
 	}
 	return localStepSaveFailureRecovery{path: path, hint: hint, nextCommands: next}
+}
+
+func initRunSaveFailureRecovery(path, slug, stepID, paramsJSON, paramsFile, idempotencyKey, profileID string, timeout time.Duration) localStepSaveFailureRecovery {
+	quotedPath := shellQuoteIfNeeded(path)
+	command := "breyta flows steps run " + slug + " " + stepID + " --flow-file " + quotedPath
+	if raw := strings.TrimSpace(paramsJSON); raw != "" {
+		command += " --params " + shellQuoteIfNeeded(raw)
+	}
+	if file := strings.TrimSpace(paramsFile); file != "" {
+		command += " --params-file " + shellQuoteIfNeeded(file)
+	}
+	if key := strings.TrimSpace(idempotencyKey); key != "" {
+		command += " --idempotency-key " + shellQuoteIfNeeded(key)
+	}
+	if profile := strings.TrimSpace(profileID); profile != "" {
+		command += " --profile-id " + shellQuoteIfNeeded(profile)
+	}
+	command += " --timeout " + timeout.String()
+	return localStepSaveFailureRecovery{
+		path:         path,
+		hint:         "The flow and seeded step were saved locally; retry just the step with `breyta flows steps run` instead of rerunning flows init.",
+		nextCommands: []string{command},
+	}
+}
+
+func initPushSaveFailureRecovery(path, slug string, runPending, draftSaved bool) localStepSaveFailureRecovery {
+	if draftSaved {
+		hint := "The flow was saved locally and the draft was pushed, but validation failed; inspect the saved draft, fix the local source, and push only after making a correction instead of rerunning flows init."
+		if runPending {
+			hint += " The requested --run did NOT happen."
+		}
+		return localStepSaveFailureRecovery{
+			path:         path,
+			hint:         hint,
+			nextCommands: []string{"breyta flows validate " + slug},
+		}
+	}
+	hint := "The flow was saved locally; retry remote persistence with `breyta flows push --file` instead of rerunning flows init."
+	if runPending {
+		hint += " The requested --run did NOT happen."
+	}
+	quotedPath := shellQuoteIfNeeded(path)
+	return localStepSaveFailureRecovery{
+		path:         path,
+		hint:         hint,
+		nextCommands: []string{"breyta flows push --file " + quotedPath},
+	}
 }
 
 var shellPlainPathRe = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
@@ -1537,9 +1601,20 @@ Examples:
 				var pushErr error
 				remote, remoteStatus, pushErr = pushLocalFlowLiteral(cmd, app, path, literal)
 				if pushErr != nil {
-					return writeErr(cmd, pushErr)
+					recovery := initPushSaveFailureRecovery(path, slug, run, false)
+					return writeLocalStepSaveFailureEnvelope(cmd, app, pushErr, recovery)
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
+					if remote == nil {
+						recovery := initPushSaveFailureRecovery(path, slug, run, false)
+						return writeLocalStepSaveFailureEnvelope(cmd, app, fmt.Errorf("flows push returned no usable API envelope (status=%d)", remoteStatus), recovery)
+					}
+					draftSaved := false
+					if meta, _ := remote["meta"].(map[string]any); meta != nil {
+						draftSaved, _ = meta["draftSaved"].(bool)
+					}
+					recovery := initPushSaveFailureRecovery(path, slug, run, draftSaved)
+					annotateLocalStepSaveFailure(remote, recovery)
 					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
 			}
@@ -1548,11 +1623,12 @@ Examples:
 				extra["stepId"] = stepID
 			}
 			if run {
+				recovery := initRunSaveFailureRecovery(path, slug, stepID, paramsJSON, paramsFile, idempotencyKey, profileID, runTimeout)
 				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, runParams, idempotencyKey, profileID, runTimeout)
 				if runErr != nil {
-					return writeErr(cmd, runErr)
+					return writeLocalStepSaveFailureEnvelope(cmd, app, runErr, recovery)
 				}
-				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
+				if runErr := requireSuccessfulLocalRunAfterSave(cmd, app, runOut, runStatus, recovery); runErr != nil {
 					return runErr
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {

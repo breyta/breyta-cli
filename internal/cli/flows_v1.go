@@ -295,7 +295,10 @@ Notes:
   --run proves that local literal just in time, while --push is required for
   remote persistence.
 - flows steps run sends the complete local literal for just-in-time server execution;
-  it does not create or update a draft. Use flows push explicitly to persist it remotely.
+  it only addresses qualified top-level packaged :steps ids and does not create
+  or update a draft. For named inline function/code steps or LLM steps with draft-bound
+  connection slots, use flows run-step <slug> <step-id> --target draft
+  --input '{...}' --wait. Use flows push explicitly to persist local source remotely.
 - Grouping metadata is mutable workspace metadata, not part of the pulled flow source file.
   - inspect grouped flows: breyta flows list --limit 50
   - verify ordered siblings: breyta flows show <slug>

@@ -605,7 +605,7 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
 
-const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+const focusedStepRunProofBullet = "- `breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes. When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
 
 const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
 
@@ -618,17 +618,22 @@ const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 Keep the local flow source as the authoring surface until you explicitly push
 it to a workspace draft:
 
-- New flow: ` + "`breyta flows init <slug>`" + `; seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
+- New flow: ` + "`breyta flows init <slug>`" + `; edit the generated ` + "`:invocations`" + ` contract when manual inputs are required. Seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
 - Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
+- If init/create saves locally but ` + "`--push`" + ` or ` + "`--run`" + ` fails, use ` + "`meta.localPath`" + ` and ` + "`meta.nextCommands`" + ` from the error; run the reported push/update/run command instead of rerunning init/create.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
 - ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 `
+
+const manualInvocationContractGuidance = "- For generated flows, edit the generated `:invocations` contract when manual inputs are required."
+
+const savedLocalRecoveryGuidance = "- If init/create saves locally but `--push` or `--run` fails, use `meta.localPath` and `meta.nextCommands` from the error; run the reported push/update/run command instead of rerunning init/create."
 
 func hasInputFilePayloadGuidance(body string) bool {
 	return strings.Contains(body, "--input-file ./input.json") &&
@@ -677,7 +682,7 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 }
 
 func ensureFocusedStepRunGuidance(body string) string {
-	if strings.Contains(body, "breyta flows run-step <slug> <step-id>") {
+	if strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
 		return body
 	}
 	guidance := focusedStepRunProofBullet
@@ -793,8 +798,26 @@ func ensureLintBeforePushGuidance(body string) string {
 }
 
 func ensureLocalFlowAuthoringGuidance(body string) string {
-	if h2LineStartOutsideFences(body, "## Local flow source authoring (Local-first)") >= 0 {
-		return body
+	const heading = "## Local flow source authoring (Local-first)"
+	if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
+		sectionEnd := nextH2LineStartOutsideFences(body, headingPos+len(heading))
+		if sectionEnd < 0 {
+			sectionEnd = len(body)
+		}
+		section := body[headingPos:sectionEnd]
+		missing := make([]string, 0, 2)
+		if !strings.Contains(section, "edit the generated `:invocations` contract when manual inputs are required") {
+			missing = append(missing, manualInvocationContractGuidance)
+		}
+		if !strings.Contains(section, "`meta.localPath` and `meta.nextCommands`") {
+			missing = append(missing, savedLocalRecoveryGuidance)
+		}
+		if len(missing) == 0 {
+			return body
+		}
+		return strings.TrimRight(body[:sectionEnd], "\n") + "\n" +
+			strings.Join(missing, "\n") + "\n\n" +
+			strings.TrimLeft(body[sectionEnd:], "\n")
 	}
 	for _, heading := range []string{
 		"## Create/Edit Preflight",

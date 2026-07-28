@@ -155,7 +155,8 @@ breyta flows init order-sync --name "Order sync"
 breyta flows steps create order-sync tools/fetch-order --step-file ./steps/fetch-order.edn
 breyta flows compose order-sync --body-file ./flows/order-sync.body.clj
 breyta flows lint --file ./flows/order-sync.clj --local-only
-breyta flows steps run order-sync tools/fetch-order --params '{"orderId":"order-123"}'
+breyta flows steps run order-sync tools/fetch-order \
+  --params '{"orderId":"order-123"}' --timeout 20m
 breyta flows push --file ./flows/order-sync.clj
 breyta flows configure check order-sync
 breyta flows run order-sync --wait
@@ -174,11 +175,18 @@ breyta flows init order-sync \
 
 `flows steps create/update/remove` edits only the local top-level `:steps`
 vector. `flows compose` edits only the quoted `:flow` body. The generated
-source includes a no-input manual `run` interface and an empty `:schedules`
-vector. The seeded init path uses those same local semantics: it writes the
-packaged step into `:steps`, and `--run` sends the complete literal for
+source includes a manual `run` interface and an empty `:schedules` vector.
+Edit the generated `:invocations` contract in the local flow source when manual
+inputs are required. The seeded init path uses those same local semantics: it
+writes the packaged step into `:steps`, and `--run` sends the complete literal for
 just-in-time server execution without creating or updating a draft. Use
 `flows push` (or an explicit command-level `--push`) for remote persistence.
+Flow-local `steps run` and the `--run` modes on init/create/update default to a
+15-minute request bound; increase `--timeout` for slower LLM, image, or HTTP
+steps. If create/init saves locally and the server rejects `--push` or `--run`,
+use `meta.localPath` and `meta.nextCommands` from the error. Retry with the
+reported `flows push`, `flows steps update`, or `flows steps run` command
+instead of rerunning init/create because the local source now exists.
 
 `flows push` allows two minutes per draft-upload and immediate-validation API
 request by default. Use `--timeout 5m` for a slower workspace. A timeout can be
@@ -244,7 +252,10 @@ breyta flows installations create <slug> \
 breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait
 ```
 
-Workspace creators/admins can verify one existing flow step without running other flow steps:
+Workspace creators/admins can verify one existing flow step without running other flow steps.
+`flows steps run` and `steps run --flow` execute supplied literals or primitive
+probes; they are not named existing-step probes. Use `flows run-step` when the
+step must run with the flow's configured bindings:
 
 ```bash
 breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait
@@ -501,12 +512,15 @@ Inspect runs with the same structured filter syntax as the web runs list:
 ```bash
 breyta runs list --query 'status:failed flow:<slug>'
 breyta runs list --installation-id <installation-id> --version 7
-breyta runs inspect <workflow-id> --full
+breyta runs show <workflow-id> --installation-id <installation-id> --include-result
+breyta runs inspect <workflow-id>
 ```
 
 `runs inspect` automatically carries the installation target encoded in a
 canonical linked-install workflow id. Use `--installation-id` to override the
-target for a legacy or non-canonical run id.
+target for a legacy or non-canonical run id. Use `runs show --include-result`
+for the final output, passing `--installation-id` for installed/public runs;
+reserve `runs inspect --full` for full step captures.
 
 If you need to revise the note later:
 

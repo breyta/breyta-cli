@@ -2050,8 +2050,8 @@ func shellQuotePath(path string) string {
 	if path == "" {
 		return "''"
 	}
-	if strings.ContainsAny(path, " \t\n'\"\\$") {
-		return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'"
+	if regexp.MustCompile(`^[A-Za-z0-9_./:-]+$`).MatchString(path) {
+		return path
 	}
-	return path
+	return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'"
 }

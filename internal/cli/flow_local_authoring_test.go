@@ -245,12 +245,139 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"order-sync", "--out", path, "--step-id", "tools/add-one", "--step-file", stepPath, "--run"})
+	cmd.SetArgs([]string{
+		"order-sync", "--out", path,
+		"--step-id", "tools/add-one", "--step-file", stepPath,
+		"--run", "--params", `{"orderId":"order 123"}`,
+		"--idempotency-key", "seed-proof-1",
+		"--profile-id", "profile-1",
+		"--timeout", "22m",
+	})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("seeded init --run failure returned nil")
 	}
 	if !strings.Contains(out.String(), `"ok":false`) {
 		t.Fatalf("seeded init --run failure did not emit API failure envelope: %s", out.String())
+	}
+	for _, want := range []string{
+		`"savedLocally":true`,
+		`"localPath":"` + path + `"`,
+		"breyta flows steps run order-sync tools/add-one --flow-file " + path,
+		`--params '{\"orderId\":\"order 123\"}'`,
+		"--idempotency-key seed-proof-1",
+		"--profile-id profile-1",
+		"--timeout 22m0s",
+		"instead of rerunning flows init",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("seeded init --run failure missing recovery %q: %s", want, out.String())
+		}
+	}
+}
+
+func TestFlowsInitPushFailureReportsSavedLocalRecovery(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	requests := 0
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          false,
+			"workspaceId": "ws-acme",
+			"error":       map[string]any{"message": "draft rejected"},
+		})
+	}))
+	defer srv.Close()
+
+	dir := filepath.Join(t.TempDir(), "flow sources")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "order-sync.clj")
+	stepPath := filepath.Join(dir, "add-one.edn")
+	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	cmd := newFlowsInitCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"order-sync", "--out", path,
+		"--step-id", "tools/add-one", "--step-file", stepPath,
+		"--push", "--run",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("seeded init --push failure returned nil\n%s", out.String())
+	}
+	if requests != 1 {
+		t.Fatalf("failed push must abort the pending run; got %d requests", requests)
+	}
+	for _, want := range []string{
+		`"savedLocally":true`,
+		`"localPath":"` + path + `"`,
+		"breyta flows push --file " + shellSingleQuote(path),
+		"The requested --run did NOT happen.",
+		"instead of rerunning flows init",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("seeded init --push failure missing recovery %q: %s", want, out.String())
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected initialized source to remain saved: %v", err)
+	}
+}
+
+func TestFlowsInitPostPushValidationFailureDoesNotRecommendRepush(t *testing.T) {
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+	var commands []string
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		command, _ := request["command"].(string)
+		commands = append(commands, command)
+		if command == "flows.validate" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"message": "invalid invocation"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "order-sync.clj")
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	cmd := newFlowsInitCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"order-sync", "--out", path, "--push"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("post-push validation failure returned nil\n%s", out.String())
+	}
+	if strings.Join(commands, ",") != "flows.put_draft,flows.validate" {
+		t.Fatalf("expected draft write followed by validation, got %v", commands)
+	}
+	text := out.String()
+	for _, want := range []string{
+		`"draftSaved":true`,
+		`"savedLocally":true`,
+		"breyta flows validate order-sync",
+		"the draft was pushed, but validation failed",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("post-push validation failure missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "breyta flows push --file") {
+		t.Fatalf("post-push validation failure must not recommend repeating the successful push: %s", text)
 	}
 }
 

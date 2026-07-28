@@ -787,6 +787,15 @@ Run one step from a selected flow target/profile using the normal flow runtime
 bindings, templates, and run output surfaces. Non-selected flow steps are not
 executed, and the run stops immediately after the selected step completes.
 This author/debug command requires workspace creator or admin permissions.
+Use this as the canonical authoring-time probe for named inline function/code
+steps and LLM steps that depend on draft-bound connection slots. Pass the same
+root input object used by the flow invocation; do not wrap it in an extra
+"input" object unless the invocation contract itself declares that field.
+
+` + "`flows steps run`" + ` is a different, local-source-only command for qualified
+top-level packaged ` + "`:steps`" + ` definitions. ` + "`steps run --flow ...`" + ` is a
+lower-level primitive/config probe and may require primitive-specific config
+shape such as ` + "`{\"input\": {...}}`" + ` for a raw function activity.
 
 Default:
 - breyta flows run-step <flow-slug> <step-id> [--input '{...}' | --input-file ./input.json] [--wait]
@@ -802,6 +811,7 @@ Advanced targeting:
 breyta flows run-step ai-social-publisher draft-platform-posts --target live --input '{"topic":"launch"}' --wait
 breyta flows run-step github-file-update publish-file --target draft --input-file ./package-lock-run-input.json --wait
 breyta flows run-step order-ingest normalize-order --target draft --input '{"orderId":"ord_123"}' --wait
+breyta flows run-step pitch-studio build-copy-request --target draft --input '{"company":"Acme"}' --wait
 breyta flows run-step report-builder summarize --installation-id prof_123 --input '{"range":"last_week"}' --wait
 		`),
 		Args: cobra.ExactArgs(2),
