@@ -209,6 +209,10 @@ Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
 
+Local lint also reports flow/step shape errors mirroring push validation and
+warns on packaged steps never referenced from `:flow` (plain-literal forms
+only).
+
 For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
 first; do not hand-write the initial EDN conversion unless the importer is
 unavailable or explicitly bypassed.
