@@ -1194,6 +1194,9 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 		if got := r.URL.Query().Get("types"); got != "file,result" {
 			t.Fatalf("expected types=file,result, got %q", got)
 		}
+		if got := r.URL.Query().Get("purpose"); got != "company-profile" {
+			t.Fatalf("expected purpose=company-profile, got %q", got)
+		}
 		if got := r.URL.Query().Get("accept"); got != "text/*,application/json" {
 			t.Fatalf("expected accept=text/*,application/json, got %q", got)
 		}
@@ -1231,6 +1234,7 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 		"resources", "list",
 		"--query", "transcript",
 		"--types", "file,result",
+		"--purpose", "company-profile",
 		"--accept", "text/*,application/json",
 		"--exclude-tier", "ephemeral",
 		"--storage-backend", "platform",
@@ -1408,18 +1412,22 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("with folder sends it in the init body", func(t *testing.T) {
+	t.Run("with folder and purpose sends both in the init body", func(t *testing.T) {
 		lastInitBody = nil
 		if _, _, err := runCLIArgs(t,
 			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
 			"resources", "upload", path,
 			"--folder", "Company information",
+			"--purpose", "company-profile",
 			"--print-uri",
 		); err != nil {
 			t.Fatalf("resources upload --folder failed: %v", err)
 		}
 		if lastInitBody["folder"] != "Company information" {
 			t.Fatalf("expected init folder %q, got %#v", "Company information", lastInitBody["folder"])
+		}
+		if lastInitBody["purpose"] != "company-profile" {
+			t.Fatalf("expected init purpose %q, got %#v", "company-profile", lastInitBody["purpose"])
 		}
 		if lastInitBody["replace-existing"] != true {
 			t.Fatalf("expected folder upload to request replacement, got %#v", lastInitBody["replace-existing"])
@@ -1437,6 +1445,9 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 		}
 		if _, ok := lastInitBody["folder"]; ok {
 			t.Fatalf("expected no folder field, got %#v", lastInitBody["folder"])
+		}
+		if _, ok := lastInitBody["purpose"]; ok {
+			t.Fatalf("expected no purpose field, got %#v", lastInitBody["purpose"])
 		}
 		if _, ok := lastInitBody["replace-existing"]; ok {
 			t.Fatalf("expected no replace-existing field, got %#v", lastInitBody["replace-existing"])

@@ -1050,6 +1050,10 @@ func detectJobsWorkerContentType(path string, explicit string, file *os.File) (s
 }
 
 func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, filename string, contentType string, folder string, replaceExisting bool) (map[string]any, error) {
+	return jobsWorkerUploadFileResourceWithPurpose(ctx, app, path, filename, contentType, folder, "", replaceExisting)
+}
+
+func jobsWorkerUploadFileResourceWithPurpose(ctx context.Context, app *App, path string, filename string, contentType string, folder string, purpose string, replaceExisting bool) (map[string]any, error) {
 	file, err := openExplicitFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open upload file: %w", err)
@@ -1071,6 +1075,9 @@ func jobsWorkerUploadFileResource(ctx context.Context, app *App, path string, fi
 	}
 	if strings.TrimSpace(folder) != "" {
 		initBody["folder"] = folder
+	}
+	if strings.TrimSpace(purpose) != "" {
+		initBody["purpose"] = purpose
 	}
 	if replaceExisting {
 		initBody["replace-existing"] = true

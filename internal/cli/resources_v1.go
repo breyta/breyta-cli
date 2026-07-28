@@ -173,6 +173,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 	var name string
 	var contentType string
 	var folder string
+	var purpose string
 	var replace bool
 	var overwrite bool
 	var printURI bool
@@ -194,7 +195,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 				filename = filepath.Base(path)
 			}
 			replaceExisting := replace || overwrite || cmd.Flags().Changed("folder") || cmd.Flags().Changed("name")
-			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType, folder, replaceExisting)
+			result, err := jobsWorkerUploadFileResourceWithPurpose(cmd.Context(), app, path, filename, contentType, folder, purpose, replaceExisting)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -213,6 +214,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Resource filename to store; defaults to the local file basename and replaces the existing stable target when set")
 	cmd.Flags().StringVar(&contentType, "content-type", "", "Content type to store; defaults to extension or file sniffing")
 	cmd.Flags().StringVar(&folder, "folder", "", "Store the file inside this Storage folder, e.g. \"Company information\"; replaces the existing stable target when set")
+	cmd.Flags().StringVar(&purpose, "purpose", "", "Typed resource purpose (currently: company-profile)")
 	cmd.Flags().BoolVar(&replace, "replace", false, "Replace the existing resource with the same stable Storage folder and filename when present")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Alias for --replace")
 	cmd.Flags().BoolVar(&printURI, "print-uri", false, "Print only the uploaded res:// URI")
@@ -264,6 +266,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	var storageBackend string
 	var storageRoot string
 	var pathPrefix string
+	var purpose string
 	var limit int
 
 	cmd := &cobra.Command{
@@ -301,6 +304,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			if strings.TrimSpace(storageRoot) != "" {
 				q.Set("storage-root", strings.TrimSpace(storageRoot))
 			}
+			if strings.TrimSpace(purpose) != "" {
+				q.Set("purpose", strings.TrimSpace(purpose))
+			}
 			if strings.TrimSpace(pathPrefix) != "" {
 				q.Set("path-prefix", strings.TrimSpace(pathPrefix))
 			}
@@ -332,6 +338,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&tags, "tags", "", "Filter by tags (comma-separated)")
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
+	cmd.Flags().StringVar(&purpose, "purpose", "", "Filter by typed resource purpose (currently: company-profile)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-1000)")
 	return cmd
