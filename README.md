@@ -184,7 +184,9 @@ just-in-time server execution without creating or updating a draft. Use
 Flow-local `steps run` and the `--run` modes on init/create/update default to a
 15-minute request bound; increase `--timeout` for slower LLM, image, or HTTP
 steps. If create/init saves locally and the server rejects `--push` or `--run`,
-the error names the saved path and the exact update/run retry command.
+use `meta.localPath` and `meta.nextCommands` from the error. Retry with the
+reported `flows push`, `flows steps update`, or `flows steps run` command
+instead of rerunning init/create because the local source now exists.
 
 `flows push` allows two minutes per draft-upload and immediate-validation API
 request by default. Use `--timeout 5m` for a slower workspace. A timeout can be

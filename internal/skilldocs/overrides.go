@@ -625,12 +625,15 @@ it to a workspace draft:
 - Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
+- If init/create saves locally but ` + "`--push`" + ` or ` + "`--run`" + ` fails, use ` + "`meta.localPath`" + ` and ` + "`meta.nextCommands`" + ` from the error; run the reported push/update/run command instead of rerunning init/create.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
 - ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 `
 
 const manualInvocationContractGuidance = "- For generated flows, edit the generated `:invocations` contract when manual inputs are required."
+
+const savedLocalRecoveryGuidance = "- If init/create saves locally but `--push` or `--run` fails, use `meta.localPath` and `meta.nextCommands` from the error; run the reported push/update/run command instead of rerunning init/create."
 
 func hasInputFilePayloadGuidance(body string) bool {
 	return strings.Contains(body, "--input-file ./input.json") &&
@@ -801,11 +804,19 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 		if sectionEnd < 0 {
 			sectionEnd = len(body)
 		}
-		if strings.Contains(body[headingPos:sectionEnd], "edit the generated `:invocations` contract when manual inputs are required") {
+		section := body[headingPos:sectionEnd]
+		missing := make([]string, 0, 2)
+		if !strings.Contains(section, "edit the generated `:invocations` contract when manual inputs are required") {
+			missing = append(missing, manualInvocationContractGuidance)
+		}
+		if !strings.Contains(section, "`meta.localPath` and `meta.nextCommands`") {
+			missing = append(missing, savedLocalRecoveryGuidance)
+		}
+		if len(missing) == 0 {
 			return body
 		}
 		return strings.TrimRight(body[:sectionEnd], "\n") + "\n" +
-			manualInvocationContractGuidance + "\n\n" +
+			strings.Join(missing, "\n") + "\n\n" +
 			strings.TrimLeft(body[sectionEnd:], "\n")
 	}
 	for _, heading := range []string{

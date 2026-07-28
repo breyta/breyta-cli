@@ -114,6 +114,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		"`breyta resources search \"<query>\" --limit 5`",
 		"`--keyword-mode balanced` for natural-language questions over small resource sets",
 		"edit the generated `:invocations` contract when manual inputs are required",
+		"If init/create saves locally but `--push` or `--run` fails, use `meta.localPath` and `meta.nextCommands`",
 		"`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes",
 		"`--timeout` defaults to 15 minutes and is also available on init/create/update `--run`",
 		"Persist large or unknown payloads with `:persist`",
