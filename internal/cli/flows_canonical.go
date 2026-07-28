@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,7 +19,64 @@ import (
 const (
 	defaultFlowRunWaitTimeout     = 15 * time.Minute
 	defaultFlowRunWaitTimeoutFlag = "15m"
+	runWaitProgressInterval       = 15 * time.Second
 )
+
+func printRunWaitProgress(cmd *cobra.Command, workflowID string, status string, elapsed time.Duration) {
+	status = canonicalRunStatus(status)
+	if status == "" {
+		status = "running"
+	}
+	if elapsed < time.Second {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Run %s is %s; waiting for completion...\n", workflowID, status)
+		return
+	}
+	_, _ = fmt.Fprintf(
+		cmd.ErrOrStderr(),
+		"Run %s is still %s after %s; continuing to wait...\n",
+		workflowID,
+		status,
+		elapsed.Truncate(time.Second),
+	)
+}
+
+func startRunWaitProgress(
+	ctx context.Context,
+	cmd *cobra.Command,
+	workflowID string,
+	startedAt time.Time,
+	interval time.Duration,
+	status *atomic.Value,
+) func() {
+	progressCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressCtx.Done():
+				return
+			case now := <-ticker.C:
+				select {
+				case <-progressCtx.Done():
+					return
+				default:
+				}
+				lastStatus, _ := status.Load().(string)
+				printRunWaitProgress(cmd, workflowID, lastStatus, now.Sub(startedAt))
+			}
+		}
+	}()
+	var stopOnce sync.Once
+	return func() {
+		stopOnce.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+}
 
 func asInt(v any) int {
 	switch t := v.(type) {
@@ -230,20 +289,39 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	if startRunStatus == "" {
 		startRunStatus = "running"
 	}
-	deadline := time.Now().Add(timeout)
+	waitStartedAt := time.Now()
+	deadline := waitStartedAt.Add(timeout)
 	waitCtx, cancelWait := context.WithDeadline(cmd.Context(), deadline)
 	defer cancelWait()
 	polls := 0
 	var nextTerminalFallback time.Time
+	var lastObservedStatus atomic.Value
+	lastObservedStatus.Store(startRunStatus)
+	printRunWaitProgress(cmd, workflowID, startRunStatus, 0)
+	stopProgress := startRunWaitProgress(
+		waitCtx,
+		cmd,
+		workflowID,
+		waitStartedAt,
+		runWaitProgressInterval,
+		&lastObservedStatus,
+	)
+	defer stopProgress()
 	avgMs := avgDurationMsFromRunData(startResp)
 	// In --wait mode the start response is swallowed and one of the responses
 	// below is written instead; carry the run-start ETA meta onto whichever
 	// final response we emit so JSON/--pretty consumers still receive it.
 	writeFinal := func(resp map[string]any, st int) error {
+		stopProgress()
 		addRunStartETAMeta(resp, avgMs)
 		return writeAPIResult(cmd, app, resp, st)
 	}
+	renderError := func(err error) error {
+		stopProgress()
+		return writeErr(cmd, err)
+	}
 	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
+		stopProgress()
 		trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 			"product":     "flows",
 			"channel":     "cli",
@@ -256,7 +334,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"reconciled":  true,
 		})
 		if err := writeFinal(finalResp, finalStatus); err != nil {
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		if runStatusFailedForExit(finalRunStatus) {
 			return guidedCLIErrorForCommand(cmd, "flow run finished with status "+finalRunStatus, []string{
@@ -267,6 +345,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	writeTimeout := func(status string, lastPoll map[string]any) error {
+		stopProgress()
 		if strings.TrimSpace(status) == "" {
 			status = startRunStatus
 		}
@@ -320,7 +399,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			},
 		}
 		if err := writeFinal(timeoutOut, 200); err != nil {
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		return nil
 	}
@@ -342,7 +421,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				time.Sleep(poll)
 				continue
 			}
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		if execStatus == 404 {
 			polls++
@@ -368,13 +447,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				continue
 			}
 			if err := writeFinal(execResp, execStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			return nil
 		}
 		if !isOK(execResp) {
 			if err := writeFinal(execResp, execStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			return nil
 		}
@@ -383,6 +462,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		run, _ := execData["run"].(map[string]any)
 		s := canonicalRunStatus(run["status"])
 		if isTerminalRunStatus(s) {
+			stopProgress()
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 				"product":     "flows",
 				"channel":     "cli",
@@ -396,7 +476,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, installationID)
 			if err != nil {
 				if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
-					return writeErr(cmd, err)
+					return renderError(err)
 				}
 				// The compact poll already proved that the run is terminal. If the
 				// optional full hydration reaches the wait deadline, preserve that
@@ -409,7 +489,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				finalStatus = execStatus
 			}
 			if err := writeFinal(finalResp, finalStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			if runStatusFailedForExit(s) {
 				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
@@ -418,6 +498,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				})
 			}
 			return nil
+		}
+		if s != "" {
+			lastObservedStatus.Store(s)
 		}
 		polls++
 		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {

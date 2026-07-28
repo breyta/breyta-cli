@@ -215,7 +215,11 @@ func readClojureCharLiteralEnd(src string, start int) (int, error) {
 	if start < 0 || start >= len(src) || src[start] != '\\' {
 		return start, fmt.Errorf("expected character literal")
 	}
-	if start+1 >= len(src) || isClojureWhitespaceOrComma(src[start+1]) {
+	if start+1 >= len(src) {
+		return start, fmt.Errorf("unterminated character literal")
+	}
+	switch src[start+1] {
+	case ' ', '\t', '\r', '\n':
 		return start, fmt.Errorf("unterminated character literal")
 	}
 	if isClojureTokenDelimiter(src[start+1]) {
@@ -362,6 +366,16 @@ func expandFlowSourceIncludesFrom(baseDir, rootDir, src string, stack []string, 
 				return "", err
 			}
 			out.WriteString(expanded)
+			i = next
+			continue
+		}
+
+		if ch == '\\' {
+			next, err := readClojureCharLiteralEnd(src, i)
+			if err != nil {
+				return "", fmt.Errorf("parse character literal near byte %d: %w", i, err)
+			}
+			out.WriteString(src[i:next])
 			i = next
 			continue
 		}
