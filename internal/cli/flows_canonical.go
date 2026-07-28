@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -36,6 +37,31 @@ func printRunWaitProgress(cmd *cobra.Command, workflowID string, status string, 
 		status,
 		elapsed.Truncate(time.Second),
 	)
+}
+
+func startRunWaitProgress(
+	ctx context.Context,
+	cmd *cobra.Command,
+	workflowID string,
+	startedAt time.Time,
+	interval time.Duration,
+	status *atomic.Value,
+) context.CancelFunc {
+	progressCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressCtx.Done():
+				return
+			case now := <-ticker.C:
+				lastStatus, _ := status.Load().(string)
+				printRunWaitProgress(cmd, workflowID, lastStatus, now.Sub(startedAt))
+			}
+		}
+	}()
+	return cancel
 }
 
 func asInt(v any) int {
@@ -255,9 +281,18 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	defer cancelWait()
 	polls := 0
 	var nextTerminalFallback time.Time
-	nextProgress := waitStartedAt.Add(runWaitProgressInterval)
-	lastObservedStatus := startRunStatus
-	printRunWaitProgress(cmd, workflowID, lastObservedStatus, 0)
+	var lastObservedStatus atomic.Value
+	lastObservedStatus.Store(startRunStatus)
+	printRunWaitProgress(cmd, workflowID, startRunStatus, 0)
+	stopProgress := startRunWaitProgress(
+		waitCtx,
+		cmd,
+		workflowID,
+		waitStartedAt,
+		runWaitProgressInterval,
+		&lastObservedStatus,
+	)
+	defer stopProgress()
 	avgMs := avgDurationMsFromRunData(startResp)
 	// In --wait mode the start response is swallowed and one of the responses
 	// below is written instead; carry the run-start ETA meta onto whichever
@@ -348,11 +383,6 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	for {
-		now := time.Now()
-		if !now.Before(nextProgress) {
-			printRunWaitProgress(cmd, workflowID, lastObservedStatus, now.Sub(waitStartedAt))
-			nextProgress = now.Add(runWaitProgressInterval)
-		}
 		runsGetPayload := compactRunsGetPayload(workflowID)
 		if installationID != "" {
 			runsGetPayload["installationId"] = installationID
@@ -411,7 +441,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		run, _ := execData["run"].(map[string]any)
 		s := canonicalRunStatus(run["status"])
 		if s != "" {
-			lastObservedStatus = s
+			lastObservedStatus.Store(s)
 		}
 		if isTerminalRunStatus(s) {
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
