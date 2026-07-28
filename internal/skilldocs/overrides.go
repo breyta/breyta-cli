@@ -630,6 +630,8 @@ it to a workspace draft:
 - ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 `
 
+const manualInvocationContractGuidance = "- For generated flows, edit the generated `:invocations` contract when manual inputs are required."
+
 func hasInputFilePayloadGuidance(body string) bool {
 	return strings.Contains(body, "--input-file ./input.json") &&
 		strings.Contains(body, "shell or OS argument limits")
@@ -802,8 +804,8 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 		if strings.Contains(body[headingPos:sectionEnd], "edit the generated `:invocations` contract when manual inputs are required") {
 			return body
 		}
-		return strings.TrimRight(body[:headingPos], "\n") + "\n\n" +
-			localFlowAuthoringSection + "\n\n" +
+		return strings.TrimRight(body[:sectionEnd], "\n") + "\n" +
+			manualInvocationContractGuidance + "\n\n" +
 			strings.TrimLeft(body[sectionEnd:], "\n")
 	}
 	for _, heading := range []string{

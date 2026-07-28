@@ -622,6 +622,9 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
 		t.Fatalf("expected refreshed manual-input contract guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "- existing content") {
+		t.Fatalf("expected upstream local-authoring guidance to be preserved, got:\n%s", body)
+	}
 }
 
 func TestApplyCLIOverrides_RefreshesOlderFocusedStepRunGuidance(t *testing.T) {
