@@ -461,9 +461,6 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		execData, _ := execResp["data"].(map[string]any)
 		run, _ := execData["run"].(map[string]any)
 		s := canonicalRunStatus(run["status"])
-		if s != "" {
-			lastObservedStatus.Store(s)
-		}
 		if isTerminalRunStatus(s) {
 			stopProgress()
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
@@ -501,6 +498,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				})
 			}
 			return nil
+		}
+		if s != "" {
+			lastObservedStatus.Store(s)
 		}
 		polls++
 		if shouldCheckTerminalWaitFallback(polls, nextTerminalFallback) {
