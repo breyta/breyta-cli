@@ -312,8 +312,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	// below is written instead; carry the run-start ETA meta onto whichever
 	// final response we emit so JSON/--pretty consumers still receive it.
 	writeFinal := func(resp map[string]any, st int) error {
+		stopProgress()
 		addRunStartETAMeta(resp, avgMs)
 		return writeAPIResult(cmd, app, resp, st)
+	}
+	renderError := func(err error) error {
+		stopProgress()
+		return writeErr(cmd, err)
 	}
 	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
 		stopProgress()
@@ -329,7 +334,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			"reconciled":  true,
 		})
 		if err := writeFinal(finalResp, finalStatus); err != nil {
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		if runStatusFailedForExit(finalRunStatus) {
 			return guidedCLIErrorForCommand(cmd, "flow run finished with status "+finalRunStatus, []string{
@@ -394,7 +399,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			},
 		}
 		if err := writeFinal(timeoutOut, 200); err != nil {
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		return nil
 	}
@@ -416,7 +421,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				time.Sleep(poll)
 				continue
 			}
-			return writeErr(cmd, err)
+			return renderError(err)
 		}
 		if execStatus == 404 {
 			polls++
@@ -442,13 +447,13 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				continue
 			}
 			if err := writeFinal(execResp, execStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			return nil
 		}
 		if !isOK(execResp) {
 			if err := writeFinal(execResp, execStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			return nil
 		}
@@ -474,7 +479,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			finalResp, finalStatus, err := hydrateTerminalWaitRunWithContext(waitCtx, client, workflowID, installationID)
 			if err != nil {
 				if !errors.Is(waitCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
-					return writeErr(cmd, err)
+					return renderError(err)
 				}
 				// The compact poll already proved that the run is terminal. If the
 				// optional full hydration reaches the wait deadline, preserve that
@@ -487,7 +492,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 				finalStatus = execStatus
 			}
 			if err := writeFinal(finalResp, finalStatus); err != nil {
-				return writeErr(cmd, err)
+				return renderError(err)
 			}
 			if runStatusFailedForExit(s) {
 				return guidedCLIErrorForCommand(cmd, "flow run finished with status "+s, []string{
