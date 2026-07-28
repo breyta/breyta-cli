@@ -677,7 +677,7 @@ func ensureMinimumSufficientEvidenceCoreRule(body string) string {
 }
 
 func ensureFocusedStepRunGuidance(body string) string {
-	if strings.Contains(body, "breyta flows run-step <slug> <step-id>") {
+	if strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
 		return body
 	}
 	guidance := focusedStepRunProofBullet
@@ -793,8 +793,18 @@ func ensureLintBeforePushGuidance(body string) string {
 }
 
 func ensureLocalFlowAuthoringGuidance(body string) string {
-	if h2LineStartOutsideFences(body, "## Local flow source authoring (Local-first)") >= 0 {
-		return body
+	const heading = "## Local flow source authoring (Local-first)"
+	if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
+		sectionEnd := nextH2LineStartOutsideFences(body, headingPos+len(heading))
+		if sectionEnd < 0 {
+			sectionEnd = len(body)
+		}
+		if strings.Contains(body[headingPos:sectionEnd], "edit the generated `:invocations` contract when manual inputs are required") {
+			return body
+		}
+		return strings.TrimRight(body[:headingPos], "\n") + "\n\n" +
+			localFlowAuthoringSection + "\n\n" +
+			strings.TrimLeft(body[sectionEnd:], "\n")
 	}
 	for _, heading := range []string{
 		"## Create/Edit Preflight",

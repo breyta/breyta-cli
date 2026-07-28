@@ -619,6 +619,24 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 		!strings.Contains(body, "draft may already be saved") {
 		t.Fatalf("expected flow push timeout recovery guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
+		t.Fatalf("expected refreshed manual-input contract guidance, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_RefreshesOlderFocusedStepRunGuidance(t *testing.T) {
+	input := map[string][]byte{
+		"SKILL.md": []byte(strings.Join([]string{
+			"## Default Loop",
+			"- Use `breyta flows run-step <slug> <step-id>` for a focused proof.",
+		}, "\n")),
+	}
+
+	got := ApplyCLIOverrides("breyta", input)
+	body := string(got["SKILL.md"])
+	if !strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
+		t.Fatalf("expected refreshed named-step probe distinction, got:\n%s", body)
+	}
 }
 
 func TestApplyCLIOverrides_DoesNotDuplicateNamingConventions(t *testing.T) {
