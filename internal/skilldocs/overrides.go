@@ -618,11 +618,13 @@ const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 Keep the local flow source as the authoring surface until you explicitly push
 it to a workspace draft:
 
-- New flow: ` + "`breyta flows init <slug>`" + `; repeat ` + "`--input 'name:type:required|optional:Label'`" + ` to seed manual invocation fields, seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + `, and optionally prove it with ` + "`--run`" + `.
+- New flow: ` + "`breyta flows init <slug>`" + `; seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
-- Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft. Its ` + "`--timeout`" + ` defaults to 15 minutes and is also available on the ` + "`--run`" + ` modes of init/create/update.
+- Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
+- Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
+- ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
 - ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.

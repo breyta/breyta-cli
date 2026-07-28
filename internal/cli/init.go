@@ -324,6 +324,7 @@ Keep flow files in ` + "`./flows/`" + ` for durable source and ` + "`./tmp/flows
 - When a whole-flow proof could trigger unsafe downstream side effects, verify one existing step with ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + `.
 - For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
+- ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Inspect draft changes with ` + "`breyta flows diff <slug>`" + ` before release.
 - Release/promote only after draft proof, explicit sign-off, and a release note.
@@ -430,9 +431,11 @@ Advanced ideas:
 - When a provider/model or primitive change only needs one existing step, use ` + "`breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait`" + ` to avoid triggering downstream flow side effects.
 - For every side-effectful ` + "`breyta steps run`" + `, pass ` + "`--idempotency-key <stable-key>`" + ` on the first attempt and reuse that exact key after a timeout, dropped response, or 5xx. Do not switch to a fresh key until the external side effect has been reconciled.
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
+- ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows run <slug> --input-file ./input.json`" + ` or ` + "`breyta flows run-step <slug> <step-id> --input-file ./input.json`" + ` instead of inline ` + "`--input '{...}'`" + ` when per-run payloads may hit shell or OS argument limits.
 - Run ` + "`breyta flows lint --file ./flows/<slug>.clj`" + ` before push; use ` + "`--local-only`" + ` for offline checks, ` + "`--server`" + ` when canonical pre-push checks matter, and ` + "`--timeout <duration>`" + ` when server lint needs a longer bound
+- Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - Treat failed configure checks as a hard stop before draft/live runs unless the task is static validation only
 - Authoring reads are compact by default. Use ` + "`--full`" + ` on ` + "`flows show`" + `, ` + "`flows diff`" + `, or ` + "`runs show`" + ` only when you need source, full diff text, steps, or result payloads. Use ` + "`flows pull`" + ` for editable source.
 - ` + "`breyta resources read <uri>`" + ` defaults to compact blob previews and bounded table row/cell previews. Use ` + "`--full`" + ` only when the full resource payload is required.

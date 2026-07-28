@@ -216,6 +216,10 @@ Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
 
+Local lint also reports flow/step shape errors mirroring push validation and
+warns on packaged steps never referenced from `:flow` (plain-literal forms
+only).
+
 For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
 first; do not hand-write the initial EDN conversion unless the importer is
 unavailable or explicitly bypassed.
@@ -271,6 +275,10 @@ breyta steps run --flow update-blog-post --source draft --type llm \
   --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' \
   --timeout 30m
 ```
+
+`breyta flows steps run` and the `--run` mode of `flows init` /
+`flows steps create` / `flows steps update` accept `--timeout` (default 15m);
+extend past the default for slow probes.
 
 A timeout may mean the server-side step continued; reconcile any external
 effect before retrying.

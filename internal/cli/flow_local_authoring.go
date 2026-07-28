@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -633,14 +634,14 @@ func pushLocalFlowLiteral(cmd *cobra.Command, app *App, sourcePath, source strin
 
 func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, stepID string, params map[string]any, idempotencyKey, profileID string, timeout time.Duration) (map[string]any, int, error) {
 	if err := requireAPI(app); err != nil {
-		return nil, 0, localAuthoringPreRequestError{err}
+		return nil, 0, err
 	}
 	if timeout <= 0 {
-		return nil, 0, localAuthoringPreRequestError{errors.New("--timeout must be > 0")}
+		return nil, 0, errors.New("--timeout must be > 0")
 	}
 	expanded, err := expandFlowSourceIncludes(sourcePath, source)
 	if err != nil {
-		return nil, 0, localAuthoringPreRequestError{err}
+		return nil, 0, err
 	}
 	payload := map[string]any{
 		"flowSlug":    strings.TrimSpace(slug),
@@ -654,34 +655,20 @@ func runLocalFlowStep(cmd *cobra.Command, app *App, slug, sourcePath, source, st
 	if profile := strings.TrimSpace(profileID); profile != "" {
 		payload["profileId"] = profile
 	}
-	return runAPICommandWithContextAndTimeout(cmd.Context(), app, "steps.run", payload, timeout)
+	// Mirror `breyta steps run`: bound the HTTP client and the request context
+	// by --timeout instead of the default 30s API client fallback.
+	client := apiClientWithTimeout(app, timeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
+	out, status, err := client.DoCommand(ctx, "steps.run", payload)
+	if err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout")) {
+		return out, status, fmt.Errorf("local step run timed out after %s; the request may have reached the server and an external side effect may already have completed. Before retrying, reuse the same --idempotency-key (or reconcile the external effect first if no key was provided) and pass --timeout for a longer bound: %w", timeout, err)
+	}
+	return out, status, err
 }
 
-type localAuthoringPreRequestError struct {
-	err error
-}
-
-func (e localAuthoringPreRequestError) Error() string { return e.err.Error() }
-func (e localAuthoringPreRequestError) Unwrap() error { return e.err }
-
-func writeAmbiguousLocalStepRunFailure(cmd *cobra.Command, app *App, out map[string]any, status int, err error, slug, idempotencyKey string) error {
-	var preRequestErr localAuthoringPreRequestError
-	if errors.As(err, &preRequestErr) {
-		return writeErr(cmd, preRequestErr.err)
-	}
-	hint := fmt.Sprintf("The step run ended before a definitive server response. Reconcile the execution and any external effect before retrying; inspect recent runs with `breyta runs list --query %s --limit 10`",
-		shellQuotePath("flow:"+strings.TrimSpace(slug)))
-	if key := strings.TrimSpace(idempotencyKey); key != "" {
-		hint += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
-	}
-	if err != nil {
-		return writeErr(cmd, fmt.Errorf("%s: %w", hint, err))
-	}
-	if out == nil {
-		return writeErr(cmd, errors.New(hint))
-	}
-	ensureMeta(out)["hint"] = hint
-	return writeAPIResult(cmd, app, out, status)
+func addLocalStepRunTimeoutFlag(cmd *cobra.Command, timeout *time.Duration) {
+	cmd.Flags().DurationVar(timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout for the server-side step run (use a longer bound for slow LLM probes)")
 }
 
 func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any, status int) error {
@@ -691,6 +678,124 @@ func requireSuccessfulLocalRun(cmd *cobra.Command, app *App, out map[string]any,
 	if out == nil {
 		return writeErr(cmd, fmt.Errorf("local step run returned no API response (status=%d)", status))
 	}
+	return writeAPIResult(cmd, app, out, status)
+}
+
+// localStepSaveFailureRecovery describes how to continue after `flows steps
+// create/update` already wrote the step to the local flow file but the optional
+// --push/--run server call failed. Without this context the bare API error
+// suggests retrying the same command, and for create that retry hits the
+// duplicate-step guard ("step already exists; use update").
+type localStepSaveFailureRecovery struct {
+	path         string
+	hint         string
+	nextCommands []string
+}
+
+// stepSaveFailureRecovery keeps the failure guidance deliberately minimal: one
+// hint plus a single recovery command per authoring shape. The user's shell
+// history already holds the exact original command with every flag, so
+// reconstructing the full retry invocation in a suggestion string is not worth
+// the maintenance surface.
+//
+//   - created+scaffolded (create --type, no --step-file): the scaffold lives in
+//     the flow file, so suggest editing it there and retrying with
+//     `flows steps run` — a create-to-update substitution would carry
+//     create-only flags that update rejects.
+//   - created with --step-file: retry the previous command with 'steps update'
+//     in place of 'steps create' (rerunning create hits the duplicate guard).
+//   - update: just re-run the previous command.
+//
+// runPending marks a --push failure that aborted BEFORE a requested --run, so
+// the guidance states the run never happened.
+func stepSaveFailureRecovery(created, scaffolded, runPending bool, path, slug, stepID string) localStepSaveFailureRecovery {
+	// When the step was saved somewhere other than the default flows/<slug>.clj,
+	// the suggested command must carry --flow-file or it would edit the wrong
+	// file. Shell-quote the path so the suggestion stays copy-pasteable.
+	flowFileSuffix := ""
+	if filepath.Clean(path) != filepath.Clean(defaultLocalFlowPath(slug)) {
+		flowFileSuffix = " --flow-file " + shellQuoteIfNeeded(path)
+	}
+	var hint string
+	var next []string
+	switch {
+	case created && scaffolded:
+		hint = "The scaffolded step was saved locally; edit it in the flow file, then run it with `breyta flows steps run` — rerunning steps create fails because the step now exists."
+		next = []string{"breyta flows steps run " + slug + " " + stepID + flowFileSuffix}
+	case created:
+		hint = "The step was saved locally; to retry the run with your original options, re-run your previous command with 'steps update' in place of 'steps create'."
+		next = []string{"breyta flows steps update " + slug + " " + stepID + " --step-file <step.edn>" + flowFileSuffix}
+	default:
+		hint = "The step was saved locally; re-run your previous command to retry."
+		next = []string{"breyta flows steps update " + slug + " " + stepID + " --step-file <step.edn>" + flowFileSuffix}
+	}
+	if runPending {
+		hint += " The requested --run did NOT happen."
+	}
+	return localStepSaveFailureRecovery{path: path, hint: hint, nextCommands: next}
+}
+
+var shellPlainPathRe = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// shellQuoteIfNeeded single-quotes a path for a suggested shell command unless
+// it consists solely of unambiguously safe characters ([A-Za-z0-9._/-]). The
+// allowlist keeps ordinary paths readable while quoting everything else —
+// spaces, quotes, '!' (bash history expansion), '$', globs, and any other
+// shell metacharacter.
+func shellQuoteIfNeeded(path string) string {
+	if shellPlainPathRe.MatchString(path) {
+		return path
+	}
+	return shellSingleQuote(path)
+}
+
+func annotateLocalStepSaveFailure(out map[string]any, recovery localStepSaveFailureRecovery) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	meta["savedLocally"] = true
+	meta["localPath"] = recovery.path
+	// A server-provided hint stays, but the local-save recovery context is the
+	// only text explaining that the file was already written — merge instead
+	// of dropping either one.
+	if existing, _ := meta["hint"].(string); strings.TrimSpace(existing) != "" {
+		if !strings.Contains(existing, recovery.hint) {
+			meta["hint"] = strings.TrimSpace(existing) + " " + recovery.hint
+		}
+	} else {
+		meta["hint"] = recovery.hint
+	}
+	appendMetaNextCommands(meta, recovery.nextCommands...)
+}
+
+// writeLocalStepSaveFailureEnvelope reports a --push/--run failure that
+// happened after the step was already written locally but produced no usable
+// API envelope — a transport error (timeout, refused connection) or a server
+// response that decoded to null. It synthesizes the same annotated failure
+// envelope used for API-response failures so JSON consumers can detect the
+// local mutation (meta.savedLocally) and follow nextCommands instead of
+// retrying the original create into the duplicate-step guard.
+func writeLocalStepSaveFailureEnvelope(cmd *cobra.Command, app *App, cause error, recovery localStepSaveFailureRecovery) error {
+	out := map[string]any{
+		"ok":    false,
+		"error": map[string]any{"message": cause.Error()},
+	}
+	annotateLocalStepSaveFailure(out, recovery)
+	return writeAPIResult(cmd, app, out, 0)
+}
+
+// requireSuccessfulLocalRunAfterSave is requireSuccessfulLocalRun for commands
+// that already persisted the step locally: every failure path carries the
+// saved-locally recovery context.
+func requireSuccessfulLocalRunAfterSave(cmd *cobra.Command, app *App, out map[string]any, status int, recovery localStepSaveFailureRecovery) error {
+	if status < 400 && isOK(out) {
+		return nil
+	}
+	if out == nil {
+		return writeLocalStepSaveFailureEnvelope(cmd, app, fmt.Errorf("local step run returned no API response (status=%d)", status), recovery)
+	}
+	annotateLocalStepSaveFailure(out, recovery)
 	return writeAPIResult(cmd, app, out, status)
 }
 
@@ -718,139 +823,11 @@ func writeLocalAuthoringResult(cmd *cobra.Command, app *App, path string, pushed
 	return writeData(cmd, app, nil, result)
 }
 
-func writeSavedLocalAuthoringFailure(cmd *cobra.Command, app *App, out map[string]any, status int, err error, path, slug, stepID, operation, idempotencyKey string) error {
-	path = strings.TrimSpace(path)
-	slug = strings.TrimSpace(slug)
-	stepID = strings.TrimSpace(stepID)
-	retry := "breyta flows push --file " + shellQuotePath(path)
-	if operation == "push" {
-		// The persisted flow file is the source of truth; no placeholder step
-		// file should be advertised after a create/init failure.
-	} else {
-		retry = "breyta flows steps run " + slug + " " + stepID + " --flow-file " + shellQuotePath(path)
-		for _, flag := range []string{"profile-id", "params", "params-file", "idempotency-key", "timeout"} {
-			if cmd != nil && cmd.Flags().Changed(flag) {
-				value := cmd.Flags().Lookup(flag).Value.String()
-				if strings.TrimSpace(value) != "" {
-					retry += " --" + flag + " " + shellQuotePath(value)
-				}
-			}
-		}
-	}
-	subject := "step"
-	if stepID == "" {
-		subject = "flow"
-	}
-	message := fmt.Sprintf("%s saved locally to %s; server rejected %s. Fix the definition and retry with `%s`", subject, path, operation, retry)
-	var preRequestErr localAuthoringPreRequestError
-	if errors.As(err, &preRequestErr) {
-		return writeErr(cmd, fmt.Errorf("%s saved locally to %s; the %s request was not sent: %w",
-			subject, path, operation, preRequestErr.err))
-	}
-	if err != nil || status >= 500 {
-		reconcile := fmt.Sprintf("%s saved locally to %s; the %s request ended before a definitive server response.", subject, path, operation)
-		if operation == "run" {
-			reconcile += fmt.Sprintf(" Reconcile the execution and any external effect before retrying to avoid duplicates; inspect recent runs with `breyta runs list --query %s --limit 10`", shellQuotePath("flow:"+slug))
-		} else {
-			reconcile += fmt.Sprintf(" Reconcile before retrying with `breyta flows show %s --target draft` or `breyta flows validate %s`", slug, slug)
-		}
-		if key := strings.TrimSpace(idempotencyKey); key != "" {
-			reconcile += fmt.Sprintf("; preserve --idempotency-key %s on any retry", shellQuotePath(key))
-		}
-		if err != nil {
-			return writeErr(cmd, fmt.Errorf("%s: %w", reconcile, err))
-		}
-		if out == nil {
-			return writeErr(cmd, errors.New(reconcile))
-		}
-		meta := ensureMeta(out)
-		meta["saved"] = true
-		meta["path"] = path
-		meta["hint"] = reconcile
-		return writeAPIResult(cmd, app, out, status)
-	}
-	if out == nil {
-		return writeErr(cmd, errors.New(message))
-	}
-	meta := ensureMeta(out)
-	if meta != nil {
-		meta["saved"] = true
-		meta["path"] = path
-		meta["hint"] = message
-		appendMetaNextCommands(meta, retry)
-	}
-	return writeAPIResult(cmd, app, out, status)
-}
-
-func localStepScaffold(stepID, stepType, description string) string {
-	defaults := ""
-	switch stepType {
-	case "http":
-		defaults = "\n  :defaults {:method :get\n             :url \"https://example.com\"}"
-	case "function":
-		defaults = "\n  :defaults {:code '(fn [input] input)}"
-	case "llm":
-		defaults = "\n  :defaults {:connection nil\n             :model \"gpt-5.4\"\n             :prompt \"Replace with the step prompt and connection.\"}"
-	}
-	return fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]%s}", stepID, stepType, description, defaults)
-}
-
-func localInvocationInputLiteral(spec string) (string, error) {
-	parts := strings.SplitN(strings.TrimSpace(spec), ":", 4)
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid --input %q (use name:type[:required|optional[:label]])", spec)
-	}
-	name := strings.TrimPrefix(strings.TrimSpace(parts[0]), ":")
-	inputType := strings.TrimPrefix(strings.TrimSpace(parts[1]), ":")
-	if !validFlowLintSafeIdentifier(name) || strings.Contains(name, "/") {
-		return "", fmt.Errorf("invalid invocation input name %q", name)
-	}
-	if !flowLintInvocationTypes[inputType] {
-		return "", fmt.Errorf("invalid invocation input type %q", inputType)
-	}
-	required := false
-	if len(parts) >= 3 {
-		switch strings.ToLower(strings.TrimSpace(parts[2])) {
-		case "", "optional", "false":
-		case "required", "true":
-			required = true
-		default:
-			return "", fmt.Errorf("invalid --input requirement %q (use required or optional)", parts[2])
-		}
-	}
-	label := strings.ReplaceAll(name, "-", " ")
-	if len(parts) == 4 && strings.TrimSpace(parts[3]) != "" {
-		label = strings.TrimSpace(parts[3])
-	}
-	return fmt.Sprintf("{:name :%s :type :%s :label %q :required %t}", name, inputType, label, required), nil
-}
-
-func localInvocationInputsLiteral(specs []string) (string, error) {
-	if len(specs) == 0 {
-		return "[]", nil
-	}
-	items := make([]string, 0, len(specs))
-	seen := make(map[string]bool, len(specs))
-	for _, spec := range specs {
-		name := strings.TrimPrefix(strings.TrimSpace(strings.SplitN(spec, ":", 2)[0]), ":")
-		if seen[name] {
-			return "", fmt.Errorf("duplicate invocation input name %q", name)
-		}
-		seen[name] = true
-		item, err := localInvocationInputLiteral(spec)
-		if err != nil {
-			return "", err
-		}
-		items = append(items, item)
-	}
-	return "[" + strings.Join(items, "\n                          ") + "]", nil
-}
-
 func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 	var flowFile, stepFile, stepType, title, description string
 	var push, run bool
 	var idempotencyKey, paramsJSON, paramsFile, profileID string
-	var timeout time.Duration
+	var runTimeout time.Duration
 	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "create <flow-slug> <step-id>",
@@ -899,7 +876,22 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 				if strings.TrimSpace(title) == "" {
 					title = stepID
 				}
-				stepLiteral = localStepScaffold(stepID, stepType, descriptionOrDefault(description, title))
+				stepLiteral = localStepScaffoldLiteral(stepID, stepType, descriptionOrDefault(description, title))
+			}
+			// Validate --run options BEFORE mutating the flow file: a malformed
+			// --params/--params-file or a non-positive --timeout must fail with
+			// nothing written, not leave a saved step behind that blocks a
+			// retried create.
+			var runParams map[string]any
+			if run {
+				if runTimeout <= 0 {
+					return writeErr(cmd, errors.New("--timeout must be > 0; the local flow file was not modified"))
+				}
+				var paramsErr error
+				runParams, paramsErr = readParamsJSON(paramsJSON, paramsFile)
+				if paramsErr != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --run params; the local flow file was not modified: %w", paramsErr))
+				}
 			}
 			updated, err := appendLocalStep(source, stepLiteral)
 			if err != nil {
@@ -908,29 +900,32 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 			if err := atomicWriteFile(path, []byte(updated), publicFileMode); err != nil {
 				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
 			}
+			scaffolded := strings.TrimSpace(stepFile) == ""
 			var remote map[string]any
 			var remoteStatus int
 			if push {
+				recovery := stepSaveFailureRecovery(true, scaffolded, run, path, slug, stepID)
 				remote, remoteStatus, err = pushLocalFlowLiteral(cmd, app, path, updated)
 				if err != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, err, path, slug, stepID, "push", "")
+					return writeLocalStepSaveFailureEnvelope(cmd, app, err, recovery)
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
+					if remote == nil {
+						return writeLocalStepSaveFailureEnvelope(cmd, app, fmt.Errorf("flows push returned no usable API envelope (status=%d)", remoteStatus), recovery)
+					}
+					annotateLocalStepSaveFailure(remote, recovery)
+					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
 			}
 			extra := map[string]any{"flowSlug": slug, "stepId": stepID}
 			if run {
-				params, paramsErr := readParamsJSON(paramsJSON, paramsFile)
-				if paramsErr != nil {
-					return writeErr(cmd, paramsErr)
-				}
-				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, params, idempotencyKey, profileID, timeout)
+				recovery := stepSaveFailureRecovery(true, scaffolded, false, path, slug, stepID)
+				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, runParams, idempotencyKey, profileID, runTimeout)
 				if runErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
+					return writeLocalStepSaveFailureEnvelope(cmd, app, runErr, recovery)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
+				if runErr := requireSuccessfulLocalRunAfterSave(cmd, app, runOut, runStatus, recovery); runErr != nil {
+					return runErr
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
@@ -952,7 +947,7 @@ func newFlowsStepsLocalCreateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout for --run; increase for slow LLM, image, or HTTP steps")
+	addLocalStepRunTimeoutFlag(cmd, &runTimeout)
 	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
@@ -964,11 +959,28 @@ func descriptionOrDefault(description, title string) string {
 	return strings.TrimSpace(title)
 }
 
+// localStepScaffoldLiteral renders the `flows steps create --type <t>` scaffold.
+// Known types get minimal runnable :defaults; other types get an explicit empty
+// :defaults map so the fill-in requirement is visible instead of the scaffold
+// silently linting as a valid-but-unrunnable step.
+func localStepScaffoldLiteral(stepID, stepType, description string) string {
+	defaults := "{}"
+	switch stepType {
+	case "http":
+		defaults = `{:method :get :url "https://example.com"}`
+	case "function", "code":
+		defaults = "{:code '(fn [input] input)}"
+	default:
+		description = strings.TrimSpace(description) + " (fill :defaults with the step config)"
+	}
+	return fmt.Sprintf("{:id :%s\n  :type :%s\n  :description %q\n  :input-schema [:map]\n  :defaults %s}", stepID, stepType, description, defaults)
+}
+
 func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 	var flowFile, stepFile string
 	var push, run bool
 	var idempotencyKey, paramsJSON, paramsFile, profileID string
-	var timeout time.Duration
+	var runTimeout time.Duration
 	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug> <step-id>",
@@ -977,7 +989,7 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slug, stepID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
 			if !localStepIDValid(stepID) {
-				return writeErr(cmd, fmt.Errorf("invalid packaged step id %q (flows steps run only probes qualified top-level :steps ids such as tools/fetch; for a named flow-local :function, :code, or bound :llm step use `breyta flows run-step %s %s --target draft --input '{...}' --wait`)", stepID, slug, stepID))
+				return writeErr(cmd, fmt.Errorf("invalid step id %q", stepID))
 			}
 			if strings.TrimSpace(stepFile) == "" {
 				return writeErr(cmd, errors.New("update requires --step-file; edit the flow body with compose"))
@@ -998,6 +1010,20 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 			if literalID != stepID {
 				return writeErr(cmd, fmt.Errorf("step literal id %q does not match %q", literalID, stepID))
 			}
+			// Validate --run options BEFORE mutating the flow file so a
+			// malformed --params/--params-file or a non-positive --timeout
+			// fails with nothing written.
+			var runParams map[string]any
+			if run {
+				if runTimeout <= 0 {
+					return writeErr(cmd, errors.New("--timeout must be > 0; the local flow file was not modified"))
+				}
+				var paramsErr error
+				runParams, paramsErr = readParamsJSON(paramsJSON, paramsFile)
+				if paramsErr != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --run params; the local flow file was not modified: %w", paramsErr))
+				}
+			}
 			updated, err := replaceLocalStep(source, stepID, stepLiteral)
 			if err != nil {
 				return writeErr(cmd, err)
@@ -1008,26 +1034,28 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 			var remote map[string]any
 			var remoteStatus int
 			if push {
+				recovery := stepSaveFailureRecovery(false, false, run, path, slug, stepID)
 				remote, remoteStatus, err = pushLocalFlowLiteral(cmd, app, path, updated)
 				if err != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, err, path, slug, stepID, "push", "")
+					return writeLocalStepSaveFailureEnvelope(cmd, app, err, recovery)
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
+					if remote == nil {
+						return writeLocalStepSaveFailureEnvelope(cmd, app, fmt.Errorf("flows push returned no usable API envelope (status=%d)", remoteStatus), recovery)
+					}
+					annotateLocalStepSaveFailure(remote, recovery)
+					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
 			}
 			extra := map[string]any{"flowSlug": slug, "stepId": stepID}
 			if run {
-				params, paramsErr := readParamsJSON(paramsJSON, paramsFile)
-				if paramsErr != nil {
-					return writeErr(cmd, paramsErr)
-				}
-				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, params, idempotencyKey, profileID, timeout)
+				recovery := stepSaveFailureRecovery(false, false, false, path, slug, stepID)
+				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, updated, stepID, runParams, idempotencyKey, profileID, runTimeout)
 				if runErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
+					return writeLocalStepSaveFailureEnvelope(cmd, app, runErr, recovery)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
+				if runErr := requireSuccessfulLocalRunAfterSave(cmd, app, runOut, runStatus, recovery); runErr != nil {
+					return runErr
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
@@ -1046,7 +1074,7 @@ func newFlowsStepsLocalUpdateCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout for --run; increase for slow LLM, image, or HTTP steps")
+	addLocalStepRunTimeoutFlag(cmd, &runTimeout)
 	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
@@ -1091,7 +1119,7 @@ func newFlowsStepsLocalRemoveCmd(app *App) *cobra.Command {
 
 func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 	var flowFile, paramsJSON, paramsFile, idempotencyKey, profileID string
-	var timeout time.Duration
+	var runTimeout time.Duration
 	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "run <flow-slug> <step-id>",
@@ -1100,7 +1128,7 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slug, stepID := strings.TrimSpace(args[0]), strings.TrimSpace(args[1])
 			if !localStepIDValid(stepID) {
-				return writeErr(cmd, fmt.Errorf("invalid packaged step id %q (flows steps run only probes qualified top-level :steps ids such as tools/fetch; for a named flow-local :function, :code, or bound :llm step use `breyta flows run-step %s %s --target draft --input '{...}' --wait`)", stepID, slug, stepID))
+				return writeErr(cmd, fmt.Errorf("invalid step id %q", stepID))
 			}
 			path, source, err := readLocalFlowSource(slug, flowFile)
 			if err != nil {
@@ -1110,12 +1138,9 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			out, status, err := runLocalFlowStep(cmd, app, slug, path, source, stepID, params, idempotencyKey, profileID, timeout)
+			out, status, err := runLocalFlowStep(cmd, app, slug, path, source, stepID, params, idempotencyKey, profileID, runTimeout)
 			if err != nil {
-				return writeAmbiguousLocalStepRunFailure(cmd, app, out, status, err, slug, idempotencyKey)
-			}
-			if status >= 500 {
-				return writeAmbiguousLocalStepRunFailure(cmd, app, out, status, nil, slug, idempotencyKey)
+				return writeErr(cmd, err)
 			}
 			if err := compactStepsRunResult(out, stepID, previewOpts); err != nil {
 				return writeErr(cmd, err)
@@ -1128,7 +1153,7 @@ func newFlowsStepsLocalRunCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for retrying side-effectful runs")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout; increase for slow LLM, image, or HTTP steps")
+	addLocalStepRunTimeoutFlag(cmd, &runTimeout)
 	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }
@@ -1406,9 +1431,8 @@ Examples:
 func newFlowsInitCmd(app *App) *cobra.Command {
 	var name, description, outPath string
 	var stepID, stepFile, paramsJSON, paramsFile, idempotencyKey, profileID string
-	var invocationInputs []string
 	var force, push, run bool
-	var timeout time.Duration
+	var runTimeout time.Duration
 	var previewOpts stepResultPreviewOptions
 	cmd := &cobra.Command{
 		Use:   "init <flow-slug>",
@@ -1416,16 +1440,14 @@ func newFlowsInitCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Create the local source of truth for a flow. Initialization is local by default;
 pass --push when you explicitly want the same source sent to the workspace.
-The generated definition includes a manual Run interface and an empty schedules
-vector so later schedule edits stay in the same source file. Repeat --input to
-seed invocation fields as name:type[:required|optional[:label]].
+The generated definition includes a no-input manual Run interface and an empty
+schedules vector so later schedule edits stay in the same source file.
 When the first packaged step is already authored, pass --step-id and --step-file
 to seed it into the local literal in the same command. Add --run to prove that
 seeded step just in time on the server; this does not create a remote draft.
 
 Examples:
   breyta flows init order-sync --name "Order sync"
-  breyta flows init order-sync --input 'order-id:text:required:Order ID'
   breyta flows init order-sync --step-id tools/fetch-order --step-file ./steps/fetch-order.edn --run
   breyta flows init order-sync --out ./flows/order-sync.clj --push
 `),
@@ -1442,10 +1464,6 @@ Examples:
 			}
 			if run && stepFile == "" {
 				return writeErr(cmd, errors.New("--run requires --step-id with --step-file"))
-			}
-			inputsLiteral, inputsErr := localInvocationInputsLiteral(invocationInputs)
-			if inputsErr != nil {
-				return writeErr(cmd, inputsErr)
 			}
 			var stepLiteral string
 			if stepFile != "" {
@@ -1484,17 +1502,31 @@ Examples:
  :templates nil
  :functions nil
  :steps []
- :invocations {:default {:label "Run" :inputs %s}}
+ :invocations {:default {:label "Run" :inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :schedules []
  :flow '(let [input (flow/input)] input)}
-`, slug, flowName, strings.TrimSpace(description), inputsLiteral)
+`, slug, flowName, strings.TrimSpace(description))
 			if stepLiteral != "" {
 				seeded, err := appendLocalStep(literal, stepLiteral)
 				if err != nil {
 					return writeErr(cmd, fmt.Errorf("seed local step: %w", err))
 				}
 				literal = seeded
+			}
+			// Validate --run options BEFORE writing the flow file so a
+			// malformed --params/--params-file or a non-positive --timeout
+			// fails with nothing created (and --force overwrites nothing).
+			var runParams map[string]any
+			if run {
+				if runTimeout <= 0 {
+					return writeErr(cmd, errors.New("--timeout must be > 0; no local flow file was written"))
+				}
+				var paramsErr error
+				runParams, paramsErr = readParamsJSON(paramsJSON, paramsFile)
+				if paramsErr != nil {
+					return writeErr(cmd, fmt.Errorf("invalid --run params; no local flow file was written: %w", paramsErr))
+				}
 			}
 			if err := atomicWriteFile(path, []byte(literal), publicFileMode); err != nil {
 				return writeErr(cmd, fmt.Errorf("write local flow: %w", err))
@@ -1505,10 +1537,10 @@ Examples:
 				var pushErr error
 				remote, remoteStatus, pushErr = pushLocalFlowLiteral(cmd, app, path, literal)
 				if pushErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, pushErr, path, slug, stepID, "push", "")
+					return writeErr(cmd, pushErr)
 				}
 				if remoteStatus >= 400 || !isOK(remote) {
-					return writeSavedLocalAuthoringFailure(cmd, app, remote, remoteStatus, nil, path, slug, stepID, "push", "")
+					return writeAPIResult(cmd, app, remote, remoteStatus)
 				}
 			}
 			extra := map[string]any{"flowSlug": slug}
@@ -1516,16 +1548,12 @@ Examples:
 				extra["stepId"] = stepID
 			}
 			if run {
-				params, paramsErr := readParamsJSON(paramsJSON, paramsFile)
-				if paramsErr != nil {
-					return writeErr(cmd, paramsErr)
-				}
-				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, params, idempotencyKey, profileID, timeout)
+				runOut, runStatus, runErr := runLocalFlowStep(cmd, app, slug, path, literal, stepID, runParams, idempotencyKey, profileID, runTimeout)
 				if runErr != nil {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, runErr, path, slug, stepID, "run", idempotencyKey)
+					return writeErr(cmd, runErr)
 				}
-				if runStatus >= 400 || !isOK(runOut) {
-					return writeSavedLocalAuthoringFailure(cmd, app, runOut, runStatus, nil, path, slug, stepID, "run", idempotencyKey)
+				if runErr := requireSuccessfulLocalRun(cmd, app, runOut, runStatus); runErr != nil {
+					return runErr
 				}
 				if err := compactStepsRunResult(runOut, stepID, previewOpts); err != nil {
 					return writeErr(cmd, err)
@@ -1539,7 +1567,6 @@ Examples:
 	cmd.Flags().StringVar(&name, "name", "", "Flow display name (default: slug)")
 	cmd.Flags().StringVar(&description, "description", "", "Flow description")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path (default: flows/<flow-slug>.clj)")
-	cmd.Flags().StringArrayVar(&invocationInputs, "input", nil, "Seed invocation input as name:type[:required|optional[:label]] (repeatable)")
 	cmd.Flags().BoolVar(&force, "force", false, "Replace an existing local source file")
 	cmd.Flags().BoolVar(&push, "push", false, "Push the generated source after saving")
 	cmd.Flags().StringVar(&stepID, "step-id", "", "Qualified first packaged step id to seed into the local source")
@@ -1549,7 +1576,7 @@ Examples:
 	cmd.Flags().StringVar(&paramsFile, "params-file", "", "Read step input JSON from this file for --run")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Stable key for --run retries")
 	cmd.Flags().StringVar(&profileID, "profile-id", "", "Optional installation/profile id for --run")
-	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Request timeout for --run; increase for slow LLM, image, or HTTP steps")
+	addLocalStepRunTimeoutFlag(cmd, &runTimeout)
 	addLocalStepRunPreviewFlags(cmd, &previewOpts)
 	return cmd
 }

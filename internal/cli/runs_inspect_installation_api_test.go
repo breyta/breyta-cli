@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -373,5 +374,35 @@ func TestRunsInspectStep_UsesInferredInstallationIDForRunAndEvents(t *testing.T)
 		if args["installationId"] != "hqfZ7l2dvkFCxMJU8rOz" {
 			t.Fatalf("expected inferred installationId in %s, got %#v", label, args)
 		}
+	}
+}
+
+func TestCompactRunInspectOutputHintCarriesInstallationScope(t *testing.T) {
+	newEnvelope := func() map[string]any {
+		return map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{"status": "completed", "steps": []any{}},
+			},
+		}
+	}
+
+	scoped := newEnvelope()
+	compactRunInspectOutput(scoped, "wf-scoped", "prof-consumer")
+	meta, _ := scoped["meta"].(map[string]any)
+	hint, _ := meta["hint"].(string)
+	if want := "breyta runs show wf-scoped --include-result --installation-id prof-consumer"; !strings.Contains(hint, want) {
+		t.Fatalf("expected installation-scoped runs show hint %q, got %q", want, hint)
+	}
+
+	unscoped := newEnvelope()
+	compactRunInspectOutput(unscoped, "wf-plain", "")
+	meta, _ = unscoped["meta"].(map[string]any)
+	hint, _ = meta["hint"].(string)
+	if !strings.Contains(hint, "breyta runs show wf-plain --include-result") {
+		t.Fatalf("expected plain runs show hint, got %q", hint)
+	}
+	if strings.Contains(hint, "--installation-id") {
+		t.Fatalf("did not expect installation scope in workspace-run hint, got %q", hint)
 	}
 }

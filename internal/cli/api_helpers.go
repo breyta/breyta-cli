@@ -598,38 +598,45 @@ func addWaitRunNextCommands(out map[string]any, workflowID string, installationI
 	if installationID == "" {
 		installationID = installationIDFromWaitRunSnapshot(out)
 	}
-	inspectCmd := "breyta runs inspect " + workflowID
-	resultCmd := "breyta runs show " + workflowID + " --include-result"
+	installationSuffix := ""
 	if installationID != "" {
-		inspectCmd += " --installation-id " + installationID
-		resultCmd += " --installation-id " + installationID
+		installationSuffix = " --installation-id " + installationID
 	}
 	meta := ensureMeta(out)
-	if waitRunResultPreviewTruncated(out) {
-		appendMetaNextCommands(meta,
-			resultCmd,
-			inspectCmd,
-			"breyta resources workflow list "+workflowID)
-	} else {
-		appendMetaNextCommands(meta,
-			inspectCmd,
-			"breyta resources workflow list "+workflowID)
+	appendMetaNextCommands(meta,
+		"breyta runs inspect "+workflowID+installationSuffix,
+		"breyta resources workflow list "+workflowID)
+	// When the snapshot carries a resultPreview there is a full result worth
+	// fetching, and the bounded command for that is `runs show --include-result`
+	// (not `runs inspect --full`, which also expands every step payload). It
+	// must be the FIRST next command even when the envelope already carried
+	// nextCommands, so prepend instead of append.
+	if waitRunSnapshotHasResultPreview(out) {
+		prependMetaNextCommands(meta, "breyta runs show "+workflowID+" --include-result"+installationSuffix)
 	}
 }
 
-func waitRunResultPreviewTruncated(out map[string]any) bool {
+func waitRunSnapshotHasResultPreview(out map[string]any) bool {
 	data := mapStringAny(out["data"])
 	run := mapStringAny(data["run"])
-	preview := mapStringAny(firstPresent(run, "resultPreview", "result-preview"))
-	if preview == nil {
+	if run == nil {
 		return false
 	}
-	truncated, _ := preview["truncated"].(bool)
-	return truncated
+	// Same spelling aliases as compactRunInspectOutput: legacy/compat
+	// snapshots carry kebab-case and output-preview keys.
+	return firstPresent(run, "resultPreview", "result-preview", "outputPreview", "output-preview") != nil
 }
 
 func installationIDFromWaitRunSnapshot(out map[string]any) string {
-	return strings.TrimSpace(installationIDFromRunData(mapStringAny(out["data"])))
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	if run != nil {
+		// Compatibility snapshots spell the installation id several ways.
+		if id := strings.TrimSpace(firstNonBlankString(run["installationId"], run["installation-id"], run["profileId"], run["profile-id"])); id != "" {
+			return id
+		}
+	}
+	return strings.TrimSpace(firstNonBlankString(data["installationId"], data["installation-id"]))
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
@@ -1180,6 +1187,36 @@ func appendMetaNextCommands(meta map[string]any, commands ...string) {
 		}
 		seen[cmd] = struct{}{}
 		out = append(out, cmd)
+	}
+	if len(out) > 0 {
+		meta["nextCommands"] = out
+	}
+}
+
+// prependMetaNextCommands puts commands at the FRONT of meta.nextCommands,
+// deduplicating any existing occurrence so the command is not listed twice.
+func prependMetaNextCommands(meta map[string]any, commands ...string) {
+	if meta == nil || len(commands) == 0 {
+		return
+	}
+	seen := map[string]struct{}{}
+	var out []any
+	add := func(cmd string) {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			return
+		}
+		if _, ok := seen[cmd]; ok {
+			return
+		}
+		seen[cmd] = struct{}{}
+		out = append(out, cmd)
+	}
+	for _, cmd := range commands {
+		add(cmd)
+	}
+	for _, existing := range sliceAny(meta["nextCommands"]) {
+		add(firstNonBlankString(existing))
 	}
 	if len(out) > 0 {
 		meta["nextCommands"] = out
