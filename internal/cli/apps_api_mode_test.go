@@ -8730,6 +8730,55 @@ func TestFlowsPull_DefaultsToDraftSource(t *testing.T) {
 	}
 }
 
+func TestFlowsPull_PreservesFormattingAndCSVCharacterLiterals(t *testing.T) {
+	t.Setenv("BREYTA_DEV", "1")
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "csv-flow.clj")
+	flowLiteral := `{:slug :csv-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :functions
+ [{:id :parse-csv
+   :language :clojure
+   :code '(fn [ch]
+            (or (= ch \")
+                (= ch \,)))}]
+ :flow '(identity)}`
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"flowLiteral": flowLiteral},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "pull", "csv-flow",
+		"--out", outPath,
+	)
+	if err != nil {
+		t.Fatalf("flows pull failed: %v\n%s", err, stdout)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read pulled flow: %v", err)
+	}
+	if !strings.Contains(string(raw), flowLiteral) {
+		t.Fatalf("pull should preserve authored formatting:\n%s", string(raw))
+	}
+
+	stdout, _, err = runCLIArgs(t, "flows", "lint", "--file", outPath, "--local-only")
+	if err != nil {
+		t.Fatalf("pulled CSV flow should pass local lint: %v\n%s", err, stdout)
+	}
+}
+
 func TestFlowsPull_CurrentDraftReconcilesVisibilityAndPreservesRegexEscapes(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "flow-current-draft.clj")

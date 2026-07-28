@@ -829,6 +829,24 @@ func TestFlowsGrep_RejectsRawDefinitionWithoutFull(t *testing.T) {
 	}
 }
 
+func TestFlowsGrep_RejectsWorkspaceRawDefinitionAsEditableSource(t *testing.T) {
+	app := &App{WorkspaceID: "ws-test", APIURL: "https://example.invalid", Token: "t", TokenExplicit: true}
+	cmd := newFlowsGrepCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"csv", "--scope", "workspace", "--full", "--raw-definition"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected workspace raw definition rejection")
+	}
+	if !strings.Contains(err.Error(), "flows pull <slug>") ||
+		!strings.Contains(err.Error(), "formatting-preserving editable source") {
+		t.Fatalf("expected formatting-safe pull guidance, got %v", err)
+	}
+}
+
 func TestFlowsExamplesStep_BuildsWorkspacePayload(t *testing.T) {
 	var gotWorkspaceHeader string
 	var gotBody map[string]any

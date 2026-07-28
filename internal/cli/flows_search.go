@@ -360,7 +360,9 @@ repeatable ` + "`--or <pattern>`" + ` for spelling variations. Grep does not do 
 synonym expansion.
 
 Results are compact by default. Add ` + "`--full`" + ` for a bounded source preview, or
-` + "`--full --raw-definition`" + ` for the raw definition inline.
+` + "`--full --raw-definition`" + ` for normalized template EDN used for inspection.
+Workspace raw definitions are intentionally unavailable here because search serialization
+does not preserve authored formatting; use ` + "`breyta flows pull <slug>`" + ` for editable source.
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -390,6 +392,9 @@ Results are compact by default. Add ` + "`--full`" + ` for a bounded source prev
 			}
 			if rawDefinition && !full {
 				return writeErr(cmd, errors.New("--raw-definition requires --full"))
+			}
+			if rawDefinition && effectiveScope != "templates" {
+				return writeErr(cmd, errors.New("--raw-definition is inspection-only normalized EDN and is unavailable for workspace grep; use `breyta flows pull <slug>` for formatting-preserving editable source"))
 			}
 			normalizedSurfaces, err := normalizedMatchSurfaces(matchSurfaces)
 			if err != nil {
@@ -454,7 +459,7 @@ Results are compact by default. Add ` + "`--full`" + ` for a bounded source prev
 	cmd.Flags().IntVar(&from, "from", 0, "Offset for pagination (>= 0)")
 	cmd.Flags().BoolVar(&includeArchived, "include-archived", false, "Include archived workspace flows")
 	cmd.Flags().BoolVar(&full, "full", false, "Include bounded source definition preview for matched flows")
-	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With --full, include raw source definition inline; verbose")
+	cmd.Flags().BoolVar(&rawDefinition, "raw-definition", false, "With template --full, include normalized EDN for inspection only; never use as editable push source")
 	return cmd
 }
 
