@@ -130,6 +130,7 @@ func loadTokenFromAuthStore(app *App) {
 	if !ok {
 		return
 	}
+	loadedRec := rec
 	updated := false
 	if rec.ExpiresAt.IsZero() {
 		if exp, ok := parseJWTExpiry(rec.Token); ok {
@@ -137,23 +138,94 @@ func loadTokenFromAuthStore(app *App) {
 			updated = true
 		}
 	}
-	if strings.TrimSpace(rec.RefreshToken) != "" && rec.ExpiresAt.IsZero() {
+	shouldRefresh := strings.TrimSpace(rec.RefreshToken) != "" &&
+		(rec.ExpiresAt.IsZero() || time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime)
+	if shouldRefresh {
 		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
 			rec = next
 			updated = true
-		}
-	}
-	if strings.TrimSpace(rec.RefreshToken) != "" && !rec.ExpiresAt.IsZero() && time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime {
-		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
-			rec = next
-			updated = true
+		} else if isDefinitiveRefreshRejection(err) {
+			if current, ok := invalidateRejectedAuthRecord(storePath, app.APIURL, rec); ok {
+				app.Token = current.Token
+			} else {
+				app.Token = ""
+			}
+			return
 		}
 	}
 	if updated {
-		st.SetRecord(app.APIURL, rec)
-		_ = authstore.SaveAtomic(storePath, st)
+		current, ok, err := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec)
+		if err == nil {
+			if !ok {
+				app.Token = ""
+				return
+			}
+			rec = current
+		}
+		// Persistence is best-effort for a token already usable by this
+		// invocation, matching the pre-locking behavior.
 	}
 	app.Token = rec.Token
+}
+
+type refreshHTTPError struct {
+	status int
+}
+
+func (e *refreshHTTPError) Error() string {
+	return fmt.Sprintf("refresh failed (status=%d)", e.status)
+}
+
+func isDefinitiveRefreshRejection(err error) bool {
+	var httpErr *refreshHTTPError
+	return errors.As(err, &httpErr) && httpErr.status == http.StatusUnauthorized
+}
+
+func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected authstore.Record) (authstore.Record, bool) {
+	var replacement authstore.Record
+	var replacementFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		// Another CLI process or login may have replaced the credentials while
+		// this refresh request was in flight. Preserve and use that newer record.
+		if current.Token != rejected.Token || current.RefreshToken != rejected.RefreshToken {
+			replacement = current
+			replacementFound = true
+			return nil
+		}
+		latest.Delete(apiURL)
+		return nil
+	})
+	if err != nil {
+		return authstore.Record{}, false
+	}
+	return replacement, replacementFound
+}
+
+func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool, error) {
+	var result authstore.Record
+	var resultFound bool
+	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
+		current, ok := latest.GetRecord(apiURL)
+		if !ok {
+			return nil
+		}
+		if current.Token != expected.Token || current.RefreshToken != expected.RefreshToken {
+			result = current
+			resultFound = true
+			return nil
+		}
+		latest.SetRecord(apiURL, next)
+		result, resultFound = latest.GetRecord(apiURL)
+		return nil
+	})
+	if err != nil {
+		return authstore.Record{}, false, err
+	}
+	return result, resultFound, nil
 }
 
 func parseJWTExpiry(token string) (time.Time, bool) {
@@ -223,7 +295,7 @@ func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Recor
 		return authstore.Record{}, err
 	}
 	if status < 200 || status > 299 {
-		return authstore.Record{}, fmt.Errorf("refresh failed (status=%d)", status)
+		return authstore.Record{}, &refreshHTTPError{status: status}
 	}
 
 	m, ok := out.(map[string]any)
@@ -526,23 +598,45 @@ func addWaitRunNextCommands(out map[string]any, workflowID string, installationI
 	if installationID == "" {
 		installationID = installationIDFromWaitRunSnapshot(out)
 	}
-	inspectCmd := "breyta runs inspect " + workflowID
+	installationSuffix := ""
 	if installationID != "" {
-		inspectCmd += " --installation-id " + installationID
+		installationSuffix = " --installation-id " + installationID
 	}
 	meta := ensureMeta(out)
 	appendMetaNextCommands(meta,
-		inspectCmd,
+		"breyta runs inspect "+workflowID+installationSuffix,
 		"breyta resources workflow list "+workflowID)
+	// When the snapshot carries a resultPreview there is a full result worth
+	// fetching, and the bounded command for that is `runs show --include-result`
+	// (not `runs inspect --full`, which also expands every step payload). It
+	// must be the FIRST next command even when the envelope already carried
+	// nextCommands, so prepend instead of append.
+	if waitRunSnapshotHasResultPreview(out) {
+		prependMetaNextCommands(meta, "breyta runs show "+workflowID+" --include-result"+installationSuffix)
+	}
+}
+
+func waitRunSnapshotHasResultPreview(out map[string]any) bool {
+	data := mapStringAny(out["data"])
+	run := mapStringAny(data["run"])
+	if run == nil {
+		return false
+	}
+	// Same spelling aliases as compactRunInspectOutput: legacy/compat
+	// snapshots carry kebab-case and output-preview keys.
+	return firstPresent(run, "resultPreview", "result-preview", "outputPreview", "output-preview") != nil
 }
 
 func installationIDFromWaitRunSnapshot(out map[string]any) string {
 	data := mapStringAny(out["data"])
 	run := mapStringAny(data["run"])
-	if run == nil {
-		return ""
+	if run != nil {
+		// Compatibility snapshots spell the installation id several ways.
+		if id := strings.TrimSpace(firstNonBlankString(run["installationId"], run["installation-id"], run["profileId"], run["profile-id"])); id != "" {
+			return id
+		}
 	}
-	return strings.TrimSpace(firstNonBlankString(run["installationId"]))
+	return strings.TrimSpace(firstNonBlankString(data["installationId"], data["installation-id"]))
 }
 
 func addActivationHint(app *App, out map[string]any, flowSlug string) {
@@ -730,6 +824,34 @@ func runFailureShouldUseDraftBindings(command string, args map[string]any, out m
 	}
 }
 
+// membershipForbidden reports whether an envelope is the workspace-membership
+// 403 emitted by the workspace authorization middleware.
+func membershipForbidden(status int, out map[string]any) bool {
+	return status == http.StatusForbidden &&
+		strings.Contains(strings.ToLower(getErrorMessage(out)), "not a workspace member")
+}
+
+// addDiscoverInspectHint points a membership 403 on flows.get at the public
+// Discover listing surface: flows show can never open a flow in a workspace
+// the caller is not a member of, but a public app's listing stays readable
+// via flows discover show.
+func addDiscoverInspectHint(workspaceID string, out map[string]any, slug string) {
+	meta := ensureMeta(out)
+	if meta == nil {
+		return
+	}
+	if _, exists := meta["hint"]; exists {
+		return
+	}
+	ws := strings.TrimSpace(workspaceID)
+	if ws == "" {
+		ws = "<workspace-id>"
+	}
+	meta["hint"] = "You are not a member of this flow's workspace, so flows show cannot open it. If it is a public Discover app, inspect its public listing instead."
+	appendMetaNextCommands(meta,
+		"breyta flows discover show "+shellSingleQuote(ws+"/"+strings.TrimSpace(slug)))
+}
+
 func enrichCommandHints(app *App, command string, args map[string]any, status int, out map[string]any) {
 	slug, _ := args["flowSlug"].(string)
 	if strings.TrimSpace(slug) == "" {
@@ -742,7 +864,15 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 
 	switch command {
 	case "flows.get":
-		if flowLiteralDeclaresRequires(out) {
+		if membershipForbidden(status, out) {
+			// Skip installation-scoped lookups: they carry their own source
+			// refs and fail for different reasons than a user-addressed
+			// cross-workspace flows show/pull.
+			if _, installationLookup := args["installationId"]; !installationLookup {
+				ws := firstNonBlankString(args["sourceWorkspaceId"], app.WorkspaceID)
+				addDiscoverInspectHint(ws, out, slug)
+			}
+		} else if flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
 	case "runs.start", "flows.run", "flows.run_step":
@@ -1057,6 +1187,36 @@ func appendMetaNextCommands(meta map[string]any, commands ...string) {
 		}
 		seen[cmd] = struct{}{}
 		out = append(out, cmd)
+	}
+	if len(out) > 0 {
+		meta["nextCommands"] = out
+	}
+}
+
+// prependMetaNextCommands puts commands at the FRONT of meta.nextCommands,
+// deduplicating any existing occurrence so the command is not listed twice.
+func prependMetaNextCommands(meta map[string]any, commands ...string) {
+	if meta == nil || len(commands) == 0 {
+		return
+	}
+	seen := map[string]struct{}{}
+	var out []any
+	add := func(cmd string) {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			return
+		}
+		if _, ok := seen[cmd]; ok {
+			return
+		}
+		seen[cmd] = struct{}{}
+		out = append(out, cmd)
+	}
+	for _, cmd := range commands {
+		add(cmd)
+	}
+	for _, existing := range sliceAny(meta["nextCommands"]) {
+		add(firstNonBlankString(existing))
 	}
 	if len(out) > 0 {
 		meta["nextCommands"] = out
@@ -1628,18 +1788,26 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		}
 	}
 
-	// Workspace membership flakes are common in local dev (mock auth + restarts).
-	// When we recognize the server message, give a direct recovery hint.
+	// Workspace membership 403s have two common causes with different fixes:
+	// local dev flakes (mock auth + restarts) get the bootstrap recovery, and
+	// everything else gets a generic workspace-selection hint. Command-aware
+	// guidance (for example pointing a cross-workspace flows.get at the public
+	// Discover listing) is added earlier by enrichCommandHints and wins here.
 	if status == http.StatusForbidden && strings.Contains(msg, "not a workspace member") {
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				ws := strings.TrimSpace(app.WorkspaceID)
-				if ws == "" {
-					ws = "<workspace-id>"
+				if app.DevMode {
+					ws := strings.TrimSpace(app.WorkspaceID)
+					if ws == "" {
+						ws = "<workspace-id>"
+					}
+					meta["hint"] = "Local workspace membership missing."
+					appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
+				} else {
+					meta["hint"] = "You are not a member of the addressed workspace. Verify the workspace id or switch to one of your workspaces."
+					appendMetaNextCommands(meta, "breyta workspaces list")
 				}
-				meta["hint"] = "Local workspace membership missing."
-				appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
 			}
 		}
 	}

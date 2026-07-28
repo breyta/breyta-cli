@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -156,6 +158,286 @@ func TestRequireAPI_RefreshesTokenWellBeforeExpiry(t *testing.T) {
 	}
 	if refreshCalls.Load() != 1 {
 		t.Fatalf("expected refresh called once, got %d", refreshCalls.Load())
+	}
+}
+
+func TestRequireAPI_DefinitiveRefreshRejectionInvalidatesStoredCredentials(t *testing.T) {
+	var refreshCalls atomic.Int32
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/auth/refresh" || r.Method != http.MethodPost {
+				return httpJSON(404, map[string]any{"success": false, "error": "not found"})
+			}
+			refreshCalls.Add(1)
+			return httpJSON(401, map[string]any{"success": false, "error": "refresh failed"})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	st := &authstore.Store{
+		Tokens: map[string]authstore.Record{
+			baseURL: {
+				Token:        "expired-token",
+				RefreshToken: "revoked-refresh-token",
+				ExpiresAt:    time.Now().UTC().Add(-time.Minute),
+				UpdatedAt:    time.Now().UTC(),
+			},
+		},
+	}
+	if err := authstore.SaveAtomic(storePath, st); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	for invocation := 1; invocation <= 2; invocation++ {
+		app := &App{APIURL: baseURL}
+		if err := requireAPI(app); err == nil {
+			t.Fatalf("invocation %d: expected rejected credentials to fail locally", invocation)
+		}
+	}
+
+	if refreshCalls.Load() != 1 {
+		t.Fatalf("expected only the first invocation to call refresh, got %d", refreshCalls.Load())
+	}
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := loaded.GetRecord(baseURL); ok {
+		t.Fatal("expected definitively rejected credential to be removed")
+	}
+}
+
+func TestRequireAPI_DefinitiveRefreshRejectionPreservesRotatedCredentials(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	rejected := authstore.Record{
+		Token:        "expired-token",
+		RefreshToken: "rejected-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(-time.Minute),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{baseURL: rejected},
+	}); err != nil {
+		t.Fatalf("SaveAtomic rejected credentials: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	rotated := authstore.Record{
+		Token:        "fresh-token",
+		RefreshToken: "fresh-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			if err := authstore.SaveAtomic(storePath, &authstore.Store{
+				Tokens: map[string]authstore.Record{baseURL: rotated},
+			}); err != nil {
+				t.Fatalf("SaveAtomic rotated credentials: %v", err)
+			}
+			return httpJSON(401, map[string]any{"success": false, "error": "refresh failed"})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected concurrently rotated credentials to remain usable: %v", err)
+	}
+	if app.Token != rotated.Token {
+		t.Fatalf("expected rotated token %q, got %q", rotated.Token, app.Token)
+	}
+
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rec, ok := loaded.GetRecord(baseURL)
+	if !ok {
+		t.Fatal("expected rotated credentials to remain stored")
+	}
+	if rec.Token != rotated.Token || rec.RefreshToken != rotated.RefreshToken {
+		t.Fatalf("expected rotated credentials, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+}
+
+func TestRequireAPI_SuccessfulRefreshPreservesCredentialsRotatedInFlight(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	original := authstore.Record{
+		Token:        "expiring-token",
+		RefreshToken: "original-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Minute),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{baseURL: original},
+	}); err != nil {
+		t.Fatalf("SaveAtomic original credentials: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	rotated := authstore.Record{
+		Token:        "concurrently-rotated-token",
+		RefreshToken: "concurrently-rotated-refresh-token",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			if err := authstore.SaveAtomic(storePath, &authstore.Store{
+				Tokens: map[string]authstore.Record{baseURL: rotated},
+			}); err != nil {
+				t.Fatalf("SaveAtomic rotated credentials: %v", err)
+			}
+			return httpJSON(200, map[string]any{
+				"success":      true,
+				"token":        "response-token",
+				"refreshToken": "response-refresh-token",
+				"expiresIn":    3600,
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected concurrently rotated credentials to remain usable: %v", err)
+	}
+	if app.Token != rotated.Token {
+		t.Fatalf("expected concurrently rotated token %q, got %q", rotated.Token, app.Token)
+	}
+
+	loaded, err := authstore.Load(storePath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rec, ok := loaded.GetRecord(baseURL)
+	if !ok {
+		t.Fatal("expected concurrently rotated credentials to remain stored")
+	}
+	if rec.Token != rotated.Token || rec.RefreshToken != rotated.RefreshToken {
+		t.Fatalf("expected concurrently rotated credentials, got token=%q refresh=%q", rec.Token, rec.RefreshToken)
+	}
+}
+
+func TestRequireAPI_SuccessfulRefreshUsesTokenWhenStorePersistenceFails(t *testing.T) {
+	baseURL := "https://example.test"
+	storePath := filepath.Join(t.TempDir(), "auth.json")
+	if err := authstore.SaveAtomic(storePath, &authstore.Store{
+		Tokens: map[string]authstore.Record{
+			baseURL: {
+				Token:        "expiring-token",
+				RefreshToken: "refresh-token",
+				ExpiresAt:    time.Now().UTC().Add(time.Minute),
+				UpdatedAt:    time.Now().UTC(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("SaveAtomic: %v", err)
+	}
+	if err := os.Remove(storePath + ".lock"); err != nil {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	if err := os.Mkdir(storePath+".lock", 0o700); err != nil {
+		t.Fatalf("create unusable lock path: %v", err)
+	}
+	t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+	authRefreshHTTPClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return httpJSON(200, map[string]any{
+				"success":      true,
+				"token":        "fresh-in-memory-token",
+				"refreshToken": "fresh-refresh-token",
+				"expiresIn":    3600,
+			})
+		}),
+	}
+	t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+	app := &App{APIURL: baseURL}
+	if err := requireAPI(app); err != nil {
+		t.Fatalf("expected fresh token to remain usable when persistence fails: %v", err)
+	}
+	if app.Token != "fresh-in-memory-token" {
+		t.Fatalf("expected fresh in-memory token, got %q", app.Token)
+	}
+}
+
+func TestRequireAPI_TransientRefreshFailureKeepsStoredCredentials(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport roundTripperFunc
+	}{
+		{
+			name: "service unavailable",
+			transport: func(*http.Request) (*http.Response, error) {
+				return httpJSON(503, map[string]any{"success": false, "error": "temporarily unavailable"})
+			},
+		},
+		{
+			name: "transport failure",
+			transport: func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection reset")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var refreshCalls atomic.Int32
+			authRefreshHTTPClient = &http.Client{
+				Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+					refreshCalls.Add(1)
+					return tt.transport(r)
+				}),
+			}
+			t.Cleanup(func() { authRefreshHTTPClient = nil })
+
+			baseURL := "https://example.test"
+			storePath := filepath.Join(t.TempDir(), "auth.json")
+			st := &authstore.Store{
+				Tokens: map[string]authstore.Record{
+					baseURL: {
+						Token:        "still-valid-token",
+						RefreshToken: "refresh-later",
+						ExpiresAt:    time.Now().UTC().Add(10 * time.Minute),
+						UpdatedAt:    time.Now().UTC(),
+					},
+				},
+			}
+			if err := authstore.SaveAtomic(storePath, st); err != nil {
+				t.Fatalf("SaveAtomic: %v", err)
+			}
+			t.Setenv("BREYTA_AUTH_STORE", storePath)
+
+			for invocation := 1; invocation <= 2; invocation++ {
+				app := &App{APIURL: baseURL}
+				if err := requireAPI(app); err != nil {
+					t.Fatalf("invocation %d: expected existing token to remain usable: %v", invocation, err)
+				}
+				if app.Token != "still-valid-token" {
+					t.Fatalf("invocation %d: expected existing token, got %q", invocation, app.Token)
+				}
+			}
+
+			if refreshCalls.Load() != 2 {
+				t.Fatalf("expected transient failure to remain retryable, got %d calls", refreshCalls.Load())
+			}
+			loaded, err := authstore.Load(storePath)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if _, ok := loaded.GetRecord(baseURL); !ok {
+				t.Fatal("expected transient failure to retain stored credentials")
+			}
+		})
 	}
 }
 
@@ -408,6 +690,163 @@ func TestAddWaitRunNextCommands_InstallationScopedHintIsRunnable(t *testing.T) {
 		for _, c := range cmds {
 			if strings.Contains(c, "--installation-id") {
 				t.Fatalf("did not expect an installation-id flag for a workspace run, got %#v", cmds)
+			}
+		}
+	})
+}
+
+func TestAddWaitRunNextCommands_SuggestsRunsShowIncludeResultForResultPreview(t *testing.T) {
+	t.Run("resultPreview present puts runs show --include-result first", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": map[string]any{"truncated": true, "data": map[string]any{"rows": 3}},
+		}}}
+		addWaitRunNextCommands(out, "wf-done", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result" {
+			t.Fatalf("expected runs show --include-result as the first next command, got %#v", cmds)
+		}
+	})
+
+	t.Run("installation id is threaded into the runs show hint", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":         "completed",
+			"installationId": "prof-consumer",
+			"resultPreview":  map[string]any{"data": "..."},
+		}}}
+		addWaitRunNextCommands(out, "wf-done", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result --installation-id prof-consumer" {
+			t.Fatalf("expected installation-scoped runs show hint first, got %#v", cmds)
+		}
+	})
+
+	t.Run("no resultPreview keeps the hint out", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{"status": "completed"}}}
+		addWaitRunNextCommands(out, "wf-empty", "")
+		for _, c := range waitRunNextCommands(t, out) {
+			if strings.Contains(c, "--include-result") {
+				t.Fatalf("did not expect an --include-result hint without a resultPreview, got %#v", c)
+			}
+		}
+	})
+
+	t.Run("nil resultPreview keeps the hint out", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": nil,
+		}}}
+		addWaitRunNextCommands(out, "wf-nil", "")
+		for _, c := range waitRunNextCommands(t, out) {
+			if strings.Contains(c, "--include-result") {
+				t.Fatalf("did not expect an --include-result hint for a nil resultPreview, got %#v", c)
+			}
+		}
+	})
+}
+
+func TestAddWaitRunNextCommands_RunsShowHintIsPrependedAndDeduped(t *testing.T) {
+	out := map[string]any{
+		"meta": map[string]any{"nextCommands": []any{
+			"breyta flows show my-flow",
+			"breyta runs show wf-done --include-result",
+		}},
+		"data": map[string]any{"run": map[string]any{
+			"status":        "completed",
+			"resultPreview": map[string]any{"data": "..."},
+		}},
+	}
+	addWaitRunNextCommands(out, "wf-done", "")
+	cmds := waitRunNextCommands(t, out)
+	if len(cmds) == 0 || cmds[0] != "breyta runs show wf-done --include-result" {
+		t.Fatalf("runs show hint must be first even with pre-existing nextCommands, got %#v", cmds)
+	}
+	count := 0
+	for _, c := range cmds {
+		if c == "breyta runs show wf-done --include-result" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("runs show hint must be deduplicated, got %#v", cmds)
+	}
+	if !containsString(cmds, "breyta flows show my-flow") {
+		t.Fatalf("pre-existing nextCommands must be preserved, got %#v", cmds)
+	}
+}
+
+func TestAddWaitRunNextCommands_KebabCaseResultPreviewAlsoFires(t *testing.T) {
+	// Legacy/compat snapshots spell the key result-preview; the runs show
+	// hint must fire for that spelling exactly like the camelCase one.
+	out := map[string]any{"data": map[string]any{"run": map[string]any{
+		"status":         "completed",
+		"result-preview": map[string]any{"data": map[string]any{"rows": 1}},
+	}}}
+	addWaitRunNextCommands(out, "wf-kebab", "")
+	cmds := waitRunNextCommands(t, out)
+	if len(cmds) == 0 || cmds[0] != "breyta runs show wf-kebab --include-result" {
+		t.Fatalf("expected runs show hint for kebab-case resultPreview, got %#v", cmds)
+	}
+
+	// A nil kebab-case value still keeps the hint out.
+	out = map[string]any{"data": map[string]any{"run": map[string]any{
+		"status":         "completed",
+		"result-preview": nil,
+	}}}
+	addWaitRunNextCommands(out, "wf-kebab-nil", "")
+	for _, c := range waitRunNextCommands(t, out) {
+		if strings.Contains(c, "--include-result") {
+			t.Fatalf("did not expect an --include-result hint for a nil result-preview, got %#v", c)
+		}
+	}
+}
+
+func TestAddWaitRunNextCommands_LegacyInstallationAndOutputPreviewAliases(t *testing.T) {
+	t.Run("kebab-case installation id scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":          "completed",
+			"installation-id": "prof-legacy",
+			"resultPreview":   map[string]any{"data": "..."},
+		}}}
+		addWaitRunNextCommands(out, "wf-legacy", "")
+		cmds := waitRunNextCommands(t, out)
+		if len(cmds) == 0 || cmds[0] != "breyta runs show wf-legacy --include-result --installation-id prof-legacy" {
+			t.Fatalf("expected kebab installation id to scope the runs show hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("profileId alias scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{"run": map[string]any{
+			"status":    "completed",
+			"profileId": "prof-alias",
+		}}}
+		addWaitRunNextCommands(out, "wf-alias", "")
+		if cmds := waitRunNextCommands(t, out); !containsString(cmds, "breyta runs inspect wf-alias --installation-id prof-alias") {
+			t.Fatalf("expected profileId alias to scope the inspect hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("data-level installationId scopes the hints", func(t *testing.T) {
+		out := map[string]any{"data": map[string]any{
+			"installationId": "prof-data",
+			"run":            map[string]any{"status": "completed"},
+		}}
+		addWaitRunNextCommands(out, "wf-data", "")
+		if cmds := waitRunNextCommands(t, out); !containsString(cmds, "breyta runs inspect wf-data --installation-id prof-data") {
+			t.Fatalf("expected data-level installation id to scope the inspect hint, got %#v", cmds)
+		}
+	})
+
+	t.Run("legacy outputPreview keys trigger the runs show hint", func(t *testing.T) {
+		for _, key := range []string{"outputPreview", "output-preview"} {
+			out := map[string]any{"data": map[string]any{"run": map[string]any{
+				"status": "completed",
+				key:      map[string]any{"data": "..."},
+			}}}
+			addWaitRunNextCommands(out, "wf-output", "")
+			cmds := waitRunNextCommands(t, out)
+			if len(cmds) == 0 || cmds[0] != "breyta runs show wf-output --include-result" {
+				t.Fatalf("expected %s to trigger the runs show hint, got %#v", key, cmds)
 			}
 		}
 	})

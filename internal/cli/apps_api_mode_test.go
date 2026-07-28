@@ -8638,7 +8638,13 @@ func TestFlowsPull_TargetLive_UsesResolvedVersion(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"workspaceId": "ws-acme",
-				"data":        map[string]any{"flowLiteral": "{:slug :flow-show :flow '(identity 1)}"},
+				"data": map[string]any{
+					"flowLiteral": "{:slug :flow-show :discover {:public false} :marketplace {:visible false} :flow '(identity 1)}",
+					"flow": map[string]any{
+						"discover":    map[string]any{"public": true},
+						"marketplace": map[string]any{"visible": true},
+					},
+				},
 			})
 		default:
 			http.NotFound(w, r)
@@ -8667,6 +8673,10 @@ func TestFlowsPull_TargetLive_UsesResolvedVersion(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), ":flow-show") {
 		t.Fatalf("pulled flow file did not contain expected content: %s", string(raw))
+	}
+	if !strings.Contains(string(raw), ":discover {:public false}") ||
+		!strings.Contains(string(raw), ":marketplace {:visible false}") {
+		t.Fatalf("live pull should preserve versioned visibility exactly: %s", string(raw))
 	}
 }
 
@@ -8721,6 +8731,7 @@ func TestFlowsPull_DefaultsToDraftSource(t *testing.T) {
 }
 
 func TestFlowsPull_PreservesFormattingAndCSVCharacterLiterals(t *testing.T) {
+	t.Setenv("BREYTA_DEV", "1")
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "csv-flow.clj")
 	flowLiteral := `{:slug :csv-flow
@@ -8745,7 +8756,6 @@ func TestFlowsPull_PreservesFormattingAndCSVCharacterLiterals(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -8766,6 +8776,95 @@ func TestFlowsPull_PreservesFormattingAndCSVCharacterLiterals(t *testing.T) {
 	stdout, _, err = runCLIArgs(t, "flows", "lint", "--file", outPath, "--local-only")
 	if err != nil {
 		t.Fatalf("pulled CSV flow should pass local lint: %v\n%s", err, stdout)
+	}
+}
+
+func TestFlowsPull_CurrentDraftReconcilesVisibilityAndPreservesRegexEscapes(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "flow-current-draft.clj")
+	flowLiteral := `{:slug :flow-current-draft
+ :discover {:public false}
+ :marketplace {:visible false
+               :app {:app-id "flow-current-draft"}}
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [xml "<loc>https://example.com</loc>"]
+          (re-seq #"<loc>\s*([^<]+)\s*</loc>" xml))}`
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.get" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["source"] != "draft" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"flowLiteral": flowLiteral,
+				"flow": map[string]any{
+					"discover":    map[string]any{"public": true},
+					"marketplace": map[string]any{"visible": true},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "pull", "flow-current-draft",
+		"--out", outPath,
+	)
+	if err != nil {
+		t.Fatalf("flows pull failed: %v\n%s", err, stdout)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read pulled flow: %v", err)
+	}
+	pulled := string(raw)
+	if !strings.Contains(pulled, ":discover {:public true}") {
+		t.Fatalf("pulled flow retained stale Discover visibility:\n%s", pulled)
+	}
+	if !strings.Contains(pulled, ":marketplace {:visible true") {
+		t.Fatalf("pulled flow retained stale marketplace visibility:\n%s", pulled)
+	}
+	if !strings.Contains(pulled, `:app {:app-id "flow-current-draft"}`) {
+		t.Fatalf("pulled flow changed marketplace app metadata:\n%s", pulled)
+	}
+	if !strings.Contains(pulled, `#"<loc>\s*([^<]+)\s*</loc>"`) {
+		t.Fatalf("pulled flow changed canonical regex escapes:\n%s", pulled)
+	}
+
+	lintStdout, _, lintErr := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"flows", "lint",
+		"--file", outPath,
+		"--local-only",
+	)
+	if lintErr != nil {
+		t.Fatalf("pulled flow should pass local lint: %v\n%s", lintErr, lintStdout)
+	}
+	if strings.Contains(lintStdout, "clojure_reader_invalid") ||
+		strings.Contains(lintStdout, "authoring_shape_scan_incomplete") {
+		t.Fatalf("pulled flow produced regex reader diagnostics:\n%s", lintStdout)
 	}
 }
 
@@ -8851,7 +8950,13 @@ func TestFlowsPull_VersionUsesVersionSource(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
-			"data":        map[string]any{"flowLiteral": "{:slug :flow-version :flow '(identity 6)}"},
+			"data": map[string]any{
+				"flowLiteral": "{:slug :flow-version :discover {:public false} :marketplace {:visible false} :flow '(identity 6)}",
+				"flow": map[string]any{
+					"discover":    map[string]any{"public": true},
+					"marketplace": map[string]any{"visible": true},
+				},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -8874,6 +8979,10 @@ func TestFlowsPull_VersionUsesVersionSource(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), ":flow-version") {
 		t.Fatalf("pulled flow file did not contain expected content: %s", string(raw))
+	}
+	if !strings.Contains(string(raw), ":discover {:public false}") ||
+		!strings.Contains(string(raw), ":marketplace {:visible false}") {
+		t.Fatalf("version pull should preserve historical visibility exactly: %s", string(raw))
 	}
 }
 

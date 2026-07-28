@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStore_SetGet_TrimsAndValidates(t *testing.T) {
@@ -87,5 +88,84 @@ func TestStore_Load_EmptyTokensMap(t *testing.T) {
 	}
 	if st.Tokens == nil {
 		t.Fatalf("expected tokens map initialized")
+	}
+}
+
+func TestStore_UpdateAtomicSerializesTransactions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	initial := &Store{}
+	initial.Set("https://example.test", "initial")
+	if err := SaveAtomic(path, initial); err != nil {
+		t.Fatalf("SaveAtomic initial: %v", err)
+	}
+
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- UpdateAtomic(path, func(st *Store) error {
+			close(firstEntered)
+			<-releaseFirst
+			st.Set("https://first.example", "first")
+			return nil
+		})
+	}()
+	<-firstEntered
+
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- UpdateAtomic(path, func(st *Store) error {
+			close(secondEntered)
+			st.Set("https://second.example", "second")
+			return nil
+		})
+	}()
+
+	select {
+	case <-secondEntered:
+		t.Fatal("second transaction entered before the first transaction released the store lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first UpdateAtomic: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second UpdateAtomic: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if token, ok := loaded.Get("https://first.example"); !ok || token != "first" {
+		t.Fatalf("expected first update to persist, got %q (ok=%v)", token, ok)
+	}
+	if token, ok := loaded.Get("https://second.example"); !ok || token != "second" {
+		t.Fatalf("expected second update to preserve the first and persist, got %q (ok=%v)", token, ok)
+	}
+}
+
+func TestStore_UpdateAtomicOrReset_ReplacesMalformedStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(path, []byte(`{"tokens":`), 0o600); err != nil {
+		t.Fatalf("write malformed store: %v", err)
+	}
+
+	if err := UpdateAtomicOrReset(path, func(st *Store) error {
+		st.Set("https://example.test", "recovered")
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateAtomicOrReset: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load recovered store: %v", err)
+	}
+	if token, ok := loaded.Get("https://example.test"); !ok || token != "recovered" {
+		t.Fatalf("expected recovered token, got %q (ok=%v)", token, ok)
 	}
 }

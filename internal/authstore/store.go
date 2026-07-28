@@ -66,6 +66,46 @@ func SaveAtomic(path string, s *Store) error {
 	if err := EnsureParentDir(path); err != nil {
 		return err
 	}
+	return withStoreLock(path, func() error {
+		return saveAtomicUnlocked(path, s)
+	})
+}
+
+// UpdateAtomic serializes the complete load/mutate/save transaction with every
+// SaveAtomic call, including calls made by other CLI processes.
+func UpdateAtomic(path string, update func(*Store) error) error {
+	return updateAtomic(path, false, update)
+}
+
+// UpdateAtomicOrReset is used by successful login to recover an unreadable or
+// malformed auth store while keeping the replacement serialized with writers.
+func UpdateAtomicOrReset(path string, update func(*Store) error) error {
+	return updateAtomic(path, true, update)
+}
+
+func updateAtomic(path string, resetOnLoadError bool, update func(*Store) error) error {
+	if update == nil {
+		return errors.New("auth store update is required")
+	}
+	if err := EnsureParentDir(path); err != nil {
+		return err
+	}
+	return withStoreLock(path, func() error {
+		s, err := Load(path)
+		if err != nil {
+			if !resetOnLoadError && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			s = &Store{Tokens: map[string]Record{}}
+		}
+		if err := update(s); err != nil {
+			return err
+		}
+		return saveAtomicUnlocked(path, s)
+	})
+}
+
+func saveAtomicUnlocked(path string, s *Store) error {
 	if s.Tokens == nil {
 		s.Tokens = map[string]Record{}
 	}
@@ -85,6 +125,26 @@ func SaveAtomic(path string, s *Store) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func withStoreLock(path string, fn func() error) (err error) {
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- lock path is derived from the resolved auth store path.
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := os.Chmod(lock.Name(), 0o600); err != nil {
+		return err
+	}
+	if err := lockStoreFile(lock); err != nil {
+		return err
+	}
+	defer func() {
+		if unlockErr := unlockStoreFile(lock); err == nil && unlockErr != nil {
+			err = unlockErr
+		}
+	}()
+	return fn()
 }
 
 func (s *Store) GetRecord(baseURL string) (Record, bool) {

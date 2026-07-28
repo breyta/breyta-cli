@@ -94,12 +94,18 @@ use:
 ```bash
 breyta discover list
 breyta discover search "<idea>"
+breyta discover show <workspace-id>/<flow-slug>
 ```
 
 Discover list/search excludes flows owned by the current workspace by default
 because it shows what this workspace can install. Add `--include-own` only when
 debugging whether your own public flow is indexed; verify buyer/install behavior
 from another workspace.
+
+To evaluate one hit in depth, use `breyta discover show` with the hit's
+workspace-id/flow-slug pair — it returns the full public listing (publish copy,
+pricing, connections, versions) and works across workspaces. `breyta flows show`
+cannot inspect flows in workspaces you are not a member of.
 
 Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
 when a flow should move onto or off marketplace, Discover, and public app-page
@@ -203,6 +209,10 @@ Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
 
+Local lint also reports flow/step shape errors mirroring push validation and
+warns on packaged steps never referenced from `:flow` (plain-literal forms
+only).
+
 For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>`
 first; do not hand-write the initial EDN conversion unless the importer is
 unavailable or explicitly bypassed.
@@ -249,15 +259,19 @@ The same timeout rule applies to `flows run-step`, installed runs, and Buyer
 Test runs: `ok=true` with `timedOut=true` means the run is still pending, not
 that the smoke proof completed.
 
-`breyta steps run` waits up to five minutes by default. For a slow flow-local
+`breyta steps run` waits up to 15 minutes by default. For a slow flow-local
 template/data probe, pass an explicit longer timeout, for example:
 
 ```bash
 breyta steps run --flow update-blog-post --source draft --type llm \
   --id refresh-blog-post \
   --params '{"template":"refresh-blog-post","data":{"title":"Example"}}' \
-  --timeout 10m
+  --timeout 30m
 ```
+
+`breyta flows steps run` and the `--run` mode of `flows init` /
+`flows steps create` / `flows steps update` accept `--timeout` (default 15m);
+extend past the default for slow probes.
 
 A timeout may mean the server-side step continued; reconcile any external
 effect before retrying.
@@ -268,7 +282,7 @@ step arrays, or result payloads. `resources read` defaults to compact blob
 previews and bounded table row/cell previews; pass `--full` only when the full
 resource payload is required. `flows show` includes a non-editable
 `flowLiteralPreview` that keeps source structure while omitting heavy leaves;
-use `flows pull` for editable source. `flows grep --full --raw-definition`
+use `flows pull` for editable source. `flows grep --scope templates --full --raw-definition`
 returns normalized template inspection data; do not save and push it as editable
 workspace source. Use `--version <n>` with `flows show` or `flows pull` when you
 need to inspect a specific historical version instead of the current draft.
