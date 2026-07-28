@@ -250,7 +250,10 @@ breyta flows installations create <slug> \
 breyta flows run <slug> --buyer-test --installation-id <installation-id> --wait
 ```
 
-Workspace creators/admins can verify one existing flow step without running other flow steps:
+Workspace creators/admins can verify one existing flow step without running other flow steps.
+`flows steps run` and `steps run --flow` execute supplied literals or primitive
+probes; they are not named existing-step probes. Use `flows run-step` when the
+step must run with the flow's configured bindings:
 
 ```bash
 breyta flows run-step <slug> <step-id> --target live --input '{"example":true}' --wait
@@ -506,14 +509,15 @@ Inspect runs with the same structured filter syntax as the web runs list:
 ```bash
 breyta runs list --query 'status:failed flow:<slug>'
 breyta runs list --installation-id <installation-id> --version 7
-breyta runs show <workflow-id> --include-result
+breyta runs show <workflow-id> --installation-id <installation-id> --include-result
 breyta runs inspect <workflow-id>
 ```
 
 `runs inspect` automatically carries the installation target encoded in a
 canonical linked-install workflow id. Use `--installation-id` to override the
 target for a legacy or non-canonical run id. Use `runs show --include-result`
-for the final output; reserve `runs inspect --full` for full step captures.
+for the final output, passing `--installation-id` for installed/public runs;
+reserve `runs inspect --full` for full step captures.
 
 If you need to revise the note later:
 

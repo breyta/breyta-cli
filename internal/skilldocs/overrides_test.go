@@ -54,6 +54,9 @@ func TestApplyCLIOverrides_BreytaSkillRewritesSearchGuidance(t *testing.T) {
 	if !strings.Contains(body, "breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait") {
 		t.Fatalf("expected focused run-step proof guidance in override, got:\n%s", body)
 	}
+	if !strings.Contains(body, "`breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes") {
+		t.Fatalf("expected named-step probe distinction in override, got:\n%s", body)
+	}
 	if !strings.Contains(body, "breyta flows run <slug> --input-file ./input.json") ||
 		!strings.Contains(body, "shell or OS argument limits") {
 		t.Fatalf("expected input-file payload guidance in override, got:\n%s", body)
@@ -568,6 +571,7 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "## Local flow source authoring (Local-first)") ||
 		!strings.Contains(body, "breyta flows init <slug>") ||
+		!strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") ||
 		!strings.Contains(body, "breyta flows steps create/update/remove") ||
 		!strings.Contains(body, "breyta flows push --file ./flows/<slug>.clj") {
 		t.Fatalf("expected local-first flow authoring guidance, got:\n%s", body)

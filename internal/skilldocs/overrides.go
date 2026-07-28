@@ -605,7 +605,7 @@ Goal: avoid stale endpoints, request shapes, auth assumptions, rate limits, and 
 
 const n8nImportGuidanceLine = "- For n8n workflow JSON imports, use `breyta flows import n8n <workflow.json>` first; do not hand-write the initial EDN conversion unless the importer is unavailable or explicitly bypassed."
 
-const focusedStepRunProofBullet = "- When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
+const focusedStepRunProofBullet = "- `breyta flows steps run` and `breyta steps run --flow` execute supplied literals or primitive probes; they are not named existing-step probes. When provider/model or primitive changes can be proven without downstream side effects, use `breyta flows run-step <slug> <step-id> --target live --input '{...}' --wait` to run only the named existing step with configured bindings before a full-flow proof."
 
 const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
 
@@ -618,7 +618,7 @@ const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 Keep the local flow source as the authoring surface until you explicitly push
 it to a workspace draft:
 
-- New flow: ` + "`breyta flows init <slug>`" + `; seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
+- New flow: ` + "`breyta flows init <slug>`" + `; edit the generated ` + "`:invocations`" + ` contract when manual inputs are required. Seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
