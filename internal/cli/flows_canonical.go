@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -46,9 +47,11 @@ func startRunWaitProgress(
 	startedAt time.Time,
 	interval time.Duration,
 	status *atomic.Value,
-) context.CancelFunc {
+) func() {
 	progressCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -56,12 +59,23 @@ func startRunWaitProgress(
 			case <-progressCtx.Done():
 				return
 			case now := <-ticker.C:
+				select {
+				case <-progressCtx.Done():
+					return
+				default:
+				}
 				lastStatus, _ := status.Load().(string)
 				printRunWaitProgress(cmd, workflowID, lastStatus, now.Sub(startedAt))
 			}
 		}
 	}()
-	return cancel
+	var stopOnce sync.Once
+	return func() {
+		stopOnce.Do(func() {
+			cancel()
+			<-done
+		})
+	}
 }
 
 func asInt(v any) int {
@@ -302,6 +316,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return writeAPIResult(cmd, app, resp, st)
 	}
 	finishReconciledTerminal := func(finalResp map[string]any, finalStatus int, finalRunStatus string) error {
+		stopProgress()
 		trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 			"product":     "flows",
 			"channel":     "cli",
@@ -325,6 +340,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 		return nil
 	}
 	writeTimeout := func(status string, lastPoll map[string]any) error {
+		stopProgress()
 		if strings.TrimSpace(status) == "" {
 			status = startRunStatus
 		}
@@ -444,6 +460,7 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 			lastObservedStatus.Store(s)
 		}
 		if isTerminalRunStatus(s) {
+			stopProgress()
 			trackCLIEvent(app, "cli_flow_run_completed", nil, app.Token, map[string]any{
 				"product":     "flows",
 				"channel":     "cli",
