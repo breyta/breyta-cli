@@ -143,7 +143,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 		!strings.Contains(string(agents), "reuse that exact key after a timeout, dropped response, or 5xx") {
 		t.Fatalf("unexpected agents content (missing steps.run idempotency guidance): %s", string(agents))
 	}
-	if !strings.Contains(string(agents), "`breyta flows push --file ...` waits up to two minutes") ||
+	if !strings.Contains(string(agents), "`breyta flows push --file ...` without optional timeout flags") ||
 		!strings.Contains(string(agents), "check `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying") {
 		t.Fatalf("unexpected agents content (missing flow push timeout recovery guidance): %s", string(agents))
 	}
@@ -273,7 +273,7 @@ func TestInit_Default_CreatesWorkspaceAndInstallsSkill(t *testing.T) {
 	if !strings.Contains(string(readme), "`--timeout <duration>` when server lint needs a longer bound") {
 		t.Fatalf("unexpected readme content (missing lint timeout guidance): %s", string(readme))
 	}
-	if !strings.Contains(string(readme), "`breyta flows push --file ...` waits up to two minutes") ||
+	if !strings.Contains(string(readme), "`breyta flows push --file ...` without optional timeout flags") ||
 		!strings.Contains(string(readme), "check `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying") {
 		t.Fatalf("unexpected readme content (missing flow push timeout recovery guidance): %s", string(readme))
 	}

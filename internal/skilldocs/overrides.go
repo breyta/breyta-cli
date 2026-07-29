@@ -611,7 +611,9 @@ const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
 
-const flowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
+const flowPushTimeoutGuidance = "- Run `breyta flows push --file ./flows/<slug>.clj` without optional timeout flags for compatibility across installed CLI versions. If it times out or disconnects, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
+
+const legacyFlowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
 
 const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 
@@ -628,7 +630,7 @@ it to a workspace draft:
 - If init/create saves locally but ` + "`--push`" + ` or ` + "`--run`" + ` fails, use ` + "`meta.localPath`" + ` and ` + "`meta.nextCommands`" + ` from the error; run the reported push/update/run command instead of rerunning init/create.
 - A timeout may mean the server-side step continued; reconcile any external effect before retrying.
 - Use ` + "`breyta flows push --file ./flows/<slug>.clj`" + ` or an explicit command-level ` + "`--push`" + ` for remote persistence; local authoring commands must not be treated as remote writes by default.
-- ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
+` + flowPushTimeoutGuidance + `
 `
 
 const manualInvocationContractGuidance = "- For generated flows, edit the generated `:invocations` contract when manual inputs are required."
@@ -833,7 +835,15 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 }
 
 func ensureFlowPushTimeoutGuidance(body string) string {
-	if strings.Contains(body, "two minutes per draft-upload") && strings.Contains(body, "draft may already be saved") {
+	body = strings.ReplaceAll(body, legacyFlowPushTimeoutGuidance, flowPushTimeoutGuidance)
+	body = strings.ReplaceAll(body, " [--timeout 2m]", "")
+	body = strings.ReplaceAll(
+		body,
+		" applies the timeout to save and validation",
+		" uses the common cross-version command contract",
+	)
+
+	if strings.Contains(body, "without optional timeout flags") && strings.Contains(body, "draft may already be saved") {
 		return body
 	}
 	heading := "## Local flow source authoring (Local-first)"

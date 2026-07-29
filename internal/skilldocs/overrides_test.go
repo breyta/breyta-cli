@@ -605,6 +605,7 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 		"SKILL.md": []byte(strings.Join([]string{
 			"## Local flow source authoring (Local-first)",
 			"- existing content",
+			"- keep this prefix; `breyta flows push --file ./flow.clj [--timeout 2m]` applies the timeout to save and validation; keep this suffix.",
 			manualInvocationContractGuidance,
 			"",
 			"## Capability Discovery",
@@ -617,9 +618,18 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	if count := strings.Count(body, "## Local flow source authoring (Local-first)"); count != 1 {
 		t.Fatalf("expected local authoring header exactly once, got %d\n%s", count, body)
 	}
-	if !strings.Contains(body, "two minutes per draft-upload") ||
+	if !strings.Contains(body, "without optional timeout flags") ||
 		!strings.Contains(body, "draft may already be saved") {
 		t.Fatalf("expected flow push timeout recovery guidance, got:\n%s", body)
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, "flows push") &&
+			(strings.Contains(line, "[--timeout") || strings.Contains(line, "use `--timeout")) {
+			t.Fatalf("flows push guidance must remain compatible with older installed CLIs, got:\n%s", line)
+		}
+	}
+	if !strings.Contains(body, "keep this prefix") || !strings.Contains(body, "keep this suffix") {
+		t.Fatalf("expected unrelated content around legacy timeout guidance to be preserved, got:\n%s", body)
 	}
 	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
 		t.Fatalf("expected refreshed manual-input contract guidance, got:\n%s", body)

@@ -188,11 +188,11 @@ use `meta.localPath` and `meta.nextCommands` from the error. Retry with the
 reported `flows push`, `flows steps update`, or `flows steps run` command
 instead of rerunning init/create because the local source now exists.
 
-`flows push` allows two minutes per draft-upload and immediate-validation API
-request by default. Use `--timeout 5m` for a slower workspace. A timeout can be
-ambiguous because the server may have saved the draft before the response was
-received; run `breyta flows show <slug>` or `breyta flows validate <slug>` to
-verify the result before retrying.
+Run `breyta flows push --file ./flows/<slug>.clj` without optional timeout
+flags for compatibility across installed CLI versions. A timeout or disconnect
+can be ambiguous because the server may have saved the draft before the
+response was received; run `breyta flows show <slug>` or
+`breyta flows validate <slug>` to verify the result before retrying.
 
 For an existing flow, pull it into a local workspace, edit it, push it back to
 draft, and run it:
