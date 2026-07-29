@@ -493,11 +493,13 @@ func TestClient_DoCommand_DoesNotRetryMutatingCommandOnTransientStatus(t *testin
 func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	commandCalls := 0
 	bootstrapCalls := 0
+	commandOperationIDs := []string{}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/commands":
 			commandCalls++
+			commandOperationIDs = append(commandOperationIDs, r.Header.Get("X-Breyta-Operation-ID"))
 			if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing workspace"})
@@ -558,6 +560,15 @@ func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	}
 	if bootstrapCalls != 1 {
 		t.Fatalf("expected one bootstrap call, got %d", bootstrapCalls)
+	}
+	if len(commandOperationIDs) != 2 {
+		t.Fatalf("expected two command operation IDs, got %#v", commandOperationIDs)
+	}
+	if commandOperationIDs[0] == "" {
+		t.Fatal("expected command operation ID")
+	}
+	if commandOperationIDs[0] != commandOperationIDs[1] {
+		t.Fatalf("expected stable operation ID across bootstrap retry, got %#v", commandOperationIDs)
 	}
 	meta, _ := out["meta"].(map[string]any)
 	bootstrap, _ := meta["localWorkspaceBootstrap"].(map[string]any)
