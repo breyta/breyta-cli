@@ -268,6 +268,43 @@ func TestClient_DoCommand_RetriesDiscoverSearchOnTransientStatus(t *testing.T) {
 	}
 }
 
+func TestClient_DoCommand_UsesStableOperationIDAcrossRetries(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	var operationIDs []string
+	c := Client{
+		BaseURL:     "https://flows.example.test",
+		WorkspaceID: "ws-acme",
+		Token:       "tok",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			operationIDs = append(operationIDs, r.Header.Get("X-Breyta-Operation-ID"))
+			if len(operationIDs) == 1 {
+				return httpJSON(http.StatusServiceUnavailable, map[string]any{"ok": false})
+			}
+			return httpJSON(http.StatusOK, map[string]any{"ok": true, "data": map[string]any{}})
+		})},
+	}
+
+	_, status, err := c.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": "wf-1"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", status, http.StatusOK)
+	}
+	if len(operationIDs) != 2 {
+		t.Fatalf("operation id captures = %d, want 2", len(operationIDs))
+	}
+	if operationIDs[0] == "" {
+		t.Fatal("operation id is empty")
+	}
+	if operationIDs[0] != operationIDs[1] {
+		t.Fatalf("operation id changed across retry: %q != %q", operationIDs[0], operationIDs[1])
+	}
+}
+
 func TestClient_DoCommand_RetriesDiscoverSearchOnTimeoutError(t *testing.T) {
 	origBackoffs := readCommandRetryBackoffs
 	readCommandRetryBackoffs = []time.Duration{0, 0}

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,6 +224,10 @@ func (c Client) DoGlobalCommand(ctx context.Context, command string, args map[st
 }
 
 func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, allowLocalBootstrap bool) (map[string]any, int, error) {
+	return c.doCommandWithOperationID(ctx, endpoint, command, args, includeWorkspace, allowLocalBootstrap, newOperationID())
+}
+
+func (c Client) doCommandWithOperationID(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, allowLocalBootstrap bool, operationID string) (map[string]any, int, error) {
 	if strings.TrimSpace(endpoint) == "" {
 		return nil, 0, fmt.Errorf("missing command endpoint")
 	}
@@ -247,7 +252,7 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 
 	backoffs := commandRetryBackoffs(command)
 	for attempt := 0; ; attempt++ {
-		out, status, err := c.doCommandRequest(ctx, endpoint, payloadBytes, includeWorkspace)
+		out, status, err := c.doCommandRequest(ctx, endpoint, payloadBytes, includeWorkspace, operationID)
 		if shouldRetryCommandAttempt(ctx, status, err, attempt, backoffs) {
 			if !waitBeforeRetry(ctx, backoffs[attempt]) {
 				if ctx != nil && ctx.Err() != nil {
@@ -266,7 +271,7 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 		if allowLocalBootstrap && includeWorkspace && c.shouldAutoBootstrapLocalWorkspace(out, status) {
 			bootstrapOut, bootstrapStatus, bootstrapErr := c.bootstrapLocalWorkspace(ctx)
 			if bootstrapErr == nil && bootstrapStatus < 400 {
-				retryOut, retryStatus, retryErr := c.doCommandWithEndpoint(ctx, endpoint, command, args, includeWorkspace, false)
+				retryOut, retryStatus, retryErr := c.doCommandWithOperationID(ctx, endpoint, command, args, includeWorkspace, false, operationID)
 				if retryErr != nil {
 					return nil, 0, retryErr
 				}
@@ -279,13 +284,16 @@ func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, comm
 	}
 }
 
-func (c Client) doCommandRequest(ctx context.Context, endpoint string, payloadBytes []byte, includeWorkspace bool) (map[string]any, int, error) {
+func (c Client) doCommandRequest(ctx context.Context, endpoint string, payloadBytes []byte, includeWorkspace bool, operationID string) (map[string]any, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, 0, err
 	}
 	setClientHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(operationID) != "" {
+		req.Header.Set("X-Breyta-Operation-ID", operationID)
+	}
 	if strings.TrimSpace(c.Token) != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -309,6 +317,21 @@ func (c Client) doCommandRequest(ctx context.Context, endpoint string, payloadBy
 		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
 	}
 	return out, resp.StatusCode, nil
+}
+
+func newOperationID() string {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return ""
+	}
+	random[6] = (random[6] & 0x0f) | 0x40
+	random[8] = (random[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		random[0:4],
+		random[4:6],
+		random[6:8],
+		random[8:10],
+		random[10:16])
 }
 
 func commandRetryBackoffs(command string) []time.Duration {
