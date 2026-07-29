@@ -613,7 +613,7 @@ const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.c
 
 const flowPushTimeoutGuidance = "- Run `breyta flows push --file ./flows/<slug>.clj` without optional timeout flags for compatibility across installed CLI versions. If it times out or disconnects, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
 
-const legacyFlowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
+const compatibleFlowPushTimeoutClause = " without optional timeout flags for compatibility across installed CLI versions."
 
 const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 
@@ -835,7 +835,12 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 }
 
 func ensureFlowPushTimeoutGuidance(body string) string {
-	body = strings.ReplaceAll(body, legacyFlowPushTimeoutGuidance, flowPushTimeoutGuidance)
+	for _, legacyClause := range []string{
+		" allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces.",
+		" waits up to two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces.",
+	} {
+		body = strings.ReplaceAll(body, legacyClause, compatibleFlowPushTimeoutClause)
+	}
 	body = strings.ReplaceAll(body, " [--timeout 2m]", "")
 	body = strings.ReplaceAll(
 		body,

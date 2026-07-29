@@ -606,6 +606,7 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 			"## Local flow source authoring (Local-first)",
 			"- existing content",
 			"- keep this prefix; `breyta flows push --file ./flow.clj [--timeout 2m]` applies the timeout to save and validation; keep this suffix.",
+			"- keep another prefix; `breyta flows push --file ...` waits up to two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify before retrying because the draft may already be saved; keep another suffix.",
 			manualInvocationContractGuidance,
 			"",
 			"## Capability Discovery",
@@ -628,7 +629,8 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 			t.Fatalf("flows push guidance must remain compatible with older installed CLIs, got:\n%s", line)
 		}
 	}
-	if !strings.Contains(body, "keep this prefix") || !strings.Contains(body, "keep this suffix") {
+	if !strings.Contains(body, "keep this prefix") || !strings.Contains(body, "keep this suffix") ||
+		!strings.Contains(body, "keep another prefix") || !strings.Contains(body, "keep another suffix") {
 		t.Fatalf("expected unrelated content around legacy timeout guidance to be preserved, got:\n%s", body)
 	}
 	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
