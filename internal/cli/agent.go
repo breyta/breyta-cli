@@ -23,6 +23,100 @@ func newAgentCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAgentWorkCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
 	cmd.AddCommand(newAgentContextCmd(app))
+	cmd.AddCommand(newAgentWorkCmd(app))
+	return cmd
+}
+
+func newAgentWorkCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "work",
+		Short: "Record proactive work decisions and progress",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newAgentWorkClassifyCmd(app))
+	cmd.AddCommand(newAgentWorkStatusCmd(app))
+	return cmd
+}
+
+func newAgentWorkClassifyCmd(app *App) *cobra.Command {
+	var proactiveMessageID string
+	var classification string
+	var title string
+	var summary string
+	cmd := &cobra.Command{
+		Use:   "classify",
+		Short: "Record the result of a proactive triage turn",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			proactiveMessageID = strings.TrimSpace(proactiveMessageID)
+			if proactiveMessageID == "" {
+				return writeErr(cmd, errors.New("missing --proactive-message-id"))
+			}
+			classification = strings.TrimSpace(classification)
+			switch classification {
+			case "unfinished", "new-initiative", "nothing":
+			default:
+				return writeErr(cmd, errors.New("--classification must be unfinished, new-initiative, or nothing"))
+			}
+			payload := map[string]any{
+				"proactiveMessageId": proactiveMessageID,
+				"classification":     classification,
+			}
+			if title = strings.TrimSpace(title); title != "" {
+				payload["title"] = title
+			}
+			if summary = strings.TrimSpace(summary); summary != "" {
+				payload["summary"] = summary
+			}
+			return dispatchAgentAPICommand(cmd, app, "proactive_agent.work.classify", payload)
+		},
+	}
+	cmd.Flags().StringVar(&proactiveMessageID, "proactive-message-id", "", "Proactive work message id supplied in the system turn")
+	cmd.Flags().StringVar(&classification, "classification", "", "Classification: unfinished, new-initiative, or nothing")
+	cmd.Flags().StringVar(&title, "title", "", "Concise work title")
+	cmd.Flags().StringVar(&summary, "summary", "", "Concise decision-ready summary")
+	return cmd
+}
+
+func newAgentWorkStatusCmd(app *App) *cobra.Command {
+	var proactiveMessageID string
+	var state string
+	var summary string
+	var blocker string
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Record the state after a bounded proactive work turn",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			proactiveMessageID = strings.TrimSpace(proactiveMessageID)
+			if proactiveMessageID == "" {
+				return writeErr(cmd, errors.New("missing --proactive-message-id"))
+			}
+			state = strings.TrimSpace(state)
+			switch state {
+			case "active", "blocked-on-user", "completed":
+			default:
+				return writeErr(cmd, errors.New("--state must be active, blocked-on-user, or completed"))
+			}
+			payload := map[string]any{
+				"proactiveMessageId": proactiveMessageID,
+				"state":              state,
+			}
+			if summary = strings.TrimSpace(summary); summary != "" {
+				payload["summary"] = summary
+			}
+			if blocker = strings.TrimSpace(blocker); blocker != "" {
+				payload["blocker"] = blocker
+			}
+			return dispatchAgentAPICommand(cmd, app, "proactive_agent.work.status.update", payload)
+		},
+	}
+	cmd.Flags().StringVar(&proactiveMessageID, "proactive-message-id", "", "Proactive work message id supplied in the system turn")
+	cmd.Flags().StringVar(&state, "state", "", "State: active, blocked-on-user, or completed")
+	cmd.Flags().StringVar(&summary, "summary", "", "Concise progress summary")
+	cmd.Flags().StringVar(&blocker, "blocker", "", "What requires user input, when blocked")
 	return cmd
 }
 
@@ -202,6 +296,7 @@ func parseAgentCheck(raw string) (string, bool, error) {
 func newAgentSettingsUpdateCmd(app *App) *cobra.Command {
 	var enabled string
 	var emailEnabled string
+	var continueUnfinishedWork string
 	var checks []string
 
 	cmd := &cobra.Command{
@@ -211,6 +306,7 @@ func newAgentSettingsUpdateCmd(app *App) *cobra.Command {
 		Example: strings.TrimSpace(`
 breyta agent settings update --check repeated-manual-run=false
 breyta agent settings update --enabled=true --email-enabled=false
+breyta agent settings update --continue-unfinished-work=true
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload := map[string]any{}
@@ -228,6 +324,13 @@ breyta agent settings update --enabled=true --email-enabled=false
 				}
 				payload["emailEnabled"] = value
 			}
+			if cmd.Flags().Changed("continue-unfinished-work") {
+				value, err := parseAgentSetting(continueUnfinishedWork, "--continue-unfinished-work")
+				if err != nil {
+					return writeErr(cmd, err)
+				}
+				payload["continueUnfinishedWork"] = value
+			}
 			if len(checks) > 0 {
 				rules := map[string]any{}
 				for _, raw := range checks {
@@ -240,13 +343,14 @@ breyta agent settings update --enabled=true --email-enabled=false
 				payload["rules"] = rules
 			}
 			if len(payload) == 0 {
-				return writeErr(cmd, errors.New("provide --enabled, --email-enabled, or at least one --check"))
+				return writeErr(cmd, errors.New("provide --enabled, --email-enabled, --continue-unfinished-work, or at least one --check"))
 			}
 			return dispatchAgentAPICommand(cmd, app, "proactive_agent.settings.update", payload)
 		},
 	}
 	cmd.Flags().StringVar(&enabled, "enabled", "", "Enable or disable proactive agent checks (true|false)")
 	cmd.Flags().StringVar(&emailEnabled, "email-enabled", "", "Enable or disable proactive agent email (true|false)")
+	cmd.Flags().StringVar(&continueUnfinishedWork, "continue-unfinished-work", "", "Continue safe unfinished work automatically (true|false)")
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "Set a check using <check-id>=true|false (repeatable)")
 	return cmd
 }
