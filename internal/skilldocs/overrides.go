@@ -618,7 +618,7 @@ const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
 Keep the local flow source as the authoring surface until you explicitly push
 it to a workspace draft:
 
-- New flow: ` + "`breyta flows init <slug>`" + `; edit the generated ` + "`:invocations`" + ` contract when manual inputs are required. Seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
+- New flow: ` + "`breyta flows init <slug>`" + `; repeat ` + "`--input 'name:type[:required|optional[:label]]'`" + ` to seed manual invocation inputs. Seed a complete packaged step with ` + "`--step-id <id> --step-file <path>`" + ` and optionally prove it with ` + "`--run`" + `.
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
@@ -631,7 +631,7 @@ it to a workspace draft:
 - ` + "`breyta flows push`" + ` allows two minutes per draft-upload and immediate-validation API request by default; use ` + "`--timeout 5m`" + ` for slower workspaces. If it times out, verify with ` + "`breyta flows show <slug>`" + ` or ` + "`breyta flows validate <slug>`" + ` before retrying because the draft may already be saved.
 `
 
-const manualInvocationContractGuidance = "- For generated flows, edit the generated `:invocations` contract when manual inputs are required."
+const manualInvocationContractGuidance = "- For generated flows, repeat `--input 'name:type[:required|optional[:label]]'` on `breyta flows init` to seed manual invocation inputs."
 
 const savedLocalRecoveryGuidance = "- If init/create saves locally but `--push` or `--run` fails, use `meta.localPath` and `meta.nextCommands` from the error; run the reported push/update/run command instead of rerunning init/create."
 
@@ -806,7 +806,7 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 		}
 		section := body[headingPos:sectionEnd]
 		missing := make([]string, 0, 2)
-		if !strings.Contains(section, "edit the generated `:invocations` contract when manual inputs are required") {
+		if !strings.Contains(section, "--input 'name:type[:required|optional[:label]]'") {
 			missing = append(missing, manualInvocationContractGuidance)
 		}
 		if !strings.Contains(section, "`meta.localPath` and `meta.nextCommands`") {

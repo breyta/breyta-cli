@@ -243,6 +243,7 @@ Advanced rollout workflow (optional):
 
 Quick commands:
 - breyta flows init <slug> --name "My flow"
+- breyta flows init <slug> --input 'site-url:text:required:Site URL'
 - breyta flows init <slug> --step-id tools/fetch --step-file ./steps/fetch.edn --run
 - breyta flows steps create <slug> <step-id> --step-file ./steps/step.edn
 - breyta flows schedules add <slug> <schedule-id> --cron "0 9 * * MON" --timezone UTC
@@ -294,6 +295,8 @@ Notes:
 - flows init can seed one complete packaged step with --step-id and --step-file;
   --run proves that local literal just in time, while --push is required for
   remote persistence.
+- flows init accepts repeatable --input name:type[:required|optional[:label]]
+  flags to seed the default manual invocation contract.
 - flows steps run sends the complete local literal for just-in-time server execution;
   it only addresses qualified top-level packaged :steps ids and does not create
   or update a draft. For named inline function/code steps or LLM steps with draft-bound

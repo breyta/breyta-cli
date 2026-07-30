@@ -571,7 +571,7 @@ func TestApplyCLIOverrides_BreytaSkillInjectsNamingConventions(t *testing.T) {
 	}
 	if !strings.Contains(body, "## Local flow source authoring (Local-first)") ||
 		!strings.Contains(body, "breyta flows init <slug>") ||
-		!strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") ||
+		!strings.Contains(body, "--input 'name:type[:required|optional[:label]]'") ||
 		!strings.Contains(body, "`meta.localPath` and `meta.nextCommands`") ||
 		!strings.Contains(body, "breyta flows steps create/update/remove") ||
 		!strings.Contains(body, "breyta flows push --file ./flows/<slug>.clj") {
@@ -621,7 +621,7 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 		!strings.Contains(body, "draft may already be saved") {
 		t.Fatalf("expected flow push timeout recovery guidance, got:\n%s", body)
 	}
-	if !strings.Contains(body, "edit the generated `:invocations` contract when manual inputs are required") {
+	if !strings.Contains(body, "--input 'name:type[:required|optional[:label]]'") {
 		t.Fatalf("expected refreshed manual-input contract guidance, got:\n%s", body)
 	}
 	if count := strings.Count(body, manualInvocationContractGuidance); count != 1 {

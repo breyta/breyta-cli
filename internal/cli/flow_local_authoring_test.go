@@ -44,6 +44,7 @@ func TestFlowsInitCreatesLocalCanonicalSourceWithManualInterface(t *testing.T) {
 	for _, want := range []string{
 		":slug :order-sync",
 		":steps []",
+		`:invocations {:default {:label "Run" :inputs []}}`,
 		":interfaces {:manual [{:id :run",
 		":schedules []",
 	} {
@@ -53,6 +54,73 @@ func TestFlowsInitCreatesLocalCanonicalSourceWithManualInterface(t *testing.T) {
 	}
 	if strings.Contains(text, ":triggers") {
 		t.Fatalf("initialized source should use the interface surface without deprecated :triggers:\n%s", text)
+	}
+}
+
+func TestFlowsInitSeedsRepeatedInvocationInputs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "site-audit.clj")
+	executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-test"}),
+		"site-audit", "--out", path,
+		"--input", "site-url:text:required:Site URL",
+		"--input", "depth:number:optional:Depth: in pages",
+		"--input", "notes:textarea")
+
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read initialized source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		`:inputs [{:name :site-url :type :text :required true :label "Site URL"}`,
+		`{:name :depth :type :number :required false :label "Depth: in pages"}`,
+		`{:name :notes :type :textarea}]`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("initialized source missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestFlowsInitRegistersRepeatableInputFlag(t *testing.T) {
+	flag := newFlowsInitCmd(&App{WorkspaceID: "ws-test"}).Flags().Lookup("input")
+	if flag == nil {
+		t.Fatal("expected flows init to register --input")
+	}
+	if flag.Value.Type() != "stringArray" {
+		t.Fatalf("expected repeatable stringArray --input, got %s", flag.Value.Type())
+	}
+}
+
+func TestFlowsInitRejectsInvalidInvocationInputsBeforeWriting(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing type", args: []string{"--input", "site-url"}, want: "expected name:type"},
+		{name: "unsafe name", args: []string{"--input", "site/url:text"}, want: "invalid --input name"},
+		{name: "unsupported type", args: []string{"--input", "site-url:object"}, want: "invalid --input type"},
+		{name: "invalid requirement", args: []string{"--input", "site-url:text:yes"}, want: "must be required or optional"},
+		{name: "duplicate name", args: []string{"--input", "site-url:text", "--input", "site-url:text"}, want: "duplicate --input name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "site-audit.clj")
+			cmd := newFlowsInitCmd(&App{WorkspaceID: "ws-test"})
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			args := append([]string{"site-audit", "--out", path}, tc.args...)
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("expected invalid input to fail\n%s", out.String())
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("expected %q, got:\n%s", tc.want, out.String())
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("invalid input wrote local source: %v", err)
+			}
+		})
 	}
 }
 

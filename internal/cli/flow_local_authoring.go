@@ -1492,9 +1492,86 @@ Examples:
 	return cmd
 }
 
+type flowInitInput struct {
+	name     string
+	typ      string
+	required *bool
+	label    string
+}
+
+func parseFlowInitInputs(specs []string) ([]flowInitInput, error) {
+	inputs := make([]flowInitInput, 0, len(specs))
+	seen := make(map[string]bool, len(specs))
+	for _, raw := range specs {
+		parts := strings.SplitN(raw, ":", 4)
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid --input %q (expected name:type[:required|optional[:label]])", raw)
+		}
+		name := strings.TrimSpace(parts[0])
+		typ := strings.TrimSpace(parts[1])
+		if !validFlowLintSafeIdentifier(name) {
+			return nil, fmt.Errorf("invalid --input name %q (use a safe identifier such as site-url)", name)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("duplicate --input name %q", name)
+		}
+		if !flowLintInvocationTypes[typ] {
+			return nil, fmt.Errorf("invalid --input type %q for %q (supported: text, string, number, email, password, textarea, boolean, checkbox, select, date, time, datetime, json, file, blob, blob-ref, resource, secret)", typ, name)
+		}
+
+		input := flowInitInput{name: name, typ: typ}
+		if len(parts) >= 3 {
+			required := false
+			switch strings.TrimSpace(parts[2]) {
+			case "required":
+				required = true
+			case "optional":
+			case "":
+				return nil, fmt.Errorf("invalid --input %q (required/optional cannot be empty when a third field is provided)", raw)
+			default:
+				return nil, fmt.Errorf("invalid --input %q (third field must be required or optional)", raw)
+			}
+			input.required = &required
+		}
+		if len(parts) == 4 {
+			input.label = strings.TrimSpace(parts[3])
+			if input.label == "" {
+				return nil, fmt.Errorf("invalid --input %q (label cannot be empty)", raw)
+			}
+		}
+		seen[name] = true
+		inputs = append(inputs, input)
+	}
+	return inputs, nil
+}
+
+func renderFlowInitInputs(inputs []flowInitInput) string {
+	if len(inputs) == 0 {
+		return "[]"
+	}
+	var b strings.Builder
+	b.WriteByte('[')
+	for idx, input := range inputs {
+		if idx > 0 {
+			b.WriteString("\n                          ")
+		}
+		fmt.Fprintf(&b, "{:name :%s :type :%s", input.name, input.typ)
+		if input.required != nil {
+			fmt.Fprintf(&b, " :required %t", *input.required)
+		}
+		if input.label != "" {
+			fmt.Fprintf(&b, " :label %q", input.label)
+		}
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
 func newFlowsInitCmd(app *App) *cobra.Command {
 	var name, description, outPath string
 	var stepID, stepFile, paramsJSON, paramsFile, idempotencyKey, profileID string
+	var inputSpecs []string
 	var force, push, run bool
 	var runTimeout time.Duration
 	var previewOpts stepResultPreviewOptions
@@ -1504,14 +1581,16 @@ func newFlowsInitCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Create the local source of truth for a flow. Initialization is local by default;
 pass --push when you explicitly want the same source sent to the workspace.
-The generated definition includes a no-input manual Run interface and an empty
-schedules vector so later schedule edits stay in the same source file.
+The generated definition includes a manual Run interface and an empty schedules
+vector so later edits stay in the same source file. Repeat --input
+name:type[:required|optional[:label]] to seed invocation inputs.
 When the first packaged step is already authored, pass --step-id and --step-file
 to seed it into the local literal in the same command. Add --run to prove that
 seeded step just in time on the server; this does not create a remote draft.
 
 Examples:
   breyta flows init order-sync --name "Order sync"
+  breyta flows init site-audit --input 'site-url:text:required:Site URL' --input 'depth:number:optional:Depth'
   breyta flows init order-sync --step-id tools/fetch-order --step-file ./steps/fetch-order.edn --run
   breyta flows init order-sync --out ./flows/order-sync.clj --push
 `),
@@ -1528,6 +1607,10 @@ Examples:
 			}
 			if run && stepFile == "" {
 				return writeErr(cmd, errors.New("--run requires --step-id with --step-file"))
+			}
+			inputs, inputErr := parseFlowInitInputs(inputSpecs)
+			if inputErr != nil {
+				return writeErr(cmd, inputErr)
 			}
 			var stepLiteral string
 			if stepFile != "" {
@@ -1566,11 +1649,11 @@ Examples:
  :templates nil
  :functions nil
  :steps []
- :invocations {:default {:label "Run" :inputs []}}
+ :invocations {:default {:label "Run" :inputs %s}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
  :schedules []
  :flow '(let [input (flow/input)] input)}
-`, slug, flowName, strings.TrimSpace(description))
+`, slug, flowName, strings.TrimSpace(description), renderFlowInitInputs(inputs))
 			if stepLiteral != "" {
 				seeded, err := appendLocalStep(literal, stepLiteral)
 				if err != nil {
@@ -1642,6 +1725,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Flow display name (default: slug)")
 	cmd.Flags().StringVar(&description, "description", "", "Flow description")
+	cmd.Flags().StringArrayVar(&inputSpecs, "input", nil, "Invocation input as name:type[:required|optional[:label]] (repeatable)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path (default: flows/<flow-slug>.clj)")
 	cmd.Flags().BoolVar(&force, "force", false, "Replace an existing local source file")
 	cmd.Flags().BoolVar(&push, "push", false, "Push the generated source after saving")
