@@ -84,6 +84,9 @@ func TestFeedbackSend_BuildsPayload(t *testing.T) {
 	if metadata, _ := gotPayload["metadata"].(map[string]any); metadata["apiUrl"] != "http://localhost:8090" {
 		t.Fatalf("expected metadata.apiUrl, got %#v", gotPayload["metadata"])
 	}
+	if metadata, _ := gotPayload["metadata"].(map[string]any); metadata["cliVersion"] == nil || metadata["cliCommit"] == nil {
+		t.Fatalf("expected automatic CLI build metadata, got %#v", gotPayload["metadata"])
+	}
 	if ctx, _ := gotPayload["context"].(map[string]any); ctx["os"] != "darwin" {
 		t.Fatalf("expected context.os, got %#v", gotPayload["context"])
 	}
