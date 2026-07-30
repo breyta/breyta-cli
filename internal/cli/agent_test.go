@@ -113,6 +113,32 @@ func TestAgentEmailSendBuildsDeduplicatedPayload(t *testing.T) {
 	}
 }
 
+func TestAgentWorkMarkBuildsActionablePayload(t *testing.T) {
+	app, method, payload := captureAgentCommand(t)
+	cmd := newAgentWorkMarkCmd(app)
+	cmd.SetArgs([]string{
+		"--body", "I checked the failed run and found a missing account id.",
+		"--subject", "I found the failed import",
+		"--dedupe-key", "failed-run:customer-import",
+		"--message-id", "work-ping-ws-test-user-test-2026-07-30-1",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if *method != "proactive_agent.work.mark" {
+		t.Fatalf("method = %q", *method)
+	}
+	want := map[string]any{
+		"body":               "I checked the failed run and found a missing account id.",
+		"subject":            "I found the failed import",
+		"dedupeKey":          "failed-run:customer-import",
+		"proactiveMessageId": "work-ping-ws-test-user-test-2026-07-30-1",
+	}
+	if !reflect.DeepEqual(*payload, want) {
+		t.Fatalf("payload = %#v, want %#v", *payload, want)
+	}
+}
+
 func TestAgentEmailSendPostsProactiveMessageIdentity(t *testing.T) {
 	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +219,10 @@ func TestAgentEmailAlreadySentIsSuccessfulNoOp(t *testing.T) {
 	}
 	if agentEmailAlreadySent(out, 409) {
 		t.Fatal("non-2xx response must not be normalized")
+	}
+	out["data"].(map[string]any)["reason"] = "already-marked"
+	if !agentWorkAlreadyHandled(out, 200) {
+		t.Fatal("expected already-marked response to be recognized")
 	}
 }
 
