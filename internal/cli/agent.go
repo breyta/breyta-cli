@@ -74,22 +74,35 @@ func newAgentEmailSendCmd(app *App) *cobra.Command {
 	var body string
 	var subject string
 	var dedupeKey string
+	var proactiveMessageID string
 	cmd := &cobra.Command{
 		Use:   "send",
 		Short: "Send a deduplicated proactive email to the current user",
 		Args:  cobra.NoArgs,
+		Example: strings.TrimSpace(`
+breyta agent email send \
+  --proactive-message-id work-ping-ws-user-2026-07-30-1 \
+  --subject "I found the failed import" \
+  --body "The import is missing an account id." \
+  --dedupe-key failed-run:customer-import
+`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body = strings.TrimSpace(body)
 			if body == "" {
 				return writeErr(cmd, errors.New("missing --body"))
+			}
+			proactiveMessageID = strings.TrimSpace(proactiveMessageID)
+			if proactiveMessageID == "" {
+				return writeErr(cmd, errors.New("missing --proactive-message-id"))
 			}
 			dedupeKey = strings.TrimSpace(dedupeKey)
 			if dedupeKey == "" {
 				return writeErr(cmd, errors.New("missing --dedupe-key"))
 			}
 			payload := map[string]any{
-				"body":      body,
-				"dedupeKey": dedupeKey,
+				"body":               body,
+				"dedupeKey":          dedupeKey,
+				"proactiveMessageId": proactiveMessageID,
 			}
 			if subject = strings.TrimSpace(subject); subject != "" {
 				payload["subject"] = subject
@@ -100,6 +113,7 @@ func newAgentEmailSendCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&body, "body", "", "Email body written as a short message from the agent")
 	cmd.Flags().StringVar(&subject, "subject", "", "Optional email subject")
 	cmd.Flags().StringVar(&dedupeKey, "dedupe-key", "", "Stable key preventing repeat email for the same finding")
+	cmd.Flags().StringVar(&proactiveMessageID, "proactive-message-id", "", "Exact proactive message id supplied by the work-ping")
 	return cmd
 }
 
