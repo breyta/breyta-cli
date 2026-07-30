@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
@@ -129,6 +130,15 @@ Reports are stored server-side so the Breyta team can review and respond.
 			metadata, err := parseFeedbackObjectFlag("--metadata", metadataJSON)
 			if err != nil {
 				return writeErr(cmd, err)
+			}
+			if metadata == nil {
+				metadata = map[string]any{}
+			}
+			if _, exists := metadata["cliVersion"]; !exists {
+				metadata["cliVersion"] = buildinfo.DisplayVersion()
+			}
+			if _, exists := metadata["cliCommit"]; !exists {
+				metadata["cliCommit"] = buildinfo.Commit
 			}
 			contextData, err := parseFeedbackObjectFlag("--context", contextJSON)
 			if err != nil {
