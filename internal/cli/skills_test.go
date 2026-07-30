@@ -217,6 +217,7 @@ func TestSkillsStatusReportsInstalledSkillUpToDate(t *testing.T) {
 func TestRootWarnsAutomaticallyWhenNoBreytaSkillIsInstalled(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "")
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
 
@@ -263,6 +264,7 @@ func TestRootWarnsAutomaticallyWhenNoBreytaSkillIsInstalled(t *testing.T) {
 func TestRootWarnsAutomaticallyWhenInstalledSkillIsOutdated(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "")
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
 
