@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -73,8 +74,16 @@ func parseAgentDashboardManifest(raw string, file string) (map[string]any, error
 		}
 	}
 
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
 	var value any
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("invalid Marketing Hub manifest JSON: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
 		return nil, fmt.Errorf("invalid Marketing Hub manifest JSON: %w", err)
 	}
 	manifest, ok := value.(map[string]any)

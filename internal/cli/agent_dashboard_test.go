@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -93,7 +94,7 @@ func TestAgentDashboardApplyBuildsInlineManifestPayload(t *testing.T) {
 	want := map[string]any{
 		"expectedRevision": 3,
 		"manifest": map[string]any{
-			"schemaVersion": float64(1),
+			"schemaVersion": json.Number("1"),
 			"title":         "Marketing Hub",
 			"tabs":          []any{},
 		},
@@ -101,6 +102,57 @@ func TestAgentDashboardApplyBuildsInlineManifestPayload(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*payload, want) {
 		t.Fatalf("payload = %#v, want %#v", *payload, want)
+	}
+}
+
+func TestAgentDashboardApplyPreservesLargeInlineManifestInteger(t *testing.T) {
+	app, _, payload := captureAgentCommand(t)
+	cmd := newAgentDashboardApplyCmd(app)
+	cmd.SetArgs([]string{
+		"--expected-revision", "3",
+		"--manifest", `{"schemaVersion":1,"title":"Marketing Hub","tabs":[],"externalId":9007199254740993}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	manifest, ok := (*payload)["manifest"].(map[string]any)
+	if !ok {
+		t.Fatalf("manifest = %#v", (*payload)["manifest"])
+	}
+	got, ok := manifest["externalId"].(json.Number)
+	if !ok || got.String() != "9007199254740993" {
+		t.Fatalf("externalId = %#v", manifest["externalId"])
+	}
+}
+
+func TestAgentDashboardApplyPreservesLargeManifestFileInteger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dashboard-large-integer.json")
+	if err := os.WriteFile(
+		path,
+		[]byte(`{"schemaVersion":1,"title":"Marketing Hub","tabs":[],"externalId":9007199254740993}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	app, _, payload := captureAgentCommand(t)
+	cmd := newAgentDashboardApplyCmd(app)
+	cmd.SetArgs([]string{
+		"--expected-revision", "2",
+		"--manifest-file", path,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	encoded, err := json.Marshal(*payload)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	want := `{"expectedRevision":2,"manifest":{"externalId":9007199254740993,"schemaVersion":1,"tabs":[],"title":"Marketing Hub"}}`
+	if string(encoded) != want {
+		t.Fatalf("encoded payload = %s, want %s", encoded, want)
 	}
 }
 
