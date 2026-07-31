@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -274,12 +275,14 @@ func TestClient_DoCommand_UsesStableOperationIDAcrossRetries(t *testing.T) {
 	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
 
 	var operationIDs []string
+	var operationAttempts []string
 	c := Client{
 		BaseURL:     "https://flows.example.test",
 		WorkspaceID: "ws-acme",
 		Token:       "tok",
 		HTTP: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 			operationIDs = append(operationIDs, r.Header.Get("X-Breyta-Operation-ID"))
+			operationAttempts = append(operationAttempts, r.Header.Get("X-Breyta-Operation-Attempt"))
 			if len(operationIDs) == 1 {
 				return httpJSON(http.StatusServiceUnavailable, map[string]any{"ok": false})
 			}
@@ -302,6 +305,9 @@ func TestClient_DoCommand_UsesStableOperationIDAcrossRetries(t *testing.T) {
 	}
 	if operationIDs[0] != operationIDs[1] {
 		t.Fatalf("operation id changed across retry: %q != %q", operationIDs[0], operationIDs[1])
+	}
+	if want := []string{"1", "2"}; !reflect.DeepEqual(want, operationAttempts) {
+		t.Fatalf("operation attempts = %#v, want %#v", operationAttempts, want)
 	}
 }
 
@@ -494,12 +500,14 @@ func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	commandCalls := 0
 	bootstrapCalls := 0
 	commandOperationIDs := []string{}
+	commandOperationAttempts := []string{}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/commands":
 			commandCalls++
 			commandOperationIDs = append(commandOperationIDs, r.Header.Get("X-Breyta-Operation-ID"))
+			commandOperationAttempts = append(commandOperationAttempts, r.Header.Get("X-Breyta-Operation-Attempt"))
 			if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing workspace"})
@@ -569,6 +577,9 @@ func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	}
 	if commandOperationIDs[0] != commandOperationIDs[1] {
 		t.Fatalf("expected stable operation ID across bootstrap retry, got %#v", commandOperationIDs)
+	}
+	if want := []string{"1", "2"}; !reflect.DeepEqual(want, commandOperationAttempts) {
+		t.Fatalf("operation attempts = %#v, want %#v", commandOperationAttempts, want)
 	}
 	meta, _ := out["meta"].(map[string]any)
 	bootstrap, _ := meta["localWorkspaceBootstrap"].(map[string]any)
