@@ -1236,6 +1236,7 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 		"--storage-backend", "platform",
 		"--storage-root", "reports/acme",
 		"--path-prefix", "exports/2026",
+		"--format", "json",
 		"--limit", "1000",
 	)
 	if err != nil {
@@ -1247,6 +1248,33 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 	}
 	if ok, _ := out["ok"].(bool); !ok {
 		t.Fatalf("expected ok=true, got: %+v", out)
+	}
+}
+
+func TestResourcesListRejectsNonJSONFormatBeforeRequest(t *testing.T) {
+	called := false
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "request should not be made", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--dev",
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"resources", "list",
+		"--format", "table",
+	)
+	if err == nil {
+		t.Fatalf("expected resources list --format table to fail\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, `invalid --format "table" (resources list supports json output only)`) {
+		t.Fatalf("expected JSON-only format error\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if called {
+		t.Fatal("resources list made an API request after rejecting --format")
 	}
 }
 
