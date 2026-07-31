@@ -6,6 +6,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func copyAdditiveCommandResponseFields(dst map[string]any, src map[string]any) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, key := range []string{"proactiveContext"} {
+		if _, exists := dst[key]; exists {
+			continue
+		}
+		if value, exists := src[key]; exists {
+			dst[key] = value
+		}
+	}
+}
+
 func writeData(cmd *cobra.Command, app *App, meta map[string]any, data any) error {
 	if app != nil {
 		app.consumeUpdateNoticeNonBlocking()

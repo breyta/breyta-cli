@@ -45,6 +45,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 				hasMore := false
 				seenCursors := map[string]bool{}
 				var localWorkspaceBootstrap any
+				additiveResponseFields := map[string]any{}
 
 				for {
 					reqLimit := pageSize
@@ -73,6 +74,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 							return writeAPIResult(cmd, app, out, status)
 						}
 					}
+					copyAdditiveCommandResponseFields(additiveResponseFields, out)
 
 					data, _ := out["data"].(map[string]any)
 					pageItems, _ := data["items"].([]any)
@@ -133,6 +135,7 @@ func newFlowsListCmd(app *App) *cobra.Command {
 						"items": allItems,
 					},
 				}
+				copyAdditiveCommandResponseFields(out, additiveResponseFields)
 				return writeAPIResult(cmd, app, out, 200)
 			}
 			st, store, err := appStore(app)

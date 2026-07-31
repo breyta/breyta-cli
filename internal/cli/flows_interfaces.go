@@ -80,6 +80,7 @@ func newFlowsInterfacesListCmd(app *App) *cobra.Command {
 					"items":          items,
 				}),
 			}
+			copyAdditiveCommandResponseFields(out, resp)
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
@@ -139,6 +140,7 @@ func newFlowsInterfacesShowCmd(app *App) *cobra.Command {
 					"interface":      item,
 				}),
 			}
+			copyAdditiveCommandResponseFields(out, resp)
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
@@ -353,6 +355,7 @@ func newFlowsInterfacesCurlCmd(app *App) *cobra.Command {
 					"curl":           curl,
 				}),
 			}
+			copyAdditiveCommandResponseFields(out, resp)
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}
