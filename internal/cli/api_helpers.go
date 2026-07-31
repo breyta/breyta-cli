@@ -859,7 +859,13 @@ func enrichCommandHints(app *App, command string, args map[string]any, status in
 	}
 
 	if status < 400 && isOK(out) && publicAppHintRelevant(command, args) {
-		addPublicAppURLHint(app, out, slug)
+		reviewStatus := marketplaceReviewStatus(out)
+		asyncReviewPending := command == "flows.public.update" &&
+			boolValue(args["public"]) &&
+			reviewStatus != "" && reviewStatus != "published"
+		if !asyncReviewPending {
+			addPublicAppURLHint(app, out, slug)
+		}
 	}
 
 	switch command {

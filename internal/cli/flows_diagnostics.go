@@ -1004,9 +1004,9 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 			}
 			markPublicUpdatePartialFailure(out)
 			if status >= 400 || !isOK(out) {
-				if err := writeAPIResult(cmd, app, out, status); err != nil {
-					return writeErr(cmd, err)
-				}
+				// Render the server envelope, but preserve the marketplace
+				// status-specific exit code for scripts and agents.
+				_ = writeAPIResult(cmd, app, out, status)
 				return marketplaceReviewError(cmd, "error", "marketplace publication request failed")
 			}
 			if marketplaceReviewStatus(out) == "published" {
