@@ -23,18 +23,18 @@ func newAgentCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newAgentWorkCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
 	cmd.AddCommand(newAgentContextCmd(app))
-	cmd.AddCommand(newAgentWorkCmd(app))
 	return cmd
 }
 
 func newAgentWorkCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "work",
-		Short: "Record proactive work decisions and progress",
+		Short: "Manage proactive work surfaced by your Breyta agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(newAgentWorkMarkCmd(app))
 	cmd.AddCommand(newAgentWorkClassifyCmd(app))
 	cmd.AddCommand(newAgentWorkStatusCmd(app))
 	return cmd
@@ -150,18 +150,6 @@ func newAgentContextCmd(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&flowSlug, "flow", "", "Limit context to one flow slug")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum activity and context items (1-25)")
-	return cmd
-}
-
-func newAgentWorkCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "work",
-		Short: "Manage proactive work surfaced by your Breyta agent",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
-	}
-	cmd.AddCommand(newAgentWorkMarkCmd(app))
 	return cmd
 }
 

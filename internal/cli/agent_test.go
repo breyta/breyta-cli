@@ -73,6 +73,19 @@ func captureAgentCommand(t *testing.T) (*App, *string, *map[string]any) {
 	return &App{WorkspaceID: "ws-test"}, &method, &payload
 }
 
+func TestAgentWorkCommandIncludesAllLifecycleCommands(t *testing.T) {
+	cmd := newAgentWorkCmd(&App{})
+	got := map[string]bool{}
+	for _, child := range cmd.Commands() {
+		got[child.Name()] = true
+	}
+	for _, name := range []string{"mark", "classify", "status"} {
+		if !got[name] {
+			t.Fatalf("work command is missing %q; commands = %#v", name, got)
+		}
+	}
+}
+
 func TestAgentSettingsShowCallsSettingsGet(t *testing.T) {
 	app, method, payload := captureAgentCommand(t)
 	cmd := newAgentSettingsShowCmd(app)
