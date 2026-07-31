@@ -37,6 +37,7 @@ func newFlowsInstallationsInterfacesCmd(app *App) *cobra.Command {
 					"items":          items,
 				}),
 			}
+			copyAdditiveCommandResponseFields(out, resp)
 			return writeAPIResult(cmd, app, out, 200)
 		},
 	}

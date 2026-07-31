@@ -5166,6 +5166,9 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
+			"proactiveContext": map[string]any{
+				"messages": []any{map[string]any{"id": "msg-interface-actionable"}},
+			},
 			"data": map[string]any{
 				"flow": map[string]any{
 					"flowSlug": "flow-release",
@@ -5214,6 +5217,19 @@ func TestFlowsInterfacesList_ReadsFlowInterfacesMetadata(t *testing.T) {
 	}
 	if endpoint["alternateUrl"] != srv.URL+"/api/workspaces/ws-acme/flows/flow-release/interfaces/draft/stripe" {
 		t.Fatalf("expected workspace-scoped alternate endpoint, got %#v", endpoint)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+		t.Fatalf("decode flows interfaces output: %v", err)
+	}
+	proactiveContext, _ := raw["proactiveContext"].(map[string]any)
+	messages, _ := proactiveContext["messages"].([]any)
+	var message map[string]any
+	if len(messages) == 1 {
+		message, _ = messages[0].(map[string]any)
+	}
+	if len(messages) != 1 || message["id"] != "msg-interface-actionable" {
+		t.Fatalf("expected proactive context to survive interface envelope rebuild, got %#v", raw["proactiveContext"])
 	}
 }
 
