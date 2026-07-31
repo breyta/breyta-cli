@@ -120,6 +120,9 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"workspaceId": "ws-acme",
+			"proactiveContext": map[string]any{
+				"messages": []any{map[string]any{"id": "msg-actionable"}},
+			},
 			"data": map[string]any{
 				"items": []any{
 					map[string]any{"flowSlug": "x", "name": "X", "activeVersion": 1},
@@ -151,6 +154,15 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	items, _ := data["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	proactiveContext, _ := e["proactiveContext"].(map[string]any)
+	messages, _ := proactiveContext["messages"].([]any)
+	var message map[string]any
+	if len(messages) == 1 {
+		message, _ = messages[0].(map[string]any)
+	}
+	if len(messages) != 1 || message["id"] != "msg-actionable" {
+		t.Fatalf("expected proactive context to survive flows list aggregation, got %#v", e["proactiveContext"])
 	}
 }
 
