@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/breyta/breyta-cli/internal/cli"
 )
@@ -756,6 +757,168 @@ func TestFlowsPublicPublish_RequestFailureKeepsMarketplaceExitCode(t *testing.T)
 	var exitCoder cli.ExitCoder
 	if !errors.As(err, &exitCoder) {
 		t.Fatalf("expected marketplace exit code error, got %T: %v", err, err)
+	}
+	if got := exitCoder.ExitCode(); got != 5 {
+		t.Fatalf("expected marketplace error exit code 5, got %d", got)
+	}
+}
+
+func TestFlowsPublicPublish_PollFailureKeepsMarketplaceExitCode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var reviewCalls atomic.Int32
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.public.update":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"review": map[string]any{"status": "queued"}},
+			})
+		case "flows.public.review.get":
+			reviewCalls.Add(1)
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"code":    "upstream_unavailable",
+					"message": "review service unavailable",
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--wait", "--timeout", "1s", "--poll", "1ms", "--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected review polling failure\n%s", stdout)
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected marketplace exit code error, got %T: %v", err, err)
+	}
+	if got := exitCoder.ExitCode(); got != 5 {
+		t.Fatalf("expected marketplace error exit code 5, got %d", got)
+	}
+	if reviewCalls.Load() != 1 {
+		t.Fatalf("expected one failed status poll, got %d", reviewCalls.Load())
+	}
+}
+
+func TestFlowsPublicPublish_RejectsNonPositiveWaitTimeoutBeforeDispatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var called atomic.Bool
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called.Store(true)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--wait", "--timeout", "0s", "--poll", "1ms", "--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected zero timeout to fail\n%s", stdout)
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected marketplace timeout exit code, got %T: %v", err, err)
+	}
+	if got := exitCoder.ExitCode(); got != 6 {
+		t.Fatalf("expected marketplace timeout exit code 6, got %d", got)
+	}
+	if called.Load() {
+		t.Fatal("zero timeout must not dispatch the publish request")
+	}
+}
+
+func TestFlowsPublicPublish_TransportTimeoutKeepsMarketplaceExitCode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--wait", "--timeout", "20ms", "--poll", "1ms", "--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected transport timeout\n%s", stdout)
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected marketplace timeout exit code, got %T: %v", err, err)
+	}
+	if got := exitCoder.ExitCode(); got != 6 {
+		t.Fatalf("expected marketplace timeout exit code 6, got %d", got)
+	}
+}
+
+func TestFlowsPublicPublish_TransportFailureKeepsMarketplaceExitCode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("transport failure test unexpectedly reached server")
+	}))
+	apiURL := srv.URL
+	srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", apiURL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--wait", "--timeout", "1s", "--poll", "1ms", "--pretty",
+	)
+	if err == nil {
+		t.Fatalf("expected transport failure\n%s", stdout)
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected marketplace error exit code, got %T: %v", err, err)
 	}
 	if got := exitCoder.ExitCode(); got != 5 {
 		t.Fatalf("expected marketplace error exit code 5, got %d", got)

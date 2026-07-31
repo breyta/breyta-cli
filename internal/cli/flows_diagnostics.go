@@ -997,10 +997,27 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 				return doAPICommandFn(cmd, app, "flows.public.update", payload)
 			}
 
+			// A waited marketplace publish always has a real deadline.  A zero
+			// timeout would otherwise disable the HTTP client/context timeout while
+			// leaving the local deadline already expired, allowing the initial
+			// request to block indefinitely.
+			if timeout <= 0 {
+				return marketplaceReviewError(cmd, "timeout", "marketplace review timed out")
+			}
+			// Keep local CLI validation errors (for example missing credentials)
+			// generic; errors after this check are from the dispatched request and
+			// should retain the marketplace-specific exit codes.
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+
 			deadline := time.Now().Add(timeout)
 			out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, "flows.public.update", payload, timeout)
 			if err != nil {
-				return writeErr(cmd, err)
+				if flowPushRequestTimedOut(err) {
+					return marketplaceReviewError(cmd, "timeout", "marketplace publication request timed out")
+				}
+				return marketplaceReviewError(cmd, "error", "marketplace publication request failed")
 			}
 			markPublicUpdatePartialFailure(out)
 			if status >= 400 || !isOK(out) {
@@ -1062,12 +1079,16 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 					cmd.Context(), app, "flows.public.review.get",
 					map[string]any{"flowSlug": strings.TrimSpace(args[0])}, remaining)
 				if err != nil {
-					return writeErr(cmd, err)
+					if flowPushRequestTimedOut(err) {
+						return marketplaceReviewError(cmd, "timeout", "marketplace review status request timed out")
+					}
+					return marketplaceReviewError(cmd, "error", "marketplace review status request failed")
 				}
 				if latestStatus >= 400 || !isOK(latest) {
-					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
-						return writeErr(cmd, err)
-					}
+					// Render the server envelope, but preserve the marketplace
+					// status-poll exit code for scripts and agents.
+					_ = writeAPIResult(cmd, app, latest, latestStatus)
+					return marketplaceReviewError(cmd, "error", "marketplace review status request failed")
 				}
 				if marketplaceReviewStatus(latest) == "published" {
 					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
