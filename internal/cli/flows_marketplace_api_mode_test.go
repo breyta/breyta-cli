@@ -734,3 +734,123 @@ func TestFlowsPublicPublish_UpdatesAllPublicSurfaces(t *testing.T) {
 		t.Fatalf("expected public app URL hint, got %#v", meta["publicAppUrl"])
 	}
 }
+
+func TestFlowsPublicPublishWaitsForPersistedReview(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	var reviewCalls atomic.Int32
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["command"] {
+		case "flows.public.update":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"review": map[string]any{"status": "queued"},
+				},
+			})
+		case "flows.public.review.get":
+			if reviewCalls.Add(1) == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":   true,
+					"data": map[string]any{"review": map[string]any{"status": "running"}},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"review": map[string]any{"status": "published"}},
+			})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+		}
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "publish", "market-flow",
+		"--wait", "--timeout", "1s", "--poll", "1ms", "--pretty",
+	)
+	if err != nil {
+		t.Fatalf("waited marketplace publish failed: %v\n%s", err, stdout)
+	}
+	if reviewCalls.Load() < 2 {
+		t.Fatalf("expected polling to continue until published, calls=%d", reviewCalls.Load())
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	review, _ := data["review"].(map[string]any)
+	status := review["status"]
+	if status != "published" {
+		t.Fatalf("expected published review, got %#v", out)
+	}
+}
+
+func TestFlowsPublicStatusUsesReviewCommand(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.public.review.get" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "unexpected command"}})
+			return
+		}
+		args, _ := body["args"].(map[string]any)
+		if args["flowSlug"] != "market-flow" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": map[string]any{"message": "missing slug"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   true,
+			"data": map[string]any{"review": map[string]any{"status": "security_review", "securityReview": true}},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--api-key", "sa-dev",
+		"flows", "public", "status", "market-flow",
+		"--pretty",
+	)
+	if err != nil {
+		t.Fatalf("status command failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
+	}
+	data, _ := out["data"].(map[string]any)
+	review, _ := data["review"].(map[string]any)
+	if got := review["status"]; got != "security_review" {
+		t.Fatalf("expected security_review status, got %#v", out)
+	}
+}

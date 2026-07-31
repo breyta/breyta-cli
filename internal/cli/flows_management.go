@@ -65,7 +65,7 @@ func newFlowsUpdateCmd(app *App) *cobra.Command {
 		Long: strings.TrimSpace(`
 Update mutable flow metadata such as name, description, publish description, discover card media, tags, grouping, and display icon selection.
 
-Public visibility across marketplace, Discover, and the public app page is managed with ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + `.
+Public visibility across marketplace, Discover, and the public app page is managed with ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + `. Publish queues asynchronous acceptance; use ` + "`--wait`" + ` or ` + "`breyta flows public status <slug>`" + ` to observe it.
 Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` only for lower-level Discover-only changes.
 Use ` + "`tags`" + ` here for ordinary metadata/category labels.
 

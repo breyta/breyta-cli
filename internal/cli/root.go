@@ -45,6 +45,12 @@ type guidedCLIError struct {
 	message string
 }
 
+// ExitCoder lets commands return distinct, documented non-zero process codes
+// while retaining the normal guided error rendering path.
+type ExitCoder interface {
+	ExitCode() int
+}
+
 const allowAPIEnvOverrideAnnotation = "allow_api_env_override"
 
 func withPublicFlagHelpValues(cmd *cobra.Command, help func(*cobra.Command, []string), args []string) {

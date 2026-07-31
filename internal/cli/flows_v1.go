@@ -323,15 +323,16 @@ Advanced install lifecycle:
 - Promote released version to live explicitly (also rollback to known-good): breyta flows promote <slug> --version <n>
 - Browse public installables for this workspace: breyta flows discover list
 - Search public installables for this workspace: breyta flows discover search <query>
-- Publish all public surfaces explicitly after approval and release: breyta flows public publish <slug>
+- Submit all public surfaces after approval and release: breyta flows public publish <slug> (add --wait or poll with breyta flows public status <slug>)
 - Delist all public surfaces together: breyta flows public delist <slug>
 - Lower-level Discover-only visibility update: breyta flows discover update <slug> --public=true
 - Configure installation inputs: breyta flows installations configure <installation-id> --input '{...}'
 - List legacy installation triggers: breyta flows installations triggers <installation-id>
 
 Public discover notes:
-- :discover {:public true} authored in a flow file persists as stored metadata on push.
-- Use breyta flows public publish <slug> or breyta flows public delist <slug> to change marketplace, Discover, and public app-page visibility together.
+- :discover {:public true} and :marketplace {:visible true} authored in a flow file describe listing intent; push cannot publish a revision.
+- Use breyta flows public publish <slug> to submit the released candidate for asynchronous acceptance, or breyta flows public delist <slug> to change all public surfaces immediately.
+- Use breyta flows public status <slug> to inspect the accepted/candidate state and ordinary findings; security evidence stays internal.
 - Use breyta flows discover update <slug> --public=true|false only when intentionally changing the lower-level Discover flag.
 - Public discover requires explicit discover visibility and a released/installable flow.
 - Public app marketing pages use https://breyta.ai/apps/<flow-slug>.
