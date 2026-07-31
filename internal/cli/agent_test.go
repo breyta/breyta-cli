@@ -94,6 +94,7 @@ func TestAgentEmailSendBuildsDeduplicatedPayload(t *testing.T) {
 		"--body", "I checked the failed run and found a missing account id.",
 		"--subject", "I found the failed import",
 		"--dedupe-key", "failed-run:customer-import",
+		"--proactive-message-id", "work-ping-ws-test-user-test-2026-07-30-1",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -102,19 +103,98 @@ func TestAgentEmailSendBuildsDeduplicatedPayload(t *testing.T) {
 		t.Fatalf("method = %q", *method)
 	}
 	want := map[string]any{
-		"body":      "I checked the failed run and found a missing account id.",
-		"subject":   "I found the failed import",
-		"dedupeKey": "failed-run:customer-import",
+		"body":               "I checked the failed run and found a missing account id.",
+		"subject":            "I found the failed import",
+		"dedupeKey":          "failed-run:customer-import",
+		"proactiveMessageId": "work-ping-ws-test-user-test-2026-07-30-1",
 	}
 	if !reflect.DeepEqual(*payload, want) {
 		t.Fatalf("payload = %#v, want %#v", *payload, want)
 	}
 }
 
-func TestAgentEmailSendRequiresBodyAndDedupeKey(t *testing.T) {
+func TestAgentWorkMarkBuildsActionablePayload(t *testing.T) {
+	app, method, payload := captureAgentCommand(t)
+	cmd := newAgentWorkMarkCmd(app)
+	cmd.SetArgs([]string{
+		"--body", "I checked the failed run and found a missing account id.",
+		"--subject", "I found the failed import",
+		"--dedupe-key", "failed-run:customer-import",
+		"--message-id", "work-ping-ws-test-user-test-2026-07-30-1",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if *method != "proactive_agent.work.mark" {
+		t.Fatalf("method = %q", *method)
+	}
+	want := map[string]any{
+		"body":               "I checked the failed run and found a missing account id.",
+		"subject":            "I found the failed import",
+		"dedupeKey":          "failed-run:customer-import",
+		"proactiveMessageId": "work-ping-ws-test-user-test-2026-07-30-1",
+	}
+	if !reflect.DeepEqual(*payload, want) {
+		t.Fatalf("payload = %#v, want %#v", *payload, want)
+	}
+}
+
+func TestAgentEmailSendPostsProactiveMessageIdentity(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-test",
+			"data": map[string]any{
+				"status":    "scheduled",
+				"messageId": "work-ping-1",
+			},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	app := &App{WorkspaceID: "ws-test", APIURL: server.URL, Token: "token"}
+	cmd := newAgentEmailSendCmd(app)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"--body", "I found the failed import.",
+		"--dedupe-key", "failed-run:customer-import",
+		"--proactive-message-id", "work-ping-1",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, out.String())
+	}
+
+	if gotBody["command"] != "proactive_agent.email.send" {
+		t.Fatalf("command = %#v", gotBody["command"])
+	}
+	args, ok := gotBody["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("args = %#v", gotBody["args"])
+	}
+	if args["proactiveMessageId"] != "work-ping-1" {
+		t.Fatalf("proactiveMessageId = %#v", args["proactiveMessageId"])
+	}
+	if !strings.Contains(out.String(), `"status":"scheduled"`) {
+		t.Fatalf("output = %s", out.String())
+	}
+}
+
+func TestAgentEmailSendRequiresBodyDedupeKeyAndProactiveMessageID(t *testing.T) {
 	tests := [][]string{
-		{"--dedupe-key", "finding"},
-		{"--body", "Finding"},
+		{"--dedupe-key", "finding", "--proactive-message-id", "work-ping-1"},
+		{"--body", "Finding", "--proactive-message-id", "work-ping-1"},
+		{"--body", "Finding", "--dedupe-key", "finding"},
 	}
 	for _, args := range tests {
 		app, _, _ := captureAgentCommand(t)
@@ -139,6 +219,10 @@ func TestAgentEmailAlreadySentIsSuccessfulNoOp(t *testing.T) {
 	}
 	if agentEmailAlreadySent(out, 409) {
 		t.Fatal("non-2xx response must not be normalized")
+	}
+	out["data"].(map[string]any)["reason"] = "already-marked"
+	if !agentWorkAlreadyHandled(out, 200) {
+		t.Fatal("expected already-marked response to be recognized")
 	}
 }
 

@@ -19,7 +19,9 @@ func newAgentCmd(app *App) *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(newAgentDashboardCmd(app))
 	cmd.AddCommand(newAgentSettingsCmd(app))
+	cmd.AddCommand(newAgentWorkCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
 	cmd.AddCommand(newAgentContextCmd(app))
 	return cmd
@@ -58,10 +60,85 @@ func newAgentContextCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newAgentWorkCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "work",
+		Short: "Manage proactive work surfaced by your Breyta agent",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newAgentWorkMarkCmd(app))
+	return cmd
+}
+
+func newAgentWorkMarkCmd(app *App) *cobra.Command {
+	return newAgentWorkMarkCommand(app, "proactive_agent.work.mark", false)
+}
+
+func newAgentWorkMarkCommand(app *App, command string, legacy bool) *cobra.Command {
+	var body string
+	var subject string
+	var dedupeKey string
+	var messageID string
+	var proactiveMessageID string
+	cmd := &cobra.Command{
+		Use:   "mark",
+		Short: "Mark investigated proactive work as actionable",
+		Args:  cobra.NoArgs,
+		Example: strings.TrimSpace(`
+breyta agent work mark \
+  --message-id work-ping-ws-user-2026-07-30-1 \
+  --subject "I found the failed import" \
+  --body "The import is missing an account id." \
+  --dedupe-key failed-run:customer-import
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body = strings.TrimSpace(body)
+			if body == "" {
+				return writeErr(cmd, errors.New("missing --body"))
+			}
+			messageID = strings.TrimSpace(messageID)
+			proactiveMessageID = strings.TrimSpace(proactiveMessageID)
+			if messageID == "" {
+				messageID = proactiveMessageID
+			}
+			if messageID == "" {
+				return writeErr(cmd, errors.New("missing --message-id"))
+			}
+			dedupeKey = strings.TrimSpace(dedupeKey)
+			if dedupeKey == "" {
+				return writeErr(cmd, errors.New("missing --dedupe-key"))
+			}
+			payload := map[string]any{
+				"body":               body,
+				"dedupeKey":          dedupeKey,
+				"proactiveMessageId": messageID,
+			}
+			if subject = strings.TrimSpace(subject); subject != "" {
+				payload["subject"] = subject
+			}
+			return dispatchAgentWorkAPICommand(cmd, app, command, payload)
+		},
+	}
+	cmd.Flags().StringVar(&body, "body", "", "Short chat message describing the actionable finding")
+	cmd.Flags().StringVar(&subject, "subject", "", "Optional fallback email subject")
+	cmd.Flags().StringVar(&dedupeKey, "dedupe-key", "", "Stable key preventing repeat surfacing for the same finding")
+	cmd.Flags().StringVar(&messageID, "message-id", "", "Exact proactive message id supplied by the work-ping")
+	cmd.Flags().StringVar(&proactiveMessageID, "proactive-message-id", "", "Deprecated alias for --message-id")
+	if legacy {
+		cmd.Use = "send"
+		cmd.Short = "Deprecated alias for `breyta agent work mark`"
+		cmd.Deprecated = "use `breyta agent work mark`"
+	}
+	return cmd
+}
+
 func newAgentEmailCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "email",
-		Short: "Send email as your Breyta agent",
+		Use:    "email",
+		Short:  "Deprecated proactive work aliases",
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -71,36 +148,7 @@ func newAgentEmailCmd(app *App) *cobra.Command {
 }
 
 func newAgentEmailSendCmd(app *App) *cobra.Command {
-	var body string
-	var subject string
-	var dedupeKey string
-	cmd := &cobra.Command{
-		Use:   "send",
-		Short: "Send a deduplicated proactive email to the current user",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body = strings.TrimSpace(body)
-			if body == "" {
-				return writeErr(cmd, errors.New("missing --body"))
-			}
-			dedupeKey = strings.TrimSpace(dedupeKey)
-			if dedupeKey == "" {
-				return writeErr(cmd, errors.New("missing --dedupe-key"))
-			}
-			payload := map[string]any{
-				"body":      body,
-				"dedupeKey": dedupeKey,
-			}
-			if subject = strings.TrimSpace(subject); subject != "" {
-				payload["subject"] = subject
-			}
-			return dispatchAgentEmailAPICommand(cmd, app, payload)
-		},
-	}
-	cmd.Flags().StringVar(&body, "body", "", "Email body written as a short message from the agent")
-	cmd.Flags().StringVar(&subject, "subject", "", "Optional email subject")
-	cmd.Flags().StringVar(&dedupeKey, "dedupe-key", "", "Stable key preventing repeat email for the same finding")
-	return cmd
+	return newAgentWorkMarkCommand(app, "proactive_agent.email.send", true)
 }
 
 func newAgentSettingsCmd(app *App) *cobra.Command {
@@ -211,7 +259,7 @@ func dispatchAgentAPICommand(cmd *cobra.Command, app *App, command string, paylo
 	return doAPICommand(cmd, app, command, payload)
 }
 
-func agentEmailAlreadySent(out map[string]any, status int) bool {
+func agentWorkAlreadyHandled(out map[string]any, status int) bool {
 	if status < 200 || status >= 300 {
 		return false
 	}
@@ -219,18 +267,29 @@ func agentEmailAlreadySent(out map[string]any, status int) bool {
 	if !ok {
 		return false
 	}
-	return data["status"] == "skipped" && data["reason"] == "already-emailed"
+	if data["status"] != "skipped" {
+		return false
+	}
+	return data["reason"] == "already-marked" || data["reason"] == "already-emailed"
+}
+
+func agentEmailAlreadySent(out map[string]any, status int) bool {
+	return agentWorkAlreadyHandled(out, status)
 }
 
 func dispatchAgentEmailAPICommand(cmd *cobra.Command, app *App, payload map[string]any) error {
+	return dispatchAgentWorkAPICommand(cmd, app, "proactive_agent.email.send", payload)
+}
+
+func dispatchAgentWorkAPICommand(cmd *cobra.Command, app *App, command string, payload map[string]any) error {
 	if useDoAPICommandFn {
-		return doAPICommandFn(cmd, app, "proactive_agent.email.send", payload)
+		return doAPICommandFn(cmd, app, command, payload)
 	}
-	out, status, err := runAPICommand(app, "proactive_agent.email.send", payload)
+	out, status, err := runAPICommand(app, command, payload)
 	if err != nil {
 		return writeErr(cmd, err)
 	}
-	if agentEmailAlreadySent(out, status) {
+	if agentWorkAlreadyHandled(out, status) {
 		out["ok"] = true
 	}
 	if err := writeAPIResult(cmd, app, out, status); err != nil {

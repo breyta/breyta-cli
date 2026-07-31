@@ -264,6 +264,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	var storageBackend string
 	var storageRoot string
 	var pathPrefix string
+	var outFormat string
 	var limit int
 
 	cmd := &cobra.Command{
@@ -273,6 +274,9 @@ func newResourcesListCmd(app *App) *cobra.Command {
 			return requireResourcesAPI(cmd, app)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateJSONOnlyFormat(outFormat, "resources list"); err != nil {
+				return writeErr(cmd, err)
+			}
 			q := url.Values{}
 			if typeFilter != "" {
 				q.Set("type", typeFilter)
@@ -333,6 +337,7 @@ func newResourcesListCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&storageBackend, "storage-backend", "", "Filter by storage backend id (e.g. platform)")
 	cmd.Flags().StringVar(&storageRoot, "storage-root", "", "Filter by configured storage root (e.g. reports/acme)")
 	cmd.Flags().StringVar(&pathPrefix, "path-prefix", "", "Filter by relative path prefix under the storage root (e.g. exports/2026)")
+	cmd.Flags().StringVar(&outFormat, "format", "json", "Output format (json)")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max results (0 to use server default, 1-1000)")
 	return cmd
 }

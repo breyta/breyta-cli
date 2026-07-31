@@ -311,6 +311,26 @@ func TestClient_DoCommand_UsesStableOperationIDAcrossRetries(t *testing.T) {
 	}
 }
 
+func TestRetryableCommandMarketingHubReadsOnly(t *testing.T) {
+	tests := []struct {
+		command string
+		want    bool
+	}{
+		{command: "overview.dashboard.get", want: true},
+		{command: "overview.dashboard.catalog", want: true},
+		{command: "overview.dashboard.history", want: true},
+		{command: "overview.dashboard.apply", want: false},
+		{command: "overview.dashboard.restore", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			if got := retryableCommand(tt.command); got != tt.want {
+				t.Fatalf("retryableCommand(%q) = %v, want %v", tt.command, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClient_DoCommand_RetriesDiscoverSearchOnTimeoutError(t *testing.T) {
 	origBackoffs := readCommandRetryBackoffs
 	readCommandRetryBackoffs = []time.Duration{0, 0}

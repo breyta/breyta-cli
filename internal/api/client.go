@@ -351,7 +351,13 @@ func commandRetryBackoffs(command string) []time.Duration {
 
 func retryableCommand(command string) bool {
 	switch strings.TrimSpace(command) {
-	case "flows.discover.list", "flows.discover.search", "flows.discover.get", "runs.get":
+	case "flows.discover.list",
+		"flows.discover.search",
+		"flows.discover.get",
+		"overview.dashboard.get",
+		"overview.dashboard.catalog",
+		"overview.dashboard.history",
+		"runs.get":
 		return true
 	default:
 		return false
