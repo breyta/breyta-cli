@@ -19,6 +19,7 @@ func newAgentCmd(app *App) *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(newAgentDashboardCmd(app))
 	cmd.AddCommand(newAgentSettingsCmd(app))
 	cmd.AddCommand(newAgentWorkCmd(app))
 	cmd.AddCommand(newAgentEmailCmd(app))
