@@ -590,6 +590,45 @@ func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
 	t.Fatalf("expected unsupported_visual_flow_form diagnostic, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsServerProhibitedOrchestrationTransforms(t *testing.T) {
+	for _, transform := range []string{"map", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
+		t.Run(transform, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :prohibited-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (%s identity (:items input)))}
+`, transform)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err == nil {
+				t.Fatalf("expected local lint to reject %s like server validation\n%s", transform, output)
+			}
+			diagnostic := flowLintDiagnosticByCode(t, body, "prohibited_orchestration_transform")
+			if diagnostic["form"] != transform || diagnostic["severity"] != "error" {
+				t.Fatalf("expected error for %s, got %#v", transform, diagnostic)
+			}
+		})
+	}
+}
+
+func TestFlowsLintLocalOnlyAllowsTransformsInsideQuotedFunctionCode(t *testing.T) {
+	flowLiteral := `{:slug :function-transform-ok
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (flow/step :function :transform
+                     {:input input
+                      :code '(fn [input] (mapv identity (:items input)))}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted function code must retain data-transform support: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
 func TestFlowsLintLocalOnlySkipsReaderDiscardedUnsupportedVisualThreading(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

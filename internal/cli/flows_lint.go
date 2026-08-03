@@ -28,6 +28,7 @@ var (
 )
 
 type unsupportedFlowFormRule struct {
+	code   string
 	reason string
 	hint   string
 }
@@ -39,6 +40,16 @@ var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
 	"some->>": {reason: "Visual renderer cannot display nil-short-circuiting.", hint: "Use explicit if/when branching before the pipeline."},
 	"cond->":  {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
 	"cond->>": {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
+	// Keep this transform set aligned with the server flow SCI deny list.
+	"map":          {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
+	"filter":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
+	"reduce":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move data aggregation into a :function step."},
+	"mapv":         {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
+	"filterv":      {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
+	"mapcat":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move data transformation into a :function step."},
+	"keep":         {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
+	"keep-indexed": {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move indexed data transformation into a :function step."},
+	"remove":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
 }
 
 const defaultFlowLintServerTimeout = 30 * time.Second
@@ -281,9 +292,13 @@ func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnosti
 	var diagnostics []flowLintDiagnostic
 	for _, match := range unsupportedFlowFormMatches(flowSource, baseOffset) {
 		rule := flowLintUnsupportedFlowForms[match.symbol]
+		code := rule.code
+		if code == "" {
+			code = "unsupported_visual_flow_form"
+		}
 		diag := lintDiagnostic(
 			"error",
-			"unsupported_visual_flow_form",
+			code,
 			[]string{":flow"},
 			fmt.Sprintf("Flow source uses %s. %s", match.symbol, rule.reason),
 			rule.hint,
