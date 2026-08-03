@@ -291,7 +291,7 @@ func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnosti
 	baseOffset += unwrappedOffset
 	var diagnostics []flowLintDiagnostic
 	for _, match := range unsupportedFlowFormMatches(flowSource, baseOffset) {
-		rule := flowLintUnsupportedFlowForms[match.symbol]
+		rule := flowLintUnsupportedFlowForms[match.rule]
 		code := rule.code
 		if code == "" {
 			code = "unsupported_visual_flow_form"
@@ -313,7 +313,21 @@ func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnosti
 
 type unsupportedFlowFormMatch struct {
 	symbol string
+	rule   string
 	offset int
+}
+
+func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
+	if _, ok := flowLintUnsupportedFlowForms[symbol]; ok {
+		return symbol, true
+	}
+	if slash := strings.LastIndex(symbol, "/"); slash >= 0 && slash+1 < len(symbol) {
+		name := symbol[slash+1:]
+		if rule, ok := flowLintUnsupportedFlowForms[name]; ok && rule.code == "prohibited_orchestration_transform" {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
@@ -376,8 +390,8 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			tokenEnd := readClojureTokenEnd(src, j)
 			if tokenEnd > j {
 				symbol := src[j:tokenEnd]
-				if _, ok := flowLintUnsupportedFlowForms[symbol]; ok {
-					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, offset: baseOffset + j})
+				if rule, ok := unsupportedFlowFormRuleKey(symbol); ok {
+					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + j})
 				}
 			}
 		}

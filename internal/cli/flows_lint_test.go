@@ -629,6 +629,24 @@ func TestFlowsLintLocalOnlyAllowsTransformsInsideQuotedFunctionCode(t *testing.T
 	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
+func TestFlowsLintLocalOnlyRejectsQualifiedOrchestrationTransforms(t *testing.T) {
+	flowLiteral := `{:slug :qualified-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (clojure.core/mapv identity (:items input)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected qualified mapv to fail local lint like server validation\n%s", output)
+	}
+	diagnostic := flowLintDiagnosticByCode(t, body, "prohibited_orchestration_transform")
+	if diagnostic["form"] != "clojure.core/mapv" {
+		t.Fatalf("expected qualified form in diagnostic, got %#v", diagnostic)
+	}
+}
+
 func TestFlowsLintLocalOnlySkipsReaderDiscardedUnsupportedVisualThreading(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
