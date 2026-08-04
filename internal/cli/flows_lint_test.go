@@ -647,6 +647,78 @@ func TestFlowsLintLocalOnlyRejectsQualifiedOrchestrationTransforms(t *testing.T)
 	}
 }
 
+func TestFlowsLintLocalOnlyAllowsNamespacedKeywordLookups(t *testing.T) {
+	flowLiteral := `{:slug :namespaced-lookups
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          [(:customer/map input) (:items/filter input)])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("namespaced keyword lookups must stay valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlySkipsExplicitQuotesAndCommentBodiesForTransforms(t *testing.T) {
+	for _, form := range []string{
+		`(quote (fn [input] (mapv identity (:items input))))`,
+		`(clojure.core/quote (fn [input] (mapv identity (:items input))))`,
+		`(comment (mapv identity (:items input)))`,
+		`(clojure.core/comment (mapv identity (:items input)))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :discarded-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s input)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("non-executable transform form must stay valid for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyHonorsChainedReaderDiscardsForTransforms(t *testing.T) {
+	flowLiteral := `{:slug :discarded-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          #_ #_ :old (mapv identity (:items input))
+          input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("reader-discarded transform must stay valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
+	for _, form := range []string{
+		`(apply map vector (:rows input))`,
+		`(partial filter :active)`,
+		`(comp mapv filterv)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("indirect transform reference must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
 func TestFlowsLintLocalOnlySkipsReaderDiscardedUnsupportedVisualThreading(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")

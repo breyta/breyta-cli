@@ -52,6 +52,11 @@ var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
 	"remove":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
 }
 
+var flowLintTransformReferenceHeads = map[string]bool{
+	"apply": true, "partial": true, "comp": true, "juxt": true,
+	"complement": true, "some-fn": true, "every-pred": true,
+}
+
 const defaultFlowLintServerTimeout = 30 * time.Second
 
 func newFlowsLintCmd(app *App) *cobra.Command {
@@ -318,6 +323,9 @@ type unsupportedFlowFormMatch struct {
 }
 
 func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
+	if strings.HasPrefix(symbol, ":") {
+		return "", false
+	}
 	if _, ok := flowLintUnsupportedFlowForms[symbol]; ok {
 		return symbol, true
 	}
@@ -328,6 +336,41 @@ func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func readerDiscardedRegionEnd(src string, start int) int {
+	i := start
+	pending := 0
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return i
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			markers := 0
+			for strings.HasPrefix(src[i:], "#_") {
+				markers++
+				i = skipClojureWhitespaceCommaAndComments(src, i+2)
+			}
+			end, err := readClojureFormEnd(src, i)
+			if err != nil || end <= i {
+				return start + 2
+			}
+			i = end
+			pending += markers - 1
+			continue
+		}
+		if pending == 0 {
+			return i
+		}
+		end, err := readClojureFormEnd(src, i)
+		if err != nil || end <= i {
+			return i
+		}
+		i = end
+		pending--
+	}
+	return i
 }
 
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
@@ -357,12 +400,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			}
 		}
 		if strings.HasPrefix(src[i:], "#_") {
-			next, err := readClojureFormEnd(src, i)
-			if err != nil || next <= i {
-				i++
-			} else {
-				i = next
-			}
+			i = readerDiscardedRegionEnd(src, i)
 			continue
 		}
 		switch src[i] {
@@ -386,12 +424,28 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			}
 			continue
 		case '(':
-			j := skipClojureWhitespaceCommaAndComments(src, i+1)
-			tokenEnd := readClojureTokenEnd(src, j)
-			if tokenEnd > j {
-				symbol := src[j:tokenEnd]
+			elements, listEnd, err := parseClojureListElements(src, i)
+			if err != nil || len(elements) == 0 {
+				i++
+				continue
+			}
+			symbol := clojureFormToken(src, elements[0])
+			if symbol == "quote" || symbol == "clojure.core/quote" ||
+				symbol == "comment" || symbol == "clojure.core/comment" {
+				i = listEnd
+				continue
+			}
+			if symbol != "" {
 				if rule, ok := unsupportedFlowFormRuleKey(symbol); ok {
-					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + j})
+					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + elements[0].Start})
+				}
+			}
+			if flowLintTransformReferenceHeads[symbol] {
+				for _, element := range elements[1:] {
+					reference := clojureFormToken(src, element)
+					if rule, ok := unsupportedFlowFormRuleKey(reference); ok && flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
+						matches = append(matches, unsupportedFlowFormMatch{symbol: reference, rule: rule, offset: baseOffset + element.Start})
+					}
 				}
 			}
 		}
