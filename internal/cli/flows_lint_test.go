@@ -783,6 +783,8 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [xf (let [] map)] xf)`,
 		`(let [{:keys [xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
+		`(let [{:keys [map] :or {map map}} input] map)`,
+		`(let [[#_ #_ :old map] (:items input)] (map identity (:rows input)))`,
 		`(let [f (fn [{:keys [xf] :or {xf map}}] xf)] f)`,
 		`(letfn [(f [row] (map :id row))] f)`,
 		`(if-let [map (:maybe input)] :ok (map identity (:rows input)))`,

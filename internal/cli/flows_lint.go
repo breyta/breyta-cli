@@ -622,6 +622,16 @@ func flowLintBoundNamesWithPattern(src string, boundNames map[string]bool, patte
 	return withPattern
 }
 
+func flowLintBoundNamesForDefault(src string, boundNames map[string]bool, pattern clojureFormSpan, defaultName string) map[string]bool {
+	forDefault := cloneFlowLintBoundNames(boundNames)
+	for name := range clojureBindingNames(src, pattern) {
+		if name != defaultName {
+			forDefault[name] = true
+		}
+	}
+	return forDefault
+}
+
 func unsupportedDynamicBindingMatches(src string, elements []clojureFormSpan, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
 	if len(elements) < 2 {
 		return nil
@@ -655,8 +665,9 @@ func unsupportedBindingFormMatches(src, symbol string, elements []clojureFormSpa
 		initializer := bindings[bindingIndex]
 		matches = append(matches, unsupportedFlowFormMatchesScoped(src[initializer.Start:initializer.End], baseOffset+initializer.Start, boundNames, true)...)
 		patternBoundNames := flowLintBoundNamesWithPattern(src, boundNames, bindings[bindingIndex-1])
-		for _, defaultSpan := range clojureBindingDefaultSpans(src, bindings[bindingIndex-1]) {
-			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, patternBoundNames, true)...)
+		for _, bindingDefault := range clojureBindingDefaults(src, bindings[bindingIndex-1]) {
+			defaultBoundNames := flowLintBoundNamesForDefault(src, boundNames, bindings[bindingIndex-1], bindingDefault.Name)
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[bindingDefault.Span.Start:bindingDefault.Span.End], baseOffset+bindingDefault.Span.Start, defaultBoundNames, true)...)
 		}
 		boundNames = patternBoundNames
 	}
@@ -723,8 +734,9 @@ func unsupportedFnParameterMatches(src string, parameters clojureFormSpan, baseO
 			continue
 		}
 		parameterBoundNames := flowLintBoundNamesWithPattern(src, boundNames, parameter)
-		for _, defaultSpan := range clojureBindingDefaultSpans(src, parameter) {
-			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, parameterBoundNames, true)...)
+		for _, bindingDefault := range clojureBindingDefaults(src, parameter) {
+			defaultBoundNames := flowLintBoundNamesForDefault(src, boundNames, parameter, bindingDefault.Name)
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[bindingDefault.Span.Start:bindingDefault.Span.End], baseOffset+bindingDefault.Span.Start, defaultBoundNames, true)...)
 		}
 		boundNames = parameterBoundNames
 	}
@@ -798,8 +810,9 @@ func unsupportedComprehensionMatches(src string, elements []clojureFormSpan, bas
 					initializer := letBindings[letIndex]
 					matches = append(matches, unsupportedFlowFormMatchesScoped(src[initializer.Start:initializer.End], baseOffset+initializer.Start, boundNames, true)...)
 					patternBoundNames := flowLintBoundNamesWithPattern(src, boundNames, letBindings[letIndex-1])
-					for _, defaultSpan := range clojureBindingDefaultSpans(src, letBindings[letIndex-1]) {
-						matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, patternBoundNames, true)...)
+					for _, bindingDefault := range clojureBindingDefaults(src, letBindings[letIndex-1]) {
+						defaultBoundNames := flowLintBoundNamesForDefault(src, boundNames, letBindings[letIndex-1], bindingDefault.Name)
+						matches = append(matches, unsupportedFlowFormMatchesScoped(src[bindingDefault.Span.Start:bindingDefault.Span.End], baseOffset+bindingDefault.Span.Start, defaultBoundNames, true)...)
 					}
 					boundNames = patternBoundNames
 				}
@@ -819,8 +832,9 @@ func unsupportedComprehensionMatches(src string, elements []clojureFormSpan, bas
 		collection := bindings[bindingIndex+1]
 		matches = append(matches, unsupportedFlowFormMatchesScoped(src[collection.Start:collection.End], baseOffset+collection.Start, boundNames, true)...)
 		patternBoundNames := flowLintBoundNamesWithPattern(src, boundNames, bindings[bindingIndex])
-		for _, defaultSpan := range clojureBindingDefaultSpans(src, bindings[bindingIndex]) {
-			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, patternBoundNames, true)...)
+		for _, bindingDefault := range clojureBindingDefaults(src, bindings[bindingIndex]) {
+			defaultBoundNames := flowLintBoundNamesForDefault(src, boundNames, bindings[bindingIndex], bindingDefault.Name)
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[bindingDefault.Span.Start:bindingDefault.Span.End], baseOffset+bindingDefault.Span.Start, defaultBoundNames, true)...)
 		}
 		boundNames = patternBoundNames
 		bindingIndex += 2
@@ -928,7 +942,7 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 	}
 	switch src[collectionStart] {
 	case '[':
-		elements, _, vectorErr := parseClojureVectorElements(src, collectionStart)
+		elements, _, vectorErr := parseActiveClojureVectorElements(src, collectionStart)
 		if vectorErr == nil {
 			for _, element := range elements {
 				merge(clojureBindingNames(src, element))
@@ -991,12 +1005,17 @@ func clojureNamespacedMapStart(src string, start, end int) (int, bool) {
 	return start, false
 }
 
-func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormSpan {
+type clojureBindingDefault struct {
+	Name string
+	Span clojureFormSpan
+}
+
+func clojureBindingDefaults(src string, span clojureFormSpan) []clojureBindingDefault {
 	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
 	if err != nil || !hasActive || activeEnd > span.End {
 		return nil
 	}
-	var defaults []clojureFormSpan
+	var defaults []clojureBindingDefault
 	collectionStart := activeStart
 	if mapStart, ok := clojureNamespacedMapStart(src, activeStart, activeEnd); ok {
 		collectionStart = mapStart
@@ -1006,7 +1025,7 @@ func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormS
 		elements, _, vectorErr := parseActiveClojureVectorElements(src, collectionStart)
 		if vectorErr == nil {
 			for _, element := range elements {
-				defaults = append(defaults, clojureBindingDefaultSpans(src, element)...)
+				defaults = append(defaults, clojureBindingDefaults(src, element)...)
 			}
 		}
 	case '{':
@@ -1019,13 +1038,20 @@ func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormS
 				orEntries, _, orErr := parseActiveClojureMapEntries(src, entry.ValueStart)
 				if orErr == nil {
 					for _, defaultEntry := range orEntries {
-						defaults = append(defaults, clojureFormSpan{Start: defaultEntry.ValueStart, End: defaultEntry.ValueEnd})
+						name := strings.TrimLeft(defaultEntry.KeyToken, ":")
+						if slash := strings.LastIndex(name, "/"); slash >= 0 && slash+1 < len(name) {
+							name = name[slash+1:]
+						}
+						defaults = append(defaults, clojureBindingDefault{
+							Name: name,
+							Span: clojureFormSpan{Start: defaultEntry.ValueStart, End: defaultEntry.ValueEnd},
+						})
 					}
 				}
 				continue
 			}
 			if !strings.HasPrefix(entry.KeyToken, ":") {
-				defaults = append(defaults, clojureBindingDefaultSpans(src, clojureFormSpan{Start: entry.KeyStart, End: entry.KeyEnd})...)
+				defaults = append(defaults, clojureBindingDefaults(src, clojureFormSpan{Start: entry.KeyStart, End: entry.KeyEnd})...)
 			}
 		}
 	}
