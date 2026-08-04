@@ -160,7 +160,7 @@ breyta flows steps run order-sync tools/fetch-order \
   --params '{"orderId":"order-123"}' --timeout 20m
 breyta flows push --file ./flows/order-sync.clj
 breyta flows configure check order-sync
-breyta flows run order-sync --wait
+breyta flows run order-sync --input '{"order-id":"order-123"}' --wait
 ```
 
 When the first packaged step is already a complete local literal, initialize
