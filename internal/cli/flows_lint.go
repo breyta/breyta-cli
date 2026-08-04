@@ -53,8 +53,12 @@ var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
 }
 
 var flowLintTransformReferenceHeads = map[string]bool{
-	"apply": true, "partial": true, "comp": true, "juxt": true,
-	"complement": true, "some-fn": true, "every-pred": true,
+	// true means every argument is a callable reference; false means only the
+	// first argument is. apply, partial, and complement accept data arguments
+	// after their function argument, so inspecting those would create false
+	// positives for ordinary values named like prohibited transforms.
+	"apply": false, "partial": false, "complement": false,
+	"comp": true, "juxt": true, "some-fn": true, "every-pred": true,
 }
 
 const defaultFlowLintServerTimeout = 30 * time.Second
@@ -338,6 +342,17 @@ func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
 	return "", false
 }
 
+func transformReferenceHead(symbol string) (string, bool) {
+	if strings.HasPrefix(symbol, ":") {
+		return "", false
+	}
+	if slash := strings.LastIndex(symbol, "/"); slash >= 0 && slash+1 < len(symbol) {
+		symbol = symbol[slash+1:]
+	}
+	_, ok := flowLintTransformReferenceHeads[symbol]
+	return symbol, ok
+}
+
 func readerDiscardedRegionEnd(src string, start int) int {
 	i := start
 	pending := 0
@@ -440,8 +455,12 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + elements[0].Start})
 				}
 			}
-			if flowLintTransformReferenceHeads[symbol] {
-				for _, element := range elements[1:] {
+			if referenceHead, ok := transformReferenceHead(symbol); ok {
+				allArgumentsCallable := flowLintTransformReferenceHeads[referenceHead]
+				for argumentIndex, element := range elements[1:] {
+					if !allArgumentsCallable && argumentIndex > 0 {
+						break
+					}
 					reference := clojureFormToken(src, element)
 					if rule, ok := unsupportedFlowFormRuleKey(reference); ok && flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
 						matches = append(matches, unsupportedFlowFormMatch{symbol: reference, rule: rule, offset: baseOffset + element.Start})

@@ -702,6 +702,7 @@ func TestFlowsLintLocalOnlyHonorsChainedReaderDiscardsForTransforms(t *testing.T
 func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 	for _, form := range []string{
 		`(apply map vector (:rows input))`,
+		`(clojure.core/apply map vector (:rows input))`,
 		`(partial filter :active)`,
 		`(comp mapv filterv)`,
 	} {
@@ -716,6 +717,25 @@ func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 			t.Fatalf("indirect transform reference must fail for %s\n%s", form, output)
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyIgnoresNonCallableApplyAndPartialArguments(t *testing.T) {
+	for _, form := range []string{
+		`(apply str map)`,
+		`(partial str filter)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("non-callable argument must stay valid for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
 }
 
