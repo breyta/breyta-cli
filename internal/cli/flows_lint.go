@@ -448,7 +448,16 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
-		case '\'', '`':
+		case '\'':
+			next, err := readClojureFormEnd(src, i+1)
+			if err != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case '`':
+			matches = append(matches, unsupportedSyntaxQuoteUnquoteMatches(src, i, baseOffset)...)
 			next, err := readClojureFormEnd(src, i+1)
 			if err != nil || next <= i+1 {
 				i++
@@ -485,6 +494,101 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 					}
 				}
 			}
+			if symbol == "let" || symbol == "let*" || symbol == "clojure.core/let" ||
+				symbol == "loop" || symbol == "loop*" || symbol == "clojure.core/loop" ||
+				symbol == "binding" || symbol == "clojure.core/binding" ||
+				symbol == "with-open" || symbol == "clojure.core/with-open" ||
+				symbol == "if-let" || symbol == "clojure.core/if-let" ||
+				symbol == "when-let" || symbol == "clojure.core/when-let" {
+				if len(elements) > 1 {
+					bindings, _, bindingErr := parseClojureVectorElements(src, elements[1].Start)
+					if bindingErr == nil {
+						for bindingIndex := 1; bindingIndex < len(bindings); bindingIndex += 2 {
+							matches = append(matches, unsupportedBareTransformReferenceMatches(src, bindings[bindingIndex], baseOffset)...)
+						}
+					}
+				}
+			}
+		}
+		i++
+	}
+	return matches
+}
+
+func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
+	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
+	if err != nil || !hasActive || activeEnd > span.End {
+		return nil
+	}
+	activeSpan := clojureFormSpan{Start: activeStart, End: activeEnd}
+	if rule, ok := unsupportedFlowFormRuleKey(clojureFormToken(src, activeSpan)); ok &&
+		flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
+		return []unsupportedFlowFormMatch{{symbol: clojureFormToken(src, activeSpan), rule: rule, offset: baseOffset + activeStart}}
+	}
+	return nil
+}
+
+func unsupportedTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
+	if matches := unsupportedBareTransformReferenceMatches(src, span, baseOffset); len(matches) > 0 {
+		return matches
+	}
+	return unsupportedFlowFormMatches(src[span.Start:span.End], baseOffset+span.Start)
+}
+
+// A syntax quote produces data, except for its unquoted forms. Those forms are
+// evaluated while the surrounding orchestration runs and therefore need the
+// same transform checks as ordinary executable forms.
+func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int) []unsupportedFlowFormMatch {
+	end, err := readClojureFormEnd(src, start+1)
+	if err != nil || end <= start+1 {
+		return nil
+	}
+	var matches []unsupportedFlowFormMatch
+	for i := start + 1; i < end; {
+		if strings.HasPrefix(src[i:], `#"`) {
+			next, regexErr := readClojureRegexTokenEnd(src, i+1)
+			if regexErr != nil || next <= i+1 {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			i = readerDiscardedRegionEnd(src, i)
+			continue
+		}
+		if taggedEnd, ok := clojureTaggedLiteralEnd(src, i); ok {
+			i = taggedEnd
+			continue
+		}
+		switch src[i] {
+		case '"':
+			_, _, next, stringErr := readClojureStringToken(src, i)
+			if stringErr != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
+		case ';':
+			i = readCommentEnd(src, i)
+			continue
+		case '~':
+			formStart := i + 1
+			if formStart < end && src[formStart] == '@' {
+				formStart++
+			}
+			activeStart, activeEnd, formEnd, hasActive, formErr := clojureActiveFormSpan(src, formStart)
+			if formErr == nil && hasActive && activeEnd <= end {
+				matches = append(matches, unsupportedTransformReferenceMatches(src, clojureFormSpan{Start: activeStart, End: activeEnd}, baseOffset)...)
+			}
+			if formErr == nil && formEnd > i {
+				i = formEnd
+			} else {
+				i++
+			}
+			continue
 		}
 		i++
 	}

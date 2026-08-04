@@ -721,6 +721,61 @@ func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *testing.T) {
+	for _, form := range []string{
+		`(let [xf map] (xf identity (:items input)))`,
+		`(let [xf ^:dynamic map] (xf identity (:items input)))`,
+		`(if-let [xf #'clojure.core/mapv] (xf identity (:items input)) [])`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("transform binding initializer must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
+	for _, tc := range []struct {
+		form    string
+		flagged bool
+	}{
+		{form: "`{:helper map}", flagged: false},
+		{form: "`{:items ~(map identity (:items input))}", flagged: true},
+		{form: "`{:helper ~^:dynamic map}", flagged: true},
+		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :syntax-quote-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, tc.form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if tc.flagged && err == nil {
+			t.Fatalf("unquoted syntax-quote transform must fail for %s\n%s", tc.form, output)
+		}
+		if !tc.flagged && err != nil {
+			t.Fatalf("quoted syntax-quote data must stay valid for %s: %v\n%s", tc.form, err, output)
+		}
+		if tc.flagged {
+			requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		} else {
+			rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		}
+	}
+
+	if matches := unsupportedFlowFormMatches(`(let [xs (map identity rows)] xs)`, 0); len(matches) != 1 {
+		t.Fatalf("nested binding initializer call must produce one diagnostic, got %#v", matches)
+	}
+}
+
 func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T) {
 	for _, form := range []string{
 		`(#?(:clj map :default identity) identity (:items input))`,
