@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -268,6 +269,48 @@ func TestClient_DoCommand_RetriesDiscoverSearchOnTransientStatus(t *testing.T) {
 	}
 }
 
+func TestClient_DoCommand_UsesStableOperationIDAcrossRetries(t *testing.T) {
+	origBackoffs := readCommandRetryBackoffs
+	readCommandRetryBackoffs = []time.Duration{0}
+	t.Cleanup(func() { readCommandRetryBackoffs = origBackoffs })
+
+	var operationIDs []string
+	var operationAttempts []string
+	c := Client{
+		BaseURL:     "https://flows.example.test",
+		WorkspaceID: "ws-acme",
+		Token:       "tok",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			operationIDs = append(operationIDs, r.Header.Get("X-Breyta-Operation-ID"))
+			operationAttempts = append(operationAttempts, r.Header.Get("X-Breyta-Operation-Attempt"))
+			if len(operationIDs) == 1 {
+				return httpJSON(http.StatusServiceUnavailable, map[string]any{"ok": false})
+			}
+			return httpJSON(http.StatusOK, map[string]any{"ok": true, "data": map[string]any{}})
+		})},
+	}
+
+	_, status, err := c.DoCommand(context.Background(), "runs.get", map[string]any{"workflowId": "wf-1"})
+	if err != nil {
+		t.Fatalf("DoCommand: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", status, http.StatusOK)
+	}
+	if len(operationIDs) != 2 {
+		t.Fatalf("operation id captures = %d, want 2", len(operationIDs))
+	}
+	if operationIDs[0] == "" {
+		t.Fatal("operation id is empty")
+	}
+	if operationIDs[0] != operationIDs[1] {
+		t.Fatalf("operation id changed across retry: %q != %q", operationIDs[0], operationIDs[1])
+	}
+	if want := []string{"1", "2"}; !reflect.DeepEqual(want, operationAttempts) {
+		t.Fatalf("operation attempts = %#v, want %#v", operationAttempts, want)
+	}
+}
+
 func TestRetryableCommandMarketingHubReadsOnly(t *testing.T) {
 	tests := []struct {
 		command string
@@ -476,11 +519,15 @@ func TestClient_DoCommand_DoesNotRetryMutatingCommandOnTransientStatus(t *testin
 func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	commandCalls := 0
 	bootstrapCalls := 0
+	commandOperationIDs := []string{}
+	commandOperationAttempts := []string{}
 
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/commands":
 			commandCalls++
+			commandOperationIDs = append(commandOperationIDs, r.Header.Get("X-Breyta-Operation-ID"))
+			commandOperationAttempts = append(commandOperationAttempts, r.Header.Get("X-Breyta-Operation-Attempt"))
 			if got := r.Header.Get("X-Breyta-Workspace"); got != "ws-acme" {
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "missing workspace"})
@@ -541,6 +588,18 @@ func TestClient_DoCommand_LocalMembership403BootstrapsAndRetries(t *testing.T) {
 	}
 	if bootstrapCalls != 1 {
 		t.Fatalf("expected one bootstrap call, got %d", bootstrapCalls)
+	}
+	if len(commandOperationIDs) != 2 {
+		t.Fatalf("expected two command operation IDs, got %#v", commandOperationIDs)
+	}
+	if commandOperationIDs[0] == "" {
+		t.Fatal("expected command operation ID")
+	}
+	if commandOperationIDs[0] != commandOperationIDs[1] {
+		t.Fatalf("expected stable operation ID across bootstrap retry, got %#v", commandOperationIDs)
+	}
+	if want := []string{"1", "2"}; !reflect.DeepEqual(want, commandOperationAttempts) {
+		t.Fatalf("operation attempts = %#v, want %#v", commandOperationAttempts, want)
 	}
 	meta, _ := out["meta"].(map[string]any)
 	bootstrap, _ := meta["localWorkspaceBootstrap"].(map[string]any)
