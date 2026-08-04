@@ -805,7 +805,11 @@ func ensureOrchestrationTransformGuidance(body string) string {
 		return body
 	}
 	if _, lineEnd, ok := lineContainingOutsideFences(body, "flows lint"); ok {
-		return body[:lineEnd] + orchestrationTransformGuidance + "\n" + body[lineEnd:]
+		separator := ""
+		if lineEnd > 0 && body[lineEnd-1] != '\n' {
+			separator = "\n"
+		}
+		return body[:lineEnd] + separator + orchestrationTransformGuidance + "\n" + body[lineEnd:]
 	}
 	for _, heading := range []string{"## Create/Edit Preflight", "## Default Loop", "## Core Rule"} {
 		if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {

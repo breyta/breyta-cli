@@ -726,6 +726,8 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [xf map] (xf identity (:items input)))`,
 		`(let [xf ^:dynamic map] (xf identity (:items input)))`,
 		`(if-let [xf #'clojure.core/mapv] (xf identity (:items input)) [])`,
+		`(if-some [xf mapv] (xf identity (:items input)) [])`,
+		`(when-some [xf filter] (xf identity (:items input)))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :binding-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -739,6 +741,23 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
+
+	for _, form := range []string{
+		`(let [map (:map input) xf map] xf)`,
+		`(let [{:keys [filter]} input xf filter] xf)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :shadowed-binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("shadowed transform name must stay valid for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
 }
 
 func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
@@ -750,6 +769,8 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 		{form: "`{:items ~(map identity (:items input))}", flagged: true},
 		{form: "`{:helper ~^:dynamic map}", flagged: true},
 		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
+		{form: "`#?(:cljs ~(map identity (:items input)) :clj :ok)", flagged: false},
+		{form: "`#?(:clj ~(map identity (:items input)) :cljs :ok)", flagged: true},
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :syntax-quote-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -773,6 +794,9 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 
 	if matches := unsupportedFlowFormMatches(`(let [xs (map identity rows)] xs)`, 0); len(matches) != 1 {
 		t.Fatalf("nested binding initializer call must produce one diagnostic, got %#v", matches)
+	}
+	if matches := unsupportedFlowFormMatches(`(#?@(:clj [#_ #_ :old map identity]) xs)`, 0); len(matches) != 0 {
+		t.Fatalf("spliced reader discard chain must expose identity, not map: %#v", matches)
 	}
 }
 

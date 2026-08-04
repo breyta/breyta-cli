@@ -499,12 +499,22 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 				symbol == "binding" || symbol == "clojure.core/binding" ||
 				symbol == "with-open" || symbol == "clojure.core/with-open" ||
 				symbol == "if-let" || symbol == "clojure.core/if-let" ||
-				symbol == "when-let" || symbol == "clojure.core/when-let" {
+				symbol == "when-let" || symbol == "clojure.core/when-let" ||
+				symbol == "if-some" || symbol == "clojure.core/if-some" ||
+				symbol == "when-some" || symbol == "clojure.core/when-some" {
 				if len(elements) > 1 {
 					bindings, _, bindingErr := parseClojureVectorElements(src, elements[1].Start)
 					if bindingErr == nil {
+						boundNames := map[string]bool{}
 						for bindingIndex := 1; bindingIndex < len(bindings); bindingIndex += 2 {
-							matches = append(matches, unsupportedBareTransformReferenceMatches(src, bindings[bindingIndex], baseOffset)...)
+							initializer := bindings[bindingIndex]
+							initializerToken, _, initializerIsToken := clojureActiveBareToken(src, initializer)
+							if !initializerIsToken || strings.Contains(initializerToken, "/") || !boundNames[initializerToken] {
+								matches = append(matches, unsupportedBareTransformReferenceMatches(src, initializer, baseOffset)...)
+							}
+							for name := range clojureBindingNames(src, bindings[bindingIndex-1]) {
+								boundNames[name] = true
+							}
 						}
 					}
 				}
@@ -515,15 +525,90 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 	return matches
 }
 
-func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
+func clojureActiveBareToken(src string, span clojureFormSpan) (string, int, bool) {
 	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
 	if err != nil || !hasActive || activeEnd > span.End {
+		return "", 0, false
+	}
+	token := strings.TrimSpace(src[activeStart:activeEnd])
+	if token == "" {
+		return "", 0, false
+	}
+	if strings.HasPrefix(token, "#'") {
+		if readClojureTokenEnd(src, activeStart+2) != activeEnd {
+			return "", 0, false
+		}
+		return token, activeStart, true
+	}
+	if readClojureTokenEnd(src, activeStart) != activeEnd {
+		return "", 0, false
+	}
+	return token, activeStart, true
+}
+
+func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
+	names := map[string]bool{}
+	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
+	if err != nil || !hasActive || activeEnd > span.End {
+		return names
+	}
+	if token, _, ok := clojureActiveBareToken(src, span); ok {
+		if token != "_" && token != "&" && token != ":as" && !strings.HasPrefix(token, ":") && !strings.Contains(token, "/") {
+			names[token] = true
+		}
+		return names
+	}
+	merge := func(found map[string]bool) {
+		for name := range found {
+			names[name] = true
+		}
+	}
+	switch src[activeStart] {
+	case '[':
+		elements, _, vectorErr := parseClojureVectorElements(src, activeStart)
+		if vectorErr == nil {
+			for _, element := range elements {
+				merge(clojureBindingNames(src, element))
+			}
+		}
+	case '{':
+		entries, _, mapErr := parseClojureMapEntries(src, activeStart)
+		if mapErr == nil {
+			for _, entry := range entries {
+				switch {
+				case entry.KeyToken == ":keys" || entry.KeyToken == ":syms" || entry.KeyToken == ":strs" ||
+					strings.HasSuffix(entry.KeyToken, "/keys") || strings.HasSuffix(entry.KeyToken, "/syms"):
+					valueSpan := clojureFormSpan{Start: entry.ValueStart, End: entry.ValueEnd}
+					valueStart, _, _, valueActive, valueErr := clojureActiveFormSpan(src, entry.ValueStart)
+					if valueErr == nil && valueActive && valueStart < len(src) && src[valueStart] == '[' {
+						elements, _, vectorErr := parseClojureVectorElements(src, valueStart)
+						if vectorErr == nil {
+							for _, element := range elements {
+								merge(clojureBindingNames(src, element))
+							}
+						}
+					} else {
+						merge(clojureBindingNames(src, valueSpan))
+					}
+				case entry.KeyToken == ":as":
+					merge(clojureBindingNames(src, clojureFormSpan{Start: entry.ValueStart, End: entry.ValueEnd}))
+				case !strings.HasPrefix(entry.KeyToken, ":"):
+					merge(clojureBindingNames(src, clojureFormSpan{Start: entry.KeyStart, End: entry.KeyEnd}))
+				}
+			}
+		}
+	}
+	return names
+}
+
+func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
+	token, activeStart, ok := clojureActiveBareToken(src, span)
+	if !ok {
 		return nil
 	}
-	activeSpan := clojureFormSpan{Start: activeStart, End: activeEnd}
-	if rule, ok := unsupportedFlowFormRuleKey(clojureFormToken(src, activeSpan)); ok &&
+	if rule, ok := unsupportedFlowFormRuleKey(token); ok &&
 		flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
-		return []unsupportedFlowFormMatch{{symbol: clojureFormToken(src, activeSpan), rule: rule, offset: baseOffset + activeStart}}
+		return []unsupportedFlowFormMatch{{symbol: token, rule: rule, offset: baseOffset + activeStart}}
 	}
 	return nil
 }
@@ -543,8 +628,12 @@ func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int)
 	if err != nil || end <= start+1 {
 		return nil
 	}
+	return unsupportedSyntaxQuoteRangeMatches(src, start+1, end, baseOffset)
+}
+
+func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
-	for i := start + 1; i < end; {
+	for i := start; i < end; {
 		if strings.HasPrefix(src[i:], `#"`) {
 			next, regexErr := readClojureRegexTokenEnd(src, i+1)
 			if regexErr != nil || next <= i+1 {
@@ -557,6 +646,20 @@ func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int)
 		if strings.HasPrefix(src[i:], "#_") {
 			i = readerDiscardedRegionEnd(src, i)
 			continue
+		}
+		if strings.HasPrefix(src[i:], "#?") {
+			activeStart, activeEnd, next, ok := activeReaderConditionalForm(src, i)
+			if ok {
+				if activeStart >= 0 {
+					matches = append(matches, unsupportedSyntaxQuoteRangeMatches(src, activeStart, activeEnd, baseOffset)...)
+				}
+				if next > i {
+					i = next
+				} else {
+					i++
+				}
+				continue
+			}
 		}
 		if taggedEnd, ok := clojureTaggedLiteralEnd(src, i); ok {
 			i = taggedEnd
@@ -636,7 +739,7 @@ func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, i
 				}
 				switch src[activeStart] {
 				case '[':
-					spliced, branchEnd, branchErr = parseClojureVectorElements(src, activeStart)
+					spliced, branchEnd, branchErr = parseActiveClojureVectorElements(src, activeStart)
 				case '(':
 					spliced, branchEnd, branchErr = parseActiveClojureListElements(src, activeStart)
 				default:
@@ -659,6 +762,68 @@ func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, i
 		i = formEnd
 	}
 	return out, i, fmt.Errorf("unterminated list")
+}
+
+func parseActiveClojureVectorElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) || src[i] != '[' {
+		return nil, i, fmt.Errorf("expected vector near byte %d", start)
+	}
+	i++
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated vector")
+		}
+		if src[i] == ']' {
+			return out, i + 1, nil
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			discardEnd := readerDiscardedRegionEnd(src, i)
+			if discardEnd <= i {
+				return out, i, fmt.Errorf("could not advance past discarded vector forms near byte %d", i)
+			}
+			i = discardEnd
+			continue
+		}
+		activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+		if err != nil {
+			return out, formEnd, err
+		}
+		if hasActive {
+			if strings.HasPrefix(src[i:], "#?@") {
+				var spliced []clojureFormSpan
+				var branchEnd int
+				var branchErr error
+				if activeStart >= activeEnd || activeStart >= len(src) {
+					return out, i, fmt.Errorf("splicing reader conditional selected an empty branch near byte %d", i)
+				}
+				switch src[activeStart] {
+				case '[':
+					spliced, branchEnd, branchErr = parseActiveClojureVectorElements(src, activeStart)
+				case '(':
+					spliced, branchEnd, branchErr = parseActiveClojureListElements(src, activeStart)
+				default:
+					return out, i, fmt.Errorf("splicing reader conditional must select a vector or list near byte %d", i)
+				}
+				if branchErr != nil {
+					return out, i, branchErr
+				}
+				if branchEnd != activeEnd {
+					return out, i, fmt.Errorf("splicing reader conditional branch did not consume its collection near byte %d", i)
+				}
+				out = append(out, spliced...)
+			} else {
+				out = append(out, clojureFormSpan{Start: activeStart, End: activeEnd})
+			}
+		}
+		if formEnd <= i {
+			return out, formEnd, fmt.Errorf("could not advance past vector element near byte %d", i)
+		}
+		i = formEnd
+	}
+	return out, i, fmt.Errorf("unterminated vector")
 }
 
 func clojureTaggedLiteralEnd(src string, start int) (int, bool) {

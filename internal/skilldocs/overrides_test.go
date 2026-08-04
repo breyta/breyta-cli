@@ -339,6 +339,15 @@ func TestApplyCLIOverrides_InsertsTransformGuidanceOutsideLintCodeFence(t *testi
 	}
 }
 
+func TestApplyCLIOverrides_SeparatesTransformGuidanceAfterFinalLintLine(t *testing.T) {
+	body := "## Default Loop\n\n- Run `breyta flows lint --file ./flow.clj` before push."
+
+	got := ensureOrchestrationTransformGuidance(body)
+	if !strings.Contains(got, "before push.\n- Keep orchestration focused") {
+		t.Fatalf("expected transform guidance on a new line, got:\n%s", got)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{
