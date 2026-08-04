@@ -506,6 +506,11 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
+			if symbol == "try" {
+				matches = append(matches, unsupportedTryFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
 			if isFlowLintBindingForm(symbol) {
 				matches = append(matches, unsupportedBindingFormMatches(src, symbol, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
@@ -570,7 +575,8 @@ func isFlowLintBindingForm(symbol string) bool {
 	case "let", "let*", "clojure.core/let", "loop", "loop*", "clojure.core/loop",
 		"with-open", "clojure.core/with-open",
 		"if-let", "clojure.core/if-let", "when-let", "clojure.core/when-let",
-		"if-some", "clojure.core/if-some", "when-some", "clojure.core/when-some":
+		"if-some", "clojure.core/if-some", "when-some", "clojure.core/when-some",
+		"when-first", "clojure.core/when-first":
 		return true
 	default:
 		return false
@@ -824,6 +830,37 @@ func unsupportedCaseFormMatches(src string, elements []clojureFormSpan, baseOffs
 	return matches
 }
 
+func unsupportedTryFormMatches(src string, elements []clojureFormSpan, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	var matches []unsupportedFlowFormMatch
+	for _, element := range elements[1:] {
+		parts, _, err := parseActiveClojureListElements(src, element.Start)
+		if err == nil && len(parts) > 0 {
+			head := clojureFormToken(src, parts[0])
+			switch head {
+			case "catch":
+				if len(parts) < 3 {
+					continue
+				}
+				catchBoundNames := cloneFlowLintBoundNames(boundNames)
+				if name, _, ok := clojureActiveBareToken(src, parts[2]); ok {
+					catchBoundNames[name] = true
+				}
+				for _, body := range parts[3:] {
+					matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, catchBoundNames, flagBareReferences)...)
+				}
+				continue
+			case "finally":
+				for _, body := range parts[1:] {
+					matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
+				}
+				continue
+			}
+		}
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[element.Start:element.End], baseOffset+element.Start, boundNames, flagBareReferences)...)
+	}
+	return matches
+}
+
 func clojureActiveBareToken(src string, span clojureFormSpan) (string, int, bool) {
 	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
 	if err != nil || !hasActive || activeEnd > span.End {
@@ -887,7 +924,7 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 						if vectorErr == nil {
 							for _, element := range elements {
 								if token, _, ok := clojureActiveBareToken(src, element); ok {
-									token = strings.TrimPrefix(token, ":")
+									token = strings.TrimLeft(token, ":")
 									if slash := strings.LastIndex(token, "/"); slash >= 0 && slash+1 < len(token) {
 										token = token[slash+1:]
 									}

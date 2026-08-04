@@ -747,12 +747,16 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [{:keys [filter]} input xf filter] xf)`,
 		`(let [{:keys [customer/map]} input] (map :id))`,
 		`(let [{:keys [:customer/map]} input] (map :id))`,
+		`(let [{:keys [::map]} input] (map :id))`,
 		`(let [map (:map input)] (map :key))`,
 		`(let [f (fn [map] (map :id))] (f (:map input)))`,
 		`(let [f (fn named ([filter] (filter :id)) ([filter x] (filter x)))] (f (:filter input)))`,
 		`(letfn [(map [row] (:id row))] (map input))`,
 		`(letfn [(map ([row] (:id row)) ([row key] (key row)))] (map input))`,
 		`(for [map (:maps input)] (map :id))`,
+		`(when-first [map (:maps input)] (map :id))`,
+		`(try (identity input) (catch Exception map :fallback))`,
+		`(try (identity input) (catch Exception map (map :id)))`,
 		`(let [x (case (:kind input) map :mapped :other)] x)`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :shadowed-binding-transform
