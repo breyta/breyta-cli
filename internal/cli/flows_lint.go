@@ -491,6 +491,11 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
+			if symbol == "letfn" || symbol == "letfn*" || symbol == "clojure.core/letfn" {
+				matches = append(matches, unsupportedLetfnFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
 			if symbol == "case" || symbol == "clojure.core/case" {
 				matches = append(matches, unsupportedCaseFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
@@ -629,9 +634,9 @@ func unsupportedFnFormMatches(src string, elements []clojureFormSpan, baseOffset
 	}
 	var matches []unsupportedFlowFormMatch
 	if clojureFormStartsWith(src, elements[formIndex].Start, '[') {
-		for name := range clojureBindingNames(src, elements[formIndex]) {
-			boundNames[name] = true
-		}
+		parameterMatches, parameterBoundNames := unsupportedFnParameterMatches(src, elements[formIndex], baseOffset, boundNames)
+		matches = append(matches, parameterMatches...)
+		boundNames = parameterBoundNames
 		for _, body := range elements[formIndex+1:] {
 			matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
 		}
@@ -643,12 +648,81 @@ func unsupportedFnFormMatches(src string, elements []clojureFormSpan, baseOffset
 			continue
 		}
 		arityBoundNames := cloneFlowLintBoundNames(boundNames)
-		for name := range clojureBindingNames(src, arityElements[0]) {
-			arityBoundNames[name] = true
-		}
+		parameterMatches, parameterBoundNames := unsupportedFnParameterMatches(src, arityElements[0], baseOffset, arityBoundNames)
+		matches = append(matches, parameterMatches...)
+		arityBoundNames = parameterBoundNames
 		for _, body := range arityElements[1:] {
 			matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, arityBoundNames, flagBareReferences)...)
 		}
+	}
+	return matches
+}
+
+func unsupportedFnParameterMatches(src string, parameters clojureFormSpan, baseOffset int, outerBoundNames map[string]bool) ([]unsupportedFlowFormMatch, map[string]bool) {
+	boundNames := cloneFlowLintBoundNames(outerBoundNames)
+	elements, _, err := parseActiveClojureVectorElements(src, parameters.Start)
+	if err != nil {
+		return nil, boundNames
+	}
+	var matches []unsupportedFlowFormMatch
+	for _, parameter := range elements {
+		if token, _, ok := clojureActiveBareToken(src, parameter); ok && token == "&" {
+			continue
+		}
+		for _, defaultSpan := range clojureBindingDefaultSpans(src, parameter) {
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, boundNames, true)...)
+		}
+		for name := range clojureBindingNames(src, parameter) {
+			boundNames[name] = true
+		}
+	}
+	return matches, boundNames
+}
+
+func unsupportedLetfnFormMatches(src string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	definitions, _, err := parseActiveClojureVectorElements(src, elements[1].Start)
+	if err != nil {
+		return nil
+	}
+	boundNames := cloneFlowLintBoundNames(outerBoundNames)
+	definitionElements := make([][]clojureFormSpan, 0, len(definitions))
+	for _, definition := range definitions {
+		parts, _, definitionErr := parseActiveClojureListElements(src, definition.Start)
+		if definitionErr != nil || len(parts) < 2 {
+			continue
+		}
+		definitionElements = append(definitionElements, parts)
+		if name, _, ok := clojureActiveBareToken(src, parts[0]); ok {
+			boundNames[name] = true
+		}
+	}
+	var matches []unsupportedFlowFormMatch
+	for _, parts := range definitionElements {
+		if clojureFormStartsWith(src, parts[1].Start, '[') {
+			parameterMatches, definitionBoundNames := unsupportedFnParameterMatches(src, parts[1], baseOffset, boundNames)
+			matches = append(matches, parameterMatches...)
+			for _, body := range parts[2:] {
+				matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, definitionBoundNames, flagBareReferences)...)
+			}
+			continue
+		}
+		for _, arity := range parts[1:] {
+			arityParts, _, arityErr := parseActiveClojureListElements(src, arity.Start)
+			if arityErr != nil || len(arityParts) == 0 || !clojureFormStartsWith(src, arityParts[0].Start, '[') {
+				continue
+			}
+			parameterMatches, definitionBoundNames := unsupportedFnParameterMatches(src, arityParts[0], baseOffset, boundNames)
+			matches = append(matches, parameterMatches...)
+			for _, body := range arityParts[1:] {
+				matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, definitionBoundNames, flagBareReferences)...)
+			}
+		}
+	}
+	for _, body := range elements[2:] {
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
 	}
 	return matches
 }
@@ -788,7 +862,15 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 						elements, _, vectorErr := parseClojureVectorElements(src, valueStart)
 						if vectorErr == nil {
 							for _, element := range elements {
-								merge(clojureBindingNames(src, element))
+								if token, _, ok := clojureActiveBareToken(src, element); ok {
+									token = strings.TrimPrefix(token, ":")
+									if slash := strings.LastIndex(token, "/"); slash >= 0 && slash+1 < len(token) {
+										token = token[slash+1:]
+									}
+									if token != "" {
+										names[token] = true
+									}
+								}
 							}
 						}
 					} else {
