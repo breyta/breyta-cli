@@ -745,7 +745,12 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 	for _, form := range []string{
 		`(let [map (:map input) xf map] xf)`,
 		`(let [{:keys [filter]} input xf filter] xf)`,
+		`(let [{:keys [customer/map]} input] (map :id))`,
 		`(let [map (:map input)] (map :key))`,
+		`(let [f (fn [map] (map :id))] (f (:map input)))`,
+		`(let [f (fn named ([filter] (filter :id)) ([filter x] (filter x)))] (f (:filter input)))`,
+		`(for [map (:maps input)] (map :id))`,
+		`(let [x (case (:kind input) map :mapped :other)] x)`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :shadowed-binding-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -765,6 +770,9 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [xf (identity map)] xf)`,
 		`(let [xf (let [] map)] xf)`,
 		`(let [{:keys [xf] :or {xf map}} input] xf)`,
+		`(if-let [map (:maybe input)] :ok (map identity (:rows input)))`,
+		`(for [x map] x)`,
+		`(let [x (case (:kind input) :mapped map :other)] x)`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :nested-binding-transform
  :concurrency {:type :singleton :on-new-version :coexist}

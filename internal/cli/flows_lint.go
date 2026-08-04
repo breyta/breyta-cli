@@ -481,8 +481,23 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
+			if isFlowLintFnForm(symbol) {
+				matches = append(matches, unsupportedFnFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
+			if symbol == "for" || symbol == "clojure.core/for" || symbol == "doseq" || symbol == "clojure.core/doseq" {
+				matches = append(matches, unsupportedComprehensionMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
+			if symbol == "case" || symbol == "clojure.core/case" {
+				matches = append(matches, unsupportedCaseFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
 			if isFlowLintBindingForm(symbol) {
-				matches = append(matches, unsupportedBindingFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				matches = append(matches, unsupportedBindingFormMatches(src, symbol, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
 			}
@@ -531,6 +546,15 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 	return matches
 }
 
+func isFlowLintFnForm(symbol string) bool {
+	switch symbol {
+	case "fn", "fn*", "clojure.core/fn":
+		return true
+	default:
+		return false
+	}
+}
+
 func isFlowLintBindingForm(symbol string) bool {
 	switch symbol {
 	case "let", "let*", "clojure.core/let", "loop", "loop*", "clojure.core/loop",
@@ -558,7 +582,7 @@ func cloneFlowLintBoundNames(boundNames map[string]bool) map[string]bool {
 	return cloned
 }
 
-func unsupportedBindingFormMatches(src string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+func unsupportedBindingFormMatches(src, symbol string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
 	if len(elements) < 2 {
 		return nil
 	}
@@ -578,8 +602,126 @@ func unsupportedBindingFormMatches(src string, elements []clojureFormSpan, baseO
 			boundNames[name] = true
 		}
 	}
+	for bodyIndex, body := range elements[2:] {
+		bodyBoundNames := boundNames
+		if (symbol == "if-let" || symbol == "clojure.core/if-let" || symbol == "if-some" || symbol == "clojure.core/if-some") && bodyIndex == 1 {
+			bodyBoundNames = outerBoundNames
+		}
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, bodyBoundNames, flagBareReferences)...)
+	}
+	return matches
+}
+
+func unsupportedFnFormMatches(src string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	boundNames := cloneFlowLintBoundNames(outerBoundNames)
+	formIndex := 1
+	if token, _, ok := clojureActiveBareToken(src, elements[formIndex]); ok {
+		if token != "" && !strings.HasPrefix(token, ":") {
+			boundNames[token] = true
+			formIndex++
+		}
+	}
+	if formIndex >= len(elements) {
+		return nil
+	}
+	var matches []unsupportedFlowFormMatch
+	if clojureFormStartsWith(src, elements[formIndex].Start, '[') {
+		for name := range clojureBindingNames(src, elements[formIndex]) {
+			boundNames[name] = true
+		}
+		for _, body := range elements[formIndex+1:] {
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
+		}
+		return matches
+	}
+	for _, arity := range elements[formIndex:] {
+		arityElements, _, err := parseActiveClojureListElements(src, arity.Start)
+		if err != nil || len(arityElements) == 0 || !clojureFormStartsWith(src, arityElements[0].Start, '[') {
+			continue
+		}
+		arityBoundNames := cloneFlowLintBoundNames(boundNames)
+		for name := range clojureBindingNames(src, arityElements[0]) {
+			arityBoundNames[name] = true
+		}
+		for _, body := range arityElements[1:] {
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, arityBoundNames, flagBareReferences)...)
+		}
+	}
+	return matches
+}
+
+func unsupportedComprehensionMatches(src string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	bindings, _, err := parseActiveClojureVectorElements(src, elements[1].Start)
+	if err != nil {
+		return nil
+	}
+	boundNames := cloneFlowLintBoundNames(outerBoundNames)
+	var matches []unsupportedFlowFormMatch
+	for bindingIndex := 0; bindingIndex < len(bindings); {
+		token, _, tokenOK := clojureActiveBareToken(src, bindings[bindingIndex])
+		if tokenOK && token == ":let" && bindingIndex+1 < len(bindings) {
+			letBindings, _, letErr := parseActiveClojureVectorElements(src, bindings[bindingIndex+1].Start)
+			if letErr == nil {
+				for letIndex := 1; letIndex < len(letBindings); letIndex += 2 {
+					initializer := letBindings[letIndex]
+					matches = append(matches, unsupportedFlowFormMatchesScoped(src[initializer.Start:initializer.End], baseOffset+initializer.Start, boundNames, true)...)
+					for _, defaultSpan := range clojureBindingDefaultSpans(src, letBindings[letIndex-1]) {
+						matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, boundNames, true)...)
+					}
+					for name := range clojureBindingNames(src, letBindings[letIndex-1]) {
+						boundNames[name] = true
+					}
+				}
+			}
+			bindingIndex += 2
+			continue
+		}
+		if tokenOK && (token == ":when" || token == ":while") && bindingIndex+1 < len(bindings) {
+			condition := bindings[bindingIndex+1]
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[condition.Start:condition.End], baseOffset+condition.Start, boundNames, true)...)
+			bindingIndex += 2
+			continue
+		}
+		if bindingIndex+1 >= len(bindings) {
+			break
+		}
+		collection := bindings[bindingIndex+1]
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[collection.Start:collection.End], baseOffset+collection.Start, boundNames, true)...)
+		for _, defaultSpan := range clojureBindingDefaultSpans(src, bindings[bindingIndex]) {
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, boundNames, true)...)
+		}
+		for name := range clojureBindingNames(src, bindings[bindingIndex]) {
+			boundNames[name] = true
+		}
+		bindingIndex += 2
+	}
 	for _, body := range elements[2:] {
 		matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
+	}
+	return matches
+}
+
+func unsupportedCaseFormMatches(src string, elements []clojureFormSpan, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	var matches []unsupportedFlowFormMatch
+	test := elements[1]
+	matches = append(matches, unsupportedFlowFormMatchesScoped(src[test.Start:test.End], baseOffset+test.Start, boundNames, flagBareReferences)...)
+	remaining := elements[2:]
+	for resultIndex := 1; resultIndex < len(remaining); resultIndex += 2 {
+		result := remaining[resultIndex]
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[result.Start:result.End], baseOffset+result.Start, boundNames, flagBareReferences)...)
+	}
+	if len(remaining)%2 == 1 {
+		fallback := remaining[len(remaining)-1]
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[fallback.Start:fallback.End], baseOffset+fallback.Start, boundNames, flagBareReferences)...)
 	}
 	return matches
 }
@@ -612,7 +754,10 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 		return names
 	}
 	if token, _, ok := clojureActiveBareToken(src, span); ok {
-		if token != "_" && token != "&" && token != ":as" && !strings.HasPrefix(token, ":") && !strings.Contains(token, "/") {
+		if token != "_" && token != "&" && token != ":as" && !strings.HasPrefix(token, ":") {
+			if slash := strings.LastIndex(token, "/"); slash >= 0 && slash+1 < len(token) {
+				token = token[slash+1:]
+			}
 			names[token] = true
 		}
 		return names
