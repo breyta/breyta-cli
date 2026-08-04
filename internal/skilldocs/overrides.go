@@ -831,12 +831,15 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 			sectionEnd = len(body)
 		}
 		section := body[headingPos:sectionEnd]
-		missing := make([]string, 0, 2)
+		missing := make([]string, 0, 3)
 		if !strings.Contains(section, "--input 'name:type[:required|optional[:label]]'") {
 			missing = append(missing, manualInvocationContractGuidance)
 		}
 		if !strings.Contains(section, "`meta.localPath` and `meta.nextCommands`") {
 			missing = append(missing, savedLocalRecoveryGuidance)
+		}
+		if !strings.Contains(section, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+			missing = append(missing, orchestrationTransformGuidance)
 		}
 		if len(missing) == 0 {
 			return body

@@ -296,6 +296,10 @@ func localUnsupportedFlowFormDiagnostics(flowLiteral string) []flowLintDiagnosti
 	}
 	flowSource, readerOffset := unwrapTopLevelReaderConditionalFlowSource(flowSource)
 	baseOffset += readerOffset
+	flowSource, metadataOffset := unwrapTopLevelMetadataFlowSource(flowSource)
+	baseOffset += metadataOffset
+	flowSource, readerOffset = unwrapTopLevelReaderConditionalFlowSource(flowSource)
+	baseOffset += readerOffset
 	flowSource, unwrappedOffset := unwrapTopLevelQuotedFlowSource(flowSource)
 	baseOffset += unwrappedOffset
 	var diagnostics []flowLintDiagnostic
@@ -959,7 +963,7 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 					valueSpan := clojureFormSpan{Start: entry.ValueStart, End: entry.ValueEnd}
 					valueStart, _, _, valueActive, valueErr := clojureActiveFormSpan(src, entry.ValueStart)
 					if valueErr == nil && valueActive && valueStart < len(src) && src[valueStart] == '[' {
-						elements, _, vectorErr := parseClojureVectorElements(src, valueStart)
+						elements, _, vectorErr := parseActiveClojureVectorElements(src, valueStart)
 						if vectorErr == nil {
 							for _, element := range elements {
 								if token, _, ok := clojureActiveBareToken(src, element); ok {
@@ -1405,6 +1409,26 @@ func unwrapTopLevelReaderConditionalFlowSource(src string) (string, int) {
 		return src, 0
 	}
 	return src[formStart:formEnd], formStart
+}
+
+func unwrapTopLevelMetadataFlowSource(src string) (string, int) {
+	i := skipClojureWhitespaceCommaAndComments(src, 0)
+	if i >= len(src) || (src[i] != '^' && !strings.HasPrefix(src[i:], "#^")) {
+		return src, 0
+	}
+	metadataStart := i + 1
+	if src[i] == '#' {
+		metadataStart++
+	}
+	metadataEnd, err := readClojureFormEnd(src, metadataStart)
+	if err != nil || metadataEnd <= metadataStart {
+		return src, 0
+	}
+	formStart := skipClojureWhitespaceCommaAndComments(src, metadataEnd)
+	if formStart >= len(src) {
+		return src, 0
+	}
+	return src[formStart:], formStart
 }
 
 func localReaderEvalDiagnostics(flowLiteral string) []flowLintDiagnostic {

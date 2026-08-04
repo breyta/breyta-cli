@@ -785,6 +785,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
 		`(let [{:keys [map] :or {map map}} input] map)`,
 		`(let [[#_ #_ :old map] (:items input)] (map identity (:rows input)))`,
+		`(let [{:keys [#_ #_ :old map]} input] (map identity (:rows input)))`,
 		`(let [f (fn [{:keys [xf] :or {xf map}}] xf)] f)`,
 		`(letfn [(f [row] (map :id row))] f)`,
 		`(if-let [map (:maybe input)] :ok (map identity (:rows input)))`,
@@ -803,6 +804,20 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
+}
+
+func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
+	flowLiteral := `{:slug :metadata-wrapped-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow ^:lint '(map identity rows)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("metadata-wrapped quoted flow transform must fail\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
 func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {

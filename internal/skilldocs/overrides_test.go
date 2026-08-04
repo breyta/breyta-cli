@@ -663,6 +663,9 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	if !strings.Contains(body, "`meta.localPath` and `meta.nextCommands`") {
 		t.Fatalf("expected saved-local recovery guidance, got:\n%s", body)
 	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected transform guidance backfilled into the existing local section, got:\n%s", body)
+	}
 	if !strings.Contains(body, "- existing content") {
 		t.Fatalf("expected upstream local-authoring guidance to be preserved, got:\n%s", body)
 	}
