@@ -723,6 +723,7 @@ func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T) {
 	for _, form := range []string{
 		`(#?(:clj map :default identity) identity (:items input))`,
+		`(#?@(:clj [map identity]) (:items input))`,
 		`(#_identity map identity (:items input))`,
 		`(^:trace map identity (:items input))`,
 	} {
@@ -737,6 +738,22 @@ func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T)
 			t.Fatalf("reader-resolved transform call must fail for %s\n%s", form, output)
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestUnsupportedFlowFormMatchesSkipsReaderMacroData(t *testing.T) {
+	for _, source := range []string{
+		`^{:example (mapv identity xs)} target`,
+		`#my/tag (mapv identity xs)`,
+	} {
+		if matches := unsupportedFlowFormMatches(source, 0); len(matches) != 0 {
+			t.Fatalf("reader-macro data must not be treated as executable for %s: %#v", source, matches)
+		}
+	}
+
+	matches := unsupportedFlowFormMatches(`^:trace (mapv identity xs)`, 0)
+	if len(matches) != 1 || matches[0].rule != "mapv" {
+		t.Fatalf("metadata-wrapped executable transform must still be reported: %#v", matches)
 	}
 }
 

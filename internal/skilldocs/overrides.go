@@ -609,7 +609,7 @@ const focusedStepRunProofBullet = "- `breyta flows steps run` and `breyta steps 
 
 const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
 
-const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
+const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound. Keep orchestration focused on `flow/step`; use `for`/`for` with `:when` for step orchestration and move data transforms such as `map`, `filter`, and `reduce` into a `:function` step."
 
 const flowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
 
@@ -622,6 +622,7 @@ it to a workspace draft:
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
+- Keep orchestration focused on ` + "`flow/step`" + `; use ` + "`for`" + `/` + "`for`" + ` with ` + "`:when`" + ` for step orchestration and move data transforms such as ` + "`map`" + `, ` + "`filter`" + `, and ` + "`reduce`" + ` into a ` + "`:function`" + ` step.
 - Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.

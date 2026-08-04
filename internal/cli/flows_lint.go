@@ -418,6 +418,22 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			i = readerDiscardedRegionEnd(src, i)
 			continue
 		}
+		if src[i] == '^' || strings.HasPrefix(src[i:], "#^") {
+			activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+			if err != nil || formEnd <= i {
+				i++
+			} else {
+				if hasActive {
+					matches = append(matches, unsupportedFlowFormMatches(src[activeStart:activeEnd], baseOffset+activeStart)...)
+				}
+				i = formEnd
+			}
+			continue
+		}
+		if taggedEnd, ok := clojureTaggedLiteralEnd(src, i); ok {
+			i = taggedEnd
+			continue
+		}
 		switch src[i] {
 		case '"':
 			_, _, next, err := readClojureStringToken(src, i)
@@ -497,7 +513,31 @@ func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, i
 			return out, formEnd, err
 		}
 		if hasActive {
-			out = append(out, clojureFormSpan{Start: activeStart, End: activeEnd})
+			if strings.HasPrefix(src[i:], "#?@") {
+				var spliced []clojureFormSpan
+				var branchEnd int
+				var branchErr error
+				if activeStart >= activeEnd || activeStart >= len(src) {
+					return out, i, fmt.Errorf("splicing reader conditional selected an empty branch near byte %d", i)
+				}
+				switch src[activeStart] {
+				case '[':
+					spliced, branchEnd, branchErr = parseClojureVectorElements(src, activeStart)
+				case '(':
+					spliced, branchEnd, branchErr = parseActiveClojureListElements(src, activeStart)
+				default:
+					return out, i, fmt.Errorf("splicing reader conditional must select a vector or list near byte %d", i)
+				}
+				if branchErr != nil {
+					return out, i, branchErr
+				}
+				if branchEnd != activeEnd {
+					return out, i, fmt.Errorf("splicing reader conditional branch did not consume its collection near byte %d", i)
+				}
+				out = append(out, spliced...)
+			} else {
+				out = append(out, clojureFormSpan{Start: activeStart, End: activeEnd})
+			}
 		}
 		if formEnd <= i {
 			return out, formEnd, fmt.Errorf("could not advance past list element near byte %d", i)
@@ -505,6 +545,26 @@ func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, i
 		i = formEnd
 	}
 	return out, i, fmt.Errorf("unterminated list")
+}
+
+func clojureTaggedLiteralEnd(src string, start int) (int, bool) {
+	if start < 0 || start+1 >= len(src) || src[start] != '#' {
+		return start, false
+	}
+	switch src[start+1] {
+	case '"', '?', '_', '{', '(', '\'', '^', '#', '=':
+		return start, false
+	}
+	tagEnd := readClojureTokenEnd(src, start+1)
+	if tagEnd <= start+1 {
+		return start, false
+	}
+	valueStart := skipClojureWhitespaceCommaAndComments(src, tagEnd)
+	valueEnd, err := readClojureFormEnd(src, valueStart)
+	if err != nil || valueEnd <= valueStart {
+		return start, false
+	}
+	return valueEnd, true
 }
 
 func unwrapTopLevelQuotedFlowSource(src string) (string, int) {

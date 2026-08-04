@@ -218,6 +218,9 @@ payload is large enough to hit shell or OS argument limits.
 Run `breyta flows lint --file ./flows/<slug>.clj` before push; use
 `--local-only` for offline checks, `--server` when canonical pre-push checks
 matter, and `--timeout <duration>` when server lint needs a longer bound.
+Keep orchestration focused on `flow/step`: use `for` or `for` with `:when` for
+step orchestration, and move data transforms such as `map`, `filter`, and
+`reduce` into a `:function` step.
 
 Local lint also reports flow/step shape errors mirroring push validation and
 warns on packaged steps never referenced from `:flow` (plain-literal forms
