@@ -884,10 +884,14 @@ func TestUnsupportedFlowFormMatchesSkipsReaderMacroData(t *testing.T) {
 	}
 }
 
-func TestFlowsLintLocalOnlyIgnoresNonCallableApplyAndPartialArguments(t *testing.T) {
+func TestFlowsLintLocalOnlyRejectsEvaluatedTransformReferences(t *testing.T) {
 	for _, form := range []string{
 		`(apply str map)`,
 		`(partial str filter)`,
+		`(identity map)`,
+		`{:xf map}`,
+		`(let [comment (fn [x] x)] (comment (map identity (:rows input))))`,
+		`(binding [map (:map input)] (map identity (:rows input)))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform-data
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -896,10 +900,10 @@ func TestFlowsLintLocalOnlyIgnoresNonCallableApplyAndPartialArguments(t *testing
  :flow '(let [input (flow/input)] %s)}
 `, form)
 		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
-		if err != nil {
-			t.Fatalf("non-callable argument must stay valid for %s: %v\n%s", form, err, output)
+		if err == nil {
+			t.Fatalf("evaluated transform reference must fail for %s\n%s", form, output)
 		}
-		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
 }
 

@@ -391,7 +391,7 @@ func readerDiscardedRegionEnd(src string, start int) int {
 }
 
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
-	return unsupportedFlowFormMatchesScoped(src, baseOffset, nil, false)
+	return unsupportedFlowFormMatchesScoped(src, baseOffset, nil, true)
 }
 
 func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
@@ -477,7 +477,7 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 			}
 			symbol := clojureFormToken(src, elements[0])
 			if symbol == "quote" || symbol == "clojure.core/quote" ||
-				symbol == "comment" || symbol == "clojure.core/comment" {
+				symbol == "clojure.core/comment" || (symbol == "comment" && !flowLintSymbolIsShadowed(symbol, boundNames)) {
 				i = listEnd
 				continue
 			}
@@ -493,6 +493,11 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 			}
 			if symbol == "letfn" || symbol == "letfn*" || symbol == "clojure.core/letfn" {
 				matches = append(matches, unsupportedLetfnFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
+			if symbol == "binding" || symbol == "clojure.core/binding" {
+				matches = append(matches, unsupportedDynamicBindingMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
 			}
@@ -563,7 +568,7 @@ func isFlowLintFnForm(symbol string) bool {
 func isFlowLintBindingForm(symbol string) bool {
 	switch symbol {
 	case "let", "let*", "clojure.core/let", "loop", "loop*", "clojure.core/loop",
-		"binding", "clojure.core/binding", "with-open", "clojure.core/with-open",
+		"with-open", "clojure.core/with-open",
 		"if-let", "clojure.core/if-let", "when-let", "clojure.core/when-let",
 		"if-some", "clojure.core/if-some", "when-some", "clojure.core/when-some":
 		return true
@@ -585,6 +590,25 @@ func cloneFlowLintBoundNames(boundNames map[string]bool) map[string]bool {
 		cloned[name] = true
 	}
 	return cloned
+}
+
+func unsupportedDynamicBindingMatches(src string, elements []clojureFormSpan, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	bindings, _, err := parseActiveClojureVectorElements(src, elements[1].Start)
+	if err != nil {
+		return nil
+	}
+	var matches []unsupportedFlowFormMatch
+	for bindingIndex := 1; bindingIndex < len(bindings); bindingIndex += 2 {
+		value := bindings[bindingIndex]
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[value.Start:value.End], baseOffset+value.Start, boundNames, true)...)
+	}
+	for _, body := range elements[2:] {
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
+	}
+	return matches
 }
 
 func unsupportedBindingFormMatches(src, symbol string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
