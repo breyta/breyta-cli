@@ -486,17 +486,18 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
-			if symbol == "for" || symbol == "clojure.core/for" || symbol == "doseq" || symbol == "clojure.core/doseq" {
+			if symbol == "clojure.core/for" || symbol == "clojure.core/doseq" ||
+				((symbol == "for" || symbol == "doseq") && !flowLintSymbolIsShadowed(symbol, boundNames)) {
 				matches = append(matches, unsupportedComprehensionMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
 			}
-			if symbol == "letfn" || symbol == "letfn*" || symbol == "clojure.core/letfn" {
+			if symbol == "clojure.core/letfn" || symbol == "letfn*" || (symbol == "letfn" && !flowLintSymbolIsShadowed(symbol, boundNames)) {
 				matches = append(matches, unsupportedLetfnFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
 			}
-			if symbol == "binding" || symbol == "clojure.core/binding" {
+			if symbol == "clojure.core/binding" || (symbol == "binding" && !flowLintSymbolIsShadowed(symbol, boundNames)) {
 				matches = append(matches, unsupportedDynamicBindingMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
@@ -511,7 +512,7 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
-			if isFlowLintBindingForm(symbol) {
+			if flowLintBindingFormApplies(symbol, boundNames) {
 				matches = append(matches, unsupportedBindingFormMatches(src, symbol, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
@@ -580,6 +581,21 @@ func isFlowLintBindingForm(symbol string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func flowLintBindingFormApplies(symbol string, boundNames map[string]bool) bool {
+	if !isFlowLintBindingForm(symbol) {
+		return false
+	}
+	if strings.Contains(symbol, "/") {
+		return true
+	}
+	switch symbol {
+	case "let", "let*", "loop", "loop*":
+		return true
+	default:
+		return !flowLintSymbolIsShadowed(symbol, boundNames)
 	}
 }
 
@@ -919,7 +935,7 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 			}
 		}
 	case '{':
-		entries, _, mapErr := parseClojureMapEntries(src, collectionStart)
+		entries, _, mapErr := parseActiveClojureMapEntries(src, collectionStart)
 		if mapErr == nil {
 			for _, entry := range entries {
 				switch {
@@ -994,13 +1010,13 @@ func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormS
 			}
 		}
 	case '{':
-		entries, _, mapErr := parseClojureMapEntries(src, collectionStart)
+		entries, _, mapErr := parseActiveClojureMapEntries(src, collectionStart)
 		if mapErr != nil {
 			return defaults
 		}
 		for _, entry := range entries {
 			if entry.KeyToken == ":or" {
-				orEntries, _, orErr := parseClojureMapEntries(src, entry.ValueStart)
+				orEntries, _, orErr := parseActiveClojureMapEntries(src, entry.ValueStart)
 				if orErr == nil {
 					for _, defaultEntry := range orEntries {
 						defaults = append(defaults, clojureFormSpan{Start: defaultEntry.ValueStart, End: defaultEntry.ValueEnd})
@@ -1239,6 +1255,81 @@ func parseActiveClojureVectorElements(src string, start int) ([]clojureFormSpan,
 		i = formEnd
 	}
 	return out, i, fmt.Errorf("unterminated vector")
+}
+
+func parseActiveClojureMapEntries(src string, start int) ([]clojureMapEntry, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) || src[i] != '{' {
+		return nil, i, fmt.Errorf("expected map near byte %d", start)
+	}
+	i++
+	var forms []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return nil, i, fmt.Errorf("unterminated map")
+		}
+		if src[i] == '}' {
+			if len(forms)%2 != 0 {
+				return nil, i, fmt.Errorf("map has an unmatched key near byte %d", forms[len(forms)-1].Start)
+			}
+			entries := make([]clojureMapEntry, 0, len(forms)/2)
+			for formIndex := 0; formIndex < len(forms); formIndex += 2 {
+				key := forms[formIndex]
+				value := forms[formIndex+1]
+				keyToken := strings.TrimSpace(src[key.Start:key.End])
+				entries = append(entries, clojureMapEntry{
+					KeyToken: keyToken, KeyName: clojureKeywordName(keyToken),
+					KeyStart: key.Start, KeyEnd: key.End, ValueStart: value.Start, ValueEnd: value.End,
+				})
+			}
+			return entries, i + 1, nil
+		}
+		if strings.HasPrefix(src[i:], "#_") {
+			discardEnd := readerDiscardedRegionEnd(src, i)
+			if discardEnd <= i {
+				return nil, i, fmt.Errorf("could not advance past discarded map forms near byte %d", i)
+			}
+			i = discardEnd
+			continue
+		}
+		activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+		if err != nil {
+			return nil, formEnd, err
+		}
+		if hasActive {
+			if strings.HasPrefix(src[i:], "#?@") {
+				var spliced []clojureFormSpan
+				var branchEnd int
+				var branchErr error
+				if activeStart >= activeEnd || activeStart >= len(src) {
+					return nil, i, fmt.Errorf("splicing reader conditional selected an empty branch near byte %d", i)
+				}
+				switch src[activeStart] {
+				case '[':
+					spliced, branchEnd, branchErr = parseActiveClojureVectorElements(src, activeStart)
+				case '(':
+					spliced, branchEnd, branchErr = parseActiveClojureListElements(src, activeStart)
+				default:
+					return nil, i, fmt.Errorf("splicing reader conditional must select a vector or list near byte %d", i)
+				}
+				if branchErr != nil {
+					return nil, i, branchErr
+				}
+				if branchEnd != activeEnd {
+					return nil, i, fmt.Errorf("splicing reader conditional branch did not consume its collection near byte %d", i)
+				}
+				forms = append(forms, spliced...)
+			} else {
+				forms = append(forms, clojureFormSpan{Start: activeStart, End: activeEnd})
+			}
+		}
+		if formEnd <= i {
+			return nil, formEnd, fmt.Errorf("could not advance past map form near byte %d", i)
+		}
+		i = formEnd
+	}
+	return nil, i, fmt.Errorf("unterminated map")
 }
 
 func clojureTaggedLiteralEnd(src string, start int) (int, bool) {
