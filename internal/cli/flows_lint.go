@@ -439,7 +439,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			}
 			continue
 		case '(':
-			elements, listEnd, err := parseClojureListElements(src, i)
+			elements, listEnd, err := parseActiveClojureListElements(src, i)
 			if err != nil || len(elements) == 0 {
 				i++
 				continue
@@ -471,6 +471,40 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 		i++
 	}
 	return matches
+}
+
+// parseActiveClojureListElements returns the forms the Clojure reader exposes
+// in a list. Reader conditionals are reduced to their active branch, metadata
+// prefixes are unwrapped, and discarded forms are omitted. Transform lint can
+// then reason about the actual callable and arguments instead of raw tokens.
+func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) || src[i] != '(' {
+		return nil, i, fmt.Errorf("expected list near byte %d", start)
+	}
+	i++
+	var out []clojureFormSpan
+	for i < len(src) {
+		i = skipClojureWhitespaceCommaAndComments(src, i)
+		if i >= len(src) {
+			return out, i, fmt.Errorf("unterminated list")
+		}
+		if src[i] == ')' {
+			return out, i + 1, nil
+		}
+		activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+		if err != nil {
+			return out, formEnd, err
+		}
+		if hasActive {
+			out = append(out, clojureFormSpan{Start: activeStart, End: activeEnd})
+		}
+		if formEnd <= i {
+			return out, formEnd, fmt.Errorf("could not advance past list element near byte %d", i)
+		}
+		i = formEnd
+	}
+	return out, i, fmt.Errorf("unterminated list")
 }
 
 func unwrapTopLevelQuotedFlowSource(src string) (string, int) {

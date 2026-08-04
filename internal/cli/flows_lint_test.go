@@ -720,6 +720,26 @@ func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T) {
+	for _, form := range []string{
+		`(#?(:clj map :default identity) identity (:items input))`,
+		`(#_identity map identity (:items input))`,
+		`(^:trace map identity (:items input))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :reader-form-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("reader-resolved transform call must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
 func TestFlowsLintLocalOnlyIgnoresNonCallableApplyAndPartialArguments(t *testing.T) {
 	for _, form := range []string{
 		`(apply str map)`,
