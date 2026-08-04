@@ -755,6 +755,19 @@ func TestUnsupportedFlowFormMatchesSkipsReaderMacroData(t *testing.T) {
 	if len(matches) != 1 || matches[0].rule != "mapv" {
 		t.Fatalf("metadata-wrapped executable transform must still be reported: %#v", matches)
 	}
+
+	for _, source := range []string{
+		`#::{:items (mapv identity xs)}`,
+		`#:order{:items (filter pred rows)}`,
+	} {
+		if matches := unsupportedFlowFormMatches(source, 0); len(matches) != 1 {
+			t.Fatalf("namespaced map values remain executable for %s: %#v", source, matches)
+		}
+	}
+
+	if matches := unsupportedFlowFormMatches(`(#_ #_ :old map identity xs)`, 0); len(matches) != 0 {
+		t.Fatalf("discarded call-head chain must expose identity, not map: %#v", matches)
+	}
 }
 
 func TestFlowsLintLocalOnlyIgnoresNonCallableApplyAndPartialArguments(t *testing.T) {

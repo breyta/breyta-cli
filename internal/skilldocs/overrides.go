@@ -611,6 +611,8 @@ const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./
 
 const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound. Keep orchestration focused on `flow/step`; use `for`/`for` with `:when` for step orchestration and move data transforms such as `map`, `filter`, and `reduce` into a `:function` step."
 
+const orchestrationTransformGuidance = "- Keep orchestration focused on `flow/step`; use `for`/`for` with `:when` for step orchestration and move data transforms such as `map`, `filter`, and `reduce` into a `:function` step."
+
 const flowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
 
 const localFlowAuthoringSection = `## Local flow source authoring (Local-first)
@@ -773,7 +775,7 @@ func ensureAuthoringDefaultsContractMatrix(body string) string {
 
 func ensureLintBeforePushGuidance(body string) string {
 	if hasLintTimeoutGuidance(body) {
-		return body
+		return ensureOrchestrationTransformGuidance(body)
 	}
 	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
 		insertPos := headingPos + len("## Create/Edit Preflight")
@@ -796,6 +798,26 @@ func ensureLintBeforePushGuidance(body string) string {
 		}
 	}
 	return strings.TrimRight(body, "\n") + "\n\n## Draft lint before push\n\n" + lintBeforePushGuidance + "\n"
+}
+
+func ensureOrchestrationTransformGuidance(body string) string {
+	if strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		return body
+	}
+	searchStart := 0
+	for {
+		rel := strings.Index(body[searchStart:], "flows lint")
+		if rel < 0 {
+			break
+		}
+		lintPos := searchStart + rel
+		if eol := strings.Index(body[lintPos:], "\n"); eol >= 0 {
+			insertPos := lintPos + eol + 1
+			return body[:insertPos] + orchestrationTransformGuidance + "\n" + body[insertPos:]
+		}
+		return strings.TrimRight(body, "\n") + "\n" + orchestrationTransformGuidance + "\n"
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + orchestrationTransformGuidance + "\n"
 }
 
 func ensureLocalFlowAuthoringGuidance(body string) string {

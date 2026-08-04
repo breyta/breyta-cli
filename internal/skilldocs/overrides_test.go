@@ -316,6 +316,9 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillKeepsExistingLintTimeoutGuid
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
 	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected existing skill guidance to receive the transform rule, got:\n%s", body)
+	}
 }
 
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
@@ -414,6 +417,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingLintTimeoutGu
 	}
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
+	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected existing canonical guidance to receive the transform rule, got:\n%s", body)
 	}
 }
 

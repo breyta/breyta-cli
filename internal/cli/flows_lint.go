@@ -508,6 +508,14 @@ func parseActiveClojureListElements(src string, start int) ([]clojureFormSpan, i
 		if src[i] == ')' {
 			return out, i + 1, nil
 		}
+		if strings.HasPrefix(src[i:], "#_") {
+			discardEnd := readerDiscardedRegionEnd(src, i)
+			if discardEnd <= i {
+				return out, i, fmt.Errorf("could not advance past discarded list forms near byte %d", i)
+			}
+			i = discardEnd
+			continue
+		}
 		activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
 		if err != nil {
 			return out, formEnd, err
@@ -552,7 +560,7 @@ func clojureTaggedLiteralEnd(src string, start int) (int, bool) {
 		return start, false
 	}
 	switch src[start+1] {
-	case '"', '?', '_', '{', '(', '\'', '^', '#', '=':
+	case '"', '?', '_', '{', '(', '\'', '^', '#', '=', ':':
 		return start, false
 	}
 	tagEnd := readClojureTokenEnd(src, start+1)
