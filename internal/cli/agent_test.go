@@ -73,6 +73,19 @@ func captureAgentCommand(t *testing.T) (*App, *string, *map[string]any) {
 	return &App{WorkspaceID: "ws-test"}, &method, &payload
 }
 
+func TestAgentWorkCommandIncludesAllLifecycleCommands(t *testing.T) {
+	cmd := newAgentWorkCmd(&App{})
+	got := map[string]bool{}
+	for _, child := range cmd.Commands() {
+		got[child.Name()] = true
+	}
+	for _, name := range []string{"mark", "classify", "status"} {
+		if !got[name] {
+			t.Fatalf("work command is missing %q; commands = %#v", name, got)
+		}
+	}
+}
+
 func TestAgentSettingsShowCallsSettingsGet(t *testing.T) {
 	app, method, payload := captureAgentCommand(t)
 	cmd := newAgentSettingsShowCmd(app)
@@ -226,12 +239,80 @@ func TestAgentEmailAlreadySentIsSuccessfulNoOp(t *testing.T) {
 	}
 }
 
+func TestAgentWorkClassifyBuildsStructuredPayload(t *testing.T) {
+	app, method, payload := captureAgentCommand(t)
+	cmd := newAgentWorkClassifyCmd(app)
+	cmd.SetArgs([]string{
+		"--proactive-message-id", "work-123",
+		"--classification", "unfinished",
+		"--title", "Finish lifecycle email",
+		"--summary", "The preview is still missing.",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if *method != "proactive_agent.work.classify" {
+		t.Fatalf("method = %q", *method)
+	}
+	want := map[string]any{
+		"proactiveMessageId": "work-123",
+		"classification":     "unfinished",
+		"title":              "Finish lifecycle email",
+		"summary":            "The preview is still missing.",
+	}
+	if !reflect.DeepEqual(*payload, want) {
+		t.Fatalf("payload = %#v, want %#v", *payload, want)
+	}
+}
+
+func TestAgentWorkStatusBuildsStructuredPayload(t *testing.T) {
+	app, method, payload := captureAgentCommand(t)
+	cmd := newAgentWorkStatusCmd(app)
+	cmd.SetArgs([]string{
+		"--proactive-message-id", "work-123",
+		"--state", "blocked-on-user",
+		"--summary", "The draft is ready.",
+		"--blocker", "Approve the live send.",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if *method != "proactive_agent.work.status.update" {
+		t.Fatalf("method = %q", *method)
+	}
+	want := map[string]any{
+		"proactiveMessageId": "work-123",
+		"state":              "blocked-on-user",
+		"summary":            "The draft is ready.",
+		"blocker":            "Approve the live send.",
+	}
+	if !reflect.DeepEqual(*payload, want) {
+		t.Fatalf("payload = %#v, want %#v", *payload, want)
+	}
+}
+
+func TestAgentWorkCommandsRejectInvalidEnums(t *testing.T) {
+	app, _, _ := captureAgentCommand(t)
+	classify := newAgentWorkClassifyCmd(app)
+	classify.SetArgs([]string{"--proactive-message-id", "work-123", "--classification", "yes"})
+	if err := classify.Execute(); err == nil {
+		t.Fatal("expected invalid classification error")
+	}
+
+	status := newAgentWorkStatusCmd(app)
+	status.SetArgs([]string{"--proactive-message-id", "work-123", "--state", "stopped"})
+	if err := status.Execute(); err == nil {
+		t.Fatal("expected invalid state error")
+	}
+}
+
 func TestAgentSettingsUpdateBuildsPartialPayload(t *testing.T) {
 	app, method, payload := captureAgentCommand(t)
 	cmd := newAgentSettingsUpdateCmd(app)
 	cmd.SetArgs([]string{
 		"--enabled=true",
 		"--email-enabled=false",
+		"--continue-unfinished-work=true",
 		"--check", "repeated-manual-run=false",
 		"--check", "failed-run=true",
 	})
@@ -242,8 +323,9 @@ func TestAgentSettingsUpdateBuildsPartialPayload(t *testing.T) {
 		t.Fatalf("method = %q", *method)
 	}
 	want := map[string]any{
-		"enabled":      true,
-		"emailEnabled": false,
+		"enabled":                true,
+		"emailEnabled":           false,
+		"continueUnfinishedWork": true,
 		"rules": map[string]any{
 			"repeated-manual-run": false,
 			"failed-run":          true,
