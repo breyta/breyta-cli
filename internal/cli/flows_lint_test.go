@@ -750,6 +750,9 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [{:keys [::map]} input] (map :id))`,
 		`(let [#:customer{:keys [map]} input] (map :id))`,
 		`(let [#::{:keys [map]} input] (map :id))`,
+		`(let [{::keys [map]} input] (map :id))`,
+		`(let [{:keys [map xf] :or {xf map}} input] xf)`,
+		`(let [f (fn [{:keys [map xf] :or {xf map}}] xf)] f)`,
 		`(let [map (:map input)] (map :key))`,
 		`(let [f (fn [map] (map :id))] (f (:map input)))`,
 		`(let [f (fn named ([filter] (filter :id)) ([filter x] (filter x)))] (f (:filter input)))`,
@@ -898,6 +901,7 @@ func TestFlowsLintLocalOnlyRejectsEvaluatedTransformReferences(t *testing.T) {
 		`{:xf map}`,
 		`(let [comment (fn [x] x)] (comment (map identity (:rows input))))`,
 		`(binding [map (:map input)] (map identity (:rows input)))`,
+		`(let [case (fn [& xs] xs)] (case (:kind input) map :x))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform-data
  :concurrency {:type :singleton :on-new-version :coexist}
