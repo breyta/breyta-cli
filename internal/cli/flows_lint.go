@@ -902,16 +902,20 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 			names[name] = true
 		}
 	}
-	switch src[activeStart] {
+	collectionStart := activeStart
+	if mapStart, ok := clojureNamespacedMapStart(src, activeStart, activeEnd); ok {
+		collectionStart = mapStart
+	}
+	switch src[collectionStart] {
 	case '[':
-		elements, _, vectorErr := parseClojureVectorElements(src, activeStart)
+		elements, _, vectorErr := parseClojureVectorElements(src, collectionStart)
 		if vectorErr == nil {
 			for _, element := range elements {
 				merge(clojureBindingNames(src, element))
 			}
 		}
 	case '{':
-		entries, _, mapErr := parseClojureMapEntries(src, activeStart)
+		entries, _, mapErr := parseClojureMapEntries(src, collectionStart)
 		if mapErr == nil {
 			for _, entry := range entries {
 				switch {
@@ -948,22 +952,44 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 	return names
 }
 
+func clojureNamespacedMapStart(src string, start, end int) (int, bool) {
+	if start < 0 || end > len(src) || start+2 >= end || !strings.HasPrefix(src[start:], "#:") {
+		return start, false
+	}
+	i := start + 2
+	if i < end && src[i] == ':' {
+		i++
+	}
+	if i < end && src[i] == '{' {
+		return i, true
+	}
+	i = readClojureTokenEnd(src, i)
+	if i < end && src[i] == '{' {
+		return i, true
+	}
+	return start, false
+}
+
 func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormSpan {
 	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
 	if err != nil || !hasActive || activeEnd > span.End {
 		return nil
 	}
 	var defaults []clojureFormSpan
-	switch src[activeStart] {
+	collectionStart := activeStart
+	if mapStart, ok := clojureNamespacedMapStart(src, activeStart, activeEnd); ok {
+		collectionStart = mapStart
+	}
+	switch src[collectionStart] {
 	case '[':
-		elements, _, vectorErr := parseActiveClojureVectorElements(src, activeStart)
+		elements, _, vectorErr := parseActiveClojureVectorElements(src, collectionStart)
 		if vectorErr == nil {
 			for _, element := range elements {
 				defaults = append(defaults, clojureBindingDefaultSpans(src, element)...)
 			}
 		}
 	case '{':
-		entries, _, mapErr := parseClojureMapEntries(src, activeStart)
+		entries, _, mapErr := parseClojureMapEntries(src, collectionStart)
 		if mapErr != nil {
 			return defaults
 		}

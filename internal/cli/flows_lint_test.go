@@ -748,6 +748,8 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [{:keys [customer/map]} input] (map :id))`,
 		`(let [{:keys [:customer/map]} input] (map :id))`,
 		`(let [{:keys [::map]} input] (map :id))`,
+		`(let [#:customer{:keys [map]} input] (map :id))`,
+		`(let [#::{:keys [map]} input] (map :id))`,
 		`(let [map (:map input)] (map :key))`,
 		`(let [f (fn [map] (map :id))] (f (:map input)))`,
 		`(let [f (fn named ([filter] (filter :id)) ([filter x] (filter x)))] (f (:filter input)))`,
