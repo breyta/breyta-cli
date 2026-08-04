@@ -391,6 +391,10 @@ func readerDiscardedRegionEnd(src string, start int) int {
 }
 
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
+	return unsupportedFlowFormMatchesScoped(src, baseOffset, nil, false)
+}
+
+func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
 	for i := 0; i < len(src); {
 		if strings.HasPrefix(src[i:], `#"`) {
@@ -406,7 +410,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			formStart, formEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
 				if formStart >= 0 {
-					matches = append(matches, unsupportedFlowFormMatches(src[formStart:formEnd], baseOffset+formStart)...)
+					matches = append(matches, unsupportedFlowFormMatchesScoped(src[formStart:formEnd], baseOffset+formStart, boundNames, flagBareReferences)...)
 				}
 				if next <= i {
 					i++
@@ -426,7 +430,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 				i++
 			} else {
 				if hasActive {
-					matches = append(matches, unsupportedFlowFormMatches(src[activeStart:activeEnd], baseOffset+activeStart)...)
+					matches = append(matches, unsupportedFlowFormMatchesScoped(src[activeStart:activeEnd], baseOffset+activeStart, boundNames, flagBareReferences)...)
 				}
 				i = formEnd
 			}
@@ -457,7 +461,7 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 			}
 			continue
 		case '`':
-			matches = append(matches, unsupportedSyntaxQuoteUnquoteMatches(src, i, baseOffset)...)
+			matches = append(matches, unsupportedSyntaxQuoteUnquoteMatches(src, i, baseOffset, boundNames)...)
 			next, err := readClojureFormEnd(src, i+1)
 			if err != nil || next <= i+1 {
 				i++
@@ -477,50 +481,105 @@ func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFor
 				i = listEnd
 				continue
 			}
-			if symbol != "" {
+			if isFlowLintBindingForm(symbol) {
+				matches = append(matches, unsupportedBindingFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
+				i = listEnd
+				continue
+			}
+			if symbol != "" && !flagBareReferences && !flowLintSymbolIsShadowed(symbol, boundNames) {
 				if rule, ok := unsupportedFlowFormRuleKey(symbol); ok {
 					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + elements[0].Start})
 				}
 			}
-			if referenceHead, ok := transformReferenceHead(symbol); ok {
+			if referenceHead, ok := transformReferenceHead(symbol); ok && !flagBareReferences && !flowLintSymbolIsShadowed(symbol, boundNames) {
 				allArgumentsCallable := flowLintTransformReferenceHeads[referenceHead]
 				for argumentIndex, element := range elements[1:] {
 					if !allArgumentsCallable && argumentIndex > 0 {
 						break
 					}
 					reference := clojureFormToken(src, element)
-					if rule, ok := unsupportedFlowFormRuleKey(reference); ok && flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
+					if rule, ok := unsupportedFlowFormRuleKey(reference); ok && !flowLintSymbolIsShadowed(reference, boundNames) && flowLintUnsupportedFlowForms[rule].code == "prohibited_orchestration_transform" {
 						matches = append(matches, unsupportedFlowFormMatch{symbol: reference, rule: rule, offset: baseOffset + element.Start})
 					}
 				}
 			}
-			if symbol == "let" || symbol == "let*" || symbol == "clojure.core/let" ||
-				symbol == "loop" || symbol == "loop*" || symbol == "clojure.core/loop" ||
-				symbol == "binding" || symbol == "clojure.core/binding" ||
-				symbol == "with-open" || symbol == "clojure.core/with-open" ||
-				symbol == "if-let" || symbol == "clojure.core/if-let" ||
-				symbol == "when-let" || symbol == "clojure.core/when-let" ||
-				symbol == "if-some" || symbol == "clojure.core/if-some" ||
-				symbol == "when-some" || symbol == "clojure.core/when-some" {
-				if len(elements) > 1 {
-					bindings, _, bindingErr := parseClojureVectorElements(src, elements[1].Start)
-					if bindingErr == nil {
-						boundNames := map[string]bool{}
-						for bindingIndex := 1; bindingIndex < len(bindings); bindingIndex += 2 {
-							initializer := bindings[bindingIndex]
-							initializerToken, _, initializerIsToken := clojureActiveBareToken(src, initializer)
-							if !initializerIsToken || strings.Contains(initializerToken, "/") || !boundNames[initializerToken] {
-								matches = append(matches, unsupportedBareTransformReferenceMatches(src, initializer, baseOffset)...)
-							}
-							for name := range clojureBindingNames(src, bindings[bindingIndex-1]) {
-								boundNames[name] = true
-							}
-						}
+		}
+		if flagBareReferences {
+			if strings.HasPrefix(src[i:], "#'") {
+				tokenEnd := readClojureTokenEnd(src, i+2)
+				if tokenEnd > i+2 {
+					symbol := src[i:tokenEnd]
+					if rule, ok := unsupportedFlowFormRuleKey(symbol); ok {
+						matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + i})
 					}
+					i = tokenEnd
+					continue
 				}
+			}
+			tokenEnd := readClojureTokenEnd(src, i)
+			if tokenEnd > i {
+				symbol := src[i:tokenEnd]
+				if rule, ok := unsupportedFlowFormRuleKey(symbol); ok && !flowLintSymbolIsShadowed(symbol, boundNames) {
+					matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + i})
+				}
+				i = tokenEnd
+				continue
 			}
 		}
 		i++
+	}
+	return matches
+}
+
+func isFlowLintBindingForm(symbol string) bool {
+	switch symbol {
+	case "let", "let*", "clojure.core/let", "loop", "loop*", "clojure.core/loop",
+		"binding", "clojure.core/binding", "with-open", "clojure.core/with-open",
+		"if-let", "clojure.core/if-let", "when-let", "clojure.core/when-let",
+		"if-some", "clojure.core/if-some", "when-some", "clojure.core/when-some":
+		return true
+	default:
+		return false
+	}
+}
+
+func flowLintSymbolIsShadowed(symbol string, boundNames map[string]bool) bool {
+	if boundNames == nil || strings.HasPrefix(symbol, "#'") || strings.Contains(symbol, "/") {
+		return false
+	}
+	return boundNames[symbol]
+}
+
+func cloneFlowLintBoundNames(boundNames map[string]bool) map[string]bool {
+	cloned := map[string]bool{}
+	for name := range boundNames {
+		cloned[name] = true
+	}
+	return cloned
+}
+
+func unsupportedBindingFormMatches(src string, elements []clojureFormSpan, baseOffset int, outerBoundNames map[string]bool, flagBareReferences bool) []unsupportedFlowFormMatch {
+	if len(elements) < 2 {
+		return nil
+	}
+	bindings, _, err := parseActiveClojureVectorElements(src, elements[1].Start)
+	if err != nil {
+		return nil
+	}
+	boundNames := cloneFlowLintBoundNames(outerBoundNames)
+	var matches []unsupportedFlowFormMatch
+	for bindingIndex := 1; bindingIndex < len(bindings); bindingIndex += 2 {
+		initializer := bindings[bindingIndex]
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[initializer.Start:initializer.End], baseOffset+initializer.Start, boundNames, true)...)
+		for _, defaultSpan := range clojureBindingDefaultSpans(src, bindings[bindingIndex-1]) {
+			matches = append(matches, unsupportedFlowFormMatchesScoped(src[defaultSpan.Start:defaultSpan.End], baseOffset+defaultSpan.Start, boundNames, true)...)
+		}
+		for name := range clojureBindingNames(src, bindings[bindingIndex-1]) {
+			boundNames[name] = true
+		}
+	}
+	for _, body := range elements[2:] {
+		matches = append(matches, unsupportedFlowFormMatchesScoped(src[body.Start:body.End], baseOffset+body.Start, boundNames, flagBareReferences)...)
 	}
 	return matches
 }
@@ -601,9 +660,46 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 	return names
 }
 
-func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
+func clojureBindingDefaultSpans(src string, span clojureFormSpan) []clojureFormSpan {
+	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, span.Start)
+	if err != nil || !hasActive || activeEnd > span.End {
+		return nil
+	}
+	var defaults []clojureFormSpan
+	switch src[activeStart] {
+	case '[':
+		elements, _, vectorErr := parseActiveClojureVectorElements(src, activeStart)
+		if vectorErr == nil {
+			for _, element := range elements {
+				defaults = append(defaults, clojureBindingDefaultSpans(src, element)...)
+			}
+		}
+	case '{':
+		entries, _, mapErr := parseClojureMapEntries(src, activeStart)
+		if mapErr != nil {
+			return defaults
+		}
+		for _, entry := range entries {
+			if entry.KeyToken == ":or" {
+				orEntries, _, orErr := parseClojureMapEntries(src, entry.ValueStart)
+				if orErr == nil {
+					for _, defaultEntry := range orEntries {
+						defaults = append(defaults, clojureFormSpan{Start: defaultEntry.ValueStart, End: defaultEntry.ValueEnd})
+					}
+				}
+				continue
+			}
+			if !strings.HasPrefix(entry.KeyToken, ":") {
+				defaults = append(defaults, clojureBindingDefaultSpans(src, clojureFormSpan{Start: entry.KeyStart, End: entry.KeyEnd})...)
+			}
+		}
+	}
+	return defaults
+}
+
+func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
 	token, activeStart, ok := clojureActiveBareToken(src, span)
-	if !ok {
+	if !ok || flowLintSymbolIsShadowed(token, boundNames) {
 		return nil
 	}
 	if rule, ok := unsupportedFlowFormRuleKey(token); ok &&
@@ -613,25 +709,25 @@ func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, 
 	return nil
 }
 
-func unsupportedTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int) []unsupportedFlowFormMatch {
-	if matches := unsupportedBareTransformReferenceMatches(src, span, baseOffset); len(matches) > 0 {
+func unsupportedTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
+	if matches := unsupportedBareTransformReferenceMatches(src, span, baseOffset, boundNames); len(matches) > 0 {
 		return matches
 	}
-	return unsupportedFlowFormMatches(src[span.Start:span.End], baseOffset+span.Start)
+	return unsupportedFlowFormMatchesScoped(src[span.Start:span.End], baseOffset+span.Start, boundNames, true)
 }
 
 // A syntax quote produces data, except for its unquoted forms. Those forms are
 // evaluated while the surrounding orchestration runs and therefore need the
 // same transform checks as ordinary executable forms.
-func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int) []unsupportedFlowFormMatch {
+func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
 	end, err := readClojureFormEnd(src, start+1)
 	if err != nil || end <= start+1 {
 		return nil
 	}
-	return unsupportedSyntaxQuoteRangeMatches(src, start+1, end, baseOffset)
+	return unsupportedSyntaxQuoteRangeMatches(src, start+1, end, baseOffset, boundNames)
 }
 
-func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int) []unsupportedFlowFormMatch {
+func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
 	for i := start; i < end; {
 		if strings.HasPrefix(src[i:], `#"`) {
@@ -651,7 +747,7 @@ func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int) 
 			activeStart, activeEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
 				if activeStart >= 0 {
-					matches = append(matches, unsupportedSyntaxQuoteRangeMatches(src, activeStart, activeEnd, baseOffset)...)
+					matches = append(matches, unsupportedSyntaxQuoteRangeMatches(src, activeStart, activeEnd, baseOffset, boundNames)...)
 				}
 				if next > i {
 					i = next
@@ -684,7 +780,7 @@ func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int) 
 			}
 			activeStart, activeEnd, formEnd, hasActive, formErr := clojureActiveFormSpan(src, formStart)
 			if formErr == nil && hasActive && activeEnd <= end {
-				matches = append(matches, unsupportedTransformReferenceMatches(src, clojureFormSpan{Start: activeStart, End: activeEnd}, baseOffset)...)
+				matches = append(matches, unsupportedTransformReferenceMatches(src, clojureFormSpan{Start: activeStart, End: activeEnd}, baseOffset, boundNames)...)
 			}
 			if formErr == nil && formEnd > i {
 				i = formEnd

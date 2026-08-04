@@ -745,6 +745,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 	for _, form := range []string{
 		`(let [map (:map input) xf map] xf)`,
 		`(let [{:keys [filter]} input xf filter] xf)`,
+		`(let [map (:map input)] (map :key))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :shadowed-binding-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -757,6 +758,25 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 			t.Fatalf("shadowed transform name must stay valid for %s: %v\n%s", form, err, output)
 		}
 		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+
+	for _, form := range []string{
+		`(let [xf [map]] xf)`,
+		`(let [xf (identity map)] xf)`,
+		`(let [xf (let [] map)] xf)`,
+		`(let [{:keys [xf] :or {xf map}} input] xf)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :nested-binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("evaluated binding reference must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
 }
 
