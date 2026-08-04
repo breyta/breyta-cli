@@ -321,6 +321,24 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillKeepsExistingLintTimeoutGuid
 	}
 }
 
+func TestApplyCLIOverrides_InsertsTransformGuidanceOutsideLintCodeFence(t *testing.T) {
+	body := strings.Join([]string{
+		"## Default Loop",
+		"",
+		"```sh",
+		"breyta flows lint --file ./flows/example.clj --timeout 2m",
+		"```",
+	}, "\n")
+
+	got := ensureLintBeforePushGuidance(body)
+	openingFence := strings.Index(got, "```sh")
+	closingFence := strings.LastIndex(got, "```")
+	guidance := strings.Index(got, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step")
+	if guidance < 0 || (guidance > openingFence && guidance < closingFence) {
+		t.Fatalf("expected transform guidance outside the command fence, got:\n%s", got)
+	}
+}
+
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
 	input := map[string][]byte{
 		"SKILL.md": []byte(strings.Join([]string{

@@ -804,18 +804,17 @@ func ensureOrchestrationTransformGuidance(body string) string {
 	if strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
 		return body
 	}
-	searchStart := 0
-	for {
-		rel := strings.Index(body[searchStart:], "flows lint")
-		if rel < 0 {
-			break
+	if _, lineEnd, ok := lineContainingOutsideFences(body, "flows lint"); ok {
+		return body[:lineEnd] + orchestrationTransformGuidance + "\n" + body[lineEnd:]
+	}
+	for _, heading := range []string{"## Create/Edit Preflight", "## Default Loop", "## Core Rule"} {
+		if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
+			insertPos := headingPos + len(heading)
+			if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+				insertPos += eol + 1
+			}
+			return body[:insertPos] + "\n" + orchestrationTransformGuidance + "\n" + body[insertPos:]
 		}
-		lintPos := searchStart + rel
-		if eol := strings.Index(body[lintPos:], "\n"); eol >= 0 {
-			insertPos := lintPos + eol + 1
-			return body[:insertPos] + orchestrationTransformGuidance + "\n" + body[insertPos:]
-		}
-		return strings.TrimRight(body, "\n") + "\n" + orchestrationTransformGuidance + "\n"
 	}
 	return strings.TrimRight(body, "\n") + "\n\n" + orchestrationTransformGuidance + "\n"
 }
@@ -1267,6 +1266,31 @@ func h2LineStartOutsideFences(body, heading string) int {
 		offset += len(line)
 	}
 	return -1
+}
+
+func lineContainingOutsideFences(body, needle string) (int, int, bool) {
+	inFence := false
+	openFence := markdownFence{}
+	offset := 0
+	for _, line := range strings.SplitAfter(body, "\n") {
+		lineNoEOL := strings.TrimRight(line, "\r\n")
+		if marker, ok := markdownFenceMarker(lineNoEOL); ok {
+			if !inFence {
+				inFence = true
+				openFence = marker
+			} else if marker.char == openFence.char && marker.length >= openFence.length && marker.validCloser {
+				inFence = false
+				openFence = markdownFence{}
+			}
+			offset += len(line)
+			continue
+		}
+		if !inFence && strings.Contains(lineNoEOL, needle) {
+			return offset, offset + len(line), true
+		}
+		offset += len(line)
+	}
+	return -1, -1, false
 }
 
 func nextH2LineStartOutsideFences(body string, start int) int {

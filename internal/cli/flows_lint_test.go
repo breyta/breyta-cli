@@ -702,6 +702,7 @@ func TestFlowsLintLocalOnlyHonorsChainedReaderDiscardsForTransforms(t *testing.T
 func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
 	for _, form := range []string{
 		`(apply map vector (:rows input))`,
+		`(apply #'filter vector (:rows input))`,
 		`(clojure.core/apply map vector (:rows input))`,
 		`(partial filter :active)`,
 		`(comp mapv filterv)`,
@@ -726,6 +727,7 @@ func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T)
 		`(#?@(:clj [map identity]) (:items input))`,
 		`(#_identity map identity (:items input))`,
 		`(^:trace map identity (:items input))`,
+		`(#'clojure.core/mapv identity (:items input))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :reader-form-transform
  :concurrency {:type :singleton :on-new-version :coexist}

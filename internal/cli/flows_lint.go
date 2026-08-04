@@ -327,6 +327,7 @@ type unsupportedFlowFormMatch struct {
 }
 
 func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
+	symbol = strings.TrimPrefix(symbol, "#'")
 	if strings.HasPrefix(symbol, ":") {
 		return "", false
 	}
@@ -343,6 +344,7 @@ func unsupportedFlowFormRuleKey(symbol string) (string, bool) {
 }
 
 func transformReferenceHead(symbol string) (string, bool) {
+	symbol = strings.TrimPrefix(symbol, "#'")
 	if strings.HasPrefix(symbol, ":") {
 		return "", false
 	}
