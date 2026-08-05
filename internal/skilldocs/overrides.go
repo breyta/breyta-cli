@@ -609,7 +609,9 @@ const focusedStepRunProofBullet = "- `breyta flows steps run` and `breyta steps 
 
 const inputFilePayloadGuidance = "- Use `breyta flows run <slug> --input-file ./input.json` or `breyta flows run-step <slug> <step-id> --input-file ./input.json` instead of inline `--input '{...}'` when per-run payloads may hit shell or OS argument limits."
 
-const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound"
+const lintBeforePushGuidance = "- Run `breyta flows lint --file ./flows/<slug>.clj` before push; use `--local-only` for offline checks, `--server` when canonical pre-push checks matter, and `--timeout <duration>` when server lint needs a longer bound. Keep orchestration focused on `flow/step`; use `for`/`for` with `:when` for step orchestration and move data transforms such as `map`, `filter`, and `reduce` into a `:function` step."
+
+const orchestrationTransformGuidance = "- Keep orchestration focused on `flow/step`; use `for`/`for` with `:when` for step orchestration and move data transforms such as `map`, `filter`, and `reduce` into a `:function` step."
 
 const flowPushTimeoutGuidance = "- `breyta flows push --file ./flows/<slug>.clj` allows two minutes per draft-upload and immediate-validation API request by default; use `--timeout 5m` for slower workspaces. If it times out, verify with `breyta flows show <slug>` or `breyta flows validate <slug>` before retrying because the draft may already be saved."
 
@@ -622,6 +624,7 @@ it to a workspace draft:
 - Existing flow: pull editable source with ` + "`breyta flows pull <slug>`" + `.
 - Edit packaged definitions with ` + "`breyta flows steps create/update/remove`" + `; edit only the orchestration body with ` + "`breyta flows compose`" + `.
 - Run ` + "`breyta flows lint --local-only --file ./flows/<slug>.clj`" + ` before pushing. Local ` + "`flows steps run`" + ` sends the complete literal for just-in-time execution and does not create a draft.
+- Keep orchestration focused on ` + "`flow/step`" + `; use ` + "`for`" + `/` + "`for`" + ` with ` + "`:when`" + ` for step orchestration and move data transforms such as ` + "`map`" + `, ` + "`filter`" + `, and ` + "`reduce`" + ` into a ` + "`:function`" + ` step.
 - Local lint also reports flow/step shape errors mirroring push validation and warns on packaged steps never referenced from ` + "`:flow`" + ` (plain-literal forms only).
 - ` + "`breyta steps run`" + ` waits up to 15 minutes by default. For a slow flow-local template/data probe, pass ` + "`--timeout 30m`" + `, for example: ` + "`breyta steps run --flow update-blog-post --source draft --type llm --id refresh-blog-post --params '{\"template\":\"refresh-blog-post\",\"data\":{\"title\":\"Example\"}}' --timeout 30m`" + `.
 - ` + "`breyta flows steps run`" + ` and the ` + "`--run`" + ` mode of ` + "`flows init`" + ` / ` + "`flows steps create`" + ` / ` + "`flows steps update`" + ` accept ` + "`--timeout`" + ` (default 15m); extend past the default for slow probes.
@@ -772,7 +775,7 @@ func ensureAuthoringDefaultsContractMatrix(body string) string {
 
 func ensureLintBeforePushGuidance(body string) string {
 	if hasLintTimeoutGuidance(body) {
-		return body
+		return ensureOrchestrationTransformGuidance(body)
 	}
 	if headingPos := h2LineStartOutsideFences(body, "## Create/Edit Preflight"); headingPos >= 0 {
 		insertPos := headingPos + len("## Create/Edit Preflight")
@@ -797,6 +800,29 @@ func ensureLintBeforePushGuidance(body string) string {
 	return strings.TrimRight(body, "\n") + "\n\n## Draft lint before push\n\n" + lintBeforePushGuidance + "\n"
 }
 
+func ensureOrchestrationTransformGuidance(body string) string {
+	if strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		return body
+	}
+	if _, lineEnd, ok := lineContainingOutsideFences(body, "flows lint"); ok {
+		separator := ""
+		if lineEnd > 0 && body[lineEnd-1] != '\n' {
+			separator = "\n"
+		}
+		return body[:lineEnd] + separator + orchestrationTransformGuidance + "\n" + body[lineEnd:]
+	}
+	for _, heading := range []string{"## Create/Edit Preflight", "## Default Loop", "## Core Rule"} {
+		if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
+			insertPos := headingPos + len(heading)
+			if eol := strings.Index(body[insertPos:], "\n"); eol >= 0 {
+				insertPos += eol + 1
+			}
+			return body[:insertPos] + "\n" + orchestrationTransformGuidance + "\n" + body[insertPos:]
+		}
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + orchestrationTransformGuidance + "\n"
+}
+
 func ensureLocalFlowAuthoringGuidance(body string) string {
 	const heading = "## Local flow source authoring (Local-first)"
 	if headingPos := h2LineStartOutsideFences(body, heading); headingPos >= 0 {
@@ -805,12 +831,15 @@ func ensureLocalFlowAuthoringGuidance(body string) string {
 			sectionEnd = len(body)
 		}
 		section := body[headingPos:sectionEnd]
-		missing := make([]string, 0, 2)
+		missing := make([]string, 0, 3)
 		if !strings.Contains(section, "--input 'name:type[:required|optional[:label]]'") {
 			missing = append(missing, manualInvocationContractGuidance)
 		}
 		if !strings.Contains(section, "`meta.localPath` and `meta.nextCommands`") {
 			missing = append(missing, savedLocalRecoveryGuidance)
+		}
+		if !strings.Contains(section, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+			missing = append(missing, orchestrationTransformGuidance)
 		}
 		if len(missing) == 0 {
 			return body
@@ -1244,6 +1273,31 @@ func h2LineStartOutsideFences(body, heading string) int {
 		offset += len(line)
 	}
 	return -1
+}
+
+func lineContainingOutsideFences(body, needle string) (int, int, bool) {
+	inFence := false
+	openFence := markdownFence{}
+	offset := 0
+	for _, line := range strings.SplitAfter(body, "\n") {
+		lineNoEOL := strings.TrimRight(line, "\r\n")
+		if marker, ok := markdownFenceMarker(lineNoEOL); ok {
+			if !inFence {
+				inFence = true
+				openFence = marker
+			} else if marker.char == openFence.char && marker.length >= openFence.length && marker.validCloser {
+				inFence = false
+				openFence = markdownFence{}
+			}
+			offset += len(line)
+			continue
+		}
+		if !inFence && strings.Contains(lineNoEOL, needle) {
+			return offset, offset + len(line), true
+		}
+		offset += len(line)
+	}
+	return -1, -1, false
 }
 
 func nextH2LineStartOutsideFences(body string, start int) int {

@@ -316,6 +316,36 @@ func TestApplyCLIOverrides_BreytaPlaybookRouterSkillKeepsExistingLintTimeoutGuid
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
 	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected existing skill guidance to receive the transform rule, got:\n%s", body)
+	}
+}
+
+func TestApplyCLIOverrides_InsertsTransformGuidanceOutsideLintCodeFence(t *testing.T) {
+	body := strings.Join([]string{
+		"## Default Loop",
+		"",
+		"```sh",
+		"breyta flows lint --file ./flows/example.clj --timeout 2m",
+		"```",
+	}, "\n")
+
+	got := ensureLintBeforePushGuidance(body)
+	openingFence := strings.Index(got, "```sh")
+	closingFence := strings.LastIndex(got, "```")
+	guidance := strings.Index(got, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step")
+	if guidance < 0 || (guidance > openingFence && guidance < closingFence) {
+		t.Fatalf("expected transform guidance outside the command fence, got:\n%s", got)
+	}
+}
+
+func TestApplyCLIOverrides_SeparatesTransformGuidanceAfterFinalLintLine(t *testing.T) {
+	body := "## Default Loop\n\n- Run `breyta flows lint --file ./flow.clj` before push."
+
+	got := ensureOrchestrationTransformGuidance(body)
+	if !strings.Contains(got, "before push.\n- Keep orchestration focused") {
+		t.Fatalf("expected transform guidance on a new line, got:\n%s", got)
+	}
 }
 
 func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillDoesNotReinflate(t *testing.T) {
@@ -414,6 +444,9 @@ func TestApplyCLIOverrides_BreytaCurrentCanonicalSkillKeepsExistingLintTimeoutGu
 	}
 	if strings.Contains(body, "server lint needs a longer bound") {
 		t.Fatalf("expected existing lint timeout wording to be preserved without duplicate injection, got:\n%s", body)
+	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected existing canonical guidance to receive the transform rule, got:\n%s", body)
 	}
 }
 
@@ -629,6 +662,9 @@ func TestApplyCLIOverrides_DoesNotDuplicateLocalFlowAuthoringGuidance(t *testing
 	}
 	if !strings.Contains(body, "`meta.localPath` and `meta.nextCommands`") {
 		t.Fatalf("expected saved-local recovery guidance, got:\n%s", body)
+	}
+	if !strings.Contains(body, "move data transforms such as `map`, `filter`, and `reduce` into a `:function` step") {
+		t.Fatalf("expected transform guidance backfilled into the existing local section, got:\n%s", body)
 	}
 	if !strings.Contains(body, "- existing content") {
 		t.Fatalf("expected upstream local-authoring guidance to be preserved, got:\n%s", body)

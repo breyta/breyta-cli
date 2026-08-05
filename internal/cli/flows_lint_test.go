@@ -590,6 +590,510 @@ func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
 	t.Fatalf("expected unsupported_visual_flow_form diagnostic, got %#v", items)
 }
 
+func TestFlowsLintLocalOnlyRejectsServerProhibitedOrchestrationTransforms(t *testing.T) {
+	for _, transform := range []string{"map", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
+		t.Run(transform, func(t *testing.T) {
+			flowLiteral := fmt.Sprintf(`{:slug :prohibited-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (%s identity (:items input)))}
+`, transform)
+			body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+			if err == nil {
+				t.Fatalf("expected local lint to reject %s like server validation\n%s", transform, output)
+			}
+			diagnostic := flowLintDiagnosticByCode(t, body, "prohibited_orchestration_transform")
+			if diagnostic["form"] != transform || diagnostic["severity"] != "error" {
+				t.Fatalf("expected error for %s, got %#v", transform, diagnostic)
+			}
+		})
+	}
+}
+
+func TestFlowsLintLocalOnlyAllowsMapIndexedWhileServerAllowsIt(t *testing.T) {
+	flowLiteral := `{:slug :map-indexed-allowed
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (map-indexed vector (:items input)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("local lint must not reject map-indexed while the server permits it: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlyAllowsTransformsInsideQuotedFunctionCode(t *testing.T) {
+	flowLiteral := `{:slug :function-transform-ok
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (flow/step :function :transform
+                     {:input input
+                      :code '(fn [input] (mapv identity (:items input)))}))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("quoted function code must retain data-transform support: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlyRejectsQualifiedOrchestrationTransforms(t *testing.T) {
+	flowLiteral := `{:slug :qualified-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (clojure.core/mapv identity (:items input)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("expected qualified mapv to fail local lint like server validation\n%s", output)
+	}
+	diagnostic := flowLintDiagnosticByCode(t, body, "prohibited_orchestration_transform")
+	if diagnostic["form"] != "clojure.core/mapv" {
+		t.Fatalf("expected qualified form in diagnostic, got %#v", diagnostic)
+	}
+}
+
+func TestFlowsLintLocalOnlyAllowsNamespacedKeywordLookups(t *testing.T) {
+	flowLiteral := `{:slug :namespaced-lookups
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          [(:customer/map input) (:items/filter input)])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("namespaced keyword lookups must stay valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlySkipsExplicitQuotesAndCommentBodiesForTransforms(t *testing.T) {
+	for _, form := range []string{
+		`(quote (fn [input] (mapv identity (:items input))))`,
+		`(clojure.core/quote (fn [input] (mapv identity (:items input))))`,
+		`(comment (mapv identity (:items input)))`,
+		`(clojure.core/comment (mapv identity (:items input)))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :discarded-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s input)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("non-executable transform form must stay valid for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyHonorsChainedReaderDiscardsForTransforms(t *testing.T) {
+	flowLiteral := `{:slug :discarded-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          #_ #_ :old (mapv identity (:items input))
+          input)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("reader-discarded transform must stay valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlyRejectsIndirectTransformReferences(t *testing.T) {
+	for _, form := range []string{
+		`(apply map vector (:rows input))`,
+		`(apply #'filter vector (:rows input))`,
+		`(clojure.core/apply map vector (:rows input))`,
+		`(partial filter :active)`,
+		`(comp mapv filterv)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("indirect transform reference must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *testing.T) {
+	for _, form := range []string{
+		`(let [xf map] (xf identity (:items input)))`,
+		`(let [xf ^:dynamic map] (xf identity (:items input)))`,
+		`(let [xf #'^:dynamic map] xf)`,
+		`(if-let [xf #'clojure.core/mapv] (xf identity (:items input)) [])`,
+		`(if-some [xf mapv] (xf identity (:items input)) [])`,
+		`(when-some [xf filter] (xf identity (:items input)))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("transform binding initializer must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+
+	for _, form := range []string{
+		`(let [map (:map input) xf map] xf)`,
+		`(let [{:keys [filter]} input xf filter] xf)`,
+		`(let [{:keys [customer/map]} input] (map :id))`,
+		`(let [{:keys [:customer/map]} input] (map :id))`,
+		`(let [{:keys [::map]} input] (map :id))`,
+		`(let [#:customer{:keys [map]} input] (map :id))`,
+		`(let [#::{:keys [map]} input] (map :id))`,
+		`(let [{::keys [map]} input] (map :id))`,
+		`(let [map (:map input)] (map :key))`,
+		`(let [map (:fallback input)] (let [{:keys [map xf] :or {xf map}} input] xf))`,
+		`(let [f (fn [map] (map :id))] (f (:map input)))`,
+		`(let [f (fn named ([filter] (filter :id)) ([filter x] (filter x)))] (f (:filter input)))`,
+		`(letfn [(map [row] (:id row))] (map input))`,
+		`(letfn [(map ([row] (:id row)) ([row key] (key row)))] (map input))`,
+		`(for [map (:maps input)] (map :id))`,
+		`(dotimes [map 3] map)`,
+		`(when-first [map (:maps input)] (map :id))`,
+		`(try (identity input) (catch Exception map :fallback))`,
+		`(try (identity input) (catch Exception map (map :id)))`,
+		`(let [x (case (:kind input) map :mapped :other)] x)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :shadowed-binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("shadowed transform name must stay valid for %s: %v\n%s", form, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+
+	for _, form := range []string{
+		`(let [xf [map]] xf)`,
+		`(let [xf (identity map)] xf)`,
+		`(let [xf (let [] map)] xf)`,
+		`(let [let (fn [& xs] xs)] (let [map]))`,
+		`(let [loop (fn [& xs] xs)] (loop [map]))`,
+		`(let [dotimes (fn [& xs] xs)] (dotimes [map]))`,
+		`(let [fn (clojure.core/fn [& xs] xs)] (fn [map]))`,
+		`(let [{:keys [xf] :or {xf map}} input] xf)`,
+		`(let [{:keys [map xf] :or {xf map}} input] xf)`,
+		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
+		`(let [{:keys [map] :or {map map}} input] map)`,
+		`(let [[#_ #_ :old map] (:items input)] (map identity (:rows input)))`,
+		`(let [{:keys [#_ #_ :old map]} input] (map identity (:rows input)))`,
+		`(let [f (fn [{:keys [xf] :or {xf map}}] xf)] f)`,
+		`(let [f (fn [{:keys [map xf] :or {xf map}}] xf)] f)`,
+		`(letfn [(f [row] (map :id row))] f)`,
+		`(if-let [map (:maybe input)] :ok (map identity (:rows input)))`,
+		`(for [x map] x)`,
+		`(let [x (case (:kind input) :mapped map :other)] x)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :nested-binding-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("evaluated binding reference must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
+	for _, metadata := range []string{"^:lint", "^:lint ^:generated"} {
+		flowLiteral := fmt.Sprintf(`{:slug :metadata-wrapped-flow
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+	 :flow %s '(map identity rows)}
+`, metadata)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("metadata-wrapped quoted flow transform must fail for %s\n%s", metadata, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
+	for _, flowSource := range []string{
+		`#_ '(identity) '(map identity rows)`,
+		`#?(:clj #_ '(identity) '(map identity rows))`,
+		`#?((:and :clj) '(map identity rows) :default '(identity rows))`,
+		`'#_ :old (map identity rows)`,
+		`(quote #_ :old (map identity rows))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :discarded-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+	 :flow %s}
+`, flowSource)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("active flow after reader discard must fail for %s\n%s", flowSource, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestFlowsLintLocalOnlyIgnoresNestedConditionalInInactiveBranch(t *testing.T) {
+	for _, flowSource := range []string{
+		`#?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))`,
+		`#?(:cljs #_ :old map :clj '(identity rows))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :inactive-nested-reader-conditional
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+	 :flow %s}
+`, flowSource)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("inactive reader conditional must stay valid for %s: %v\n%s", flowSource, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform", "clojure_reader_invalid")
+	}
+}
+
+func TestFlowsLintLocalOnlyFindsFlowInTopLevelReaderConditionalSplice(t *testing.T) {
+	flowLiteral := `{:slug :spliced-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ #?@(:clj [:flow '(map identity rows)] :cljs [])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("active spliced flow must fail\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestFlowsLintLocalOnlyUsesLastActiveFlowEntry(t *testing.T) {
+	for _, tc := range []struct {
+		entries string
+		valid   bool
+	}{
+		{entries: ":flow '(map identity rows) :flow '(identity rows)", valid: true},
+		{entries: ":flow '(identity rows) :flow '(map identity rows)", valid: false},
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :duplicate-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ %s}
+`, tc.entries)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if tc.valid && err != nil {
+			t.Fatalf("overwritten transform must not fail: %v\n%s", err, output)
+		}
+		if !tc.valid && err == nil {
+			t.Fatalf("effective transform must fail\n%s", output)
+		}
+		if !tc.valid {
+			requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		}
+	}
+}
+
+func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
+	matches := unsupportedFlowFormMatches(`'#_ :old (fn [input] (mapv identity input))`, 0)
+	if len(matches) != 0 {
+		t.Fatalf("quoted function body after reader discard must remain data: %#v", matches)
+	}
+}
+
+func TestUnsupportedFlowFormsSkipTaggedLiteralValueAfterReaderDiscard(t *testing.T) {
+	matches := unsupportedFlowFormMatches(`#my/tag #_ :old (mapv identity xs)`, 0)
+	if len(matches) != 0 {
+		t.Fatalf("tagged literal active value must remain data: %#v", matches)
+	}
+}
+
+func TestUnsupportedFlowFormsHonorMetadataWrappedDiscardChains(t *testing.T) {
+	for _, form := range []string{
+		`(do #_ ^:m #_ :old map :ok)`,
+		`(do '#?(:cljs :old) map :ok)`,
+		`(do #_ #?(:cljs :old) map :ok)`,
+	} {
+		matches := unsupportedFlowFormMatches(form, 0)
+		if len(matches) != 0 {
+			t.Fatalf("reader-hidden transform must stay hidden for %s: %#v", form, matches)
+		}
+	}
+}
+
+func TestUnsupportedFlowFormsUseEffectiveDuplicateDestructuringKeys(t *testing.T) {
+	for _, tc := range []struct {
+		form    string
+		flagged bool
+	}{
+		{form: `(let [{:keys [map] :keys [xf]} input] (map identity rows))`, flagged: true},
+		{form: `(let [{:keys [xf] :keys [map]} input] (map identity rows))`, flagged: false},
+	} {
+		matches := unsupportedFlowFormMatches(tc.form, 0)
+		if tc.flagged && len(matches) == 0 {
+			t.Fatalf("effective destructuring keys must expose transform for %s", tc.form)
+		}
+		if !tc.flagged && len(matches) != 0 {
+			t.Fatalf("effective destructuring binding must shadow transform for %s: %#v", tc.form, matches)
+		}
+	}
+}
+
+func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
+	for _, tc := range []struct {
+		form    string
+		flagged bool
+	}{
+		{form: "`{:helper map}", flagged: false},
+		{form: "`{:items ~(map identity (:items input))}", flagged: true},
+		{form: "`{:helper ~^:dynamic map}", flagged: true},
+		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
+		{form: "`{:xf ~#_ #_ :old identity map}", flagged: true},
+		{form: "`#_ :old {:xf ~map}", flagged: true},
+		{form: "`[\\~ map]", flagged: false},
+		{form: "`{:template `(do ~map)}", flagged: false},
+		{form: "`{:template `(do ~~map)}", flagged: true},
+		{form: "`#?(:cljs ~(map identity (:items input)) :clj :ok)", flagged: false},
+		{form: "`#?(:clj ~(map identity (:items input)) :cljs :ok)", flagged: true},
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :syntax-quote-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, tc.form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if tc.flagged && err == nil {
+			t.Fatalf("unquoted syntax-quote transform must fail for %s\n%s", tc.form, output)
+		}
+		if !tc.flagged && err != nil {
+			t.Fatalf("quoted syntax-quote data must stay valid for %s: %v\n%s", tc.form, err, output)
+		}
+		if tc.flagged {
+			requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		} else {
+			rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		}
+	}
+
+	if matches := unsupportedFlowFormMatches(`(let [xs (map identity rows)] xs)`, 0); len(matches) != 1 {
+		t.Fatalf("nested binding initializer call must produce one diagnostic, got %#v", matches)
+	}
+	if matches := unsupportedFlowFormMatches(`(#?@(:clj [#_ #_ :old map identity]) xs)`, 0); len(matches) != 0 {
+		t.Fatalf("spliced reader discard chain must expose identity, not map: %#v", matches)
+	}
+}
+
+func TestFlowsLintLocalOnlyResolvesReaderFormsInTransformCallHeads(t *testing.T) {
+	for _, form := range []string{
+		`(#?(:clj map :default identity) identity (:items input))`,
+		`(#?@(:clj [map identity]) (:items input))`,
+		`(#_identity map identity (:items input))`,
+		`(^:trace map identity (:items input))`,
+		`(#'clojure.core/mapv identity (:items input))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :reader-form-transform
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("reader-resolved transform call must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
+func TestUnsupportedFlowFormMatchesSkipsReaderMacroData(t *testing.T) {
+	for _, source := range []string{
+		`^{:example (mapv identity xs)} target`,
+		`#my/tag (mapv identity xs)`,
+	} {
+		if matches := unsupportedFlowFormMatches(source, 0); len(matches) != 0 {
+			t.Fatalf("reader-macro data must not be treated as executable for %s: %#v", source, matches)
+		}
+	}
+
+	matches := unsupportedFlowFormMatches(`^:trace (mapv identity xs)`, 0)
+	if len(matches) != 1 || matches[0].rule != "mapv" {
+		t.Fatalf("metadata-wrapped executable transform must still be reported: %#v", matches)
+	}
+
+	for _, source := range []string{
+		`#::{:items (mapv identity xs)}`,
+		`#:order{:items (filter pred rows)}`,
+	} {
+		if matches := unsupportedFlowFormMatches(source, 0); len(matches) != 1 {
+			t.Fatalf("namespaced map values remain executable for %s: %#v", source, matches)
+		}
+	}
+
+	if matches := unsupportedFlowFormMatches(`(#_ #_ :old map identity xs)`, 0); len(matches) != 0 {
+		t.Fatalf("discarded call-head chain must expose identity, not map: %#v", matches)
+	}
+}
+
+func TestFlowsLintLocalOnlyRejectsEvaluatedTransformReferences(t *testing.T) {
+	for _, form := range []string{
+		`(apply str map)`,
+		`(partial str filter)`,
+		`(identity map)`,
+		`{:xf map}`,
+		`(let [comment (fn [x] x)] (comment (map identity (:rows input))))`,
+		`(binding [map (:map input)] (map identity (:rows input)))`,
+		`(let [case (fn [& xs] xs)] (case (:kind input) map :x))`,
+		`(let [binding (fn [v] v)] (binding [map 1]))`,
+		`(let [for (fn [& xs] xs)] (for [map]))`,
+		`(let [doseq (fn [& xs] xs)] (doseq [map]))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :indirect-transform-data
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)] %s)}
+`, form)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("evaluated transform reference must fail for %s\n%s", form, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+	}
+}
+
 func TestFlowsLintLocalOnlySkipsReaderDiscardedUnsupportedVisualThreading(t *testing.T) {
 	tmpDir := t.TempDir()
 	flowFile := filepath.Join(tmpDir, "flow.clj")
