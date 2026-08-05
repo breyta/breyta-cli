@@ -209,6 +209,15 @@ func readClojureDiscardedFormEnd(src string, start int) (int, error) {
 		return 0, fmt.Errorf("expected form after reader discard")
 	}
 	switch {
+	case strings.HasPrefix(src[i:], "#?"):
+		activeStart, _, conditionalEnd, ok := activeReaderConditionalForm(src, i)
+		if !ok || conditionalEnd <= i {
+			return 0, fmt.Errorf("could not read reader conditional near byte %d", i)
+		}
+		if activeStart < 0 {
+			return readClojureDiscardedFormEnd(src, conditionalEnd)
+		}
+		return conditionalEnd, nil
 	case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
 		metadataStart := i + 1
 		if src[i] == '#' {

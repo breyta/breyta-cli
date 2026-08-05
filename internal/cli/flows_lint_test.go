@@ -852,17 +852,22 @@ func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 }
 
 func TestFlowsLintLocalOnlyIgnoresNestedConditionalInInactiveBranch(t *testing.T) {
-	flowLiteral := `{:slug :inactive-nested-reader-conditional
+	for _, flowSource := range []string{
+		`#?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))`,
+		`#?(:cljs #_ :old map :clj '(identity rows))`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :inactive-nested-reader-conditional
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :flow #?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))}
-`
-	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
-	if err != nil {
-		t.Fatalf("inactive nested reader conditional must stay valid: %v\n%s", err, output)
+	 :flow %s}
+`, flowSource)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err != nil {
+			t.Fatalf("inactive reader conditional must stay valid for %s: %v\n%s", flowSource, err, output)
+		}
+		rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform", "clojure_reader_invalid")
 	}
-	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform", "clojure_reader_invalid")
 }
 
 func TestFlowsLintLocalOnlyFindsFlowInTopLevelReaderConditionalSplice(t *testing.T) {
@@ -921,9 +926,15 @@ func TestUnsupportedFlowFormsSkipTaggedLiteralValueAfterReaderDiscard(t *testing
 }
 
 func TestUnsupportedFlowFormsHonorMetadataWrappedDiscardChains(t *testing.T) {
-	matches := unsupportedFlowFormMatches(`(do #_ ^:m #_ :old map :ok)`, 0)
-	if len(matches) != 0 {
-		t.Fatalf("metadata-wrapped discarded transform must stay hidden: %#v", matches)
+	for _, form := range []string{
+		`(do #_ ^:m #_ :old map :ok)`,
+		`(do '#?(:cljs :old) map :ok)`,
+		`(do #_ #?(:cljs :old) map :ok)`,
+	} {
+		matches := unsupportedFlowFormMatches(form, 0)
+		if len(matches) != 0 {
+			t.Fatalf("reader-hidden transform must stay hidden for %s: %#v", form, matches)
+		}
 	}
 }
 

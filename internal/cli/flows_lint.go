@@ -2094,7 +2094,8 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 				return i, i, i, false, fmt.Errorf("could not read reader conditional near byte %d", i)
 			}
 			if branchStart < 0 {
-				return -1, -1, next, false, nil
+				i = skipClojureWhitespaceCommaAndComments(src, next)
+				continue
 			}
 			activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, branchStart)
 			if err != nil {
@@ -4349,7 +4350,13 @@ func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
 			selected = true
 			i = formEnd
 		} else {
-			formEnd, err := readClojureFormEnd(src, i)
+			var formEnd int
+			var err error
+			if strings.HasPrefix(src[i:], "#_") {
+				formEnd, err = readClojureDiscardedFormEnd(src, i)
+			} else {
+				formEnd, err = readClojureFormEnd(src, i)
+			}
 			if err != nil || formEnd <= i {
 				return -1, -1, start, false
 			}
