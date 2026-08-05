@@ -42,6 +42,7 @@ var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
 	"cond->>": {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
 	// Keep this transform set aligned with the server flow SCI deny list.
 	"map":          {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
+	"map-indexed":  {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move indexed data transformation into a :function step."},
 	"filter":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
 	"reduce":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move data aggregation into a :function step."},
 	"mapv":         {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
@@ -1089,6 +1090,10 @@ func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int,
 }
 
 func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
+	return unsupportedSyntaxQuoteRangeMatchesAtDepth(src, start, end, baseOffset, boundNames, 1)
+}
+
+func unsupportedSyntaxQuoteRangeMatchesAtDepth(src string, start, end, baseOffset int, boundNames map[string]bool, quoteDepth int) []unsupportedFlowFormMatch {
 	var matches []unsupportedFlowFormMatch
 	for i := start; i < end; {
 		if strings.HasPrefix(src[i:], `#"`) {
@@ -1108,7 +1113,7 @@ func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, 
 			activeStart, activeEnd, next, ok := activeReaderConditionalForm(src, i)
 			if ok {
 				if activeStart >= 0 {
-					matches = append(matches, unsupportedSyntaxQuoteRangeMatches(src, activeStart, activeEnd, baseOffset, boundNames)...)
+					matches = append(matches, unsupportedSyntaxQuoteRangeMatchesAtDepth(src, activeStart, activeEnd, baseOffset, boundNames, quoteDepth)...)
 				}
 				if next > i {
 					i = next
@@ -1134,6 +1139,17 @@ func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, 
 		case ';':
 			i = readCommentEnd(src, i)
 			continue
+		case '`':
+			activeStart, activeEnd, formEnd, hasActive, formErr := clojureActiveFormSpan(src, i+1)
+			if formErr == nil && hasActive && activeEnd <= end {
+				matches = append(matches, unsupportedSyntaxQuoteRangeMatchesAtDepth(src, activeStart, activeEnd, baseOffset, boundNames, quoteDepth+1)...)
+			}
+			if formErr == nil && formEnd > i {
+				i = formEnd
+			} else {
+				i++
+			}
+			continue
 		case '~':
 			formStart := i + 1
 			if formStart < end && src[formStart] == '@' {
@@ -1141,7 +1157,11 @@ func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, 
 			}
 			activeStart, activeEnd, formEnd, hasActive, formErr := clojureActiveFormSpan(src, formStart)
 			if formErr == nil && hasActive && activeEnd <= end {
-				matches = append(matches, unsupportedTransformReferenceMatches(src, clojureFormSpan{Start: activeStart, End: activeEnd}, baseOffset, boundNames)...)
+				if quoteDepth == 1 {
+					matches = append(matches, unsupportedTransformReferenceMatches(src, clojureFormSpan{Start: activeStart, End: activeEnd}, baseOffset, boundNames)...)
+				} else {
+					matches = append(matches, unsupportedSyntaxQuoteRangeMatchesAtDepth(src, activeStart, activeEnd, baseOffset, boundNames, quoteDepth-1)...)
+				}
 			}
 			if formErr == nil && formEnd > i {
 				i = formEnd
@@ -1381,7 +1401,11 @@ func clojureTaggedLiteralEnd(src string, start int) (int, bool) {
 func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 	i := skipClojureWhitespaceCommaAndComments(src, 0)
 	if i < len(src) && (src[i] == '\'' || src[i] == '`') {
-		return src[i+1:], i + 1
+		activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, i+1)
+		if err == nil && hasActive {
+			return src[activeStart:activeEnd], activeStart
+		}
+		return src, 0
 	}
 	if i < len(src) && src[i] == '(' {
 		elements, _, err := parseClojureListElements(src, i)
@@ -2088,6 +2112,15 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 				return i, i, i, false, fmt.Errorf("could not read discarded form near byte %d", i)
 			}
 			i = discardEnd
+		case src[i] == '\'' || src[i] == '`':
+			_, _, quotedEnd, quotedActive, quoteErr := clojureActiveFormSpan(src, i+1)
+			if quoteErr != nil || !quotedActive || quotedEnd <= i+1 {
+				if quoteErr == nil {
+					quoteErr = fmt.Errorf("could not read quoted form near byte %d", i)
+				}
+				return i, i, i, false, quoteErr
+			}
+			return i, quotedEnd, quotedEnd, true, nil
 		default:
 			end, formErr := readClojureFormEnd(src, i)
 			if formErr != nil || end <= i {

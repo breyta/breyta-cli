@@ -591,7 +591,7 @@ func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
 }
 
 func TestFlowsLintLocalOnlyRejectsServerProhibitedOrchestrationTransforms(t *testing.T) {
-	for _, transform := range []string{"map", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
+	for _, transform := range []string{"map", "map-indexed", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
 		t.Run(transform, func(t *testing.T) {
 			flowLiteral := fmt.Sprintf(`{:slug :prohibited-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -824,17 +824,22 @@ func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
 }
 
 func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
-	flowLiteral := `{:slug :discarded-flow-value
+	for _, flowSource := range []string{
+		`#_ '(identity) '(map identity rows)`,
+		`'#_ :old (map identity rows)`,
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :discarded-flow-value
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
  :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
- :flow #_ '(identity) '(map identity rows)}
-`
-	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
-	if err == nil {
-		t.Fatalf("active flow after reader discard must fail\n%s", output)
+	 :flow %s}
+`, flowSource)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if err == nil {
+			t.Fatalf("active flow after reader discard must fail for %s\n%s", flowSource, output)
+		}
+		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
-	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
 func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
@@ -854,6 +859,8 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 		{form: "`{:helper ~^:dynamic map}", flagged: true},
 		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
 		{form: "`{:xf ~#_ #_ :old identity map}", flagged: true},
+		{form: "`{:template `(do ~map)}", flagged: false},
+		{form: "`{:template `(do ~~map)}", flagged: true},
 		{form: "`#?(:cljs ~(map identity (:items input)) :clj :ok)", flagged: false},
 		{form: "`#?(:clj ~(map identity (:items input)) :cljs :ok)", flagged: true},
 	} {
