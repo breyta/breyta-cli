@@ -829,7 +829,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 }
 
 func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
-	for _, metadata := range []string{"^:lint", "^:lint ^:generated", "^#_ :old :lint"} {
+	for _, metadata := range []string{"^:lint", "^:lint ^:generated", "^#_ :old :lint", "^#?(:cljs :lint)"} {
 		flowLiteral := fmt.Sprintf(`{:slug :metadata-wrapped-flow
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
@@ -871,6 +871,7 @@ func TestFlowsLintLocalOnlyIgnoresNestedConditionalInInactiveBranch(t *testing.T
 		`#?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))`,
 		`#?(:cljs #_ :old map :clj '(identity rows))`,
 		`#?(:cljs ^:m #_ :old map :clj '(identity rows))`,
+		`#?(:cljs ^:m #?(:bb map) :clj '(identity rows))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :inactive-nested-reader-conditional
  :concurrency {:type :singleton :on-new-version :coexist}

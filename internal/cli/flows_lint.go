@@ -404,6 +404,43 @@ func readerDiscardedRegionEnd(src string, start int) int {
 	return i
 }
 
+// readClojureMetadataValueEnd consumes the form used as metadata. A leading
+// reader discard removes a form and therefore must advance to the next active
+// metadata value. Other reader forms, including inactive conditionals, are
+// consumed syntactically so they cannot swallow the annotated form.
+func readClojureMetadataValueEnd(src string, start int) (int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if strings.HasPrefix(src[i:], "#_") {
+		return readClojureDiscardedFormEnd(src, i)
+	}
+	return readClojureFormEnd(src, i)
+}
+
+// readClojureReaderValueEnd consumes one reader-level value without allowing
+// inactive reader conditionals to escape into following sibling forms. Direct
+// reader discards and metadata targets still need reader-aware advancement.
+func readClojureReaderValueEnd(src string, start int) (int, error) {
+	i := skipClojureWhitespaceCommaAndComments(src, start)
+	if i >= len(src) {
+		return 0, fmt.Errorf("expected Clojure form")
+	}
+	if strings.HasPrefix(src[i:], "#_") {
+		return readClojureDiscardedFormEnd(src, i)
+	}
+	if src[i] == '^' || strings.HasPrefix(src[i:], "#^") {
+		metadataStart := i + 1
+		if src[i] == '#' {
+			metadataStart++
+		}
+		metadataEnd, err := readClojureMetadataValueEnd(src, metadataStart)
+		if err != nil {
+			return 0, err
+		}
+		return readClojureReaderValueEnd(src, metadataEnd)
+	}
+	return readClojureFormEnd(src, i)
+}
+
 func unsupportedFlowFormMatches(src string, baseOffset int) []unsupportedFlowFormMatch {
 	return unsupportedFlowFormMatchesScoped(src, baseOffset, nil, true)
 }
@@ -1508,7 +1545,7 @@ func unwrapTopLevelMetadataFlowSource(src string) (string, int) {
 	if src[i] == '#' {
 		metadataStart++
 	}
-	metadataEnd, err := readClojureDiscardedFormEnd(src, metadataStart)
+	metadataEnd, err := readClojureMetadataValueEnd(src, metadataStart)
 	if err != nil || metadataEnd <= metadataStart {
 		return src, 0
 	}
@@ -2153,7 +2190,7 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 			if src[i] == '#' {
 				metaValueStart++
 			}
-			metaEnd, metaErr := readClojureDiscardedFormEnd(src, metaValueStart)
+			metaEnd, metaErr := readClojureMetadataValueEnd(src, metaValueStart)
 			if metaErr != nil || metaEnd <= metaValueStart {
 				if metaErr == nil {
 					metaErr = fmt.Errorf("could not read metadata near byte %d", i)
@@ -4390,13 +4427,7 @@ func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
 			selected = true
 			i = formEnd
 		} else {
-			var formEnd int
-			var err error
-			if strings.HasPrefix(src[i:], "#_") || src[i] == '^' || strings.HasPrefix(src[i:], "#^") {
-				formEnd, err = readClojureDiscardedFormEnd(src, i)
-			} else {
-				formEnd, err = readClojureFormEnd(src, i)
-			}
+			formEnd, err := readClojureReaderValueEnd(src, i)
 			if err != nil || formEnd <= i {
 				return -1, -1, start, false
 			}
