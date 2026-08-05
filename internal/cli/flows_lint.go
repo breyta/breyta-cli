@@ -607,7 +607,7 @@ func flowLintBindingFormApplies(symbol string, boundNames map[string]bool) bool 
 		return true
 	}
 	switch symbol {
-	case "let", "let*", "loop", "loop*":
+	case "let*", "loop*":
 		return true
 	default:
 		return !flowLintSymbolIsShadowed(symbol, boundNames)
@@ -1408,7 +1408,7 @@ func unwrapTopLevelQuotedFlowSource(src string) (string, int) {
 		return src, 0
 	}
 	if i < len(src) && src[i] == '(' {
-		elements, _, err := parseClojureListElements(src, i)
+		elements, _, err := parseActiveClojureListElements(src, i)
 		if err == nil && len(elements) >= 2 {
 			head := clojureFormToken(src, elements[0])
 			if head == "quote" || head == "clojure.core/quote" {
@@ -1761,29 +1761,14 @@ func topLevelFlowValueSource(src string) (string, int, bool) {
 }
 
 func topLevelMapValueSource(src string, start int, targetKey string) (string, int, bool) {
-	i := start + 1
-	for i < len(src) {
-		i = skipClojureWhitespaceCommaAndComments(src, i)
-		if i >= len(src) || src[i] == '}' {
-			return "", 0, false
+	entries, _, err := parseActiveClojureMapEntries(src, start)
+	if err != nil {
+		return "", 0, false
+	}
+	for _, entry := range entries {
+		if entry.KeyName == targetKey {
+			return src[entry.ValueStart:entry.ValueEnd], entry.ValueStart, true
 		}
-		keyStart, keyEnd, keyFormEnd, keyActive, err := clojureActiveFormSpan(src, i)
-		if err != nil || !keyActive || keyEnd <= keyStart || keyFormEnd <= i {
-			return "", 0, false
-		}
-		key := clojureKeywordName(src[keyStart:keyEnd])
-		valueStart := skipClojureWhitespaceCommaAndComments(src, keyFormEnd)
-		if valueStart >= len(src) {
-			return "", 0, false
-		}
-		activeStart, activeEnd, valueFormEnd, valueActive, err := clojureActiveFormSpan(src, valueStart)
-		if err != nil || !valueActive || activeEnd <= activeStart || valueFormEnd <= valueStart {
-			return "", 0, false
-		}
-		if key == targetKey {
-			return src[activeStart:activeEnd], activeStart, true
-		}
-		i = valueFormEnd
 	}
 	return "", 0, false
 }

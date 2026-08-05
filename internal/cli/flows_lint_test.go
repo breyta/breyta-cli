@@ -780,6 +780,8 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [xf [map]] xf)`,
 		`(let [xf (identity map)] xf)`,
 		`(let [xf (let [] map)] xf)`,
+		`(let [let (fn [& xs] xs)] (let [map]))`,
+		`(let [loop (fn [& xs] xs)] (loop [map]))`,
 		`(let [{:keys [xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [map xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
@@ -827,6 +829,7 @@ func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 	for _, flowSource := range []string{
 		`#_ '(identity) '(map identity rows)`,
 		`'#_ :old (map identity rows)`,
+		`(quote #_ :old (map identity rows))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :discarded-flow-value
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -840,6 +843,20 @@ func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
+}
+
+func TestFlowsLintLocalOnlyFindsFlowInTopLevelReaderConditionalSplice(t *testing.T) {
+	flowLiteral := `{:slug :spliced-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ #?@(:clj [:flow '(map identity rows)] :cljs [])}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("active spliced flow must fail\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
 func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
