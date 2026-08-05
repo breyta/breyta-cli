@@ -208,6 +208,28 @@ func readClojureDiscardedFormEnd(src string, start int) (int, error) {
 	if i >= len(src) {
 		return 0, fmt.Errorf("expected form after reader discard")
 	}
+	switch {
+	case src[i] == '^' || strings.HasPrefix(src[i:], "#^"):
+		metadataStart := i + 1
+		if src[i] == '#' {
+			metadataStart++
+		}
+		metadataEnd, err := readClojureFormEnd(src, metadataStart)
+		if err != nil {
+			return 0, err
+		}
+		return readClojureDiscardedFormEnd(src, metadataEnd)
+	case src[i] == '\'' || src[i] == '`' || src[i] == '@':
+		return readClojureDiscardedFormEnd(src, i+1)
+	case src[i] == '~':
+		targetStart := i + 1
+		if targetStart < len(src) && src[targetStart] == '@' {
+			targetStart++
+		}
+		return readClojureDiscardedFormEnd(src, targetStart)
+	case strings.HasPrefix(src[i:], "#'"):
+		return readClojureDiscardedFormEnd(src, i+2)
+	}
 	return readClojureFormEnd(src, i)
 }
 

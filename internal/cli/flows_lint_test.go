@@ -920,6 +920,31 @@ func TestUnsupportedFlowFormsSkipTaggedLiteralValueAfterReaderDiscard(t *testing
 	}
 }
 
+func TestUnsupportedFlowFormsHonorMetadataWrappedDiscardChains(t *testing.T) {
+	matches := unsupportedFlowFormMatches(`(do #_ ^:m #_ :old map :ok)`, 0)
+	if len(matches) != 0 {
+		t.Fatalf("metadata-wrapped discarded transform must stay hidden: %#v", matches)
+	}
+}
+
+func TestUnsupportedFlowFormsUseEffectiveDuplicateDestructuringKeys(t *testing.T) {
+	for _, tc := range []struct {
+		form    string
+		flagged bool
+	}{
+		{form: `(let [{:keys [map] :keys [xf]} input] (map identity rows))`, flagged: true},
+		{form: `(let [{:keys [xf] :keys [map]} input] (map identity rows))`, flagged: false},
+	} {
+		matches := unsupportedFlowFormMatches(tc.form, 0)
+		if tc.flagged && len(matches) == 0 {
+			t.Fatalf("effective destructuring keys must expose transform for %s", tc.form)
+		}
+		if !tc.flagged && len(matches) != 0 {
+			t.Fatalf("effective destructuring binding must shadow transform for %s: %#v", tc.form, matches)
+		}
+	}
+}
+
 func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
 	for _, tc := range []struct {
 		form    string

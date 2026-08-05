@@ -384,7 +384,7 @@ func readerDiscardedRegionEnd(src string, start int) int {
 				markers++
 				i = skipClojureWhitespaceCommaAndComments(src, i+2)
 			}
-			end, err := readClojureFormEnd(src, i)
+			end, err := readClojureDiscardedFormEnd(src, i)
 			if err != nil || end <= i {
 				return start + 2
 			}
@@ -395,7 +395,7 @@ func readerDiscardedRegionEnd(src string, start int) int {
 		if pending == 0 {
 			return i
 		}
-		end, err := readClojureFormEnd(src, i)
+		end, err := readClojureDiscardedFormEnd(src, i)
 		if err != nil || end <= i {
 			return i
 		}
@@ -955,7 +955,7 @@ func clojureBindingNames(src string, span clojureFormSpan) map[string]bool {
 	case '{':
 		entries, _, mapErr := parseActiveClojureMapEntries(src, collectionStart)
 		if mapErr == nil {
-			for _, entry := range entries {
+			for _, entry := range effectiveClojureMapEntries(entries) {
 				switch {
 				case entry.KeyToken == ":keys" || entry.KeyToken == ":syms" || entry.KeyToken == ":strs" ||
 					entry.KeyToken == "::keys" || entry.KeyToken == "::syms" || entry.KeyToken == "::strs" ||
@@ -1037,11 +1037,11 @@ func clojureBindingDefaults(src string, span clojureFormSpan) []clojureBindingDe
 		if mapErr != nil {
 			return defaults
 		}
-		for _, entry := range entries {
+		for _, entry := range effectiveClojureMapEntries(entries) {
 			if entry.KeyToken == ":or" {
 				orEntries, _, orErr := parseActiveClojureMapEntries(src, entry.ValueStart)
 				if orErr == nil {
-					for _, defaultEntry := range orEntries {
+					for _, defaultEntry := range effectiveClojureMapEntries(orEntries) {
 						name := strings.TrimLeft(defaultEntry.KeyToken, ":")
 						if slash := strings.LastIndex(name, "/"); slash >= 0 && slash+1 < len(name) {
 							name = name[slash+1:]
@@ -1060,6 +1060,23 @@ func clojureBindingDefaults(src string, span clojureFormSpan) []clojureBindingDe
 		}
 	}
 	return defaults
+}
+
+func effectiveClojureMapEntries(entries []clojureMapEntry) []clojureMapEntry {
+	seen := make(map[string]bool, len(entries))
+	effectiveReversed := make([]clojureMapEntry, 0, len(entries))
+	for entryIndex := len(entries) - 1; entryIndex >= 0; entryIndex-- {
+		entry := entries[entryIndex]
+		if seen[entry.KeyToken] {
+			continue
+		}
+		seen[entry.KeyToken] = true
+		effectiveReversed = append(effectiveReversed, entry)
+	}
+	for left, right := 0, len(effectiveReversed)-1; left < right; left, right = left+1, right-1 {
+		effectiveReversed[left], effectiveReversed[right] = effectiveReversed[right], effectiveReversed[left]
+	}
+	return effectiveReversed
 }
 
 func unsupportedBareTransformReferenceMatches(src string, span clojureFormSpan, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
