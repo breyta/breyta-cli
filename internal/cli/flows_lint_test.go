@@ -784,6 +784,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [let (fn [& xs] xs)] (let [map]))`,
 		`(let [loop (fn [& xs] xs)] (loop [map]))`,
 		`(let [dotimes (fn [& xs] xs)] (dotimes [map]))`,
+		`(let [fn (clojure.core/fn [& xs] xs)] (fn [map]))`,
 		`(let [{:keys [xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [map xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
@@ -830,6 +831,7 @@ func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
 func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 	for _, flowSource := range []string{
 		`#_ '(identity) '(map identity rows)`,
+		`#?(:clj #_ '(identity) '(map identity rows))`,
 		`'#_ :old (map identity rows)`,
 		`(quote #_ :old (map identity rows))`,
 	} {
@@ -895,6 +897,13 @@ func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
 	}
 }
 
+func TestUnsupportedFlowFormsSkipTaggedLiteralValueAfterReaderDiscard(t *testing.T) {
+	matches := unsupportedFlowFormMatches(`#my/tag #_ :old (mapv identity xs)`, 0)
+	if len(matches) != 0 {
+		t.Fatalf("tagged literal active value must remain data: %#v", matches)
+	}
+}
+
 func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
 	for _, tc := range []struct {
 		form    string
@@ -905,6 +914,7 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 		{form: "`{:helper ~^:dynamic map}", flagged: true},
 		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
 		{form: "`{:xf ~#_ #_ :old identity map}", flagged: true},
+		{form: "`#_ :old {:xf ~map}", flagged: true},
 		{form: "`[\\~ map]", flagged: false},
 		{form: "`{:template `(do ~map)}", flagged: false},
 		{form: "`{:template `(do ~~map)}", flagged: true},

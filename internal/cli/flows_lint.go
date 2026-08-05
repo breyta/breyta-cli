@@ -496,7 +496,8 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 				i = listEnd
 				continue
 			}
-			if isFlowLintFnForm(symbol) {
+			if isFlowLintFnForm(symbol) &&
+				(symbol == "fn*" || strings.Contains(symbol, "/") || !flowLintSymbolIsShadowed(symbol, boundNames)) {
 				matches = append(matches, unsupportedFnFormMatches(src, elements, baseOffset, boundNames, flagBareReferences)...)
 				i = listEnd
 				continue
@@ -1083,11 +1084,11 @@ func unsupportedTransformReferenceMatches(src string, span clojureFormSpan, base
 // evaluated while the surrounding orchestration runs and therefore need the
 // same transform checks as ordinary executable forms.
 func unsupportedSyntaxQuoteUnquoteMatches(src string, start int, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
-	end, err := readClojureFormEnd(src, start+1)
-	if err != nil || end <= start+1 {
+	activeStart, activeEnd, _, hasActive, err := clojureActiveFormSpan(src, start+1)
+	if err != nil || !hasActive || activeEnd <= activeStart {
 		return nil
 	}
-	return unsupportedSyntaxQuoteRangeMatches(src, start+1, end, baseOffset, boundNames)
+	return unsupportedSyntaxQuoteRangeMatches(src, activeStart, activeEnd, baseOffset, boundNames)
 }
 
 func unsupportedSyntaxQuoteRangeMatches(src string, start, end, baseOffset int, boundNames map[string]bool) []unsupportedFlowFormMatch {
@@ -1400,8 +1401,8 @@ func clojureTaggedLiteralEnd(src string, start int) (int, bool) {
 		return start, false
 	}
 	valueStart := skipClojureWhitespaceCommaAndComments(src, tagEnd)
-	valueEnd, err := readClojureFormEnd(src, valueStart)
-	if err != nil || valueEnd <= valueStart {
+	_, _, valueEnd, hasActive, err := clojureActiveFormSpan(src, valueStart)
+	if err != nil || !hasActive || valueEnd <= valueStart {
 		return start, false
 	}
 	return valueEnd, true
@@ -4320,14 +4321,13 @@ func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
 		if i >= len(src) {
 			return -1, -1, start, false
 		}
-		formStart := i
-		formEnd, err := readClojureFormEnd(src, i)
-		if err != nil || formEnd <= formStart {
+		formStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+		if err != nil || !hasActive || formEnd <= i || activeEnd <= formStart {
 			return -1, -1, start, false
 		}
 		if active {
 			selectedStart = formStart
-			selectedEnd = formEnd
+			selectedEnd = activeEnd
 			selected = true
 		}
 		i = formEnd
