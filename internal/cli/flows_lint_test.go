@@ -823,6 +823,27 @@ func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
 	}
 }
 
+func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
+	flowLiteral := `{:slug :discarded-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow #_ '(identity) '(map identity rows)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err == nil {
+		t.Fatalf("active flow after reader discard must fail\n%s", output)
+	}
+	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+}
+
+func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
+	matches := unsupportedFlowFormMatches(`'#_ :old (fn [input] (mapv identity input))`, 0)
+	if len(matches) != 0 {
+		t.Fatalf("quoted function body after reader discard must remain data: %#v", matches)
+	}
+}
+
 func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) {
 	for _, tc := range []struct {
 		form    string
@@ -832,6 +853,7 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 		{form: "`{:items ~(map identity (:items input))}", flagged: true},
 		{form: "`{:helper ~^:dynamic map}", flagged: true},
 		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
+		{form: "`{:xf ~#_ #_ :old identity map}", flagged: true},
 		{form: "`#?(:cljs ~(map identity (:items input)) :clj :ok)", flagged: false},
 		{form: "`#?(:clj ~(map identity (:items input)) :cljs :ok)", flagged: true},
 	} {

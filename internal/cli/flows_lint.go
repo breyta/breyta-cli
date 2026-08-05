@@ -467,8 +467,8 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 			i = readCommentEnd(src, i)
 			continue
 		case '\'':
-			next, err := readClojureFormEnd(src, i+1)
-			if err != nil || next <= i+1 {
+			_, _, next, hasActive, err := clojureActiveFormSpan(src, i+1)
+			if err != nil || !hasActive || next <= i+1 {
 				i++
 			} else {
 				i = next
@@ -476,8 +476,8 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 			continue
 		case '`':
 			matches = append(matches, unsupportedSyntaxQuoteUnquoteMatches(src, i, baseOffset, boundNames)...)
-			next, err := readClojureFormEnd(src, i+1)
-			if err != nil || next <= i+1 {
+			_, _, next, hasActive, err := clojureActiveFormSpan(src, i+1)
+			if err != nil || !hasActive || next <= i+1 {
 				i++
 			} else {
 				i = next
@@ -1743,24 +1743,23 @@ func topLevelMapValueSource(src string, start int, targetKey string) (string, in
 		if i >= len(src) || src[i] == '}' {
 			return "", 0, false
 		}
-		keyStart := i
-		keyEnd, err := readClojureFormEnd(src, i)
-		if err != nil || keyEnd <= keyStart {
+		keyStart, keyEnd, keyFormEnd, keyActive, err := clojureActiveFormSpan(src, i)
+		if err != nil || !keyActive || keyEnd <= keyStart || keyFormEnd <= i {
 			return "", 0, false
 		}
 		key := clojureKeywordName(src[keyStart:keyEnd])
-		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
+		valueStart := skipClojureWhitespaceCommaAndComments(src, keyFormEnd)
 		if valueStart >= len(src) {
 			return "", 0, false
 		}
-		valueEnd, err := readClojureFormEnd(src, valueStart)
-		if err != nil || valueEnd <= valueStart {
+		activeStart, activeEnd, valueFormEnd, valueActive, err := clojureActiveFormSpan(src, valueStart)
+		if err != nil || !valueActive || activeEnd <= activeStart || valueFormEnd <= valueStart {
 			return "", 0, false
 		}
 		if key == targetKey {
-			return src[valueStart:valueEnd], valueStart, true
+			return src[activeStart:activeEnd], activeStart, true
 		}
-		i = valueEnd
+		i = valueFormEnd
 	}
 	return "", 0, false
 }
@@ -2084,14 +2083,11 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 			}
 			i = skipClojureWhitespaceCommaAndComments(src, metaEnd)
 		case strings.HasPrefix(src[i:], "#_"):
-			discardEnd, discardErr := readClojureFormEnd(src, i+2)
-			if discardErr != nil || discardEnd <= i+2 {
-				if discardErr == nil {
-					discardErr = fmt.Errorf("could not read discarded form near byte %d", i)
-				}
-				return i, i, i, false, discardErr
+			discardEnd := readerDiscardedRegionEnd(src, i)
+			if discardEnd <= i {
+				return i, i, i, false, fmt.Errorf("could not read discarded form near byte %d", i)
 			}
-			i = skipClojureWhitespaceCommaAndComments(src, discardEnd)
+			i = discardEnd
 		default:
 			end, formErr := readClojureFormEnd(src, i)
 			if formErr != nil || end <= i {
