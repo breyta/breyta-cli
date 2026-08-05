@@ -725,6 +725,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 	for _, form := range []string{
 		`(let [xf map] (xf identity (:items input)))`,
 		`(let [xf ^:dynamic map] (xf identity (:items input)))`,
+		`(let [xf #'^:dynamic map] xf)`,
 		`(if-let [xf #'clojure.core/mapv] (xf identity (:items input)) [])`,
 		`(if-some [xf mapv] (xf identity (:items input)) [])`,
 		`(when-some [xf filter] (xf identity (:items input)))`,
@@ -832,6 +833,7 @@ func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 	for _, flowSource := range []string{
 		`#_ '(identity) '(map identity rows)`,
 		`#?(:clj #_ '(identity) '(map identity rows))`,
+		`#?((:and :clj) '(map identity rows) :default '(identity rows))`,
 		`'#_ :old (map identity rows)`,
 		`(quote #_ :old (map identity rows))`,
 	} {
@@ -847,6 +849,20 @@ func TestFlowsLintLocalOnlyUsesActiveFlowAfterReaderDiscard(t *testing.T) {
 		}
 		requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 	}
+}
+
+func TestFlowsLintLocalOnlyIgnoresNestedConditionalInInactiveBranch(t *testing.T) {
+	flowLiteral := `{:slug :inactive-nested-reader-conditional
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow #?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("inactive nested reader conditional must stay valid: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform", "clojure_reader_invalid")
 }
 
 func TestFlowsLintLocalOnlyFindsFlowInTopLevelReaderConditionalSplice(t *testing.T) {

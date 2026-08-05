@@ -553,13 +553,14 @@ func unsupportedFlowFormMatchesScoped(src string, baseOffset int, boundNames map
 		}
 		if flagBareReferences {
 			if strings.HasPrefix(src[i:], "#'") {
-				tokenEnd := readClojureTokenEnd(src, i+2)
-				if tokenEnd > i+2 {
-					symbol := src[i:tokenEnd]
+				activeStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i+2)
+				if err == nil && hasActive && activeEnd > activeStart && formEnd > i+2 {
+					target := clojureFormToken(src, clojureFormSpan{Start: activeStart, End: activeEnd})
+					symbol := "#'" + target
 					if rule, ok := unsupportedFlowFormRuleKey(symbol); ok {
 						matches = append(matches, unsupportedFlowFormMatch{symbol: symbol, rule: rule, offset: baseOffset + i})
 					}
-					i = tokenEnd
+					i = formEnd
 					continue
 				}
 			}
@@ -4321,24 +4322,57 @@ func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
 		if i >= len(src) {
 			return -1, -1, start, false
 		}
-		formStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
-		if err != nil || !hasActive || formEnd <= i || activeEnd <= formStart {
-			return -1, -1, start, false
-		}
 		if active {
+			formStart, activeEnd, formEnd, hasActive, err := clojureActiveFormSpan(src, i)
+			if err != nil || !hasActive || formEnd <= i || activeEnd <= formStart {
+				return -1, -1, start, false
+			}
 			selectedStart = formStart
 			selectedEnd = activeEnd
 			selected = true
+			i = formEnd
+		} else {
+			formEnd, err := readClojureFormEnd(src, i)
+			if err != nil || formEnd <= i {
+				return -1, -1, start, false
+			}
+			i = formEnd
 		}
-		i = formEnd
 	}
 	return -1, -1, start, false
 }
 
 func readerConditionalFeatureActive(feature string) bool {
-	switch strings.TrimSpace(feature) {
+	feature = strings.TrimSpace(feature)
+	switch feature {
 	case ":clj", ":default":
 		return true
+	}
+	if !strings.HasPrefix(feature, "(") {
+		return false
+	}
+	elements, end, err := parseClojureListElements(feature, 0)
+	if err != nil || end != len(feature) || len(elements) < 2 {
+		return false
+	}
+	op := clojureFormToken(feature, elements[0])
+	switch op {
+	case ":and":
+		for _, element := range elements[1:] {
+			if !readerConditionalFeatureActive(feature[element.Start:element.End]) {
+				return false
+			}
+		}
+		return true
+	case ":or":
+		for _, element := range elements[1:] {
+			if readerConditionalFeatureActive(feature[element.Start:element.End]) {
+				return true
+			}
+		}
+		return false
+	case ":not":
+		return len(elements) == 2 && !readerConditionalFeatureActive(feature[elements[1].Start:elements[1].End])
 	default:
 		return false
 	}
