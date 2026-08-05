@@ -591,7 +591,7 @@ func TestFlowsLintLocalOnlyRejectsUnsupportedVisualThreading(t *testing.T) {
 }
 
 func TestFlowsLintLocalOnlyRejectsServerProhibitedOrchestrationTransforms(t *testing.T) {
-	for _, transform := range []string{"map", "map-indexed", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
+	for _, transform := range []string{"map", "filter", "reduce", "mapv", "filterv", "mapcat", "keep", "keep-indexed", "remove"} {
 		t.Run(transform, func(t *testing.T) {
 			flowLiteral := fmt.Sprintf(`{:slug :prohibited-transform
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -610,6 +610,21 @@ func TestFlowsLintLocalOnlyRejectsServerProhibitedOrchestrationTransforms(t *tes
 			}
 		})
 	}
+}
+
+func TestFlowsLintLocalOnlyAllowsMapIndexedWhileServerAllowsIt(t *testing.T) {
+	flowLiteral := `{:slug :map-indexed-allowed
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(let [input (flow/input)]
+          (map-indexed vector (:items input)))}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("local lint must not reject map-indexed while the server permits it: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
 func TestFlowsLintLocalOnlyAllowsTransformsInsideQuotedFunctionCode(t *testing.T) {

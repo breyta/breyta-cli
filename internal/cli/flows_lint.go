@@ -42,7 +42,6 @@ var flowLintUnsupportedFlowForms = map[string]unsupportedFlowFormRule{
 	"cond->>": {reason: "Visual renderer cannot display conditional threading.", hint: "Use explicit conditionals and let bindings."},
 	// Keep this transform set aligned with the server flow SCI deny list.
 	"map":          {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
-	"map-indexed":  {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move indexed data transformation into a :function step."},
 	"filter":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for with :when for step orchestration, or move data transformation into a :function step."},
 	"reduce":       {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Move data aggregation into a :function step."},
 	"mapv":         {code: "prohibited_orchestration_transform", reason: "Flow orchestration cannot perform data transformations.", hint: "Use for for step orchestration, or move data transformation into a :function step."},
