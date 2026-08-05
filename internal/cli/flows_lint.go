@@ -1508,7 +1508,7 @@ func unwrapTopLevelMetadataFlowSource(src string) (string, int) {
 	if src[i] == '#' {
 		metadataStart++
 	}
-	metadataEnd, err := readClojureFormEnd(src, metadataStart)
+	metadataEnd, err := readClojureDiscardedFormEnd(src, metadataStart)
 	if err != nil || metadataEnd <= metadataStart {
 		return src, 0
 	}
@@ -1835,7 +1835,7 @@ func topLevelMapValueSource(src string, start int, targetKey string) (string, in
 	}
 	for entryIndex := len(entries) - 1; entryIndex >= 0; entryIndex-- {
 		entry := entries[entryIndex]
-		if entry.KeyName == targetKey {
+		if strings.TrimSpace(entry.KeyToken) == ":"+targetKey {
 			return src[entry.ValueStart:entry.ValueEnd], entry.ValueStart, true
 		}
 	}
@@ -1854,12 +1854,12 @@ func topLevelMapValueIsNil(src string, start int, targetKey string) bool {
 		if err != nil || keyEnd <= keyStart {
 			return false
 		}
-		key := clojureKeywordName(src[keyStart:keyEnd])
+		key := strings.TrimSpace(src[keyStart:keyEnd])
 		valueStart := skipClojureWhitespaceCommaAndComments(src, keyEnd)
 		if valueStart >= len(src) {
 			return false
 		}
-		if key == targetKey {
+		if key == ":"+targetKey {
 			return clojureFormIsNil(src, valueStart)
 		}
 		valueEnd, err := readClojureFormEnd(src, valueStart)
@@ -2153,7 +2153,7 @@ func clojureActiveFormSpan(src string, start int) (activeStart, activeEnd, formE
 			if src[i] == '#' {
 				metaValueStart++
 			}
-			metaEnd, metaErr := readClojureFormEnd(src, metaValueStart)
+			metaEnd, metaErr := readClojureDiscardedFormEnd(src, metaValueStart)
 			if metaErr != nil || metaEnd <= metaValueStart {
 				if metaErr == nil {
 					metaErr = fmt.Errorf("could not read metadata near byte %d", i)
@@ -4392,7 +4392,7 @@ func activeReaderConditionalForm(src string, start int) (int, int, int, bool) {
 		} else {
 			var formEnd int
 			var err error
-			if strings.HasPrefix(src[i:], "#_") {
+			if strings.HasPrefix(src[i:], "#_") || src[i] == '^' || strings.HasPrefix(src[i:], "#^") {
 				formEnd, err = readClojureDiscardedFormEnd(src, i)
 			} else {
 				formEnd, err = readClojureFormEnd(src, i)

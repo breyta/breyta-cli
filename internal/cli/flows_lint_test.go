@@ -829,7 +829,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 }
 
 func TestFlowsLintLocalOnlyUnwrapsMetadataAroundQuotedFlow(t *testing.T) {
-	for _, metadata := range []string{"^:lint", "^:lint ^:generated"} {
+	for _, metadata := range []string{"^:lint", "^:lint ^:generated", "^#_ :old :lint"} {
 		flowLiteral := fmt.Sprintf(`{:slug :metadata-wrapped-flow
  :concurrency {:type :singleton :on-new-version :coexist}
  :invocations {:default {:inputs []}}
@@ -870,6 +870,7 @@ func TestFlowsLintLocalOnlyIgnoresNestedConditionalInInactiveBranch(t *testing.T
 	for _, flowSource := range []string{
 		`#?(:clj '(identity rows) :cljs #?(:cljs '(map identity rows)))`,
 		`#?(:cljs #_ :old map :clj '(identity rows))`,
+		`#?(:cljs ^:m #_ :old map :clj '(identity rows))`,
 	} {
 		flowLiteral := fmt.Sprintf(`{:slug :inactive-nested-reader-conditional
  :concurrency {:type :singleton :on-new-version :coexist}
@@ -924,6 +925,21 @@ func TestFlowsLintLocalOnlyUsesLastActiveFlowEntry(t *testing.T) {
 			requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 		}
 	}
+}
+
+func TestFlowsLintLocalOnlyUsesLiteralFlowKeyRatherThanNamespacedExtension(t *testing.T) {
+	flowLiteral := `{:slug :namespaced-flow-extension
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ :flow '(identity rows)
+ :doc/flow '(map identity rows)}
+`
+	body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+	if err != nil {
+		t.Fatalf("namespaced :doc/flow must not override literal :flow: %v\n%s", err, output)
+	}
+	rejectFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
 func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
