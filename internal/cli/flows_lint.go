@@ -589,6 +589,7 @@ func isFlowLintFnForm(symbol string) bool {
 func isFlowLintBindingForm(symbol string) bool {
 	switch symbol {
 	case "let", "let*", "clojure.core/let", "loop", "loop*", "clojure.core/loop",
+		"dotimes", "clojure.core/dotimes",
 		"with-open", "clojure.core/with-open",
 		"if-let", "clojure.core/if-let", "when-let", "clojure.core/when-let",
 		"if-some", "clojure.core/if-some", "when-some", "clojure.core/when-some",
@@ -1128,6 +1129,14 @@ func unsupportedSyntaxQuoteRangeMatchesAtDepth(src string, start, end, baseOffse
 			continue
 		}
 		switch src[i] {
+		case '\\':
+			next, charErr := readClojureCharLiteralEnd(src, i)
+			if charErr != nil || next <= i {
+				i++
+			} else {
+				i = next
+			}
+			continue
 		case '"':
 			_, _, next, stringErr := readClojureStringToken(src, i)
 			if stringErr != nil || next <= i {
@@ -1765,7 +1774,8 @@ func topLevelMapValueSource(src string, start int, targetKey string) (string, in
 	if err != nil {
 		return "", 0, false
 	}
-	for _, entry := range entries {
+	for entryIndex := len(entries) - 1; entryIndex >= 0; entryIndex-- {
+		entry := entries[entryIndex]
 		if entry.KeyName == targetKey {
 			return src[entry.ValueStart:entry.ValueEnd], entry.ValueStart, true
 		}

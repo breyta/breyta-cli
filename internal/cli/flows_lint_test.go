@@ -758,6 +758,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(letfn [(map [row] (:id row))] (map input))`,
 		`(letfn [(map ([row] (:id row)) ([row key] (key row)))] (map input))`,
 		`(for [map (:maps input)] (map :id))`,
+		`(dotimes [map 3] map)`,
 		`(when-first [map (:maps input)] (map :id))`,
 		`(try (identity input) (catch Exception map :fallback))`,
 		`(try (identity input) (catch Exception map (map :id)))`,
@@ -782,6 +783,7 @@ func TestFlowsLintLocalOnlyRejectsTransformReferencesInBindingInitializers(t *te
 		`(let [xf (let [] map)] xf)`,
 		`(let [let (fn [& xs] xs)] (let [map]))`,
 		`(let [loop (fn [& xs] xs)] (loop [map]))`,
+		`(let [dotimes (fn [& xs] xs)] (dotimes [map]))`,
 		`(let [{:keys [xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [map xf] :or {xf map}} input] xf)`,
 		`(let [{:keys [xf] #?@(:clj [:or {xf map}])} input] xf)`,
@@ -859,6 +861,33 @@ func TestFlowsLintLocalOnlyFindsFlowInTopLevelReaderConditionalSplice(t *testing
 	requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
 }
 
+func TestFlowsLintLocalOnlyUsesLastActiveFlowEntry(t *testing.T) {
+	for _, tc := range []struct {
+		entries string
+		valid   bool
+	}{
+		{entries: ":flow '(map identity rows) :flow '(identity rows)", valid: true},
+		{entries: ":flow '(identity rows) :flow '(map identity rows)", valid: false},
+	} {
+		flowLiteral := fmt.Sprintf(`{:slug :duplicate-flow-value
+ :concurrency {:type :singleton :on-new-version :coexist}
+ :invocations {:default {:inputs []}}
+ :interfaces {:manual [{:id :run :label "Run" :invocation :default}]}
+ %s}
+`, tc.entries)
+		body, err, output := runFlowLintLocalOnlyForLiteral(t, flowLiteral)
+		if tc.valid && err != nil {
+			t.Fatalf("overwritten transform must not fail: %v\n%s", err, output)
+		}
+		if !tc.valid && err == nil {
+			t.Fatalf("effective transform must fail\n%s", output)
+		}
+		if !tc.valid {
+			requireFlowLintDiagnosticCodes(t, body, "prohibited_orchestration_transform")
+		}
+	}
+}
+
 func TestUnsupportedFlowFormsSkipReaderDiscardsInsideQuote(t *testing.T) {
 	matches := unsupportedFlowFormMatches(`'#_ :old (fn [input] (mapv identity input))`, 0)
 	if len(matches) != 0 {
@@ -876,6 +905,7 @@ func TestFlowsLintLocalOnlyScansOnlyUnquotedSyntaxQuoteTransforms(t *testing.T) 
 		{form: "`{:helper ~^:dynamic map}", flagged: true},
 		{form: "`{:items ~@[(filter identity (:items input))]}", flagged: true},
 		{form: "`{:xf ~#_ #_ :old identity map}", flagged: true},
+		{form: "`[\\~ map]", flagged: false},
 		{form: "`{:template `(do ~map)}", flagged: false},
 		{form: "`{:template `(do ~~map)}", flagged: true},
 		{form: "`#?(:cljs ~(map identity (:items input)) :clj :ok)", flagged: false},
