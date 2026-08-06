@@ -111,6 +111,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
+			if strings.TrimSpace(app.WorkspaceID) == "" {
+				return writeErr(cmd, errors.New("flows push requires --workspace or BREYTA_WORKSPACE"))
+			}
 			payload := map[string]any{"flowLiteral": flowLiteral}
 			resolvedDeployKey := strings.TrimSpace(deployKey)
 			if resolvedDeployKey == "" {
@@ -129,14 +132,14 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					trackFlowPushTimeout(app, flowSlug, "saving")
 					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(out, err), status, timeout, flowSlug, "saving")
 				}
-				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "saving"))
+				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving", err)
 			}
 			if status >= 400 || !isOK(out) {
 				if flowPushResponseTimedOut(status) {
 					trackFlowPushTimeout(app, flowSlug, "saving")
 					return writeFlowPushTimeoutAPIResponse(cmd, app, out, status, timeout, flowSlug, "saving")
 				}
-				return writeAPIResult(cmd, app, out, status)
+				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving", nil)
 			}
 			if dataAny, ok := out["data"]; ok {
 				if data, ok := dataAny.(map[string]any); ok {
@@ -182,7 +185,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					trackFlowPushTimeout(app, flowSlug, "validating")
 					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(validateOut, err), validateStatus, timeout, flowSlug, "validating")
 				}
-				return writeErr(cmd, flowPushRequestError(err, timeout, flowSlug, "validating"))
+				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating", err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
 				if flowPushResponseTimedOut(validateStatus) {
@@ -216,7 +219,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					"validated":       false,
 					"validate_source": "draft",
 				})
-				return writeAPIResult(cmd, app, validateOut, validateStatus)
+				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating", nil)
 			}
 			meta := ensureMeta(out)
 			if meta != nil {
@@ -245,13 +248,6 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
 	must(cmd.MarkFlagRequired("file"))
 	return cmd
-}
-
-func flowPushRequestError(err error, timeout time.Duration, flowSlug, phase string) error {
-	if err == nil || !flowPushRequestTimedOut(err) {
-		return err
-	}
-	return fmt.Errorf("%s: %w", flowPushTimeoutMessage(timeout, flowSlug, phase), err)
 }
 
 func flowPushTimeoutMessage(timeout time.Duration, flowSlug, phase string) string {
@@ -295,6 +291,99 @@ func flowPushTimeoutErrorResponse(out map[string]any, err error) map[string]any 
 		"ok":    false,
 		"error": map[string]any{"message": message},
 	}
+}
+
+func writeFlowPushFailure(cmd *cobra.Command, app *App, out map[string]any, status int, flowSlug, phase string, cause error) error {
+	out = flowPushFailureEnvelope(out, status, flowSlug, phase)
+	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		if cause != nil {
+			return writeErr(cmd, fmt.Errorf("%s: %w", flowPushFailureMessage(flowSlug, phase), cause))
+		}
+		return writeErr(cmd, err)
+	}
+	return nil
+}
+
+func flowPushFailureEnvelope(out map[string]any, status int, flowSlug, phase string) map[string]any {
+	if out == nil {
+		out = map[string]any{"ok": false}
+	}
+	out["ok"] = false
+	phase = flowPushFailurePhase(phase)
+	errorMessage := getErrorMessage(out)
+	errMap := mapStringAny(out["error"])
+	if errMap == nil {
+		errMap = map[string]any{}
+		if errorMessage != "" {
+			errMap["message"] = errorMessage
+		}
+		out["error"] = errMap
+	}
+	if firstNonBlankString(errMap["code"]) == "" {
+		errMap["code"] = flowPushFailureCode(phase)
+	}
+	if firstNonBlankString(errMap["message"]) == "" {
+		errMap["message"] = firstNonBlankString(errorMessage, flowPushFailureMessage(flowSlug, phase))
+	}
+
+	meta := ensureMeta(out)
+	if meta == nil {
+		return out
+	}
+	meta["failurePhase"] = phase
+	if phase == "validating" {
+		meta["draftOutcome"] = "saved"
+		meta["validated"] = false
+		meta["validateSource"] = "draft"
+	}
+	if flowPushDefersRecoveryToAPIResult(status, errorMessage) {
+		return out
+	}
+	if _, exists := meta["hint"]; !exists {
+		meta["hint"] = flowPushFailureMessage(flowSlug, phase)
+	}
+	slug := strings.TrimSpace(flowSlug)
+	if slug == "" {
+		slug = "<slug>"
+	}
+	if phase == "validating" {
+		appendMetaNextCommands(meta, "breyta flows validate "+slug, "breyta flows show "+slug)
+	} else {
+		appendMetaNextCommands(meta, "breyta flows show "+slug, "breyta flows validate "+slug)
+	}
+	return out
+}
+
+func flowPushDefersRecoveryToAPIResult(status int, errorMessage string) bool {
+	return status == http.StatusForbidden && strings.Contains(strings.ToLower(errorMessage), "not a workspace member")
+}
+
+func flowPushFailurePhase(phase string) string {
+	if strings.EqualFold(strings.TrimSpace(phase), "validating") {
+		return "validating"
+	}
+	return "saving"
+}
+
+func flowPushFailureCode(phase string) string {
+	if phase == "validating" {
+		return "flows_push_validation_failed"
+	}
+	return "flows_push_save_failed"
+}
+
+func flowPushFailureMessage(flowSlug, phase string) string {
+	slug := strings.TrimSpace(flowSlug)
+	if phase == "validating" {
+		if slug != "" {
+			return fmt.Sprintf("Draft %s was saved, but validation did not complete. Run `breyta flows validate %s` before retrying.", slug, slug)
+		}
+		return "The draft was saved, but validation did not complete. Run `breyta flows validate <slug>` before retrying."
+	}
+	if slug != "" {
+		return fmt.Sprintf("Draft save for %s was not confirmed. Run `breyta flows show %s` before retrying.", slug, slug)
+	}
+	return "Draft save was not confirmed. Run `breyta flows show <slug>` before retrying."
 }
 
 func appendFlowPushTimeoutRecovery(out map[string]any, timeout time.Duration, flowSlug, phase string) {
