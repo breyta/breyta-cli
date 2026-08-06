@@ -109,9 +109,14 @@ cannot inspect flows in workspaces you are not a member of.
 
 Use `breyta flows public publish <slug>` or `breyta flows public delist <slug>`
 when a flow should move onto or off marketplace, Discover, and public app-page
-surfaces together. Use the lower-level marketplace/discover update commands
-only when intentionally changing one visibility flag. Delisting disables free
-linked public installs; paid buyer entitlements remain active.
+surfaces together. Publishing is asynchronous: the command queues a persisted
+marketplace review and returns before visibility changes. Add `--wait` to wait
+for `published`, tune the bounded wait with `--timeout 10m` and `--poll 5s`, or
+poll later with `breyta flows public status <slug>`. Findings, security holds,
+errors, and timeouts return distinct non-zero exits. Use the lower-level
+marketplace/discover update commands only when intentionally changing one
+visibility flag. Delisting remains immediate, disables free linked public
+installs, and leaves paid buyer entitlements active.
 
 `breyta init` installs the Breyta skill bundle for your agent tool and creates a
 local `breyta-workspace/` directory with an `AGENTS.md` file and flow folders.
@@ -313,19 +318,21 @@ media, and API responses that should use the more generous transient quota.
 If the flow should appear in public discover/install surfaces, make that explicit:
 
 ```bash
-# Either author this in the flow file:
+# These source fields describe listing intent/metadata; they do not bypass review:
 # :discover {:public true}
 # :marketplace {:visible true}
 #
-# Or set all public surfaces explicitly after push and release:
+# After push and release, submit all public surfaces explicitly:
 breyta flows public publish <slug>
 ```
 
 Use `breyta flows public delist <slug>` to remove the flow from marketplace,
 Discover, and public app-page surfaces together. Delisting disables free linked
-public installs; paid buyer entitlements remain active. Public visibility is
-stored flow metadata. A released version with an installable interface is
-required before the flow can be exposed in Discover. This Discover catalog is separate from
+public installs; paid buyer entitlements remain active. Check a queued or
+reviewed candidate with `breyta flows public status <slug>`. Public visibility
+is stored flow metadata only after the acceptance gate promotes the exact
+reviewed revision. A released version with an installable interface is required
+before the flow can be exposed in Discover. This Discover catalog is separate from
 `breyta flows search`, which searches actual workspace flow metadata, and from
 `breyta flows templates search`, which searches approved reusable templates to
 inspect and copy from.

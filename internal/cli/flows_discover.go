@@ -25,15 +25,18 @@ Use ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <qu
 Use ` + "`" + commandPath + " show <workspace-id>/<flow-slug>`" + ` to inspect one public app's full listing
 (publish copy, pricing, connections, versions); it works across workspaces, unlike ` + "`breyta flows show`" + `.
 Use ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + ` to change all public surfaces together.
+Publishing queues the persisted marketplace acceptance gate; add ` + "`--wait`" + `, ` + "`--timeout`" + `, and ` + "`--poll`" + ` to wait, or inspect it later with ` + "`breyta flows public status <slug>`" + `.
+The source ` + "`:discover {:public true}`" + ` and lower-level update describe intent but do not bypass review.
 Use ` + "`" + commandPath + " update <slug> --public=true|false`" + ` only when you need to control the Discover flag directly.
 Add ` + "`--include-own`" + ` to list/search only when debugging whether your own public flow is indexed.
 
 Checklist to make your flow show up in Discover:
-1. Add ` + "`:discover {:public true}`" + ` to the flow definition (or run ` + "`" + commandPath + " update <slug> --public=true`" + ` after push)
+1. Add ` + "`:discover {:public true}`" + ` to the flow definition as listing intent (or run ` + "`" + commandPath + " update <slug> --public=true`" + ` for a lower-level flag)
 2. Push the flow
 3. Release/promote it so there is an installable live version
-4. Verify from another workspace with ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + `
-5. Open the Discover install dialog and run an installed target when install behavior matters;
+4. Submit it with ` + "`breyta flows public publish <slug>`" + ` and wait for ` + "`published`" + ` (or poll with ` + "`breyta flows public status <slug>`" + `)
+5. Verify from another workspace with ` + "`" + commandPath + " list`" + ` or ` + "`" + commandPath + " search <query>`" + `
+6. Open the Discover install dialog and run an installed target when install behavior matters;
    ` + "`/activate`" + ` only proves owner setup, not end-user installability
 
 This is different from ` + "`breyta flows search`" + `, which only searches approved Breyta-curated examples to
@@ -224,11 +227,12 @@ Requirements for ` + "`--public=true`" + `:
 - the flow must be installable/released for discover surfaces to use it
 
 Typical authoring flow:
-1. add ` + "`:discover {:public true}`" + ` in the source file
+1. add ` + "`:discover {:public true}`" + ` in the source file as listing intent
 2. ` + "`breyta flows push --file ...`" + `
 3. ` + "`breyta flows release <slug>`" + ` (or otherwise promote a live installable version)
-4. ` + "`" + commandPath + " list`" + ` from another workspace to verify visibility
-5. Open the marketing app page at ` + "`https://breyta.ai/apps/<flow-slug>`" + `
+4. ` + "`breyta flows public publish <slug> --wait`" + ` (or poll with ` + "`breyta flows public status <slug>`" + `)
+5. ` + "`" + commandPath + " list`" + ` from another workspace to verify visibility
+6. Open the marketing app page at ` + "`https://breyta.ai/apps/<flow-slug>`" + `
 
 Use ` + "`breyta flows show <slug>`" + ` after updating to confirm stored metadata includes
 ` + "`discover.public`" + `.

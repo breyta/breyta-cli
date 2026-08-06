@@ -862,6 +862,7 @@ entitlements remain active.`,
 	cmd.AddCommand(newFlowsPublicPreflightCmd(app))
 	cmd.AddCommand(newFlowsPublicPublishCmd(app))
 	cmd.AddCommand(newFlowsPublicDelistCmd(app))
+	cmd.AddCommand(newFlowsPublicStatusCmd(app))
 	return cmd
 }
 
@@ -898,6 +899,20 @@ func newFlowsPublicDelistCmd(app *App) *cobra.Command {
 		"Remove a flow from all public surfaces",
 		false,
 	)
+}
+
+func newFlowsPublicStatusCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <slug>",
+		Short: "Show the persisted marketplace review status",
+		Long:  "Show the current candidate, accepted revision, findings, and security-review state for a public flow.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return doAPICommand(cmd, app, "flows.public.review.get", map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+			})
+		},
+	}
 }
 
 func markPublicUpdatePartialFailure(out map[string]any) {
@@ -945,6 +960,9 @@ func markPublicUpdatePartialFailure(out map[string]any) {
 }
 
 func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short string, public bool) *cobra.Command {
+	var wait bool
+	var timeout time.Duration
+	var poll time.Duration
 	cmd := &cobra.Command{
 		Use:     use,
 		Aliases: aliases,
@@ -957,18 +975,218 @@ func newFlowsPublicVisibilityCmd(app *App, use string, aliases []string, short s
 		}(),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return dispatchFlowAPICommandWithTransformAndTimeout(
-				cmd,
-				app,
-				"flows.public.update",
-				map[string]any{
-					"flowSlug": strings.TrimSpace(args[0]),
-					"public":   public,
-				},
-				5*time.Minute,
-				markPublicUpdatePartialFailure,
-			)
+			payload := map[string]any{
+				"flowSlug": strings.TrimSpace(args[0]),
+				"public":   public,
+			}
+			if !public || !wait {
+				return dispatchFlowAPICommandWithTransformAndTimeout(
+					cmd,
+					app,
+					"flows.public.update",
+					payload,
+					5*time.Minute,
+					markPublicUpdatePartialFailure,
+				)
+			}
+
+			if useDoAPICommandFn {
+				// The injected command hook is used by local unit tests and does not
+				// expose a polling transport. Preserve its deterministic one-shot
+				// behavior while real API mode uses the persisted review below.
+				return doAPICommandFn(cmd, app, "flows.public.update", payload)
+			}
+
+			// A waited marketplace publish always has a real deadline.  A zero
+			// timeout would otherwise disable the HTTP client/context timeout while
+			// leaving the local deadline already expired, allowing the initial
+			// request to block indefinitely.
+			if timeout <= 0 {
+				return marketplaceReviewError(cmd, "timeout", "marketplace review timed out")
+			}
+			// Keep local CLI validation errors (for example missing credentials)
+			// generic; errors after this check are from the dispatched request and
+			// should retain the marketplace-specific exit codes.
+			if err := requireAPI(app); err != nil {
+				return writeErr(cmd, err)
+			}
+
+			deadline := time.Now().Add(timeout)
+			out, status, err := runAPICommandWithContextAndTimeout(cmd.Context(), app, "flows.public.update", payload, timeout)
+			if err != nil {
+				if flowPushRequestTimedOut(err) {
+					return marketplaceReviewError(cmd, "timeout", "marketplace publication request timed out")
+				}
+				return marketplaceReviewError(cmd, "error", "marketplace publication request failed")
+			}
+			markPublicUpdatePartialFailure(out)
+			if status >= 400 || !isOK(out) {
+				// Render the server envelope, but preserve the marketplace
+				// status-specific exit code for scripts and agents.
+				_ = writeAPIResult(cmd, app, out, status)
+				return marketplaceReviewError(cmd, "error", "marketplace publication request failed")
+			}
+			if marketplaceReviewStatus(out) == "published" {
+				if err := writeAPIResult(cmd, app, out, status); err != nil {
+					return writeErr(cmd, err)
+				}
+				return nil
+			}
+
+			latest := out
+			latestStatus := status
+			for {
+				reviewStatus := marketplaceReviewStatus(latest)
+				if marketplaceReviewTerminal(reviewStatus) {
+					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
+						return writeErr(cmd, err)
+					}
+					return marketplaceReviewError(cmd, reviewStatus,
+						marketplaceReviewFailureMessage(reviewStatus))
+				}
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
+						return writeErr(cmd, err)
+					}
+					return marketplaceReviewError(cmd, "timeout", "marketplace review timed out")
+				}
+				interval := poll
+				if interval <= 0 {
+					interval = 100 * time.Millisecond
+				}
+				if interval > remaining {
+					interval = remaining
+				}
+				timer := time.NewTimer(interval)
+				select {
+				case <-cmd.Context().Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					return writeErr(cmd, cmd.Context().Err())
+				case <-timer.C:
+				}
+
+				remaining = time.Until(deadline)
+				if remaining <= 0 {
+					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
+						return writeErr(cmd, err)
+					}
+					return marketplaceReviewError(cmd, "timeout", "marketplace review timed out")
+				}
+				latest, latestStatus, err = runAPICommandWithContextAndTimeout(
+					cmd.Context(), app, "flows.public.review.get",
+					map[string]any{"flowSlug": strings.TrimSpace(args[0])}, remaining)
+				if err != nil {
+					if flowPushRequestTimedOut(err) {
+						return marketplaceReviewError(cmd, "timeout", "marketplace review status request timed out")
+					}
+					return marketplaceReviewError(cmd, "error", "marketplace review status request failed")
+				}
+				if latestStatus >= 400 || !isOK(latest) {
+					// Render the server envelope, but preserve the marketplace
+					// status-poll exit code for scripts and agents.
+					_ = writeAPIResult(cmd, app, latest, latestStatus)
+					return marketplaceReviewError(cmd, "error", "marketplace review status request failed")
+				}
+				if marketplaceReviewStatus(latest) == "published" {
+					if err := writeAPIResult(cmd, app, latest, latestStatus); err != nil {
+						return writeErr(cmd, err)
+					}
+					return nil
+				}
+			}
 		},
 	}
+	if public {
+		cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the marketplace review to finish")
+		cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "Maximum time to wait for the marketplace review")
+		cmd.Flags().DurationVar(&poll, "poll", 5*time.Second, "Polling interval while waiting for the marketplace review")
+	}
 	return cmd
+}
+
+func marketplaceReviewStatus(out map[string]any) string {
+	if out == nil {
+		return ""
+	}
+	data := mapStringAny(out["data"])
+	review := mapStringAny(out["review"])
+	if review == nil {
+		review = mapStringAny(data["review"])
+	}
+	if status := firstNonBlankString(out["status"], review["status"], data["status"]); status != "" {
+		return strings.ToLower(status)
+	}
+	public := mapStringAny(data["public"])
+	if boolValue(public["discoverPublic"]) && boolValue(public["marketplaceVisible"]) {
+		// Compatibility with pre-gate servers that completed publication
+		// synchronously and did not return a review object.
+		return "published"
+	}
+	return ""
+}
+
+func marketplaceReviewTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "changes_requested", "security_review", "security_rejected", "error", "cancelled", "superseded":
+		return true
+	default:
+		return false
+	}
+}
+
+func marketplaceReviewFailureMessage(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "changes_requested":
+		return "marketplace review requested changes"
+	case "security_review":
+		return "marketplace review is held for security review"
+	case "security_rejected":
+		return "marketplace review was rejected by security"
+	case "cancelled":
+		return "marketplace review was cancelled"
+	case "superseded":
+		return "marketplace review was superseded by a newer revision"
+	case "error":
+		return "marketplace review failed"
+	default:
+		return "marketplace review did not publish"
+	}
+}
+
+type marketplaceReviewExitError struct {
+	guided error
+	code   int
+}
+
+func (e *marketplaceReviewExitError) Error() string {
+	return e.guided.Error()
+}
+
+func (e *marketplaceReviewExitError) Unwrap() error {
+	return e.guided
+}
+
+func (e *marketplaceReviewExitError) ExitCode() int {
+	return e.code
+}
+
+func marketplaceReviewError(cmd *cobra.Command, status, message string) error {
+	code := 5 // model/transport failure
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "changes_requested":
+		code = 2
+	case "security_review", "security_rejected":
+		code = 3
+	case "cancelled", "superseded":
+		code = 4
+	case "timeout":
+		code = 6
+	}
+	return &marketplaceReviewExitError{
+		guided: guidedCLIErrorForCommand(cmd, message, nil),
+		code:   code,
+	}
 }

@@ -25,7 +25,8 @@ func newFlowsMarketplaceUpdateCmd(app *App) *cobra.Command {
 To publish or delist a flow across all public surfaces at once, use
 ` + "`breyta flows public publish <flow-slug>`" + ` or
 ` + "`breyta flows public delist <flow-slug>`" + `.`,
-		Args: cobra.RangeArgs(1, 2),
+		Example: "Publish queues acceptance; use --wait or flows public status to observe it. Pushed visibility metadata cannot bypass review.",
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeErr(cmd, errors.New("flows marketplace update requires API mode"))
