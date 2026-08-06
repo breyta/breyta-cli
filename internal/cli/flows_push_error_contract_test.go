@@ -106,6 +106,93 @@ func TestFlowsPushStringAPIErrorPreservesMessage(t *testing.T) {
 	}
 }
 
+func TestFlowsPushDetailsAPIErrorPreservesMessage(t *testing.T) {
+	flowFile := writeFlowPushErrorContractSource(t, "push-details-api-error")
+	app := &App{
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://api.example.test",
+		Token:       "test-token",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return httpJSON(http.StatusBadGateway, map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"details": "upstream unavailable",
+				},
+			})
+		})},
+	}
+
+	stdout, _, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
+	if err == nil {
+		t.Fatalf("expected save failure, got success:\n%s", stdout)
+	}
+	envelope := parseFlowPushFailureEnvelope(t, stdout)
+	errMap := mapStringAny(envelope["error"])
+	if got := firstNonBlankString(errMap["message"]); got != "upstream unavailable" {
+		t.Fatalf("expected API details in error.message, got %q in %#v", got, envelope)
+	}
+}
+
+func TestFlowsPushRequiresWorkspaceBeforeRequest(t *testing.T) {
+	flowFile := writeFlowPushErrorContractSource(t, "push-missing-workspace")
+	requested := false
+	app := &App{
+		APIURL: "https://api.example.test",
+		Token:  "test-token",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			requested = true
+			return nil, errors.New("request should not be attempted")
+		})},
+	}
+
+	stdout, stderr, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
+	if err == nil {
+		t.Fatalf("expected missing workspace error, got success")
+	}
+	if requested {
+		t.Fatal("push must not make a request without a workspace")
+	}
+	if stdout != "" {
+		t.Fatalf("workspace setup error must not write a push failure envelope:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "flows push requires --workspace or BREYTA_WORKSPACE") {
+		t.Fatalf("expected workspace setup guidance, got:\n%s", stderr)
+	}
+}
+
+func TestFlowsPushWorkspaceMembershipKeepsSharedRecovery(t *testing.T) {
+	flowFile := writeFlowPushErrorContractSource(t, "push-workspace-membership")
+	app := &App{
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://api.example.test",
+		Token:       "test-token",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return httpJSON(http.StatusForbidden, map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"message": "not a workspace member",
+				},
+			})
+		})},
+	}
+
+	stdout, _, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
+	if err == nil {
+		t.Fatalf("expected workspace membership failure, got success:\n%s", stdout)
+	}
+	envelope := parseFlowPushFailureEnvelope(t, stdout)
+	meta := mapStringAny(envelope["meta"])
+	if got := firstNonBlankString(meta["hint"]); !strings.Contains(got, "not a member") {
+		t.Fatalf("expected workspace membership hint, got %q in %#v", got, envelope)
+	}
+	if strings.Contains(stdout, "breyta flows show push-workspace-membership") {
+		t.Fatalf("workspace membership failure must not suggest draft inspection:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "breyta workspaces list") {
+		t.Fatalf("expected shared workspace recovery command:\n%s", stdout)
+	}
+}
+
 func TestFlowsPushValidationAPIErrorGetsFallbackErrorCode(t *testing.T) {
 	flowFile := writeFlowPushErrorContractSource(t, "push-validation-error")
 	requests := 0

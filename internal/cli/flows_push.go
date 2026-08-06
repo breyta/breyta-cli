@@ -111,6 +111,9 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 			if err := requireAPI(app); err != nil {
 				return writeErr(cmd, err)
 			}
+			if strings.TrimSpace(app.WorkspaceID) == "" {
+				return writeErr(cmd, errors.New("flows push requires --workspace or BREYTA_WORKSPACE"))
+			}
 			payload := map[string]any{"flowLiteral": flowLiteral}
 			resolvedDeployKey := strings.TrimSpace(deployKey)
 			if resolvedDeployKey == "" {
@@ -291,7 +294,7 @@ func flowPushTimeoutErrorResponse(out map[string]any, err error) map[string]any 
 }
 
 func writeFlowPushFailure(cmd *cobra.Command, app *App, out map[string]any, status int, flowSlug, phase string, cause error) error {
-	out = flowPushFailureEnvelope(out, flowSlug, phase)
+	out = flowPushFailureEnvelope(out, status, flowSlug, phase)
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		if cause != nil {
 			return writeErr(cmd, fmt.Errorf("%s: %w", flowPushFailureMessage(flowSlug, phase), cause))
@@ -301,7 +304,7 @@ func writeFlowPushFailure(cmd *cobra.Command, app *App, out map[string]any, stat
 	return nil
 }
 
-func flowPushFailureEnvelope(out map[string]any, flowSlug, phase string) map[string]any {
+func flowPushFailureEnvelope(out map[string]any, status int, flowSlug, phase string) map[string]any {
 	if out == nil {
 		out = map[string]any{"ok": false}
 	}
@@ -320,7 +323,7 @@ func flowPushFailureEnvelope(out map[string]any, flowSlug, phase string) map[str
 		errMap["code"] = flowPushFailureCode(phase)
 	}
 	if firstNonBlankString(errMap["message"]) == "" {
-		errMap["message"] = flowPushFailureMessage(flowSlug, phase)
+		errMap["message"] = firstNonBlankString(errorMessage, flowPushFailureMessage(flowSlug, phase))
 	}
 
 	meta := ensureMeta(out)
@@ -332,6 +335,9 @@ func flowPushFailureEnvelope(out map[string]any, flowSlug, phase string) map[str
 		meta["draftOutcome"] = "saved"
 		meta["validated"] = false
 		meta["validateSource"] = "draft"
+	}
+	if flowPushDefersRecoveryToAPIResult(status, errorMessage) {
+		return out
 	}
 	if _, exists := meta["hint"]; !exists {
 		meta["hint"] = flowPushFailureMessage(flowSlug, phase)
@@ -346,6 +352,10 @@ func flowPushFailureEnvelope(out map[string]any, flowSlug, phase string) map[str
 		appendMetaNextCommands(meta, "breyta flows show "+slug, "breyta flows validate "+slug)
 	}
 	return out
+}
+
+func flowPushDefersRecoveryToAPIResult(status int, errorMessage string) bool {
+	return status == http.StatusForbidden && strings.Contains(strings.ToLower(errorMessage), "not a workspace member")
 }
 
 func flowPushFailurePhase(phase string) string {
