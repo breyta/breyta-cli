@@ -57,7 +57,7 @@ func TestFlowsPushTransportFailureWritesStableErrorEnvelope(t *testing.T) {
 		})},
 	}
 
-	stdout, _, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
+	stdout, stderr, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
 	if err == nil {
 		t.Fatalf("expected transport failure, got success:\n%s", stdout)
 	}
@@ -75,6 +75,34 @@ func TestFlowsPushTransportFailureWritesStableErrorEnvelope(t *testing.T) {
 	}
 	if strings.Contains(stdout, "connection interrupted") {
 		t.Fatalf("structured output must not include raw transport errors:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "connection interrupted") {
+		t.Fatalf("stderr must retain the transport diagnostic:\n%s", stderr)
+	}
+}
+
+func TestFlowsPushStringAPIErrorPreservesMessage(t *testing.T) {
+	flowFile := writeFlowPushErrorContractSource(t, "push-string-api-error")
+	app := &App{
+		WorkspaceID: "ws-acme",
+		APIURL:      "https://api.example.test",
+		Token:       "test-token",
+		HTTP: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return httpJSON(http.StatusBadRequest, map[string]any{
+				"ok":    false,
+				"error": "quota exceeded",
+			})
+		})},
+	}
+
+	stdout, _, err := runFlowsPushErrorContract(t, app, "--file", flowFile, "--validate=false")
+	if err == nil {
+		t.Fatalf("expected save failure, got success:\n%s", stdout)
+	}
+	envelope := parseFlowPushFailureEnvelope(t, stdout)
+	errMap := mapStringAny(envelope["error"])
+	if got := firstNonBlankString(errMap["message"]); got != "quota exceeded" {
+		t.Fatalf("expected string API error message, got %q in %#v", got, envelope)
 	}
 }
 

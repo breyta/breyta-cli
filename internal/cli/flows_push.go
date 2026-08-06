@@ -129,14 +129,14 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					trackFlowPushTimeout(app, flowSlug, "saving")
 					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(out, err), status, timeout, flowSlug, "saving")
 				}
-				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving")
+				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving", err)
 			}
 			if status >= 400 || !isOK(out) {
 				if flowPushResponseTimedOut(status) {
 					trackFlowPushTimeout(app, flowSlug, "saving")
 					return writeFlowPushTimeoutAPIResponse(cmd, app, out, status, timeout, flowSlug, "saving")
 				}
-				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving")
+				return writeFlowPushFailure(cmd, app, out, status, flowSlug, "saving", nil)
 			}
 			if dataAny, ok := out["data"]; ok {
 				if data, ok := dataAny.(map[string]any); ok {
@@ -182,7 +182,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					trackFlowPushTimeout(app, flowSlug, "validating")
 					return writeFlowPushRequestTimeoutAPIResponse(cmd, app, flowPushTimeoutErrorResponse(validateOut, err), validateStatus, timeout, flowSlug, "validating")
 				}
-				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating")
+				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating", err)
 			}
 			if validateStatus >= 400 || !isOK(validateOut) {
 				if flowPushResponseTimedOut(validateStatus) {
@@ -216,7 +216,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					"validated":       false,
 					"validate_source": "draft",
 				})
-				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating")
+				return writeFlowPushFailure(cmd, app, validateOut, validateStatus, flowSlug, "validating", nil)
 			}
 			meta := ensureMeta(out)
 			if meta != nil {
@@ -290,9 +290,12 @@ func flowPushTimeoutErrorResponse(out map[string]any, err error) map[string]any 
 	}
 }
 
-func writeFlowPushFailure(cmd *cobra.Command, app *App, out map[string]any, status int, flowSlug, phase string) error {
+func writeFlowPushFailure(cmd *cobra.Command, app *App, out map[string]any, status int, flowSlug, phase string, cause error) error {
 	out = flowPushFailureEnvelope(out, flowSlug, phase)
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
+		if cause != nil {
+			return writeErr(cmd, fmt.Errorf("%s: %w", flowPushFailureMessage(flowSlug, phase), cause))
+		}
 		return writeErr(cmd, err)
 	}
 	return nil
@@ -304,9 +307,13 @@ func flowPushFailureEnvelope(out map[string]any, flowSlug, phase string) map[str
 	}
 	out["ok"] = false
 	phase = flowPushFailurePhase(phase)
+	errorMessage := getErrorMessage(out)
 	errMap := mapStringAny(out["error"])
 	if errMap == nil {
 		errMap = map[string]any{}
+		if errorMessage != "" {
+			errMap["message"] = errorMessage
+		}
 		out["error"] = errMap
 	}
 	if firstNonBlankString(errMap["code"]) == "" {
