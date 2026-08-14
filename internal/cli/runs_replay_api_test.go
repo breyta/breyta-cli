@@ -41,7 +41,6 @@ func TestRunsReplayAPIModeCallsRunsReplay(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -97,7 +96,6 @@ func TestRunsRetryAPIModeUsesReplayForWholeRun(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

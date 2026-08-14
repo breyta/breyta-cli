@@ -15,7 +15,6 @@ func TestAPIUse_WorksWithDevFlag(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tmp)
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"api", "use", "local",
 		"--pretty",
 	)

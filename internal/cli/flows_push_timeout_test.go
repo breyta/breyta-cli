@@ -66,7 +66,6 @@ func TestFlowsPush_TimeoutAfterDraftSaveExplainsSafeRecovery(t *testing.T) {
 	resultCh := make(chan result, 1)
 	go func() {
 		stdout, stderr, err := runCLIArgs(t,
-			"--dev",
 			"--workspace", "ws-acme",
 			"--api", srv.URL,
 			"--token", "user-dev",
@@ -126,7 +125,6 @@ func TestFlowsPush_TimeoutFlagBoundsDraftUpload(t *testing.T) {
 	resultCh := make(chan result, 1)
 	go func() {
 		stdout, stderr, err := runCLIArgs(t,
-			"--dev",
 			"--workspace", "ws-acme",
 			"--api", srv.URL,
 			"--token", "user-dev",
@@ -173,7 +171,6 @@ func TestFlowsPush_GatewayTimeoutResponseExplainsSafeRecovery(t *testing.T) {
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -218,7 +215,6 @@ func TestFlowsPush_NonJSONGatewayTimeoutStillExplainsSafeRecovery(t *testing.T) 
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

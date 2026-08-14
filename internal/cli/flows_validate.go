@@ -100,7 +100,7 @@ Recommended release safety sequence:
 func newFlowsCompileCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "compile <flow-slug>",
-		Short: "Compile a flow (mock)",
+		Short: "Compile the active flow definition",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			source := "current"

@@ -1,148 +1,16 @@
 package cli
 
-import (
-	"errors"
-	"strings"
+import "github.com/spf13/cobra"
 
-	"github.com/spf13/cobra"
-)
-
-func configureVisibility(root *cobra.Command, app *App) {
-	if root == nil || app == nil {
-		return
-	}
-	if app.visibilityConfigured {
-		return
-	}
-	app.visibilityConfigured = true
-
-	// Default: keep a minimal surface area for agents and humans.
-	if app.DevMode {
-		return
-	}
-
-	allowRoot := map[string]bool{
-		"flows":      true,
-		"flow":       true, // alias
-		"discover":   true,
-		"runs":       true,
-		"run":        true, // alias
-		"resources":  true,
-		"docs":       true,
-		"feedback":   true,
-		"agent":      true,
-		"auth":       true,
-		"skills":     true,
-		"workspaces": true,
-		"upgrade":    true,
-		"version":    true,
-	}
-
-	for _, c := range root.Commands() {
-		if !allowRoot[c.Name()] {
-			c.Hidden = true
-		}
-	}
-
-	flows := root.Commands()
-	var flowsCmd *cobra.Command
-	for _, c := range flows {
-		if c.Name() == "flows" {
-			flowsCmd = c
-			break
-		}
-	}
-	if flowsCmd == nil {
-		return
-	}
-
-	allowFlows := map[string]bool{
-		"list":          true,
-		"search":        true,
-		"grep":          true,
-		"show":          true,
-		"create":        true,
-		"init":          true,
-		"configure":     true,
-		"diff":          true,
-		"pull":          true,
-		"push":          true,
-		"update":        true,
-		"validate":      true,
-		"lint":          true,
-		"paren-check":   true,
-		"compose":       true,
-		"steps":         true,
-		"schedules":     true,
-		"templates":     true,
-		"interfaces":    true,
-		"import":        true,
-		"versions":      true,
-		"paren-repair":  true,
-		"workspace":     true,
-		"examples":      true,
-		"readiness":     true,
-		"release-check": true,
-		"release":       true,
-		"promote":       true,
-		"run":           true,
-		"run-step":      true,
-		"archive":       true,
-		"delete":        true,
-		"installations": true,
-		"marketplace":   true,
-		"discover":      true,
-		"public":        true,
-	}
-	for _, sc := range flowsCmd.Commands() {
-		if !allowFlows[sc.Name()] {
-			sc.Hidden = true
-		}
-		// Keep unnamed commands hidden.
-		if strings.TrimSpace(sc.Name()) == "" {
-			sc.Hidden = true
-		}
-		// The supported release lifecycle is flows release/promote; keep the
-		// raw version lifecycle children hidden so discoverable commands
-		// cannot leave runtime targets on an older version.
-		if sc.Name() == "versions" {
-			for _, vc := range sc.Commands() {
-				switch vc.Name() {
-				case "publish", "activate":
-					vc.Hidden = true
-				}
-			}
-		}
+func configureVisibility(_ *cobra.Command, app *App) {
+	if app != nil {
+		app.visibilityConfigured = true
 	}
 }
 
-func hideDevOnlyCommandTree(cmd *cobra.Command, app *App) *cobra.Command {
-	if cmd == nil {
-		return nil
+func hideDevOnlyCommandTree(cmd *cobra.Command, _ *App) *cobra.Command {
+	if cmd != nil {
+		cmd.Hidden = true
 	}
-	var wrap func(*cobra.Command)
-	wrap = func(current *cobra.Command) {
-		if current == nil {
-			return
-		}
-		current.Hidden = true
-
-		prev := current.PreRunE
-		current.PreRunE = func(cmd *cobra.Command, args []string) error {
-			if app == nil || (!app.DevMode && !devModeEnabled()) {
-				return writeErr(cmd, errors.New("this command is not part of the public CLI surface"))
-			}
-			if prev != nil {
-				return prev(cmd, args)
-			}
-			return nil
-		}
-
-		for _, child := range current.Commands() {
-			wrap(child)
-		}
-	}
-
-	wrap(cmd)
 	return cmd
 }

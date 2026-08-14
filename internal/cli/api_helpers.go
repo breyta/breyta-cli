@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,9 +22,13 @@ import (
 
 var pasteURLRe = regexp.MustCompile(`https?://paste\.rs/[^\s"}]+`)
 
-// authRefreshHTTPClient is a test hook to avoid binding local ports in restricted
-// sandboxes. When nil, refreshTokenViaAPI uses the default HTTP client behavior.
-var authRefreshHTTPClient *http.Client
+func resolveAuthStorePath(_ *App) string {
+	if path := strings.TrimSpace(os.Getenv("BREYTA_AUTH_STORE")); path != "" {
+		return path
+	}
+	path, _ := authstore.DefaultPath()
+	return path
+}
 
 func isAPIMode(app *App) bool {
 	return strings.TrimSpace(app.APIURL) != ""
@@ -71,16 +73,13 @@ func ensureAPIURL(app *App) {
 			return
 		}
 	}
-	app.APIURL = configstore.DefaultProdAPIURL
+	app.APIURL = configstore.DefaultAPIURL
 }
 
 func requireAPI(app *App) error {
 	resolveAPIToken(app)
 	if strings.TrimSpace(app.Token) == "" {
-		if app.DevMode {
-			return errors.New("missing token (--token, BREYTA_TOKEN, --api-key, or BREYTA_API_KEY)")
-		}
-		return errors.New("missing token (run `breyta auth login` or provide --api-key / BREYTA_API_KEY)")
+		return errors.New("missing token (run `breyta auth login` or provide --token, BREYTA_TOKEN, --api-key, or BREYTA_API_KEY)")
 	}
 	return nil
 }
@@ -91,8 +90,6 @@ func resolveAPIToken(app *App) {
 		loadTokenFromAuthStore(app)
 	}
 }
-
-const authTokenRefreshLeadTime = 15 * time.Minute
 
 func isLoopbackAPIURL(raw string) bool {
 	if strings.TrimSpace(raw) == "" {
@@ -130,220 +127,7 @@ func loadTokenFromAuthStore(app *App) {
 	if !ok {
 		return
 	}
-	loadedRec := rec
-	updated := false
-	if rec.ExpiresAt.IsZero() {
-		if exp, ok := parseJWTExpiry(rec.Token); ok {
-			rec.ExpiresAt = exp
-			updated = true
-		}
-	}
-	shouldRefresh := strings.TrimSpace(rec.RefreshToken) != "" &&
-		(rec.ExpiresAt.IsZero() || time.Until(rec.ExpiresAt) < authTokenRefreshLeadTime)
-	if shouldRefresh {
-		if next, err := refreshTokenViaAPI(app.APIURL, rec.RefreshToken); err == nil {
-			rec = next
-			updated = true
-		} else if isDefinitiveRefreshRejection(err) {
-			if current, ok := invalidateRejectedAuthRecord(storePath, app.APIURL, rec); ok {
-				app.Token = current.Token
-			} else {
-				app.Token = ""
-			}
-			return
-		}
-	}
-	if updated {
-		current, ok, err := updateAuthRecordIfCurrent(storePath, app.APIURL, loadedRec, rec)
-		if err == nil {
-			if !ok {
-				app.Token = ""
-				return
-			}
-			rec = current
-		}
-		// Persistence is best-effort for a token already usable by this
-		// invocation, matching the pre-locking behavior.
-	}
 	app.Token = rec.Token
-}
-
-type refreshHTTPError struct {
-	status int
-}
-
-func (e *refreshHTTPError) Error() string {
-	return fmt.Sprintf("refresh failed (status=%d)", e.status)
-}
-
-func isDefinitiveRefreshRejection(err error) bool {
-	var httpErr *refreshHTTPError
-	return errors.As(err, &httpErr) && httpErr.status == http.StatusUnauthorized
-}
-
-func invalidateRejectedAuthRecord(storePath string, apiURL string, rejected authstore.Record) (authstore.Record, bool) {
-	var replacement authstore.Record
-	var replacementFound bool
-	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
-		current, ok := latest.GetRecord(apiURL)
-		if !ok {
-			return nil
-		}
-		// Another CLI process or login may have replaced the credentials while
-		// this refresh request was in flight. Preserve and use that newer record.
-		if current.Token != rejected.Token || current.RefreshToken != rejected.RefreshToken {
-			replacement = current
-			replacementFound = true
-			return nil
-		}
-		latest.Delete(apiURL)
-		return nil
-	})
-	if err != nil {
-		return authstore.Record{}, false
-	}
-	return replacement, replacementFound
-}
-
-func updateAuthRecordIfCurrent(storePath string, apiURL string, expected authstore.Record, next authstore.Record) (authstore.Record, bool, error) {
-	var result authstore.Record
-	var resultFound bool
-	err := authstore.UpdateAtomic(storePath, func(latest *authstore.Store) error {
-		current, ok := latest.GetRecord(apiURL)
-		if !ok {
-			return nil
-		}
-		if current.Token != expected.Token || current.RefreshToken != expected.RefreshToken {
-			result = current
-			resultFound = true
-			return nil
-		}
-		latest.SetRecord(apiURL, next)
-		result, resultFound = latest.GetRecord(apiURL)
-		return nil
-	})
-	if err != nil {
-		return authstore.Record{}, false, err
-	}
-	return result, resultFound, nil
-}
-
-func parseJWTExpiry(token string) (time.Time, bool) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return time.Time{}, false
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return time.Time{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return time.Time{}, false
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return time.Time{}, false
-	}
-	expAny, ok := claims["exp"]
-	if !ok {
-		return time.Time{}, false
-	}
-	var expSeconds int64
-	switch v := expAny.(type) {
-	case float64:
-		expSeconds = int64(v)
-	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			expSeconds = n
-		}
-	case int64:
-		expSeconds = v
-	case int:
-		expSeconds = int64(v)
-	case string:
-		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
-			expSeconds = n
-		}
-	}
-	if expSeconds <= 0 {
-		return time.Time{}, false
-	}
-	return time.Unix(expSeconds, 0).UTC(), true
-}
-
-func refreshTokenViaAPI(apiBaseURL string, refreshToken string) (authstore.Record, error) {
-	apiBaseURL = strings.TrimRight(strings.TrimSpace(apiBaseURL), "/")
-	refreshToken = strings.TrimSpace(refreshToken)
-	if apiBaseURL == "" {
-		return authstore.Record{}, errors.New("missing api base url")
-	}
-	if refreshToken == "" {
-		return authstore.Record{}, errors.New("missing refresh token")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	client := api.Client{BaseURL: apiBaseURL, HTTP: authRefreshHTTPClient}
-	out, status, err := client.DoRootREST(ctx, http.MethodPost, "/api/auth/refresh", nil, map[string]any{
-		// Be tolerant: different backends use different JSON naming conventions.
-		"refreshToken":  refreshToken,
-		"refresh_token": refreshToken,
-	})
-	if err != nil {
-		return authstore.Record{}, err
-	}
-	if status < 200 || status > 299 {
-		return authstore.Record{}, &refreshHTTPError{status: status}
-	}
-
-	m, ok := out.(map[string]any)
-	if !ok {
-		return authstore.Record{}, fmt.Errorf("refresh returned unexpected response (status=%d)", status)
-	}
-	if success, _ := m["success"].(bool); !success {
-		msg := getErrorMessage(m)
-		if strings.TrimSpace(msg) == "" {
-			msg = "refresh failed"
-		}
-		return authstore.Record{}, fmt.Errorf("%s (status=%d)", msg, status)
-	}
-	token, _ := m["token"].(string)
-	if strings.TrimSpace(token) == "" {
-		return authstore.Record{}, fmt.Errorf("refresh returned no token (status=%d)", status)
-	}
-	nextRefresh, _ := m["refreshToken"].(string)
-	if strings.TrimSpace(nextRefresh) == "" {
-		nextRefresh, _ = m["refresh_token"].(string)
-	}
-	if strings.TrimSpace(nextRefresh) == "" {
-		nextRefresh = refreshToken
-	}
-
-	rec := authstore.Record{
-		Token:        strings.TrimSpace(token),
-		RefreshToken: strings.TrimSpace(nextRefresh),
-	}
-
-	// expiresIn is sometimes a string (Firebase APIs), sometimes a number; tolerate both.
-	var expiresInSeconds int64
-	expiresInAny := m["expiresIn"]
-	if expiresInAny == nil {
-		expiresInAny = m["expires_in"]
-	}
-	switch v := expiresInAny.(type) {
-	case string:
-		if n, err := parseExpiresInSeconds(v); err == nil {
-			expiresInSeconds = n
-		}
-	case float64:
-		expiresInSeconds = int64(v)
-	}
-	if expiresInSeconds > 0 {
-		rec.ExpiresAt = time.Now().UTC().Add(time.Duration(expiresInSeconds) * time.Second)
-	}
-	return rec, nil
 }
 
 func apiClient(app *App) api.Client {
@@ -679,94 +463,6 @@ func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
 	}
 }
 
-func publicAppWebURL(app *App, flowSlug string) string {
-	slug := strings.TrimSpace(flowSlug)
-	if slug == "" {
-		return ""
-	}
-	base := publicAppWebBaseURL(app)
-	if base == "" {
-		return ""
-	}
-	return base + "/apps/" + url.PathEscape(slug)
-}
-
-func publicAppWebBaseURL(app *App) string {
-	if app == nil {
-		return ""
-	}
-	ensureAPIURL(app)
-	raw := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return ""
-	}
-	if strings.EqualFold(u.Hostname(), "flows.breyta.ai") {
-		return "https://breyta.ai"
-	}
-	u.Path = ""
-	u.RawPath = ""
-	u.RawQuery = ""
-	u.Fragment = ""
-	return strings.TrimRight(normalizeLocalhostWebURL(u.String()), "/")
-}
-
-func addPublicAppURLHint(app *App, out map[string]any, flowSlug string) {
-	publicAppURL := publicAppWebURL(app, flowSlug)
-	if publicAppURL == "" {
-		return
-	}
-	meta := ensureMeta(out)
-	if meta == nil {
-		return
-	}
-	meta["publicAppUrl"] = publicAppURL
-	actions := sliceAny(meta["nextActions"])
-	for _, item := range actions {
-		action := mapStringAny(item)
-		if action != nil && firstNonBlankString(action["id"]) == "open-public-app" {
-			action["label"] = "Open public app"
-			action["url"] = publicAppURL
-			meta["nextActions"] = actions
-			return
-		}
-	}
-	meta["nextActions"] = append(actions, map[string]any{
-		"id":    "open-public-app",
-		"label": "Open public app",
-		"url":   publicAppURL,
-	})
-}
-
-func publicAppHintRelevant(command string, args map[string]any) bool {
-	switch command {
-	case "flows.release":
-		return true
-	case "flows.update":
-		return flowsUpdatePublicAppHintRelevant(args)
-	case "flows.discover.update":
-		return boolValue(args["public"])
-	case "flows.marketplace.update":
-		return boolValue(args["visible"])
-	case "flows.public.update":
-		return boolValue(args["public"])
-	default:
-		return false
-	}
-}
-
-func flowsUpdatePublicAppHintRelevant(args map[string]any) bool {
-	for _, key := range []string{"name", "description", "tags", "publishDescription", "publishMedia"} {
-		if _, ok := args[key]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func draftBindingsHintRelevant(out map[string]any) bool {
 	errMap := mapStringAny(out["error"])
 	if errMap == nil {
@@ -824,55 +520,15 @@ func runFailureShouldUseDraftBindings(command string, args map[string]any, out m
 	}
 }
 
-// membershipForbidden reports whether an envelope is the workspace-membership
-// 403 emitted by the workspace authorization middleware.
-func membershipForbidden(status int, out map[string]any) bool {
-	return status == http.StatusForbidden &&
-		strings.Contains(strings.ToLower(getErrorMessage(out)), "not a workspace member")
-}
-
-// addDiscoverInspectHint points a membership 403 on flows.get at the public
-// Discover listing surface: flows show can never open a flow in a workspace
-// the caller is not a member of, but a public app's listing stays readable
-// via flows discover show.
-func addDiscoverInspectHint(workspaceID string, out map[string]any, slug string) {
-	meta := ensureMeta(out)
-	if meta == nil {
-		return
-	}
-	if _, exists := meta["hint"]; exists {
-		return
-	}
-	ws := strings.TrimSpace(workspaceID)
-	if ws == "" {
-		ws = "<workspace-id>"
-	}
-	meta["hint"] = "You are not a member of this flow's workspace, so flows show cannot open it. If it is a public Discover app, inspect its public listing instead."
-	appendMetaNextCommands(meta,
-		"breyta flows discover show "+shellSingleQuote(ws+"/"+strings.TrimSpace(slug)))
-}
-
 func enrichCommandHints(app *App, command string, args map[string]any, status int, out map[string]any) {
 	slug, _ := args["flowSlug"].(string)
 	if strings.TrimSpace(slug) == "" {
 		return
 	}
 
-	if status < 400 && isOK(out) && publicAppHintRelevant(command, args) {
-		addPublicAppURLHint(app, out, slug)
-	}
-
 	switch command {
 	case "flows.get":
-		if membershipForbidden(status, out) {
-			// Skip installation-scoped lookups: they carry their own source
-			// refs and fail for different reasons than a user-addressed
-			// cross-workspace flows show/pull.
-			if _, installationLookup := args["installationId"]; !installationLookup {
-				ws := firstNonBlankString(args["sourceWorkspaceId"], app.WorkspaceID)
-				addDiscoverInspectHint(ws, out, slug)
-			}
-		} else if flowLiteralDeclaresRequires(out) {
+		if status < 400 && flowLiteralDeclaresRequires(out) {
 			addActivationHint(app, out, slug)
 		}
 	case "runs.start", "flows.run", "flows.run_step":
@@ -1788,26 +1444,12 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 		}
 	}
 
-	// Workspace membership 403s have two common causes with different fixes:
-	// local dev flakes (mock auth + restarts) get the bootstrap recovery, and
-	// everything else gets a generic workspace-selection hint. Command-aware
-	// guidance (for example pointing a cross-workspace flows.get at the public
-	// Discover listing) is added earlier by enrichCommandHints and wins here.
 	if status == http.StatusForbidden && strings.Contains(msg, "not a workspace member") {
 		meta := ensureMeta(v)
 		if meta != nil {
 			if _, exists := meta["hint"]; !exists {
-				if app.DevMode {
-					ws := strings.TrimSpace(app.WorkspaceID)
-					if ws == "" {
-						ws = "<workspace-id>"
-					}
-					meta["hint"] = "Local workspace membership missing."
-					appendMetaNextCommands(meta, "breyta workspaces bootstrap "+ws)
-				} else {
-					meta["hint"] = "You are not a member of the addressed workspace. Verify the workspace id or switch to one of your workspaces."
-					appendMetaNextCommands(meta, "breyta workspaces list")
-				}
+				meta["hint"] = "You are not a member of the addressed workspace. Verify the workspace id or switch to one of your workspaces."
+				appendMetaNextCommands(meta, "breyta workspaces list")
 			}
 		}
 	}
@@ -1912,22 +1554,6 @@ func doAPICommandWithTimeout(cmd *cobra.Command, app *App, command string, args 
 	if err != nil {
 		return writeErr(cmd, err)
 	}
-	if err := writeAPIResult(cmd, app, out, status); err != nil {
-		return writeErr(cmd, err)
-	}
-	return nil
-}
-
-func doGlobalAPICommand(cmd *cobra.Command, app *App, command string, args map[string]any) error {
-	if err := requireAPI(app); err != nil {
-		return writeErr(cmd, err)
-	}
-	client := apiClient(app)
-	out, status, err := client.DoGlobalCommand(context.Background(), command, args)
-	if err != nil {
-		return writeErr(cmd, err)
-	}
-	trackCommandTelemetry(app, command, args, status, status < 400 && isOK(out))
 	if err := writeAPIResult(cmd, app, out, status); err != nil {
 		return writeErr(cmd, err)
 	}

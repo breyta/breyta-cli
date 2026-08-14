@@ -43,7 +43,6 @@ func TestRunsShowErrors_FiltersFailedSteps(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -119,7 +118,6 @@ func TestRunsInspect_CompactsLargeHTMLErrorBody(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

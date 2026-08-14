@@ -59,13 +59,6 @@ func (c Client) endpoint() (string, error) {
 	return c.baseEndpointFor("/api/commands")
 }
 
-func (c Client) globalEndpoint() (string, error) {
-	if strings.TrimSpace(c.BaseURL) == "" {
-		return "", fmt.Errorf("missing api base url")
-	}
-	return c.baseEndpointFor("/api/global/commands")
-}
-
 func (c Client) endpointFor(path string) (string, error) {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return "", fmt.Errorf("missing api base url")
@@ -210,29 +203,18 @@ func (c Client) DoCommand(ctx context.Context, command string, args map[string]a
 	if err != nil {
 		return nil, 0, err
 	}
-	return c.doCommandWithEndpoint(ctx, endpoint, command, args, true, true)
+	return c.doCommandWithEndpoint(ctx, endpoint, command, args, true)
 }
 
-func (c Client) DoGlobalCommand(ctx context.Context, command string, args map[string]any) (map[string]any, int, error) {
-	if strings.TrimSpace(command) == "" {
-		return nil, 0, fmt.Errorf("missing command")
-	}
-	endpoint, err := c.globalEndpoint()
-	if err != nil {
-		return nil, 0, err
-	}
-	return c.doCommandWithEndpoint(ctx, endpoint, command, args, false, true)
+func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool) (map[string]any, int, error) {
+	return c.doCommandWithOperationID(ctx, endpoint, command, args, includeWorkspace, newOperationID())
 }
 
-func (c Client) doCommandWithEndpoint(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, allowLocalBootstrap bool) (map[string]any, int, error) {
-	return c.doCommandWithOperationID(ctx, endpoint, command, args, includeWorkspace, allowLocalBootstrap, newOperationID())
+func (c Client) doCommandWithOperationID(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, operationID string) (map[string]any, int, error) {
+	return c.doCommandWithOperationState(ctx, endpoint, command, args, includeWorkspace, operationID, 0)
 }
 
-func (c Client) doCommandWithOperationID(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, allowLocalBootstrap bool, operationID string) (map[string]any, int, error) {
-	return c.doCommandWithOperationState(ctx, endpoint, command, args, includeWorkspace, allowLocalBootstrap, operationID, 0)
-}
-
-func (c Client) doCommandWithOperationState(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, allowLocalBootstrap bool, operationID string, attemptOffset int) (map[string]any, int, error) {
+func (c Client) doCommandWithOperationState(ctx context.Context, endpoint string, command string, args map[string]any, includeWorkspace bool, operationID string, attemptOffset int) (map[string]any, int, error) {
 	if strings.TrimSpace(endpoint) == "" {
 		return nil, 0, fmt.Errorf("missing command endpoint")
 	}
@@ -273,18 +255,7 @@ func (c Client) doCommandWithOperationState(ctx context.Context, endpoint string
 		if err != nil {
 			return nil, status, err
 		}
-		if allowLocalBootstrap && includeWorkspace && c.shouldAutoBootstrapLocalWorkspace(out, status) {
-			bootstrapOut, bootstrapStatus, bootstrapErr := c.bootstrapLocalWorkspace(ctx)
-			if bootstrapErr == nil && bootstrapStatus < 400 {
-				retryOut, retryStatus, retryErr := c.doCommandWithOperationState(ctx, endpoint, command, args, includeWorkspace, false, operationID, attemptOffset+attempt+1)
-				if retryErr != nil {
-					return nil, 0, retryErr
-				}
-				annotateAutoBootstrappedLocalWorkspace(retryOut, c.WorkspaceID, bootstrapOut)
-				return retryOut, retryStatus, nil
-			}
-			annotateLocalBootstrapError(out, bootstrapStatus, bootstrapErr)
-		}
+
 		return out, status, nil
 	}
 }
@@ -351,13 +322,14 @@ func commandRetryBackoffs(command string) []time.Duration {
 
 func retryableCommand(command string) bool {
 	switch strings.TrimSpace(command) {
-	case "flows.discover.list",
-		"flows.discover.search",
-		"flows.discover.get",
-		"overview.dashboard.get",
-		"overview.dashboard.catalog",
-		"overview.dashboard.history",
-		"runs.get":
+	case "flows.get",
+		"flows.list",
+		"flows.diff",
+		"flows.versions.list",
+		"runs.get",
+		"runs.list",
+		"runs.events",
+		"workspace.export":
 		return true
 	default:
 		return false
@@ -448,149 +420,5 @@ func waitBeforeRetry(ctx context.Context, d time.Duration) bool {
 		return false
 	case <-timer.C:
 		return true
-	}
-}
-
-func (c Client) shouldAutoBootstrapLocalWorkspace(out map[string]any, status int) bool {
-	if status != http.StatusForbidden {
-		return false
-	}
-	if strings.TrimSpace(c.WorkspaceID) == "" || !isLoopbackBaseURL(c.BaseURL) {
-		return false
-	}
-	msg := strings.ToLower(apiErrorMessage(out))
-	return strings.Contains(msg, "not a workspace member")
-}
-
-func isLoopbackBaseURL(raw string) bool {
-	if strings.TrimSpace(raw) == "" {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	host := strings.TrimSpace(u.Hostname())
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-func apiErrorMessage(out map[string]any) string {
-	if out == nil {
-		return ""
-	}
-	if errAny, ok := out["error"]; ok {
-		switch v := errAny.(type) {
-		case string:
-			return strings.TrimSpace(v)
-		case map[string]any:
-			if msg, _ := v["message"].(string); strings.TrimSpace(msg) != "" {
-				return strings.TrimSpace(msg)
-			}
-			if details, _ := v["details"].(string); strings.TrimSpace(details) != "" {
-				return strings.TrimSpace(details)
-			}
-		}
-	}
-	return ""
-}
-
-func (c Client) bootstrapLocalWorkspace(ctx context.Context) (map[string]any, int, error) {
-	endpoint, err := c.baseEndpointFor("/api/debug/workspace/bootstrap")
-	if err != nil {
-		return nil, 0, err
-	}
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(map[string]any{"workspaceId": strings.TrimSpace(c.WorkspaceID)}); err != nil {
-		return nil, 0, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
-	if err != nil {
-		return nil, 0, err
-	}
-	setClientHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-	if token := strings.TrimSpace(c.Token); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("x-debug-user-id", token)
-	}
-	httpClient := c.HTTP
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-	var out map[string]any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("invalid json response (status=%d): %w\n%s", resp.StatusCode, err, string(b))
-	}
-	if resp.StatusCode >= 400 {
-		msg := apiErrorMessage(out)
-		if msg == "" {
-			msg = strings.TrimSpace(string(b))
-		}
-		if msg == "" {
-			msg = "unknown error"
-		}
-		return out, resp.StatusCode, fmt.Errorf("local workspace bootstrap failed (status=%d): %s", resp.StatusCode, msg)
-	}
-	return out, resp.StatusCode, nil
-}
-
-func ensureMeta(out map[string]any) map[string]any {
-	if out == nil {
-		return nil
-	}
-	if metaAny, ok := out["meta"]; ok {
-		if meta, ok := metaAny.(map[string]any); ok && meta != nil {
-			return meta
-		}
-	}
-	meta := map[string]any{}
-	out["meta"] = meta
-	return meta
-}
-
-func annotateAutoBootstrappedLocalWorkspace(out map[string]any, workspaceID string, bootstrapOut map[string]any) {
-	meta := ensureMeta(out)
-	if meta == nil {
-		return
-	}
-	info := map[string]any{
-		"workspaceId": strings.TrimSpace(workspaceID),
-		"reason":      "membership-403",
-	}
-	for _, key := range []string{"created", "member", "role"} {
-		if v, ok := bootstrapOut[key]; ok {
-			info[key] = v
-		}
-	}
-	meta["localWorkspaceBootstrap"] = info
-}
-
-func annotateLocalBootstrapError(out map[string]any, status int, err error) {
-	meta := ensureMeta(out)
-	if meta == nil {
-		return
-	}
-	if err != nil {
-		meta["localWorkspaceBootstrapError"] = err.Error()
-		return
-	}
-	if status > 0 {
-		meta["localWorkspaceBootstrapError"] = fmt.Sprintf("local workspace bootstrap failed (status=%d)", status)
 	}
 }

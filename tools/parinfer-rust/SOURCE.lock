@@ -1,0 +1,10 @@
+repository=https://github.com/eraserhd/parinfer-rust.git
+tag=v0.4.3
+commit=7b67f166e8ad12899903a0ea451333c41ed80544
+rust_toolchain=1.79.0
+
+linux/amd64/parinfer-rust=97ec65e632a3aebfef3d56b8f749238217455ff5f6b0687a9c340ff8533829ff
+linux/arm64/parinfer-rust=de4d0063005ed6c781b24470e4ab75a0ff907c364ada490c4a3aafd1c63b234f
+darwin/amd64/parinfer-rust=97027e16225a7b540b48cd9dcc84546d007f85b6cb3215e1cd1283ea849a5d99
+darwin/arm64/parinfer-rust=6c2c8f2cef0e0507172f26ef2fa15cdfd03322679a12c3b937acab2441b76184
+windows/amd64/parinfer-rust.exe=b290233e7387af9b7093d39052162f1ac7e4e9eaf1962f8702b5ffcf44df8307

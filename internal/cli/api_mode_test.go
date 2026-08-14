@@ -9,12 +9,26 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/breyta/breyta-cli/internal/cli"
 )
+
+type cliEnvelope struct {
+	OK   bool           `json:"ok"`
+	Meta map[string]any `json:"meta"`
+	Data map[string]any `json:"data"`
+}
+
+func decodeEnvelope(t *testing.T, raw string) cliEnvelope {
+	t.Helper()
+	var envelope cliEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatalf("decode CLI envelope: %v\n%s", err, raw)
+	}
+	return envelope
+}
 
 func runCLIArgs(t *testing.T, args ...string) (string, string, error) {
 	return runCLIArgsWithContext(t, context.Background(), args...)
@@ -33,68 +47,6 @@ func runCLIArgsWithContext(t *testing.T, ctx context.Context, args ...string) (s
 	}
 	err := cmd.ExecuteContext(ctx)
 	return out.String(), errOut.String(), err
-}
-
-func TestDocs_Help_DefaultSurface(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_CONFIG_HOME", tmp)
-	t.Setenv("APPDATA", tmp)
-	t.Setenv("LOCALAPPDATA", tmp)
-	stdout, _, err := runCLIArgs(t,
-		"docs",
-	)
-	if err != nil {
-		t.Fatalf("docs help failed: %v\n%s", err, stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("find")) {
-		t.Fatalf("expected docs help to include find command\n---\n%s", stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("show")) {
-		t.Fatalf("expected docs help to include show command\n---\n%s", stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("fields")) {
-		t.Fatalf("expected docs help to include fields command\n---\n%s", stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("sync")) {
-		t.Fatalf("expected docs help to include sync command\n---\n%s", stdout)
-	}
-}
-
-func TestDocsFind_UsesDocsAPI(t *testing.T) {
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/docs/pages" {
-			http.NotFound(w, r)
-			return
-		}
-		if got := r.URL.Query().Get("q"); got != "flows push" {
-			t.Fatalf("expected q=flows push, got %q", got)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok": true,
-			"data": map[string]any{
-				"pages": []map[string]any{
-					{"slug": "build-flow-authoring", "title": "Build: Flow Authoring", "source": "flows-api"},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"docs", "find", "flows push",
-		"--with-summary=false",
-	)
-	if err != nil {
-		t.Fatalf("docs find failed: %v\n%s", err, stdout)
-	}
-	if !bytes.Contains([]byte(stdout), []byte("docs:build-flow-authoring\tflows-api\t\tBuild: Flow Authoring")) {
-		t.Fatalf("expected docs find row, got:\n%s", stdout)
-	}
 }
 
 func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
@@ -133,7 +85,6 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -171,7 +122,6 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// (Some older tests set --state; API mode should not depend on it.)
 	_ = filepath.Separator
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://localhost:9999",
 		"--token", "user-dev",
@@ -183,137 +133,6 @@ func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	}
 	if bytes.Contains([]byte(stderr), []byte("--state")) || bytes.Contains([]byte(stderr), []byte("mock state")) {
 		t.Fatalf("unexpected state-file error in api mode\n---\nstdout:\n%s\n---\nstderr:\n%s", stdout, stderr)
-	}
-}
-
-func TestFlowsBindingsApply_UsesProfilesBindingsApplyCommand(t *testing.T) {
-	t.Helper()
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "profiles.bindings.apply" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "unexpected command",
-				},
-			})
-			return
-		}
-		args, _ := body["args"].(map[string]any)
-		inputs, _ := args["inputs"].(map[string]any)
-		if inputs["conn-api"] != "conn-123" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "missing conn-api",
-				},
-			})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":          true,
-			"workspaceId": "ws-acme",
-			"data": map[string]any{
-				"flowSlug": "flow-1",
-				"ok":       true,
-			},
-		})
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "bindings", "apply", "flow-1",
-		"--set", "api.conn=conn-123",
-	)
-	if err != nil {
-		t.Fatalf("flows bindings apply failed: %v\n%s", err, stdout)
-	}
-	var e map[string]any
-	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
-		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
-	}
-	if ok, _ := e["ok"].(bool); !ok {
-		t.Fatalf("expected ok=true, got: %+v", e)
-	}
-}
-
-func TestFlowsActivate_SendsVersionArg(t *testing.T) {
-	t.Helper()
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["command"] != "profiles.activate" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "unexpected command",
-				},
-			})
-			return
-		}
-		args, _ := body["args"].(map[string]any)
-		if args["version"] != "2" {
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "missing version",
-				},
-			})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":          true,
-			"workspaceId": "ws-acme",
-			"data": map[string]any{
-				"flowSlug": "flow-2",
-				"enabled":  true,
-			},
-		})
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "activate", "flow-2",
-		"--version", "2",
-	)
-	if err != nil {
-		t.Fatalf("flows activate failed: %v\n%s", err, stdout)
-	}
-	var e map[string]any
-	if err := json.Unmarshal([]byte(stdout), &e); err != nil {
-		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
-	}
-	if ok, _ := e["ok"].(bool); !ok {
-		t.Fatalf("expected ok=true, got: %+v", e)
 	}
 }
 
@@ -363,7 +182,6 @@ func TestFlowsDeploy_SendsDeployKeyFlag(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -429,7 +247,6 @@ func TestFlowsVersionsActivate_SendsDeployKeyFromEnv(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -496,7 +313,6 @@ func TestFlowsVersionsUpdate_SendsReleaseNote(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -520,7 +336,6 @@ func TestFlowsVersionsUpdate_RejectsConflictingReleaseNoteFlags(t *testing.T) {
 	t.Helper()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:1",
 		"--token", "user-dev",
@@ -589,7 +404,6 @@ func TestFlowsPush_SendsDeployKeyFromEnv(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -664,7 +478,6 @@ func TestFlowsPush_RendersAPIDeprecationWarnings(t *testing.T) {
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -750,7 +563,6 @@ func TestFlowsPush_ReturnsSavedDraftWhenImmediateValidationCannotFindCreatedFlow
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -788,7 +600,6 @@ func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	}
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", "http://127.0.0.1:9",
 		"--token", "user-dev",
@@ -808,140 +619,6 @@ func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	}
 	if !bytes.Contains(combined, []byte("breyta flows promote <slug>")) {
 		t.Fatalf("expected promote guidance in error, got:\n%s", string(combined))
-	}
-}
-
-func TestFlowsBindingsTemplate_PrefillsCurrentBindings(t *testing.T) {
-	t.Helper()
-	statusCalled := false
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		cmd, _ := body["command"].(string)
-		switch cmd {
-		case "profiles.template":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-				"data": map[string]any{
-					"requirements": []any{
-						map[string]any{
-							"slot":  "api",
-							"type":  "http-api",
-							"label": "API",
-							"auth":  map[string]any{"type": "api-key"},
-						},
-					},
-				},
-			})
-		case "profiles.status":
-			statusCalled = true
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-				"data": map[string]any{
-					"bindingValues": map[string]any{"api": "conn-123"},
-				},
-			})
-		default:
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "unexpected command",
-				},
-			})
-		}
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "bindings", "template", "flow-1",
-	)
-	if err != nil {
-		t.Fatalf("flows bindings template failed: %v\n%s", err, stdout)
-	}
-	if !statusCalled {
-		t.Fatalf("expected profiles.status to be called")
-	}
-	// EDN encoding may omit whitespace between tokens (still valid EDN), so accept both.
-	if !regexp.MustCompile(`:conn\s*"conn-123"`).MatchString(stdout) {
-		t.Fatalf("expected template to include conn binding, got:\n%s", stdout)
-	}
-}
-
-func TestFlowsBindingsTemplate_CleanSkipsBindings(t *testing.T) {
-	t.Helper()
-	statusCalled := false
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		cmd, _ := body["command"].(string)
-		switch cmd {
-		case "profiles.template":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-				"data": map[string]any{
-					"requirements": []any{
-						map[string]any{
-							"slot": "api",
-							"type": "http-api",
-							"auth": map[string]any{"type": "api-key"},
-						},
-					},
-				},
-			})
-		case "profiles.status":
-			statusCalled = true
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          true,
-				"workspaceId": "ws-acme",
-			})
-		default:
-			w.WriteHeader(400)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":          false,
-				"workspaceId": "ws-acme",
-				"error": map[string]any{
-					"code":    "bad_request",
-					"message": "unexpected command",
-				},
-			})
-		}
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "bindings", "template", "flow-1",
-		"--clean",
-	)
-	if err != nil {
-		t.Fatalf("flows bindings template --clean failed: %v\n%s", err, stdout)
-	}
-	if statusCalled {
-		t.Fatalf("expected profiles.status not to be called")
-	}
-	if bytes.Contains([]byte(stdout), []byte(`:conn "`)) {
-		t.Fatalf("expected clean template to omit conn binding, got:\n%s", stdout)
 	}
 }
 
@@ -1016,7 +693,6 @@ func TestResourcesSearch_UsesSearchEndpointAndQueryParams(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1105,7 +781,6 @@ func TestResourcesSearchIndexUpdate_PostsPayload(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1157,7 +832,6 @@ func TestResourcesSearch_DefaultOutputIsCompact(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1236,7 +910,6 @@ func TestResourcesList_UsesPickerStyleQueryParams(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1272,7 +945,6 @@ func TestResourcesListRejectsNonJSONFormatBeforeRequest(t *testing.T) {
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1339,7 +1011,6 @@ func TestResourcesUpload_UploadsLocalFileAndPrintsURI(t *testing.T) {
 	}
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1401,7 +1072,6 @@ func TestResourcesUpload_FallsBackToAPIDirectWhenSignedUploadReturns503(t *testi
 	}
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1451,7 +1121,7 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 	t.Run("with folder sends it in the init body", func(t *testing.T) {
 		lastInitBody = nil
 		if _, _, err := runCLIArgs(t,
-			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
 			"resources", "upload", path,
 			"--folder", "Company information",
 			"--print-uri",
@@ -1469,7 +1139,7 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 	t.Run("without folder omits the field", func(t *testing.T) {
 		lastInitBody = nil
 		if _, _, err := runCLIArgs(t,
-			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
 			"resources", "upload", path,
 			"--print-uri",
 		); err != nil {
@@ -1486,7 +1156,7 @@ func TestResourcesUpload_PassesFolderToInit(t *testing.T) {
 	t.Run("explicit replace sends replace-existing", func(t *testing.T) {
 		lastInitBody = nil
 		if _, _, err := runCLIArgs(t,
-			"--dev", "--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+			"--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
 			"resources", "upload", path,
 			"--replace",
 			"--print-uri",
@@ -1523,7 +1193,6 @@ func TestResourcesDelete_DeletesResourceByURI(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1579,7 +1248,6 @@ func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T)
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1604,7 +1272,6 @@ func TestResourcesRead_CompactsBlobByDefaultAndFullKeepsRawPayload(t *testing.T)
 	}
 
 	stdout, _, err = runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1667,7 +1334,6 @@ func TestResourcesRead_FallsBackToRunsGetForStepOutputRefs(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1712,7 +1378,6 @@ func TestResourcesRead_CompactsBinaryBlobWithoutRawPreview(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

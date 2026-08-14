@@ -8,11 +8,11 @@ import (
 )
 
 type runsListFilters struct {
-	Flow           string
-	InstallationID string
-	Status         string
-	Version        int
-	HasVersion     bool
+	Flow       string
+	ProfileID  string
+	Status     string
+	Version    int
+	HasVersion bool
 }
 
 var supportedRunsQueryStatuses = map[string]struct{}{
@@ -36,7 +36,7 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 	for _, token := range strings.Fields(query) {
 		parts := strings.SplitN(token, ":", 2)
 		if len(parts) != 2 {
-			return runsListFilters{}, fmt.Errorf("invalid runs query token %q; use status:, flow:, installation:, or version", token)
+			return runsListFilters{}, fmt.Errorf("invalid runs query token %q; use status:, flow:, profile:, or version", token)
 		}
 		field := strings.ToLower(strings.TrimSpace(parts[0]))
 		value := strings.TrimSpace(parts[1])
@@ -62,8 +62,8 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 				return runsListFilters{}, fmt.Errorf("multiple flow: filters are not supported; got %q and %q", filters.Flow, normalizedFlow)
 			}
 			filters.Flow = normalizedFlow
-		case "installation":
-			filters.InstallationID = value
+		case "profile":
+			filters.ProfileID = value
 		case "version":
 			parsed, err := strconv.Atoi(value)
 			if err != nil || parsed < 0 {
@@ -72,7 +72,7 @@ func parseRunsListQuery(raw string) (runsListFilters, error) {
 			filters.Version = parsed
 			filters.HasVersion = true
 		default:
-			return runsListFilters{}, fmt.Errorf("unsupported runs query token %q; use status:, flow:, installation:, or version", token)
+			return runsListFilters{}, fmt.Errorf("unsupported runs query token %q; use status:, flow:, profile:, or version", token)
 		}
 	}
 	return filters, nil
@@ -92,8 +92,8 @@ func buildRunsListQuery(filters runsListFilters) string {
 	if flow := normalizeRunsQueryFlowSlug(filters.Flow); flow != "" {
 		tokens = append(tokens, "flow:"+flow)
 	}
-	if installationID := strings.TrimSpace(filters.InstallationID); installationID != "" {
-		tokens = append(tokens, "installation:"+installationID)
+	if profileID := strings.TrimSpace(filters.ProfileID); profileID != "" {
+		tokens = append(tokens, "profile:"+profileID)
 	}
 	if filters.HasVersion {
 		tokens = append(tokens, "version:"+strconv.Itoa(filters.Version))
@@ -126,7 +126,7 @@ func annotateRunsListResult(app *App, out map[string]any, args map[string]any) {
 		queryFilters.Flow = flow
 	}
 	if installationID := firstNonBlankString(args["profileId"], args["profile-id"], args["installationId"], args["installation-id"]); installationID != "" {
-		queryFilters.InstallationID = installationID
+		queryFilters.ProfileID = installationID
 	}
 	if status := strings.TrimSpace(firstNonBlankString(args["status"], args["runStatus"], args["run-status"])); status != "" {
 		queryFilters.Status = strings.ToLower(status)

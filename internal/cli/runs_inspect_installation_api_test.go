@@ -292,7 +292,6 @@ func TestRunsInspect_InfersInstallationIDFromCanonicalWorkflowID(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIForRunInstallTest(t,
-		"--dev",
 		"--workspace", "ws-consumer",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -357,7 +356,6 @@ func TestRunsInspectStep_UsesInferredInstallationIDForRunAndEvents(t *testing.T)
 	defer srv.Close()
 
 	stdout, _, err := runCLIForRunInstallTest(t,
-		"--dev",
 		"--workspace", "ws-consumer",
 		"--api", srv.URL,
 		"--token", "user-dev",

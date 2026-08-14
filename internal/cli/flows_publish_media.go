@@ -22,7 +22,7 @@ var publishMediaFlagNames = []string{
 	"clear-publish-media",
 }
 
-var publishMediaUploadFileResource = jobsWorkerUploadFileResource
+var publishMediaUploadFileResource = uploadFileResource
 
 func publishMediaFlagsChanged(cmd *cobra.Command) bool {
 	if cmd == nil {

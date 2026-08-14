@@ -44,7 +44,6 @@ func TestServiceAccountsCreate_UsesAPICommand(t *testing.T) {
 
 	stdout, stderr, err := runCLIArgs(
 		t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -119,7 +118,6 @@ func TestServiceAccountsUpdate_UsesCommaSeparatedScopes(t *testing.T) {
 
 	stdout, stderr, err := runCLIArgs(
 		t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -184,7 +182,6 @@ func TestServiceAccountsKeysCreate_UsesAPICommand(t *testing.T) {
 
 	stdout, stderr, err := runCLIArgs(
 		t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

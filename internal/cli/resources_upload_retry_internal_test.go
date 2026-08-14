@@ -13,9 +13,9 @@ import (
 )
 
 func TestJobsWorkerUploadFileResourceRetriesStableTransientStages(t *testing.T) {
-	originalBackoffs := jobsWorkerUploadRetryBackoffs
-	jobsWorkerUploadRetryBackoffs = []time.Duration{0}
-	t.Cleanup(func() { jobsWorkerUploadRetryBackoffs = originalBackoffs })
+	originalBackoffs := fileUploadRetryBackoffs
+	fileUploadRetryBackoffs = []time.Duration{0}
+	t.Cleanup(func() { fileUploadRetryBackoffs = originalBackoffs })
 
 	const resourceURI = "res://v1/ws/ws-acme/file/report"
 	counts := map[string]int{}
@@ -45,7 +45,7 @@ func TestJobsWorkerUploadFileResourceRetriesStableTransientStages(t *testing.T) 
 	if err := os.WriteFile(path, []byte("report body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := jobsWorkerUploadFileResource(context.Background(), &App{
+	result, err := uploadFileResource(context.Background(), &App{
 		APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "token",
 	}, path, "stable-report.md", "text/markdown", "", true)
 	if err != nil {
@@ -65,9 +65,9 @@ func TestJobsWorkerUploadFileResourceRetriesStableTransientStages(t *testing.T) 
 }
 
 func TestJobsWorkerUploadFileResourceDoesNotRetryUnstableInit(t *testing.T) {
-	originalBackoffs := jobsWorkerUploadRetryBackoffs
-	jobsWorkerUploadRetryBackoffs = []time.Duration{0}
-	t.Cleanup(func() { jobsWorkerUploadRetryBackoffs = originalBackoffs })
+	originalBackoffs := fileUploadRetryBackoffs
+	fileUploadRetryBackoffs = []time.Duration{0}
+	t.Cleanup(func() { fileUploadRetryBackoffs = originalBackoffs })
 
 	initCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +80,7 @@ func TestJobsWorkerUploadFileResourceDoesNotRetryUnstableInit(t *testing.T) {
 	if err := os.WriteFile(path, []byte("report body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := jobsWorkerUploadFileResource(context.Background(), &App{
+	_, err := uploadFileResource(context.Background(), &App{
 		APIURL: srv.URL, WorkspaceID: "ws-acme", Token: "token",
 	}, path, "report.md", "text/markdown", "", false)
 	if err == nil {
@@ -95,7 +95,7 @@ func TestJobsWorkerWaitForUploadRetryStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	started := time.Now()
-	if jobsWorkerWaitForUploadRetry(ctx, time.Hour) {
+	if waitForFileUploadRetry(ctx, time.Hour) {
 		t.Fatal("cancelled retry wait must not continue")
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {

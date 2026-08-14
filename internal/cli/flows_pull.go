@@ -291,13 +291,6 @@ breyta flows pull order-ingest --target live --out ./tmp/flows/order-ingest-live
 			if !ok || strings.TrimSpace(flowLiteral) == "" {
 				return writeErr(cmd, errors.New("missing data.flowLiteral in response"))
 			}
-			if resolvedTarget == "draft" && version == 0 {
-				flowLiteral, err = reconcilePulledDraftVisibility(flowLiteral, data)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-			}
-
 			if err := makePublicDir(filepath.Dir(path)); err != nil {
 				return writeErr(cmd, err)
 			}

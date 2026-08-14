@@ -35,7 +35,6 @@ func TestConnectionsList_APIModeDefaultsToCompactRows(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -91,7 +90,6 @@ func TestConnectionsItems_APIModeListsCachedConnectionItems(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -166,7 +164,6 @@ func TestConnectionsItems_APIModeRawIncludesCachedPayload(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -226,7 +223,6 @@ func TestConnectionsItems_APIModeLimitZeroPaginatesAllItems(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -283,7 +279,6 @@ func TestConnectionsItems_APIModeLimitZeroDoesNotStopAtOneHundredPages(t *testin
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -322,7 +317,6 @@ func TestConnectionsItems_APIModeReadsTopLevelKebabConnectionItems(t *testing.T)
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

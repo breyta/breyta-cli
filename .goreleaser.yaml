@@ -5,6 +5,7 @@ project_name: breyta
 
 before:
   hooks:
+    - ./scripts/verify-parinfer-provenance.sh
     - go test ./...
 
 builds:
@@ -41,35 +42,53 @@ builds:
 
 archives:
   - id: unix
-    builds:
+    ids:
       - breyta-unix
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - src: LICENSE
       - src: THIRD_PARTY_NOTICES.md
+      - src: tools/parinfer-rust/LICENSE.md
+        dst: licenses/parinfer-rust-ISC.md
+      - src: tools/parinfer-rust/THIRD_PARTY_NOTICES.md
+        dst: licenses/parinfer-rust-THIRD_PARTY_NOTICES.md
+      - src: tools/parinfer-rust/SOURCE.lock
+        dst: provenance/parinfer-rust-SOURCE.lock
       - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust
         dst: parinfer-rust
   - id: windows
-    builds:
+    ids:
       - breyta-windows
-    format: zip
+    formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - src: LICENSE
       - src: THIRD_PARTY_NOTICES.md
+      - src: tools/parinfer-rust/LICENSE.md
+        dst: licenses/parinfer-rust-ISC.md
+      - src: tools/parinfer-rust/THIRD_PARTY_NOTICES.md
+        dst: licenses/parinfer-rust-THIRD_PARTY_NOTICES.md
+      - src: tools/parinfer-rust/SOURCE.lock
+        dst: provenance/parinfer-rust-SOURCE.lock
       - src: tools/parinfer-rust/windows/amd64/parinfer-rust.exe
         dst: parinfer-rust.exe
 
 checksum:
   name_template: checksums.txt
 
+sboms:
+  - id: cli-archives
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+
 release:
   prerelease: auto
 
-brews:
+homebrew_casks:
   - name: breyta
     ids:
       - unix
@@ -78,15 +97,8 @@ brews:
       name: homebrew-tap
       branch: main
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Formula
-    homepage: https://flows.breyta.ai
+    homepage: https://github.com/breyta/breyta-cli
     description: "Command-line interface for working with Breyta flows"
-    license: "MIT"
-    install: |
-      bin.install "breyta"
-      bin.install "parinfer-rust"
-    test: |
-      system "#{bin}/breyta", "version"
-    commit_author:
-      name: breyta-ci
-      email: github-actions@breyta.ai
+    binaries:
+      - breyta
+      - parinfer-rust

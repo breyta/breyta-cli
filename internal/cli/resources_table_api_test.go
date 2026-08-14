@@ -41,7 +41,6 @@ func TestResourcesRead_TablePreviewPassesLimitAndOffset(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -118,7 +117,6 @@ func TestResourcesTableVerify_ReadsMetadataAndPreview(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -203,7 +201,6 @@ func TestResourcesTableVerify_FullKeepsRawPayloads(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -284,7 +281,6 @@ func TestResourcesTableVerify_TreatsOKFalseRESTPayloadsAsErrors(t *testing.T) {
 			defer srv.Close()
 
 			stdout, _, err := runCLIArgs(t,
-				"--dev",
 				"--workspace", "ws-acme",
 				"--api", srv.URL,
 				"--token", "user-dev",
@@ -336,7 +332,6 @@ func TestResourcesRead_DefaultsToCompactTablePreviewLimit(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -381,7 +376,6 @@ func TestResourcesRead_FullOmitsDefaultPreviewLimit(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -413,7 +407,6 @@ func TestResourcesRead_PrettyKeepsCompactSummaryPreview(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -470,7 +463,6 @@ func TestResourcesTableQuery_UsesTableQueryEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -529,7 +521,6 @@ func TestResourcesTableQuery_DefaultsToOffsetPageMode(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -582,7 +573,6 @@ func TestResourcesTableQuery_SendsCursorPayloadWhenRequested(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -619,7 +609,6 @@ func TestResourcesTableExport_WritesCSVToStdout(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -657,7 +646,6 @@ func TestResourcesTableGetRow_UsesGetRowEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -696,7 +684,6 @@ func TestResourcesTableGetRow_SendsCompositeKeyAssignments(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -746,7 +733,6 @@ func TestResourcesTableImport_UsesImportEndpoint(t *testing.T) {
 	}
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -812,7 +798,6 @@ func TestResourcesTableImport_UsesNamedTableTargetWhenCreating(t *testing.T) {
 	}
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -902,7 +887,6 @@ func TestResourcesTableAggregate_UsesExpandedPayload(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -947,7 +931,6 @@ func TestResourcesTableUpdateCell_UsesUpdateEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -989,7 +972,6 @@ func TestResourcesTableUpdateCell_SendsCompositeKeyAssignments(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1025,7 +1007,6 @@ func TestResourcesTableUpdateCellFormat_UsesFormatEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1087,7 +1068,6 @@ func TestResourcesTableSetColumn_UsesSetColumnEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1135,7 +1115,6 @@ func TestResourcesTableRecompute_UsesRecomputeEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -1197,7 +1176,6 @@ func TestResourcesTableMaterializeJoin_UsesMaterializeJoinEndpoint(t *testing.T)
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

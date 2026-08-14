@@ -1,15 +1,12 @@
-name: Build parinfer-rust (manual)
+name: Build pinned parinfer-rust
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "parinfer-rust git ref (tag or commit SHA)"
-        required: true
-        default: "v0.4.3"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PARINFER_RUST_COMMIT: 7b67f166e8ad12899903a0ea451333c41ed80544
+  RUST_TOOLCHAIN: 1.79.0
 
 jobs:
   linux:
@@ -17,14 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout parinfer-rust
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: eraserhd/parinfer-rust
-          ref: ${{ inputs.ref }}
+          ref: ${{ env.PARINFER_RUST_COMMIT }}
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-unknown-linux-gnu
 
       - name: Install build deps
@@ -51,9 +49,9 @@ jobs:
           chmod +x out/linux/amd64/parinfer-rust out/linux/arm64/parinfer-rust
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: parinfer-rust-linux-${{ inputs.ref }}
+          name: parinfer-rust-linux-${{ env.PARINFER_RUST_COMMIT }}
           path: out/linux
 
   darwin:
@@ -61,14 +59,15 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout parinfer-rust
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: eraserhd/parinfer-rust
-          ref: ${{ inputs.ref }}
+          ref: ${{ env.PARINFER_RUST_COMMIT }}
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: x86_64-apple-darwin
 
       - name: Build (arm64)
@@ -86,9 +85,9 @@ jobs:
           chmod +x out/darwin/amd64/parinfer-rust out/darwin/arm64/parinfer-rust
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: parinfer-rust-darwin-${{ inputs.ref }}
+          name: parinfer-rust-darwin-${{ env.PARINFER_RUST_COMMIT }}
           path: out/darwin
 
   windows:
@@ -96,13 +95,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout parinfer-rust
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: eraserhd/parinfer-rust
-          ref: ${{ inputs.ref }}
+          ref: ${{ env.PARINFER_RUST_COMMIT }}
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Build
         run: cargo build --release --bin parinfer-rust
@@ -114,7 +115,7 @@ jobs:
           cp -v target/release/parinfer-rust.exe out/windows/amd64/parinfer-rust.exe
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: parinfer-rust-windows-${{ inputs.ref }}
+          name: parinfer-rust-windows-${{ env.PARINFER_RUST_COMMIT }}
           path: out/windows

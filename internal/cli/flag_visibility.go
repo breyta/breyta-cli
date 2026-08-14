@@ -10,12 +10,10 @@ func configureFlagVisibility(root *cobra.Command, app *App) {
 		return
 	}
 
-	// Root persistent flags apply everywhere; keep dev-only overrides hidden by default.
-	showDev := app.DevMode || devModeEnabled()
 	setFlagHidden(root.PersistentFlags(), "api", false)
 	setFlagHidden(root.PersistentFlags(), "api-key", false)
-	setFlagHidden(root.PersistentFlags(), "token", !showDev)
-	setFlagHidden(root.PersistentFlags(), "state", !showDev)
+	setFlagHidden(root.PersistentFlags(), "token", false)
+	setFlagHidden(root.PersistentFlags(), "state", true)
 	setFlagHidden(root.PersistentFlags(), "dev", true)
 }
 

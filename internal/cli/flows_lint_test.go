@@ -2846,7 +2846,6 @@ func TestFlowsLintLocalOnlySkipsAutomaticSkillNetwork(t *testing.T) {
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.SetArgs([]string{
-		"--dev",
 		"--api", srv.URL,
 		"--token", "dev-user",
 		"flows", "lint",
@@ -2865,7 +2864,7 @@ func TestFlowsLintLocalOnlySkipsAutomaticSkillNetwork(t *testing.T) {
 	}
 }
 
-func TestFlowsLintLocalOnlySkipsStoredTokenRefresh(t *testing.T) {
+func TestFlowsLintLocalOnlySkipsStoredTokenAndAPI(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("USERPROFILE", tmpDir)
@@ -2895,28 +2894,12 @@ func TestFlowsLintLocalOnlySkipsStoredTokenRefresh(t *testing.T) {
 	storePath := filepath.Join(tmpDir, "auth.json")
 	st := &authstore.Store{}
 	st.SetRecord(srv.URL, authstore.Record{
-		Token:        "tok-stale",
-		RefreshToken: "ref-stale",
-		ExpiresAt:    time.Now().UTC().Add(30 * time.Second),
+		Token: "personal-token",
 	})
 	if err := authstore.SaveAtomic(storePath, st); err != nil {
 		t.Fatalf("SaveAtomic: %v", err)
 	}
 	t.Setenv("BREYTA_AUTH_STORE", storePath)
-
-	var refreshCalls atomic.Int32
-	authRefreshHTTPClient = &http.Client{
-		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			refreshCalls.Add(1)
-			return httpJSON(200, map[string]any{
-				"success":      true,
-				"token":        "tok-refreshed",
-				"refreshToken": "ref-refreshed",
-				"expiresIn":    3600,
-			})
-		}),
-	}
-	t.Cleanup(func() { authRefreshHTTPClient = nil })
 
 	root := NewRootCmd()
 	out := new(bytes.Buffer)
@@ -2924,7 +2907,6 @@ func TestFlowsLintLocalOnlySkipsStoredTokenRefresh(t *testing.T) {
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.SetArgs([]string{
-		"--dev",
 		"--api", srv.URL,
 		"flows", "lint",
 		"--file", flowFile,
@@ -2934,9 +2916,6 @@ func TestFlowsLintLocalOnlySkipsStoredTokenRefresh(t *testing.T) {
 		t.Fatalf("flows lint --local-only failed: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
 	}
 	time.Sleep(50 * time.Millisecond)
-	if got := refreshCalls.Load(); got != 0 {
-		t.Fatalf("expected no auth refresh for --local-only lint, got %d; stderr=%s stdout=%s", got, errOut.String(), out.String())
-	}
 	if got := apiRequests.Load(); got != 0 {
 		t.Fatalf("expected no API requests for --local-only lint, got %d; stderr=%s stdout=%s", got, errOut.String(), out.String())
 	}
