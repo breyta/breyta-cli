@@ -4,18 +4,19 @@
 not start or manage the server; point it at an engine API and select a
 workspace.
 
-## Install
+## Build the open-source branch
 
-Download an archive from [GitHub Releases](https://github.com/breyta/breyta-cli/releases),
-or install from source:
+The canonical CLI is not published yet. Existing GitHub releases and the
+`@latest` Go module refer to the retiring hosted product and must not be used
+for this branch. Build the reviewed `open-source/engine` source locally:
 
 ```bash
-go install github.com/breyta/breyta-cli/cmd/breyta@latest
+go build -o ./dist/breyta ./cmd/breyta
 ```
 
-Release archives contain the CLI, the pinned `parinfer-rust` helper, licenses,
-third-party notices, provenance, and a sibling SPDX JSON SBOM generated from
-the final archive.
+Automatic publication is disabled. A future, separately reviewed release
+change must define versioning, signing and distribution ownership before any
+new CLI archive can be published.
 
 ## Connect to an engine
 
@@ -110,4 +111,4 @@ go build ./...
 go test ./...
 ```
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the maintainer release process.
+See [docs/RELEASING.md](docs/RELEASING.md) for the release gate.

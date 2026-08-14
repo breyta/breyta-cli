@@ -1,95 +1,52 @@
-# Releasing `breyta-cli`
+# Releasing the canonical Breyta CLI
 
-Maintainer-only runbook for cutting a new `breyta-cli` release.
+## Current status: publication disabled
 
-This repository is public, but this document is for Breyta maintainers operating
-the release pipeline.
+The `open-source/engine` branch must not publish CLI binaries, GitHub releases,
+Homebrew updates, or Go-module compatibility tags yet. Existing releases and
+`@latest` belong to the retiring hosted product.
 
-## Versioning
+There is deliberately no active release workflow under `.github/workflows`.
+The reviewed release draft is stored at
+`release/release.workflow.yml.disabled`, outside GitHub's workflow discovery
+path and with a non-YAML extension. Branch pushes run no workflow; pull
+requests run test/build validation only. The Parinfer rebuild workflow is
+manual and uploads workflow artifacts, not releases.
 
-- Tag format is CalVer: `vYYYY.M.PATCH` (example: `v2026.2.2`).
-- The release workflow only triggers for tags matching this pattern.
-- Release automation also creates a Go-module compatibility tag:
-  - `vYYYY.M.PATCH` -> `v0.YYYYMM.PATCH`
-  - Example: `v2026.2.3` -> `v0.202602.3`
-  - This keeps `go install github.com/breyta/breyta-cli/cmd/breyta@latest` on the newest release commit
+Do not move the disabled workflow into `.github/workflows`, create a release
+tag, update Homebrew, or create compatibility tags as part of ordinary engine
+development.
 
-## Prerequisites
+## Release-enablement gate
 
-- You have push access to `breyta/breyta-cli`.
-- You have a sibling checkout of `breyta/` next to `breyta-cli/` (required by integration tests).
-- Your local branch is clean and up to date with `origin/main`.
+Publication requires a separate reviewed change that records all of these
+decisions:
 
-## 1) Run release checks locally
+- the approved source-available license and trademark policy;
+- release owner and signing/provenance owner;
+- canonical version and tag namespace, distinct from retired hosted releases;
+- approved GitHub and package-manager distribution targets;
+- branch/ref restrictions proving only an approved `open-source/engine`
+  release commit can publish;
+- required reviewers or protected environment for the publishing job;
+- final archive tests, SBOMs, notices, checksums and Parinfer provenance;
+- rollback and revocation procedure.
 
-From `breyta-cli/`:
+That change may use `release/release.workflow.yml.disabled` as a reviewed
+starting point, but must define an explicit intentional trigger. Restoring the
+old tag-on-push behavior is not sufficient.
 
-```bash
-make release-check
-```
+## Local artifact validation
 
-What this runs:
-
-- `gofmt -w` on tracked Go files
-- `go test ./...`
-- CLI integration test harness via `../breyta/bases/flows-api/scripts/integration_tests.sh`
-
-If the integration harness needs overrides, see:
-
-- `breyta/bases/flows-api/docs/internal/INTEGRATION_TESTS.md`
-
-## 2) Pick the next tag
-
-List existing tags:
+Maintainers can validate the packaging configuration without publishing:
 
 ```bash
-git tag --list 'v*' --sort=version:refname | tail -n 20
+go test ./...
+go build ./...
+go vet ./...
+./scripts/verify-parinfer-provenance.sh
+go run github.com/goreleaser/goreleaser/v2@v2.17.1 check
 ```
 
-Pick the next `vYYYY.M.PATCH` value for the release.
-
-## 3) Create and push the tag
-
-Create an annotated tag on the release commit (normally `main`). Use the shared
-CI identity so GitHub shows the release tag as Breyta-owned rather than a
-maintainer's personal git identity:
-
-```bash
-git -c user.name=breyta-ci \
-  -c user.email=github-actions@breyta.ai \
-  tag -a vYYYY.M.PATCH -m "breyta-cli vYYYY.M.PATCH" origin/main
-git push origin vYYYY.M.PATCH
-```
-
-## 4) Verify GitHub release automation
-
-Pushing the tag triggers `.github/workflows/release.yml`, which runs GoReleaser.
-
-Expected outputs:
-
-- GitHub release with archives and checksums
-- Homebrew tap update to `breyta/homebrew-tap` (Formula `breyta`)
-- Go-module compatibility tag pushed to this repo (for `go install ...@latest`)
-
-Watch:
-
-- Actions: <https://github.com/breyta/breyta-cli/actions/workflows/release.yml>
-- Releases: <https://github.com/breyta/breyta-cli/releases>
-
-Verify module tags if needed:
-
-```bash
-go list -m -versions github.com/breyta/breyta-cli
-```
-
-## Troubleshooting
-
-- If `make release-check` fails in integration setup, inspect:
-  - `breyta/tmp/it/flows_api.log`
-  - `breyta/tmp/flows-api.log`
-- You can run the integration script directly for faster iteration:
-
-```bash
-cd ../breyta
-./bases/flows-api/scripts/integration_tests.sh
-```
+These commands produce no GitHub release and update no external distribution
+channel.

@@ -1,3 +1,8 @@
+# Intentionally stored outside .github/workflows with a non-YAML extension.
+# The open-source branch must not publish CLI artifacts until release ownership,
+# signing, versioning, and the target distribution channels are approved.
+# Enabling publication requires a deliberate reviewed change that moves this
+# file back into .github/workflows and defines the intended trigger.
 name: Release
 
 on:
