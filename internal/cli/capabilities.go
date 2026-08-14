@@ -75,7 +75,7 @@ func validateEngineCapabilities(raw any) error {
 		return errors.New("engine returned an invalid capability manifest")
 	}
 	version, ok := manifest["apiVersion"].(float64)
-	if !ok || int(version) != engineAPIVersion {
+	if !ok || version != float64(engineAPIVersion) {
 		return fmt.Errorf("unsupported engine API version %v (CLI requires %d)", manifest["apiVersion"], engineAPIVersion)
 	}
 

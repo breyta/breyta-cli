@@ -374,8 +374,18 @@ func filterServiceAccountsByStatus(value any, status string) any {
 	if root == nil {
 		return value
 	}
+	data := mapStringAny(root["data"])
+	rawItems := root["items"]
+	nested := false
+	if rawItems == nil && data != nil {
+		rawItems = data["items"]
+		nested = rawItems != nil
+	}
+	if rawItems == nil {
+		return value
+	}
 	filtered := make([]any, 0)
-	for _, raw := range serviceAccountItems(value) {
+	for _, raw := range sliceAny(rawItems) {
 		account := mapStringAny(raw)
 		if strings.EqualFold(firstNonBlankString(account["status"]), status) {
 			filtered = append(filtered, raw)
@@ -385,6 +395,15 @@ func filterServiceAccountsByStatus(value any, status string) any {
 	for key, item := range root {
 		copyRoot[key] = item
 	}
-	copyRoot["items"] = filtered
+	if nested {
+		copyData := make(map[string]any, len(data))
+		for key, item := range data {
+			copyData[key] = item
+		}
+		copyData["items"] = filtered
+		copyRoot["data"] = copyData
+	} else {
+		copyRoot["items"] = filtered
+	}
 	return copyRoot
 }

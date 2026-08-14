@@ -22,6 +22,18 @@ func TestWorkspaceHandoffClientHonorsLongOperationBudget(t *testing.T) {
 	}
 }
 
+func TestWorkspaceBundleFromResponseRejectsInvalidNestedFormat(t *testing.T) {
+	for _, bundle := range []map[string]any{
+		{"version": float64(1)},
+		{"format": "other.workspace", "version": float64(1)},
+	} {
+		response := map[string]any{"data": map[string]any{"bundle": bundle}}
+		if _, err := workspaceBundleFromResponse(response); err == nil {
+			t.Fatalf("expected invalid nested bundle to be rejected: %#v", bundle)
+		}
+	}
+}
+
 func TestWorkspaceExportAndImportUseEngineRESTContract(t *testing.T) {
 	bundle := map[string]any{"format": "breyta.workspace", "version": float64(1), "flows": []any{}}
 	var imported map[string]any

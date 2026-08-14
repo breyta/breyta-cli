@@ -6,6 +6,39 @@ import (
 	"testing"
 )
 
+func TestServiceAccountsListFiltersNestedEngineResponse(t *testing.T) {
+	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
+	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
+
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/service-accounts" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []any{
+			map[string]any{"serviceAccountId": "sa-active", "status": "active"},
+			map[string]any{"serviceAccountId": "sa-disabled", "status": "disabled"},
+		}}})
+	}))
+	defer srv.Close()
+
+	stdout, stderr, err := runCLIArgs(t,
+		"--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"service-accounts", "list", "--status", "active")
+	if err != nil {
+		t.Fatalf("service-accounts list failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	env := decodeEnvelope(t, stdout)
+	nested, _ := env.Data["data"].(map[string]any)
+	items, _ := nested["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["serviceAccountId"] != "sa-active" {
+		t.Fatalf("expected only active nested item, got %#v", env.Data)
+	}
+	if _, leaked := env.Data["items"]; leaked {
+		t.Fatalf("filter must preserve the nested response shape, got %#v", env.Data)
+	}
+}
+
 func TestServiceAccountsCreate_UsesEngineREST(t *testing.T) {
 	t.Setenv("BREYTA_NO_UPDATE_CHECK", "1")
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")

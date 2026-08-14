@@ -37,6 +37,11 @@ func TestValidateEngineCapabilities(t *testing.T) {
 	if err := validateEngineCapabilities(manifest); err == nil {
 		t.Fatal("expected a future API version to be rejected")
 	}
+
+	manifest["apiVersion"] = 2.5
+	if err := validateEngineCapabilities(manifest); err == nil {
+		t.Fatal("expected a fractional API version to be rejected")
+	}
 }
 
 func TestCanonicalRootOmitsHostedCommands(t *testing.T) {

@@ -142,7 +142,10 @@ func workspaceBundleFromResponse(response any) (map[string]any, error) {
 	}
 	if data, ok := root["data"].(map[string]any); ok {
 		if bundle, ok := data["bundle"].(map[string]any); ok {
-			return bundle, nil
+			if bundle["format"] == "breyta.workspace" {
+				return bundle, nil
+			}
+			return nil, errors.New("workspace export response contains a bundle with an invalid format")
 		}
 	}
 	if root["format"] == "breyta.workspace" {
