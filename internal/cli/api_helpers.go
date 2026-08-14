@@ -374,7 +374,7 @@ func addWaitRunNextCommands(out map[string]any, workflowID string, installationI
 	if workflowID == "" {
 		return
 	}
-	// Installation-scoped runs only resolve with --installation-id; without it
+	// Profile-scoped runs only resolve with --profile-id; without it
 	// `runs inspect <workflow-id>` returns "Run not found", so the suggested
 	// command must carry the installation id to be directly runnable. Fall back
 	// to the id on the run snapshot when the caller did not pass one explicitly.
@@ -384,7 +384,7 @@ func addWaitRunNextCommands(out map[string]any, workflowID string, installationI
 	}
 	installationSuffix := ""
 	if installationID != "" {
-		installationSuffix = " --installation-id " + installationID
+		installationSuffix = " --profile-id " + installationID
 	}
 	meta := ensureMeta(out)
 	appendMetaNextCommands(meta,
@@ -441,8 +441,8 @@ func addActivationHint(app *App, out map[string]any, flowSlug string) {
 	appendMetaNextCommands(meta,
 		"breyta connections list",
 		"breyta connections test <connection-id>",
-		"breyta flows configure "+flowSlug+" --set <slot>.conn=conn-...",
-		"breyta flows promote "+flowSlug)
+		"breyta flows validate "+flowSlug,
+		"breyta flows run "+flowSlug+" --target draft --wait")
 }
 
 func addDraftBindingsHint(app *App, out map[string]any, flowSlug string) {
@@ -953,8 +953,7 @@ func enrichExternalRequestFailureHints(out map[string]any) {
 	appendMetaNextCommands(meta,
 		"breyta runs show "+workflowID+" --errors",
 		"breyta runs inspect "+workflowID,
-		"breyta resources workflow list "+workflowID,
-		"breyta docs fields http timeout retry persist --format json")
+		"breyta resources workflow list "+workflowID)
 }
 
 func defaultRecoveryActionLabel(kind string) string {
@@ -1276,13 +1275,13 @@ func errorDocsHintLines(out map[string]any) []string {
 			if slug == "" {
 				continue
 			}
-			line = fmt.Sprintf("Docs: breyta docs show %s", slug)
+			line = "Docs: https://github.com/breyta/breyta-cli#readme"
 		case "find":
 			query := scalarString(ref["query"])
 			if query == "" {
 				continue
 			}
-			line = fmt.Sprintf("Docs: breyta docs find %q", query)
+			line = "Docs: https://github.com/breyta/breyta-cli#readme"
 		default:
 			continue
 		}
@@ -1438,8 +1437,8 @@ func writeAPIResult(cmd *cobra.Command, app *App, v map[string]any, status int) 
 				meta["hint"] = "Flow setup is incomplete for this target."
 			}
 			appendMetaNextCommands(meta,
-				"breyta flows configure <slug> --set <slot>.conn=conn-...",
-				"breyta flows promote <slug>",
+				"breyta connections list",
+				"breyta flows validate <slug>",
 				"breyta flows run <slug> --target live --wait")
 		}
 	}

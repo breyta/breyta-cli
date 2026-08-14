@@ -389,7 +389,7 @@ func TestCompactRunInspectOutputHintCarriesInstallationScope(t *testing.T) {
 	compactRunInspectOutput(scoped, "wf-scoped", "prof-consumer")
 	meta, _ := scoped["meta"].(map[string]any)
 	hint, _ := meta["hint"].(string)
-	if want := "breyta runs show wf-scoped --include-result --installation-id prof-consumer"; !strings.Contains(hint, want) {
+	if want := "breyta runs show wf-scoped --include-result --profile-id prof-consumer"; !strings.Contains(hint, want) {
 		t.Fatalf("expected installation-scoped runs show hint %q, got %q", want, hint)
 	}
 

@@ -205,7 +205,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any, e
 	}
 	parts = append(parts, extraFlags...)
 	if installationID := argString(payload, "installationId", "installation-id"); installationID != "" {
-		parts = append(parts, "--installation-id", installationID)
+		parts = append(parts, "--profile-id", installationID)
 	} else if profileID := argString(payload, "profileId", "profile-id"); profileID != "" {
 		parts = append(parts, "--profile-id", profileID)
 	} else if target := argString(payload, "target"); target != "" {
@@ -280,6 +280,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	installationID := installationIDFromRunData(data)
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")
+	}
+	if installationID == "" {
+		installationID = argString(payload, "profileId", "profile-id")
 	}
 	startRunStatus := canonicalRunStatus(data["status"])
 	if startRunStatus == "" {
@@ -773,11 +776,6 @@ Use this as the canonical authoring-time probe for named inline function/code
 steps and LLM steps that depend on draft-bound connection slots. Pass the same
 root input object used by the flow invocation; do not wrap it in an extra
 "input" object unless the invocation contract itself declares that field.
-
-` + "`flows steps run`" + ` is a different, local-source-only command for qualified
-top-level packaged ` + "`:steps`" + ` definitions. ` + "`steps run --flow ...`" + ` is a
-lower-level primitive/config probe and may require primitive-specific config
-shape such as ` + "`{\"input\": {...}}`" + ` for a raw function activity.
 
 Default:
 - breyta flows run-step <flow-slug> <step-id> [--input '{...}' | --input-file ./input.json] [--wait]

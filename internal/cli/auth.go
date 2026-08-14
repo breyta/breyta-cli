@@ -81,6 +81,9 @@ func whoamiVerify(ctx context.Context, app *App) (any, int, string, error) {
 	if err != nil {
 		return nil, 0, "", err
 	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return out, status, "personal-token", fmt.Errorf("authentication failed (status=%d)", status)
+	}
 	return out, status, "personal-token", nil
 }
 

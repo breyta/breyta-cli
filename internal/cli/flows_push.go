@@ -38,7 +38,7 @@ func newFlowsPushCmd(app *App) *cobra.Command {
 					return writeErr(cmd, err)
 				}
 				if resolvedTarget == "live" {
-					return writeErr(cmd, errors.New("--target live is not supported for flows push; push always updates workspace current. Use `breyta flows release <slug>` to publish/install live, or `breyta flows promote <slug>` to retarget live"))
+					return writeErr(cmd, errors.New("--target live is not supported for flows push; push always updates the draft. Use `breyta flows release <slug>` to validate and activate it"))
 				}
 			}
 			if strings.TrimSpace(file) == "" {

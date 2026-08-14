@@ -46,7 +46,7 @@ func newWorkspaceExportCmd(app *App) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
-			response, status, err := authClient(app).DoREST(ctx, http.MethodGet, "/api/workspace/export", nil, nil)
+			response, status, err := apiClientWithTimeout(app, 2*time.Minute).DoREST(ctx, http.MethodGet, "/api/workspace/export", nil, nil)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
@@ -106,7 +106,7 @@ func newWorkspaceImportCmd(app *App) *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 			defer cancel()
-			response, status, err := authClient(app).DoREST(ctx, http.MethodPost, "/api/workspace/import", nil, payload)
+			response, status, err := apiClientWithTimeout(app, 5*time.Minute).DoREST(ctx, http.MethodPost, "/api/workspace/import", nil, payload)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

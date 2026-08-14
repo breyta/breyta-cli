@@ -90,7 +90,7 @@ func resolveLiveProfileTarget(ctx context.Context, app *App, flowSlug string, in
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("live target is not configured for %s (run `breyta flows promote %s` or `breyta flows configure %s --target live --set <slot>.conn=...`)", slug, slug, slug)
+		return nil, fmt.Errorf("live target is not configured for %s (validate and activate a draft with `breyta flows release %s`)", slug, slug)
 	}
 
 	if includeDisabled {

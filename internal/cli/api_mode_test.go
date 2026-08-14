@@ -617,9 +617,6 @@ func TestFlowsPush_RejectsTargetLiveWithEducationalHint(t *testing.T) {
 	if !bytes.Contains(combined, []byte("breyta flows release <slug>")) {
 		t.Fatalf("expected release guidance in error, got:\n%s", string(combined))
 	}
-	if !bytes.Contains(combined, []byte("breyta flows promote <slug>")) {
-		t.Fatalf("expected promote guidance in error, got:\n%s", string(combined))
-	}
 }
 
 func TestResources_DefaultsToAPIMode(t *testing.T) {

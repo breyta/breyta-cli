@@ -8,7 +8,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestWorkspaceHandoffClientHonorsLongOperationBudget(t *testing.T) {
+	original := &http.Client{Timeout: 30 * time.Second}
+	client := apiClientWithTimeout(&App{HTTP: original}, 5*time.Minute)
+	if client.HTTP.Timeout != 5*time.Minute {
+		t.Fatalf("expected five-minute handoff timeout, got %s", client.HTTP.Timeout)
+	}
+	if original.Timeout != 30*time.Second {
+		t.Fatalf("timeout helper mutated shared client: %s", original.Timeout)
+	}
+}
 
 func TestWorkspaceExportAndImportUseEngineRESTContract(t *testing.T) {
 	bundle := map[string]any{"format": "breyta.workspace", "version": float64(1), "flows": []any{}}

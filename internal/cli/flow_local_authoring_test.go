@@ -330,9 +330,9 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 	for _, want := range []string{
 		`"savedLocally":true`,
 		`"localPath":"` + path + `"`,
-		"breyta flows steps run order-sync tools/add-one --flow-file " + path,
-		`--params '{\"orderId\":\"order 123\"}'`,
-		"--idempotency-key seed-proof-1",
+		"breyta flows push --file " + path,
+		"breyta flows run-step order-sync tools/add-one --target draft --wait",
+		`--input '{\"orderId\":\"order 123\"}'`,
 		"--profile-id profile-1",
 		"--timeout 22m0s",
 		"instead of rerunning flows init",
@@ -1748,7 +1748,7 @@ func TestLocalStepPushNullEnvelopeStillCarriesRecoveryMetadata(t *testing.T) {
 	}
 }
 
-func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
+func TestLocalStepScaffoldCreateFailureSuggestsCanonicalDraftRun(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -1776,8 +1776,9 @@ func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
 	text := out.String()
 	// A create-to-update substitution would carry create-only flags that
 	// update rejects; scaffolded creates get edit-then-run guidance instead.
-	if !strings.Contains(text, "breyta flows steps run order-sync tools/fetch --flow-file "+path) {
-		t.Fatalf("scaffold recovery must suggest flows steps run: %s", text)
+	if !strings.Contains(text, "breyta flows push --file "+path) ||
+		!strings.Contains(text, "breyta flows run-step order-sync tools/fetch --target draft --wait") {
+		t.Fatalf("scaffold recovery must suggest pushing and running the canonical draft step: %s", text)
 	}
 	if !strings.Contains(text, "scaffolded step") || !strings.Contains(text, "edit it in the flow file") {
 		t.Fatalf("scaffold recovery hint must point at editing the flow file: %s", text)

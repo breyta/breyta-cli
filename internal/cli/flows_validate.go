@@ -21,8 +21,8 @@ Why use it if push/release already validate?
 - validate gives an explicit check point for CI, troubleshooting, and target-specific verification without mutating flow state
 
 Recommended release safety sequence:
-- breyta flows configure check <flow-slug>
 - breyta flows validate <flow-slug>
+- breyta flows run <flow-slug> --target draft --wait
 - breyta flows release <flow-slug>
 - breyta flows show <flow-slug> --target live
 - breyta flows run <flow-slug> --target live --wait

@@ -988,10 +988,10 @@ func compactRunInspectOutput(out map[string]any, workflowID string, installation
 			showID = "<workflow-id>"
 		}
 		showCmd := "breyta runs show " + showID + " --include-result"
-		// Installation-scoped runs only resolve with --installation-id, so the
+		// Profile-scoped runs only resolve with --profile-id, so the
 		// suggested command must carry it to be directly runnable.
 		if id := strings.TrimSpace(installationID); id != "" {
-			showCmd += " --installation-id " + id
+			showCmd += " --profile-id " + id
 		}
 		meta["hint"] = "Run inspection is compact. Use `" + showCmd + "` for the full run result, or --full for full step payloads too."
 	}

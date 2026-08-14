@@ -273,7 +273,6 @@ only the selected top-level section; the engine remains the canonical validator.
 	steps.AddCommand(newFlowsStepsLocalCreateCmd(app))
 	steps.AddCommand(newFlowsStepsLocalUpdateCmd(app))
 	steps.AddCommand(newFlowsStepsLocalRemoveCmd(app))
-	steps.AddCommand(newFlowsStepsLocalRunCmd(app))
 	cmd.AddCommand(steps)
 	cmd.AddCommand(newFlowsSchedulesLocalCmd(app))
 	cmd.AddCommand(newFlowsComposeCmd(app))

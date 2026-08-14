@@ -56,4 +56,7 @@ func TestCanonicalRootOmitsHostedCommands(t *testing.T) {
 	if root.PersistentFlags().Lookup("dev") != nil || root.PersistentFlags().Lookup("state") != nil {
 		t.Fatal("retired mode flags remain registered")
 	}
+	if command, _, err := root.Find([]string{"flows", "steps", "run"}); err == nil && command.Name() == "run" {
+		t.Fatal("legacy steps.run command remains registered despite being absent from the engine contract")
+	}
 }
