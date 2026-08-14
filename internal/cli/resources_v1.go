@@ -194,7 +194,7 @@ func newResourcesUploadCmd(app *App) *cobra.Command {
 				filename = filepath.Base(path)
 			}
 			replaceExisting := replace || overwrite || cmd.Flags().Changed("folder") || cmd.Flags().Changed("name")
-			result, err := jobsWorkerUploadFileResource(cmd.Context(), app, path, filename, contentType, folder, replaceExisting)
+			result, err := uploadFileResource(cmd.Context(), app, path, filename, contentType, folder, replaceExisting)
 			if err != nil {
 				return writeErr(cmd, err)
 			}

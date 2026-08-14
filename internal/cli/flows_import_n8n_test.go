@@ -724,7 +724,7 @@ func TestFlowsImportN8NCommand_ServerValidatePushesAndValidatesDraft(t *testing.
 	}))
 	defer srv.Close()
 
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	cmd := newFlowsImportN8NCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)

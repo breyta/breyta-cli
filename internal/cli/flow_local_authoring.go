@@ -716,9 +716,7 @@ type localStepSaveFailureRecovery struct {
 // the maintenance surface.
 //
 //   - created+scaffolded (create --type, no --step-file): the scaffold lives in
-//     the flow file, so suggest editing it there and retrying with
-//     `flows steps run` — a create-to-update substitution would carry
-//     create-only flags that update rejects.
+//     the flow file, so suggest pushing it and running the canonical draft step.
 //   - created with --step-file: retry the previous command with 'steps update'
 //     in place of 'steps create' (rerunning create hits the duplicate guard).
 //   - update: just re-run the previous command.
@@ -737,8 +735,8 @@ func stepSaveFailureRecovery(created, scaffolded, runPending bool, path, slug, s
 	var next []string
 	switch {
 	case created && scaffolded:
-		hint = "The scaffolded step was saved locally; edit it in the flow file, then run it with `breyta flows steps run` — rerunning steps create fails because the step now exists."
-		next = []string{"breyta flows steps run " + slug + " " + stepID + flowFileSuffix}
+		hint = "The scaffolded step was saved locally; edit it in the flow file, push the draft, then run the canonical draft step. Rerunning steps create fails because the step now exists."
+		next = []string{"breyta flows push --file " + shellQuoteIfNeeded(path), "breyta flows run-step " + slug + " " + stepID + " --target draft --wait"}
 	case created:
 		hint = "The step was saved locally; to retry the run with your original options, re-run your previous command with 'steps update' in place of 'steps create'."
 		next = []string{"breyta flows steps update " + slug + " " + stepID + " --step-file <step.edn>" + flowFileSuffix}
@@ -753,16 +751,12 @@ func stepSaveFailureRecovery(created, scaffolded, runPending bool, path, slug, s
 }
 
 func initRunSaveFailureRecovery(path, slug, stepID, paramsJSON, paramsFile, idempotencyKey, profileID string, timeout time.Duration) localStepSaveFailureRecovery {
-	quotedPath := shellQuoteIfNeeded(path)
-	command := "breyta flows steps run " + slug + " " + stepID + " --flow-file " + quotedPath
+	command := "breyta flows run-step " + slug + " " + stepID + " --target draft --wait"
 	if raw := strings.TrimSpace(paramsJSON); raw != "" {
-		command += " --params " + shellQuoteIfNeeded(raw)
+		command += " --input " + shellQuoteIfNeeded(raw)
 	}
 	if file := strings.TrimSpace(paramsFile); file != "" {
-		command += " --params-file " + shellQuoteIfNeeded(file)
-	}
-	if key := strings.TrimSpace(idempotencyKey); key != "" {
-		command += " --idempotency-key " + shellQuoteIfNeeded(key)
+		command += " --input-file " + shellQuoteIfNeeded(file)
 	}
 	if profile := strings.TrimSpace(profileID); profile != "" {
 		command += " --profile-id " + shellQuoteIfNeeded(profile)
@@ -770,8 +764,8 @@ func initRunSaveFailureRecovery(path, slug, stepID, paramsJSON, paramsFile, idem
 	command += " --timeout " + timeout.String()
 	return localStepSaveFailureRecovery{
 		path:         path,
-		hint:         "The flow and seeded step were saved locally; retry just the step with `breyta flows steps run` instead of rerunning flows init.",
-		nextCommands: []string{command},
+		hint:         "The flow and seeded step were saved locally; push the draft, then retry the step with `breyta flows run-step` instead of rerunning flows init.",
+		nextCommands: []string{"breyta flows push --file " + shellQuoteIfNeeded(path), command},
 	}
 }
 
@@ -1417,8 +1411,8 @@ func newFlowsSchedulesLocalCmd(app *App) *cobra.Command {
 		Short: "Edit top-level schedules in local flow source",
 		Long: strings.TrimSpace(`
 Edit the top-level :schedules vector in the local flow source. These commands
-only write the local file unless --push is passed; flows configure remains the
-remote author/install schedule-settings surface.
+only write the local file unless --push is passed. The engine validates pushed
+schedule definitions as part of the draft.
 
 Examples:
   breyta flows schedules add order-sync daily-review --cron "0 9 * * MON" --timezone UTC

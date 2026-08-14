@@ -43,7 +43,6 @@ func newRunsCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newRunsCancelCmd(app))
 	cmd.AddCommand(newRunsRetryCmd(app))
 	cmd.AddCommand(newRunsEventsCmd(app))
-	cmd.AddCommand(newRunsLogsCmd(app))
 	return cmd
 }
 
@@ -198,7 +197,6 @@ func runInspectResponseIsServerFailure(status int) bool {
 
 func newRunsListCmd(app *App) *cobra.Command {
 	var flow string
-	var installationID string
 	var profileID string
 	var query string
 	var status string
@@ -211,19 +209,19 @@ func newRunsListCmd(app *App) *cobra.Command {
 		Short: "List runs",
 		Long: `List runs.
 
-In API mode, prefer the structured query syntax used by the web runs list:
-  breyta runs list --query 'status:failed flow:my-flow installation:prof-1 version:7'
+Use the structured query syntax for combined filters:
+  breyta runs list --query 'status:failed flow:my-flow profile:production version:7'
 
 Supported query tokens:
   - status:<running|completed|failed|waiting>
   - flow:<slug>
-  - installation:<installation-id>
+  - profile:<profile-id>
   - version:<n>
 
 API list results are summaries. Inspect step details with:
   breyta runs show <workflow-id> --include-steps
 
-Legacy discrete flags remain available and override matching --query tokens.`,
+Discrete flags override matching --query tokens.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && strings.TrimSpace(flow) == "" {
@@ -238,13 +236,9 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 				if effectiveFlow == "" {
 					effectiveFlow = queryFilters.Flow
 				}
-				effectiveInstallationID := strings.TrimSpace(installationID)
-				legacyProfileID := strings.TrimSpace(profileID)
+				effectiveInstallationID := strings.TrimSpace(profileID)
 				if effectiveInstallationID == "" {
-					effectiveInstallationID = legacyProfileID
-				}
-				if effectiveInstallationID == "" {
-					effectiveInstallationID = strings.TrimSpace(queryFilters.InstallationID)
+					effectiveInstallationID = strings.TrimSpace(queryFilters.ProfileID)
 				}
 				effectiveStatus := strings.TrimSpace(status)
 				if effectiveStatus == "" {
@@ -279,11 +273,11 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 					return writeNotImplemented(cmd, app, "--include-steps is available only in local state mode (use `runs show <workflow-id> --include-steps` in API mode)")
 				}
 				if structuredQuery := buildRunsListQuery(runsListFilters{
-					Flow:           effectiveFlow,
-					InstallationID: effectiveInstallationID,
-					Status:         effectiveStatus,
-					Version:        effectiveVersion,
-					HasVersion:     hasVersion,
+					Flow:       effectiveFlow,
+					ProfileID:  effectiveInstallationID,
+					Status:     effectiveStatus,
+					Version:    effectiveVersion,
+					HasVersion: hasVersion,
 				}); structuredQuery != "" {
 					payload["query"] = structuredQuery
 				}
@@ -350,15 +344,13 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&query, "query", "", "Structured runs filter query (API mode only), e.g. 'status:failed flow:my-flow'")
+	cmd.Flags().StringVar(&query, "query", "", "Structured runs filter query, e.g. 'status:failed flow:my-flow'")
 	cmd.Flags().StringVar(&flow, "flow", "", "Filter by flow slug")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Filter by installation id (API mode only)")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
-	_ = cmd.Flags().MarkHidden("profile-id")
-	cmd.Flags().StringVar(&status, "status", "", "Filter by status (API mode only)")
-	cmd.Flags().IntVar(&version, "version", 0, "Filter by flow version active when the run started (API mode only)")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Filter by workspace profile id")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
+	cmd.Flags().IntVar(&version, "version", 0, "Filter by flow version active when the run started")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Limit results (0 = all)")
-	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor (API mode only)")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor")
 	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in list results")
 	_ = cmd.Flags().MarkHidden("include-steps")
 	return cmd
@@ -366,7 +358,6 @@ Legacy discrete flags remain available and override matching --query tokens.`,
 
 func newRunsShowCmd(app *App) *cobra.Command {
 	var steps int
-	var installationID string
 	var profileID string
 	var includeSteps bool
 	var includeResult bool
@@ -385,10 +376,7 @@ To access run resources, use the resources command:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isAPIMode(app) {
 				payload := map[string]any{"workflowId": args[0]}
-				effectiveInstallationID := strings.TrimSpace(installationID)
-				if effectiveInstallationID == "" {
-					effectiveInstallationID = strings.TrimSpace(profileID)
-				}
+				effectiveInstallationID := strings.TrimSpace(profileID)
 				if effectiveInstallationID != "" {
 					payload["installationId"] = effectiveInstallationID
 				}
@@ -443,13 +431,11 @@ To access run resources, use the resources command:
 		},
 	}
 	cmd.Flags().IntVar(&steps, "steps", 20, "Number of steps to include (0 = all)")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: lookup run using a specific installation id (API mode only)")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Deprecated alias for --installation-id")
-	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays in API mode")
-	cmd.Flags().BoolVar(&includeResult, "include-result", false, "Include full result payload in API mode")
-	cmd.Flags().BoolVar(&full, "full", false, "Include full steps and result payload in API mode")
-	cmd.Flags().BoolVar(&errorsOnly, "errors", false, "Show only run-level and failed step errors in API mode")
-	_ = cmd.Flags().MarkHidden("profile-id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: lookup a run using a specific workspace profile")
+	cmd.Flags().BoolVar(&includeSteps, "include-steps", false, "Include step arrays")
+	cmd.Flags().BoolVar(&includeResult, "include-result", false, "Include full result payload")
+	cmd.Flags().BoolVar(&full, "full", false, "Include full steps and result payload")
+	cmd.Flags().BoolVar(&errorsOnly, "errors", false, "Show only run-level and failed step errors")
 	return cmd
 }
 
@@ -586,11 +572,6 @@ Use runs start only when integrating with older scripts.
 				}
 				if effectiveInstallationID != "" {
 					payload["profileId"] = effectiveInstallationID
-				}
-				if effectiveInstallationID == "" && app.DevMode {
-					if runConfigID := loadRunConfigID(app); strings.TrimSpace(runConfigID) != "" {
-						payload["profileId"] = strings.TrimSpace(runConfigID)
-					}
 				}
 				if strings.TrimSpace(inputJSON) != "" {
 					var v any
@@ -888,7 +869,7 @@ func newRunsStepCmd(app *App) *cobra.Command {
 			return writeLocalRunStepInspect(cmd, app, args[0], args[1])
 		},
 	}
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().StringVar(&installationID, "profile-id", "", "Lookup a run using a specific workspace profile")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full captured step output when available (API mode only)")
 	return cmd
 }
@@ -939,7 +920,7 @@ func newRunsInspectCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Show compact I/O for one step id/title")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().StringVar(&installationID, "profile-id", "", "Lookup a run using a specific workspace profile")
 	cmd.Flags().BoolVar(&full, "full", false, "Include full run result and captured step output in API mode")
 	return cmd
 }
@@ -1007,10 +988,10 @@ func compactRunInspectOutput(out map[string]any, workflowID string, installation
 			showID = "<workflow-id>"
 		}
 		showCmd := "breyta runs show " + showID + " --include-result"
-		// Installation-scoped runs only resolve with --installation-id, so the
+		// Profile-scoped runs only resolve with --profile-id, so the
 		// suggested command must carry it to be directly runnable.
 		if id := strings.TrimSpace(installationID); id != "" {
-			showCmd += " --installation-id " + id
+			showCmd += " --profile-id " + id
 		}
 		meta["hint"] = "Run inspection is compact. Use `" + showCmd + "` for the full run result, or --full for full step payloads too."
 	}
@@ -1843,7 +1824,7 @@ func newRunsEventsCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&stepID, "step", "", "Filter events by step id/title")
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Lookup run using a specific installation id (API mode only)")
+	cmd.Flags().StringVar(&installationID, "profile-id", "", "Lookup a run using a specific workspace profile")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum number of events to return")
 	return cmd
 }

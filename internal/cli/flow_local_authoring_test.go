@@ -218,7 +218,7 @@ func TestFlowsInitSeedRunUsesCompleteLocalLiteral(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	var out bytes.Buffer
 	cmd := newFlowsInitCmd(app)
 	cmd.SetOut(&out)
@@ -277,7 +277,7 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 		if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/add-one :type :function :description "Add two"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 		executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 		var cmd *cobra.Command
@@ -309,7 +309,7 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := newFlowsInitCmd(&App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true})
+	cmd := newFlowsInitCmd(&App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
@@ -330,9 +330,9 @@ func TestLocalRunFailureIsNotReportedAsSuccessfulAuthoring(t *testing.T) {
 	for _, want := range []string{
 		`"savedLocally":true`,
 		`"localPath":"` + path + `"`,
-		"breyta flows steps run order-sync tools/add-one --flow-file " + path,
-		`--params '{\"orderId\":\"order 123\"}'`,
-		"--idempotency-key seed-proof-1",
+		"breyta flows push --file " + path,
+		"breyta flows run-step order-sync tools/add-one --target draft --wait",
+		`--input '{\"orderId\":\"order 123\"}'`,
 		"--profile-id profile-1",
 		"--timeout 22m0s",
 		"instead of rerunning flows init",
@@ -366,7 +366,7 @@ func TestFlowsInitPushFailureReportsSavedLocalRecovery(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	cmd := newFlowsInitCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -421,7 +421,7 @@ func TestFlowsInitPostPushValidationFailureDoesNotRecommendRepush(t *testing.T) 
 	defer srv.Close()
 
 	path := filepath.Join(t.TempDir(), "order-sync.clj")
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	cmd := newFlowsInitCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -1107,7 +1107,7 @@ func TestFlowsStepsRunSendsFullLocalLiteralToEphemeralAPI(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	cmd := newFlowsStepsLocalRunCmd(app)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -1199,7 +1199,7 @@ func TestLocalStepRunHonorsTimeoutFlag(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
 
@@ -1219,7 +1219,7 @@ func TestLocalStepRunHonorsTimeoutFlag(t *testing.T) {
 func TestLocalStepRunRejectsNonPositiveTimeout(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "order-sync.clj")
-	app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "--out", path)
 	stepPath := filepath.Join(dir, "add-one.edn")
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
@@ -1259,7 +1259,7 @@ func TestLocalStepCreateFailureAfterSaveExplainsRecovery(t *testing.T) {
 		if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+		app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 		executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 		var out bytes.Buffer
@@ -1319,7 +1319,7 @@ func TestLocalStepUpdateRunFailureAfterSaveExplainsRecovery(t *testing.T) {
 	if err := os.WriteFile(updatedStepPath, []byte(`{:id :tools/add-one :type :function :description "Add two"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 	executeLocalAuthoringJSON(t, newFlowsStepsLocalCreateCmd(app), "order-sync", "tools/add-one", "--flow-file", path, "--step-file", stepPath)
 
@@ -1427,7 +1427,7 @@ func TestLocalStepSaveTransportFailureEmitsStructuredEnvelope(t *testing.T) {
 		}
 		// Nothing listens on port 1: the --push/--run call fails at the
 		// transport layer (connection refused), after the local save.
-		app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev", DevMode: true}
+		app := &App{WorkspaceID: "ws-acme", APIURL: "http://127.0.0.1:1", Token: "user-dev"}
 		executeLocalAuthoringJSON(t, newFlowsInitCmd(&App{WorkspaceID: "ws-acme"}), "order-sync", "--out", path)
 
 		var out bytes.Buffer
@@ -1649,7 +1649,7 @@ func TestLocalStepSaveFailureMergesServerHint(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 	var out bytes.Buffer
@@ -1692,7 +1692,7 @@ func TestLocalStepPushFailureWithPendingRunSaysRunDidNotHappen(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 	var out bytes.Buffer
@@ -1727,7 +1727,7 @@ func TestLocalStepPushNullEnvelopeStillCarriesRecoveryMetadata(t *testing.T) {
 	if err := os.WriteFile(stepPath, []byte(`{:id :tools/add-one :type :function :description "Add one"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 	for _, mode := range []string{"--push", "--run"} {
@@ -1748,7 +1748,7 @@ func TestLocalStepPushNullEnvelopeStillCarriesRecoveryMetadata(t *testing.T) {
 	}
 }
 
-func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
+func TestLocalStepScaffoldCreateFailureSuggestsCanonicalDraftRun(t *testing.T) {
 	t.Setenv("BREYTA_NO_SKILL_SYNC", "1")
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -1762,7 +1762,7 @@ func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "order-sync.clj")
-	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev", DevMode: true}
+	app := &App{WorkspaceID: "ws-acme", APIURL: srv.URL, Token: "user-dev"}
 	executeLocalAuthoringJSON(t, newFlowsInitCmd(app), "order-sync", "--out", path)
 
 	var out bytes.Buffer
@@ -1776,8 +1776,9 @@ func TestLocalStepScaffoldCreateFailureSuggestsStepsRun(t *testing.T) {
 	text := out.String()
 	// A create-to-update substitution would carry create-only flags that
 	// update rejects; scaffolded creates get edit-then-run guidance instead.
-	if !strings.Contains(text, "breyta flows steps run order-sync tools/fetch --flow-file "+path) {
-		t.Fatalf("scaffold recovery must suggest flows steps run: %s", text)
+	if !strings.Contains(text, "breyta flows push --file "+path) ||
+		!strings.Contains(text, "breyta flows run-step order-sync tools/fetch --target draft --wait") {
+		t.Fatalf("scaffold recovery must suggest pushing and running the canonical draft step: %s", text)
 	}
 	if !strings.Contains(text, "scaffolded step") || !strings.Contains(text, "edit it in the flow file") {
 		t.Fatalf("scaffold recovery hint must point at editing the flow file: %s", text)

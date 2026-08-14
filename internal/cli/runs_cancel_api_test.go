@@ -57,7 +57,6 @@ func TestRunsCancel_ResolvesShortIDWithFlowFilter(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -118,7 +117,6 @@ func TestRunsCancel_ShortIDAmbiguousReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	_, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -168,7 +166,6 @@ func TestRunsCancel_FullWorkflowIDSkipsResolution(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",

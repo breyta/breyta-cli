@@ -26,7 +26,6 @@ func TestWebLinks_FlowCommandAddsWebURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -71,7 +70,6 @@ func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -120,7 +118,6 @@ func TestWebLinks_RunCommandNormalizesServerProvidedOutputWebURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -164,7 +161,6 @@ func TestWebLinks_DoesNotRewriteNonRunOutputURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -208,7 +204,6 @@ func TestWebLinks_ResourcesListBuildsPanelURLForFlowOutputItemWithoutWebURL(t *t
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -255,7 +250,6 @@ func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -296,7 +290,6 @@ func TestWebLinks_ConnectionRESTAddsWebURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -335,7 +328,6 @@ func TestWebLinks_ResourcesGetAbsolutizesRelativeWebURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -383,7 +375,6 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -446,7 +437,6 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -496,7 +486,6 @@ func TestWebLinks_ResourcesGetInfersCanonicalRunStepURL(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -535,7 +524,6 @@ func TestWebLinks_ResourcesGetPreservesPlusInStepID(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -574,7 +562,6 @@ func TestWebLinks_DoesNotRewriteUnknownPayloadWebURLFields(t *testing.T) {
 	defer srv.Close()
 
 	stdout, _, err := runCLIArgs(t,
-		"--dev",
 		"--workspace", "ws-acme",
 		"--api", srv.URL,
 		"--token", "user-dev",
@@ -592,51 +579,5 @@ func TestWebLinks_DoesNotRewriteUnknownPayloadWebURLFields(t *testing.T) {
 	payload, _ := data["payload"].(map[string]any)
 	if got, _ := payload["webUrl"].(string); got != "/product/123" {
 		t.Fatalf("unexpected payload.webUrl rewrite: %q", got)
-	}
-}
-
-func TestWebLinks_FlowScopedListPrefersInstallationsURL(t *testing.T) {
-	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/commands" {
-			http.NotFound(w, r)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":          true,
-			"workspaceId": "ws-acme",
-			"data": map[string]any{
-				"flowSlug": "daily-sales-report",
-				"items": []any{
-					map[string]any{
-						"profileId": "cfg-prod",
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	stdout, _, err := runCLIArgs(t,
-		"--dev",
-		"--workspace", "ws-acme",
-		"--api", srv.URL,
-		"--token", "user-dev",
-		"flows", "installations", "list", "daily-sales-report",
-	)
-	if err != nil {
-		t.Fatalf("flows installations list failed: %v\n%s", err, stdout)
-	}
-
-	var out map[string]any
-	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
-		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
-	}
-	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/flows/daily-sales-report/installations" {
-		t.Fatalf("unexpected meta.webUrl: %q", got)
-	}
-	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/flows/daily-sales-report/installations" {
-		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }

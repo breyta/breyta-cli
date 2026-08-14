@@ -15,53 +15,11 @@ func newAPICmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "api",
 		Short: "Configure API base URL",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureDevModeForAPICmd(cmd, app); err != nil {
-				return err
-			}
-			return nil
-		},
 	}
 	cmd.AddCommand(newAPIShowCmd(app))
 	cmd.AddCommand(newAPIUseCmd(app))
+	cmd.AddCommand(newAPICheckCmd(app))
 	return cmd
-}
-
-func ensureDevModeForAPICmd(cmd *cobra.Command, app *App) error {
-	if app == nil {
-		return errors.New("missing app")
-	}
-
-	// NOTE: Some commands define their own PersistentPreRunE; don't rely on the root
-	// command's pre-run to have computed DevMode already.
-	devFlagExplicit := false
-	if cmd != nil {
-		devFlagExplicit = cmd.Flags().Changed("dev") || cmd.InheritedFlags().Changed("dev")
-		if root := cmd.Root(); root != nil {
-			devFlagExplicit = devFlagExplicit || root.PersistentFlags().Changed("dev")
-		}
-	}
-	if devFlagExplicit {
-		val := strings.TrimSpace(app.DevFlag)
-		switch strings.ToLower(val) {
-		case "", "true", "1", "yes", "y", "on":
-			app.DevMode = true
-			app.DevProfileOverride = ""
-		case "false", "0", "no", "n", "off":
-			app.DevMode = false
-			app.DevProfileOverride = ""
-		default:
-			app.DevMode = true
-			app.DevProfileOverride = val
-		}
-	}
-	if !app.DevMode && devModeEnabled() {
-		app.DevMode = true
-	}
-	if !app.DevMode {
-		return errors.New("api configuration is disabled (enable via `breyta internal dev enable` or `--dev`)")
-	}
-	return nil
 }
 
 func newAPIShowCmd(app *App) *cobra.Command {
@@ -81,7 +39,7 @@ func newAPIShowCmd(app *App) *cobra.Command {
 					"stored":    false,
 				}
 				return writeData(cmd, app, meta, map[string]any{
-					"apiUrl": configstore.DefaultProdAPIURL,
+					"apiUrl": configstore.DefaultAPIURL,
 				})
 			}
 			meta := map[string]any{
@@ -90,7 +48,7 @@ func newAPIShowCmd(app *App) *cobra.Command {
 			}
 			apiURL := strings.TrimSpace(st.APIURL)
 			if apiURL == "" {
-				apiURL = configstore.DefaultProdAPIURL
+				apiURL = configstore.DefaultAPIURL
 			}
 			return writeData(cmd, app, meta, map[string]any{
 				"apiUrl": apiURL,
@@ -101,7 +59,7 @@ func newAPIShowCmd(app *App) *cobra.Command {
 
 func newAPIUseCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "use <local|prod|url>",
+		Use:   "use <local|url>",
 		Short: "Switch API base URL",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -114,8 +72,6 @@ func newAPIUseCmd(app *App) *cobra.Command {
 			switch strings.ToLower(target) {
 			case "local":
 				apiURL = configstore.DefaultLocalAPIURL
-			case "prod", "production":
-				apiURL = configstore.DefaultProdAPIURL
 			default:
 				apiURL = target
 			}

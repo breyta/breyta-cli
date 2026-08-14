@@ -54,35 +54,21 @@ func newFlowsDeployCmd(app *App) *cobra.Command {
 }
 
 func newFlowsUpdateCmd(app *App) *cobra.Command {
-	var name, description, publishDescription, publishDescriptionFile, tags, primaryDisplayConnectionSlot string
+	var name, description, tags, primaryDisplayConnectionSlot string
 	var groupKey, groupName, groupDescription, groupOrder string
-	var publishMediaType, publishMediaSourceKind, publishMediaSource, publishMediaSourceFile string
-	var publishMediaPosterKind, publishMediaPoster, publishMediaAlt string
-	var clearPublishMedia bool
 	cmd := &cobra.Command{
 		Use:   "update <flow-slug>",
 		Short: "Update flow metadata",
 		Long: strings.TrimSpace(`
-Update mutable flow metadata such as name, description, publish description, discover card media, tags, grouping, and display icon selection.
-
-Public visibility across marketplace, Discover, and the public app page is managed with ` + "`breyta flows public publish <slug>`" + ` or ` + "`breyta flows public delist <slug>`" + `.
-Use ` + "`breyta flows discover update <slug> --public=true|false`" + ` only for lower-level Discover-only changes.
-Use ` + "`tags`" + ` here for ordinary metadata/category labels.
+Update mutable flow metadata such as name, description, tags, grouping, and display icon selection.
 
 Grouping and display icon metadata are workspace metadata. They do not round-trip through
 ` + "`breyta flows pull`" + ` / ` + "`breyta flows push`" + ` source files.
-Discover card media can be set here or authored as ` + "`:publish-media`" + ` in the flow source.
 
 Common grouped-flow loop:
 - inspect current grouping with ` + "`breyta flows list --limit 50`" + ` or ` + "`breyta flows show <slug>`" + `
 - set or change grouping with ` + "`breyta flows update <slug> --group-key ... --group-name ... --group-order ...`" + `
 - verify sibling order again with ` + "`breyta flows show <slug>`" + `
-
-Discover card media loop:
-- inspect current discover card media with ` + "`breyta flows show <slug>`" + `
-- replace the whole card media value with ` + "`--publish-media-type`" + ` + source flags
-- use ` + "`--clear-publish-media`" + ` to remove it
-- HTTPS media sources must be publicly reachable safe media URLs; public Discover cards copy them into Breyta-owned assets/CDN and reject private hosts, unsafe redirects, or oversized responses
 
 Display icon loop:
 - inspect current display icon selector with ` + "`breyta flows show <slug>`" + `
@@ -102,37 +88,11 @@ breyta flows show invoice-start
 breyta flows update invoice-reconcile --group-order ""
 breyta flows update invoice-start --group-key ""
 
-breyta flows update customer-support --publish-description-file ./marketplace.md
-
-breyta flows update customer-support \
-  --publish-media-type image \
-  --publish-media-source-file ./screenshot.png \
-  --publish-media-alt "Screenshot of the generated report"
-
-breyta flows update ugc-video-generator \
-  --publish-media-type video \
-  --publish-media-source-kind https-url \
-  --publish-media-source https://cdn.example.com/video.mp4 \
-  --publish-media-poster-kind https-url \
-  --publish-media-poster https://cdn.example.com/poster.jpg \
-  --publish-media-alt "Generated UGC product video"
-
-breyta flows update ugc-video-generator --clear-publish-media
-
 breyta flows update customer-support --primary-display-connection-slot crm
 breyta flows update customer-support --primary-display-connection-slot ""
 			`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			publishDescriptionChanged := cmd.Flags().Changed("publish-description") || cmd.Flags().Changed("publish-description-file")
-			var resolvedPublishDescription string
-			if publishDescriptionChanged {
-				var err error
-				resolvedPublishDescription, err = resolvePublishDescriptionInput(publishDescription, publishDescriptionFile)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-			}
 			groupOrderChanged := cmd.Flags().Changed("group-order")
 			var resolvedGroupOrder *int
 			if groupOrderChanged {
@@ -151,21 +111,6 @@ breyta flows update customer-support --primary-display-connection-slot ""
 					return writeErr(cmd, err)
 				}
 			}
-			publishMediaProvided, publishMediaValue, err := resolvePublishMediaInput(
-				cmd,
-				app,
-				publishMediaType,
-				publishMediaSourceKind,
-				publishMediaSource,
-				publishMediaSourceFile,
-				publishMediaPosterKind,
-				publishMediaPoster,
-				publishMediaAlt,
-				clearPublishMedia,
-			)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
 			if isAPIMode(app) {
 				payload := map[string]any{"flowSlug": args[0]}
 				if strings.TrimSpace(name) != "" {
@@ -174,18 +119,8 @@ breyta flows update customer-support --primary-display-connection-slot ""
 				if strings.TrimSpace(description) != "" {
 					payload["description"] = description
 				}
-				if publishDescriptionChanged {
-					payload["publishDescription"] = normalizeOptionalMarkdown(resolvedPublishDescription)
-				}
 				if strings.TrimSpace(tags) != "" {
 					payload["tags"] = tags
-				}
-				if publishMediaProvided {
-					if publishMediaValue == nil {
-						payload["publishMedia"] = nil
-					} else {
-						payload["publishMedia"] = publishMediaPayloadValue(publishMediaValue)
-					}
 				}
 				if cmd.Flags().Changed("group-key") {
 					payload["groupKey"] = normalizeOptionalText(groupKey)
@@ -229,14 +164,8 @@ breyta flows update customer-support --primary-display-connection-slot ""
 			if description != "" {
 				f.Description = description
 			}
-			if publishDescriptionChanged {
-				f.PublishDescription = normalizeOptionalMarkdown(resolvedPublishDescription)
-			}
 			if tags != "" {
 				f.Tags = splitNonEmpty(tags)
-			}
-			if publishMediaProvided {
-				f.PublishMedia = publishMediaValue
 			}
 			resolvedGroupKey, resolvedGroupName, resolvedGroupDescription, resolvedGroupOrder, groupChanged, err := resolveLocalFlowGroupUpdate(cmd, f, groupKey, groupName, groupDescription, groupOrder)
 			if err != nil {
@@ -261,16 +190,6 @@ breyta flows update customer-support --primary-display-connection-slot ""
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Name")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
-	cmd.Flags().StringVar(&publishDescription, "publish-description", "", "Markdown publish description shown in discover/install dialogs (empty string clears it)")
-	cmd.Flags().StringVar(&publishDescriptionFile, "publish-description-file", "", "Read markdown publish description from file")
-	cmd.Flags().StringVar(&publishMediaType, "publish-media-type", "", "Discover card media type: image or video")
-	cmd.Flags().StringVar(&publishMediaSourceKind, "publish-media-source-kind", "", "Discover card media source kind: https-url or flow-resource")
-	cmd.Flags().StringVar(&publishMediaSource, "publish-media-source", "", "Discover card media source value (https URL or res:// URI)")
-	cmd.Flags().StringVar(&publishMediaSourceFile, "publish-media-source-file", "", "Upload a local file and use the resulting res:// URI as discover card media")
-	cmd.Flags().StringVar(&publishMediaPosterKind, "publish-media-poster-kind", "", "Optional poster source kind for video media: https-url or flow-resource")
-	cmd.Flags().StringVar(&publishMediaPoster, "publish-media-poster", "", "Optional poster source value for video media")
-	cmd.Flags().StringVar(&publishMediaAlt, "publish-media-alt", "", "Optional alt text for discover card media")
-	cmd.Flags().BoolVar(&clearPublishMedia, "clear-publish-media", false, "Clear discover card media")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	cmd.Flags().StringVar(&groupKey, "group-key", "", "Group key (safe identifier; empty string clears grouping)")
 	cmd.Flags().StringVar(&groupName, "group-name", "", "Group name (required whenever group key is set)")

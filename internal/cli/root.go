@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/configstore"
 	"github.com/breyta/breyta-cli/internal/format"
 	"github.com/breyta/breyta-cli/internal/mock"
-	"github.com/breyta/breyta-cli/internal/skillsync"
 	"github.com/breyta/breyta-cli/internal/state"
 	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"net/http"
@@ -31,9 +29,6 @@ type App struct {
 	TokenExplicit        bool
 	APIKeyExplicit       bool
 	Profile              string
-	DevMode              bool
-	DevFlag              string
-	DevProfileOverride   string
 	visibilityConfigured bool
 
 	updateNotice        *updatecheck.Notice
@@ -97,16 +92,11 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVar(&app.WorkspaceID, "workspace", envOr("BREYTA_WORKSPACE", ""), "Workspace id")
 	cmd.PersistentFlags().BoolVar(&app.PrettyJSON, "pretty", false, "Pretty-print JSON output")
-	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. https://flows.breyta.ai)")
+	cmd.PersistentFlags().StringVar(&app.APIURL, "api", "", "API base URL (e.g. http://localhost:8090)")
 	cmd.PersistentFlags().StringVar(&app.Token, "token", "", "API token")
 	cmd.PersistentFlags().StringVar(&app.APIKey, "api-key", "", "Service account API key")
 	cmd.PersistentFlags().StringVar(&app.Profile, "profile", envOr("BREYTA_PROFILE", ""), "Config profile name")
-	cmd.PersistentFlags().StringVar(&app.DevFlag, "dev", "", "Enable dev-only commands (optional profile name)")
-	if f := cmd.PersistentFlags().Lookup("dev"); f != nil {
-		f.NoOptDefVal = "true"
-	}
-
-	// Ensure dev-only flags and commands remain hidden in help output unless explicitly enabled.
+	// Keep help output aligned with the canonical command tree.
 	defaultHelp := cmd.HelpFunc()
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
 		target := c
@@ -127,229 +117,59 @@ func NewRootCmd() *cobra.Command {
 		}
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		// Parse-time: app.DevMode is set from flags/config. Hide dev-only controls unless explicitly enabled.
-		devFlagExplicit := false
-		if cmd != nil {
-			devFlagExplicit = cmd.Flags().Changed("dev") || cmd.InheritedFlags().Changed("dev")
-			if root := cmd.Root(); root != nil {
-				devFlagExplicit = devFlagExplicit || root.PersistentFlags().Changed("dev")
-			}
-		}
-		if devFlagExplicit {
-			val := strings.TrimSpace(app.DevFlag)
-			switch strings.ToLower(val) {
-			case "", "true", "1", "yes", "y", "on":
-				app.DevMode = true
-				app.DevProfileOverride = ""
-			case "false", "0", "no", "n", "off":
-				app.DevMode = false
-				app.DevProfileOverride = ""
-			default:
-				app.DevMode = true
-				app.DevProfileOverride = val
-			}
-		}
-		devEnvExplicit := false
-		if !devFlagExplicit && !app.DevMode {
-			val := strings.TrimSpace(os.Getenv("BREYTA_DEV"))
-			switch strings.ToLower(val) {
-			case "", "false", "0", "no", "n", "off":
-			case "true", "1", "yes", "y", "on":
-				app.DevMode = true
-				app.DevProfileOverride = ""
-				devEnvExplicit = true
-			default:
-				app.DevMode = true
-				app.DevProfileOverride = val
-				devEnvExplicit = true
-			}
-		}
-		if !app.DevMode {
-			if st, ok := loadDevConfig(app); ok && st.DevMode {
-				app.DevMode = true
-			}
-		}
-		configureFlagVisibility(cmd.Root(), app)
-
-		// Default workspace id:
-		// - explicit --workspace / BREYTA_WORKSPACE wins
-		// - otherwise try ~/.config/breyta/config.json (workspaceId), but only when the
-		//   config's apiUrl matches the active API URL (prevents local mock workspace ids
-		//   leaking into prod).
-		workspaceFlagExplicit := false
-		if cmd != nil {
-			workspaceFlagExplicit = cmd.Flags().Changed("workspace") || cmd.InheritedFlags().Changed("workspace")
-			if root := cmd.Root(); root != nil {
-				workspaceFlagExplicit = workspaceFlagExplicit || root.PersistentFlags().Changed("workspace")
-			}
-		}
-		workspaceEnvExplicit := strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
-
-		// Default API URL:
-		// - explicit --api wins (dev mode only)
-		// - otherwise if dev mode and BREYTA_API_URL set, use it
-		// - otherwise: try ~/.config/breyta/config.json (if present, but ignore
-		//   loopback URLs outside dev mode)
-		// - otherwise fall back to prod (https://flows.breyta.ai)
-		//
-		// IMPORTANT: We only default when a subcommand is invoked.
 		apiFlagExplicit := flagExplicit(cmd, "api")
+		if !apiFlagExplicit {
+			if apiURL := strings.TrimSpace(os.Getenv("BREYTA_API_URL")); apiURL != "" {
+				app.APIURL = apiURL
+			}
+		}
+		if strings.TrimSpace(app.APIURL) == "" {
+			if path, err := configstore.DefaultPath(); err == nil {
+				if stored, err := configstore.Load(path); err == nil && stored != nil {
+					app.APIURL = strings.TrimSpace(stored.APIURL)
+				}
+			}
+		}
+		if strings.TrimSpace(app.APIURL) == "" {
+			app.APIURL = configstore.DefaultAPIURL
+		}
+		app.APIURL = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
+
+		workspaceExplicit := flagExplicit(cmd, "workspace") || strings.TrimSpace(os.Getenv("BREYTA_WORKSPACE")) != ""
+		if !workspaceExplicit && strings.TrimSpace(app.WorkspaceID) == "" {
+			if path, err := configstore.DefaultPath(); err == nil {
+				if stored, err := configstore.Load(path); err == nil && stored != nil &&
+					strings.TrimRight(strings.TrimSpace(stored.APIURL), "/") == app.APIURL {
+					app.WorkspaceID = strings.TrimSpace(stored.WorkspaceID)
+				}
+			}
+		}
+
+		tokenFlagExplicit := rootPersistentFlagExplicit(cmd, "token")
 		apiKeyFlagExplicit := rootPersistentFlagExplicit(cmd, "api-key")
-		tokenFlagExplicit := flagExplicit(cmd, "token")
-		apiURLFromEnv := strings.TrimSpace(os.Getenv("BREYTA_API_URL"))
-		apiEnvExplicit := apiURLFromEnv != ""
-		apiKeyEnvValue := strings.TrimSpace(os.Getenv("BREYTA_API_KEY"))
-		apiKeyEnvExplicit := apiKeyEnvValue != ""
-		tokenEnvValue := strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
-		tokenEnvExplicit := app.DevMode && tokenEnvValue != ""
-		if apiKeyFlagExplicit && tokenFlagExplicit {
+		if tokenFlagExplicit && apiKeyFlagExplicit {
 			return writeErr(cmd, errors.New("cannot use --token and --api-key together"))
 		}
-		// NOTE: `args` here are the positional args to the *invoked* command, not a signal
-		// of whether a subcommand is being executed. For commands like `breyta auth login`,
-		// args is usually empty, so we must detect subcommand execution via cmd != cmd.Root().
-		isSubcommand := cmd != nil && cmd.Root() != nil && cmd != cmd.Root()
-		mcpTokenEnvVarExplicit := commandConsumesMCPTokenEnvCredential(cmd) && flagExplicit(cmd, "token-env-var")
-		mcpTokenEnvServiceAccountExplicit := false
-		if mcpTokenEnvVarExplicit && !apiKeyFlagExplicit && !tokenFlagExplicit {
-			tokenEnvVar, err := cmd.Flags().GetString("token-env-var")
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			tokenEnvVar = strings.TrimSpace(tokenEnvVar)
-			if tokenEnvVar == "" {
-				return writeErr(cmd, errors.New("--token-env-var requires an environment variable name"))
-			}
-			if err := validateMCPTokenEnvVarName(tokenEnvVar); err != nil {
-				return writeErr(cmd, err)
-			}
-			tokenEnvValue := strings.TrimSpace(os.Getenv(tokenEnvVar))
-			if tokenEnvValue == "" {
-				return writeErr(cmd, fmt.Errorf("missing %s environment variable", tokenEnvVar))
-			}
-			if !looksLikeServiceAccountAPIKey(tokenEnvValue) {
-				return writeErr(cmd, fmt.Errorf("%s must contain a service-account API key", tokenEnvVar))
-			}
-			mcpTokenEnvServiceAccountExplicit = true
+		if !tokenFlagExplicit && strings.TrimSpace(app.Token) == "" {
+			app.Token = strings.TrimSpace(os.Getenv("BREYTA_TOKEN"))
 		}
-		machineCredentialExplicit := apiKeyFlagExplicit || mcpTokenEnvServiceAccountExplicit || (apiKeyEnvExplicit && !tokenFlagExplicit)
-		if isSubcommand {
-			allowAPIEnvOverride := apiEnvExplicit && commandAllowsAPIEnvOverride(cmd)
-			if !app.DevMode && (apiFlagExplicit || apiEnvExplicit) && !machineCredentialExplicit && !allowAPIEnvOverride {
-				return writeErr(cmd, errors.New("--api override is disabled unless you provide a service-account API key"))
-			}
-			if app.DevMode && devEnvExplicit && !apiFlagExplicit && apiEnvExplicit && strings.TrimSpace(app.APIURL) == "" {
-				app.APIURL = apiURLFromEnv
-			}
-			if ((app.DevMode && !apiFlagExplicit) || (!app.DevMode && !apiFlagExplicit && !apiEnvExplicit)) && strings.TrimSpace(app.APIURL) == "" {
-				if st, ok := loadDevConfig(app); ok {
-					_, prof, err := resolveDevProfile(app, st)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
-					if strings.TrimSpace(prof.APIURL) != "" {
-						app.APIURL = strings.TrimSpace(prof.APIURL)
-					}
-				}
-				if strings.TrimSpace(app.APIURL) == "" && app.DevMode {
-					if apiURLFromEnv != "" {
-						app.APIURL = apiURLFromEnv
-					}
-				}
-			}
-			if strings.TrimSpace(app.APIURL) == "" && apiEnvExplicit && (machineCredentialExplicit || allowAPIEnvOverride) {
-				app.APIURL = apiURLFromEnv
-			}
-			if !apiFlagExplicit && strings.TrimSpace(app.APIURL) == "" {
-				if p, err := configstore.DefaultPath(); err == nil && p != "" {
-					if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.APIURL) != "" {
-						app.APIURL = configAPIURLForMode(st.APIURL, app.DevMode)
-					}
-				}
-				if strings.TrimSpace(app.APIURL) == "" {
-					app.APIURL = configstore.DefaultProdAPIURL
-				}
-			}
-		}
-
-		if !workspaceFlagExplicit && !workspaceEnvExplicit && strings.TrimSpace(app.WorkspaceID) == "" {
-			if app.DevMode {
-				if st, ok := loadDevConfig(app); ok {
-					_, prof, err := resolveDevProfile(app, st)
-					if err != nil {
-						return writeErr(cmd, err)
-					}
-					if strings.TrimSpace(prof.WorkspaceID) != "" {
-						app.WorkspaceID = strings.TrimSpace(prof.WorkspaceID)
-					}
-				}
-			}
-			// Only apply default workspace when config apiUrl matches current api url.
-			if p, err := configstore.DefaultPath(); err == nil && p != "" {
-				if st, err := configstore.Load(p); err == nil && st != nil && strings.TrimSpace(st.WorkspaceID) != "" {
-					cfgAPI := strings.TrimRight(strings.TrimSpace(st.APIURL), "/")
-					appAPI := strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
-					if cfgAPI != "" && appAPI != "" && cfgAPI == appAPI {
-						app.WorkspaceID = st.WorkspaceID
-					}
-				}
-			}
-		}
-
-		if !app.DevMode && tokenFlagExplicit {
-			return writeErr(cmd, errors.New("--token override is disabled; use `breyta auth login` instead"))
-		}
-		tokenExplicit := tokenFlagExplicit || tokenEnvExplicit
-		if app.DevMode && devEnvExplicit && tokenEnvExplicit && !tokenFlagExplicit && strings.TrimSpace(app.Token) == "" {
-			app.Token = tokenEnvValue
-		}
-		if app.DevMode && !tokenFlagExplicit && !apiKeyFlagExplicit && strings.TrimSpace(app.Token) == "" && strings.TrimSpace(app.APIKey) == "" {
-			if st, ok := loadDevConfig(app); ok {
-				_, prof, err := resolveDevProfile(app, st)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				if strings.TrimSpace(prof.Token) != "" {
-					app.Token = strings.TrimSpace(prof.Token)
-				}
-			}
-		}
-		if apiKeyEnvExplicit && !tokenFlagExplicit && strings.TrimSpace(app.APIKey) == "" {
-			app.APIKey = apiKeyEnvValue
-		}
-		if tokenEnvExplicit && strings.TrimSpace(app.Token) == "" {
-			app.Token = tokenEnvValue
+		if !apiKeyFlagExplicit && strings.TrimSpace(app.APIKey) == "" {
+			app.APIKey = strings.TrimSpace(os.Getenv("BREYTA_API_KEY"))
 		}
 		if strings.TrimSpace(app.APIKey) != "" && !tokenFlagExplicit {
 			app.Token = strings.TrimSpace(app.APIKey)
 		}
-		app.APIKeyExplicit = machineCredentialExplicit
-		app.TokenExplicit = tokenExplicit || machineCredentialExplicit
-		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
+		app.APIKeyExplicit = apiKeyFlagExplicit || strings.TrimSpace(os.Getenv("BREYTA_API_KEY")) != ""
+		app.TokenExplicit = tokenFlagExplicit || strings.TrimSpace(os.Getenv("BREYTA_TOKEN")) != "" || app.APIKeyExplicit
 
-		// If token isn't explicitly provided, load it from the local auth store and refresh if expiring.
-		// This enables: `breyta auth login` once, then normal `breyta ...` commands with auto-refresh.
-		if !skipBackgroundNetwork && !app.TokenExplicit && strings.TrimSpace(app.APIURL) != "" {
+		skipBackgroundNetwork := commandShouldSkipBackgroundNetwork(cmd)
+		if !skipBackgroundNetwork && !app.TokenExplicit {
 			loadTokenFromAuthStore(app)
 		}
 		configureVisibility(cmd.Root(), app)
+		configureFlagVisibility(cmd.Root(), app)
 
-		if isSubcommand && commandShouldWarnSkillDrift(cmd) && !skipBackgroundNetwork {
-			warnCtx, warnCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			for _, warning := range skillsync.MaybeWarnMissingOrOutdatedInstalled(warnCtx, app.APIURL, app.Token) {
-				fmt.Fprintln(cmd.ErrOrStderr(), warning)
-			}
-			warnCancel()
-		}
-
-		// Best-effort: keep already-installed agent skill bundles in sync with this CLI version.
-		// Run this asynchronously so command startup is never blocked by network issues.
-		if !skipBackgroundNetwork {
-			skillsync.MaybeSyncInstalledAsync(buildinfo.DisplayVersion(), app.APIURL, app.Token)
-		}
-
-		// Best-effort update check for JSON commands. Never blocks command execution.
-		if isSubcommand && !skipBackgroundNetwork {
+		if cmd != nil && cmd != cmd.Root() && !skipBackgroundNetwork {
 			app.startUpdateCheckNonBlocking(context.Background(), 24*time.Hour)
 			app.emitUpdateReminder(cmd)
 		}
@@ -359,70 +179,22 @@ func NewRootCmd() *cobra.Command {
 		app.emitUpdateReminder(cmd)
 	}
 
-	defaultPath, _ := state.DefaultPath()
-	cmd.PersistentFlags().StringVar(&app.StatePath, "state", envOr("BREYTA_MOCK_STATE", defaultPath), "Path to mock state JSON")
-	if f := cmd.PersistentFlags().Lookup("state"); f != nil {
-		f.Hidden = true
-	}
-
 	cmd.AddCommand(newFlowsCmd(app))
-	cmd.AddCommand(newDiscoverCmd(app))
 	cmd.AddCommand(newRunsCmd(app))
-	cmd.AddCommand(newStepsCmd(app))
 	cmd.AddCommand(newConnectionsCmd(app))
 	cmd.AddCommand(newSecretsCmd(app))
-	cmd.AddCommand(newProfilesCmd(app))
 	cmd.AddCommand(newTriggersCmd(app))
-	cmd.AddCommand(newWebhooksCmd(app))
 	cmd.AddCommand(newResourcesCmd(app))
 	cmd.AddCommand(newServiceAccountsCmd(app))
-	cmd.AddCommand(newDebugCmd(app))
 	cmd.AddCommand(newWaitsCmd(app))
-	cmd.AddCommand(newJobsCmd(app))
-	cmd.AddCommand(newIncidentsCmd(app))
-	cmd.AddCommand(newDigestsCmd(app))
-	cmd.AddCommand(newWatchCmd(app))
-	cmd.AddCommand(newRegistryCmd(app))
-	cmd.AddCommand(newPricingCmd(app))
-	cmd.AddCommand(newPurchasesCmd(app))
-	cmd.AddCommand(newEntitlementsCmd(app))
-	cmd.AddCommand(newPayoutsCmd(app))
-	cmd.AddCommand(newCreatorCmd(app))
-	cmd.AddCommand(newAnalyticsCmd(app))
 	cmd.AddCommand(newAuthCmd(app))
 	cmd.AddCommand(newAPICmd(app))
+	cmd.AddCommand(newWorkspaceCmd(app))
 	cmd.AddCommand(newWorkspacesCmd(app))
-	cmd.AddCommand(newSkillsCmd(app))
-	cmd.AddCommand(newInitCmd(app))
-	cmd.AddCommand(newDevCmd(app))
-	cmd.AddCommand(newRevenueCmd(app))
-	cmd.AddCommand(newDemandCmd(app))
-	cmd.AddCommand(newDocsCmd(app))
-	cmd.AddCommand(newFeedbackCmd(app))
-	cmd.AddCommand(newAgentCmd(app))
-	cmd.AddCommand(newMCPCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.AddCommand(newUpgradeCmd(app))
-	cmd.AddCommand(newInternalCmd(app))
 
 	return cmd
-}
-
-func commandShouldWarnSkillDrift(cmd *cobra.Command) bool {
-	if cmd == nil || cmd.Root() == nil || cmd == cmd.Root() {
-		return false
-	}
-	root := cmd.Root()
-	top := cmd
-	for top.Parent() != nil && top.Parent() != root {
-		top = top.Parent()
-	}
-	switch strings.TrimSpace(top.Name()) {
-	case "", "auth", "help", "init", "skills", "upgrade", "version":
-		return false
-	default:
-		return true
-	}
 }
 
 func commandShouldSkipBackgroundNetwork(cmd *cobra.Command) bool {
@@ -458,17 +230,6 @@ func commandIsFlowsLintLocalOnly(cmd *cobra.Command) bool {
 	}
 	flag := cmd.Flags().Lookup("local-only")
 	return flag != nil && flag.Changed && strings.EqualFold(strings.TrimSpace(flag.Value.String()), "true")
-}
-
-func configAPIURLForMode(raw string, devMode bool) string {
-	apiURL := strings.TrimSpace(raw)
-	if apiURL == "" {
-		return ""
-	}
-	if !devMode && isLoopbackAPIURL(apiURL) {
-		return ""
-	}
-	return apiURL
 }
 
 func appStore(app *App) (*state.State, mock.Store, error) {
@@ -545,76 +306,11 @@ func helpHintForCommand(cmd *cobra.Command) string {
 	return strings.TrimSpace(rootName + " help " + tail)
 }
 
-func docsHintForCommand(cmd *cobra.Command) string {
-	rootName := "breyta"
-	if cmd != nil {
-		if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
-			rootName = strings.TrimSpace(root.Name())
-		}
-	}
-	if cmd == nil {
-		return rootName + " docs find \"<topic>\""
-	}
-
-	path := strings.TrimSpace(cmd.CommandPath())
-	if path == "" {
-		return rootName + " docs find \"<topic>\""
-	}
-	tail := strings.TrimSpace(strings.TrimPrefix(path, rootName))
-	if tail == "" || strings.HasPrefix(tail, "docs") {
-		return rootName + " docs find \"<topic>\""
-	}
-	return fmt.Sprintf("%s docs find %q", rootName, tail)
+func docsHintForCommand(_ *cobra.Command) string {
+	return "https://github.com/breyta/breyta-cli#readme"
 }
 
-func moreHintForCommand(cmd *cobra.Command) string {
-	if cmd == nil {
-		return ""
-	}
-	rootName := "breyta"
-	if root := cmd.Root(); root != nil && strings.TrimSpace(root.Name()) != "" {
-		rootName = strings.TrimSpace(root.Name())
-	}
-	path := strings.TrimSpace(cmd.CommandPath())
-	if path == "" {
-		return ""
-	}
-	tail := strings.TrimSpace(strings.TrimPrefix(path, rootName))
-	if tail == "" {
-		return ""
-	}
-	parts := strings.Fields(tail)
-	if len(parts) == 0 {
-		return ""
-	}
-	switch parts[0] {
-	case "discover":
-		return rootName + " docs show playbook-public-and-marketplace"
-	case "flows":
-		if len(parts) == 1 {
-			return rootName + " docs show playbook-author-flows"
-		}
-		switch parts[1] {
-		case "run", "interfaces":
-			return rootName + " docs show playbook-debug-and-verify"
-		case "release", "promote", "installations", "configure":
-			return rootName + " docs show playbook-release-and-install"
-		case "discover", "marketplace", "public":
-			return rootName + " docs show playbook-public-and-marketplace"
-		case "lint", "push", "pull", "show", "search", "grep", "templates", "validate", "diff", "update":
-			return rootName + " docs show playbook-author-flows"
-		}
-	case "steps":
-		return rootName + " docs show playbook-author-flows"
-	case "runs":
-		return rootName + " docs show playbook-debug-and-verify"
-	case "resources":
-		return rootName + " docs show reference-runtime-data-shapes"
-	case "connections", "secrets":
-		return rootName + " docs show playbook-author-flows"
-	case "feedback":
-		return rootName + " docs show playbook-debug-and-verify"
-	}
+func moreHintForCommand(_ *cobra.Command) string {
 	return ""
 }
 

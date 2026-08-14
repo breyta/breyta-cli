@@ -3,7 +3,7 @@ package cli
 import "testing"
 
 func TestParseRunsListQuery(t *testing.T) {
-	filters, err := parseRunsListQuery("status:failed flow::my-flow installation:prof-1 version:7")
+	filters, err := parseRunsListQuery("status:failed flow::my-flow profile:prof-1 version:7")
 	if err != nil {
 		t.Fatalf("parseRunsListQuery failed: %v", err)
 	}
@@ -13,13 +13,13 @@ func TestParseRunsListQuery(t *testing.T) {
 	if filters.Flow != "my-flow" {
 		t.Fatalf("expected flow my-flow, got %q", filters.Flow)
 	}
-	if filters.InstallationID != "prof-1" {
-		t.Fatalf("expected installation prof-1, got %q", filters.InstallationID)
+	if filters.ProfileID != "prof-1" {
+		t.Fatalf("expected profile prof-1, got %q", filters.ProfileID)
 	}
 	if !filters.HasVersion || filters.Version != 7 {
 		t.Fatalf("expected version 7, got %+v", filters)
 	}
-	if got := buildRunsListQuery(filters); got != "status:failed flow:my-flow installation:prof-1 version:7" {
+	if got := buildRunsListQuery(filters); got != "status:failed flow:my-flow profile:prof-1 version:7" {
 		t.Fatalf("unexpected rebuilt query: %q", got)
 	}
 }

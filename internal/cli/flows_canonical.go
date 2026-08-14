@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -206,7 +205,7 @@ func waitRetryCommand(command string, flowSlug string, payload map[string]any, e
 	}
 	parts = append(parts, extraFlags...)
 	if installationID := argString(payload, "installationId", "installation-id"); installationID != "" {
-		parts = append(parts, "--installation-id", installationID)
+		parts = append(parts, "--profile-id", installationID)
 	} else if profileID := argString(payload, "profileId", "profile-id"); profileID != "" {
 		parts = append(parts, "--profile-id", profileID)
 	} else if target := argString(payload, "target"); target != "" {
@@ -281,6 +280,9 @@ func waitForRunCompletion(cmd *cobra.Command, app *App, startResp map[string]any
 	installationID := installationIDFromRunData(data)
 	if installationID == "" {
 		installationID = argString(payload, "installationId", "installation-id")
+	}
+	if installationID == "" {
+		installationID = argString(payload, "profileId", "profile-id")
 	}
 	startRunStatus := canonicalRunStatus(data["status"])
 	if startRunStatus == "" {
@@ -602,7 +604,7 @@ func applyFlowRunUploads(ctx context.Context, app *App, input map[string]any, up
 		return err
 	}
 	for _, spec := range specs {
-		result, err := jobsWorkerUploadFileResource(ctx, app, spec.path, filepath.Base(spec.path), "", "", false)
+		result, err := uploadFileResource(ctx, app, spec.path, filepath.Base(spec.path), "", "", false)
 		if err != nil {
 			return fmt.Errorf("upload %s: %w", spec.field, err)
 		}
@@ -618,7 +620,7 @@ func applyFlowRunUploads(ctx context.Context, app *App, input map[string]any, up
 }
 
 func newFlowsRunCmd(app *App) *cobra.Command {
-	var installationID string
+	var profileID string
 	var target string
 	var version int
 	var invocation string
@@ -627,7 +629,6 @@ func newFlowsRunCmd(app *App) *cobra.Command {
 	var inputJSON string
 	var inputFile string
 	var uploads []string
-	var buyerTest bool
 	var wait bool
 	var timeout time.Duration
 	var poll time.Duration
@@ -645,11 +646,10 @@ Default:
 - when a draft declares :invocations, use --invocation <id> to select its input contract
 
 	Advanced targeting:
-	- --installation-id <id> : run a specific installation target
-	- --buyer-test : make the installation run intent explicit for Buyer Test Mode
+	- --profile-id <id> : run with a specific workspace profile
 	- --invocation <id> : select a named invocation input contract
 	- --interface-id <id> : select the declared manual interface explicitly
-	- --target draft|live : select workspace draft/live when not using --installation-id
+	- --target draft|live : select workspace draft/live when not using --profile-id
 	- --version <n> : force a specific release version for this invocation
 	- --trigger-id <id> : select a legacy trigger when a draft has more than one manual trigger
 	`),
@@ -664,23 +664,14 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	breyta flows run order-ingest --target draft --wait
 	breyta flows run order-ingest --invocation import-orders --input '{"region":"EU"}' --wait
 	breyta flows run order-ingest --target draft --interface-id manual-import --input '{"limit":5}' --wait
-	breyta flows run order-ingest --installation-id inst_123 --wait
-	breyta flows run paid-public-flow --buyer-test --installation-id inst_buyer_test --wait
+	breyta flows run order-ingest --profile-id production --wait
 		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run requires --api/BREYTA_API_URL")
 			}
-			installationID = strings.TrimSpace(installationID)
-			if buyerTest {
-				if installationID == "" {
-					return writeErr(cmd, errors.New("--buyer-test requires --installation-id; create or list the Buyer Test installation from the Buyer Test workspace with `breyta flows installations create <flow-slug> --buyer-test-source-install --source-workspace-id <source-workspace-id> --source-flow-slug <flow-slug>`"))
-				}
-				if cmd.Flags().Changed("target") {
-					return writeErr(cmd, errors.New("--buyer-test cannot be combined with --target; Buyer Test runs are installation-scoped"))
-				}
-			}
+			profileID = strings.TrimSpace(profileID)
 			resolvedTarget := ""
 			if cmd.Flags().Changed("target") {
 				var err error
@@ -688,7 +679,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-			} else if installationID != "" {
+			} else if profileID != "" {
 				resolvedTarget = "live"
 			} else {
 				resolvedTarget = "draft"
@@ -697,8 +688,8 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 			if resolvedTarget != "" {
 				payload["target"] = resolvedTarget
 			}
-			if installationID != "" {
-				payload["installationId"] = installationID
+			if profileID != "" {
+				payload["profileId"] = profileID
 			}
 			if version > 0 {
 				payload["version"] = version
@@ -740,15 +731,11 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 				}
 				payload["input"] = input
 			}
-			var retryFlags []string
-			if buyerTest {
-				retryFlags = append(retryFlags, "--buyer-test")
-			}
-			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll, retryFlags...)
+			return doRunCommandWithOptionalWait(cmd, app, "flows.run", payload, wait, timeout, poll)
 		},
 	}
 
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: run with a specific workspace profile")
 	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
 	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
@@ -760,7 +747,6 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 	cmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input")
 	cmd.Flags().StringVar(&inputFile, "input-file", "", "Read JSON object input from file")
 	cmd.Flags().StringArrayVar(&uploads, "upload", nil, "Upload local file into a manual file/blob-ref input (field=path, repeatable)")
-	cmd.Flags().BoolVar(&buyerTest, "buyer-test", false, "Buyer Test Mode: run the specified Buyer Test installation id")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for run completion")
 	cmd.Flags().DurationVar(&timeout, "timeout", defaultFlowRunWaitTimeout, "Wait timeout; use a longer value for content-generation flows")
 	cmd.Flags().DurationVar(&poll, "poll", 250*time.Millisecond, "Poll interval while waiting")
@@ -768,7 +754,6 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 }
 
 func newFlowsRunStepCmd(app *App) *cobra.Command {
-	var installationID string
 	var profileID string
 	var target string
 	var version int
@@ -792,18 +777,12 @@ steps and LLM steps that depend on draft-bound connection slots. Pass the same
 root input object used by the flow invocation; do not wrap it in an extra
 "input" object unless the invocation contract itself declares that field.
 
-` + "`flows steps run`" + ` is a different, local-source-only command for qualified
-top-level packaged ` + "`:steps`" + ` definitions. ` + "`steps run --flow ...`" + ` is a
-lower-level primitive/config probe and may require primitive-specific config
-shape such as ` + "`{\"input\": {...}}`" + ` for a raw function activity.
-
 Default:
 - breyta flows run-step <flow-slug> <step-id> [--input '{...}' | --input-file ./input.json] [--wait]
 
 Advanced targeting:
-- --target draft|live : select workspace draft/live when not using --installation-id
-- --installation-id <id> : run under a specific live installation/profile
-- --profile-id <id> : alias for selecting a specific profile
+- --target draft|live : select workspace draft/live when not using --profile-id
+- --profile-id <id> : run with a specific workspace profile
 - --version <n> : force a specific release version
 - --invocation <id> : validate input against a named invocation contract
 		`),
@@ -812,18 +791,14 @@ breyta flows run-step ai-social-publisher draft-platform-posts --target live --i
 breyta flows run-step github-file-update publish-file --target draft --input-file ./package-lock-run-input.json --wait
 breyta flows run-step order-ingest normalize-order --target draft --input '{"orderId":"ord_123"}' --wait
 breyta flows run-step pitch-studio build-copy-request --target draft --input '{"company":"Acme"}' --wait
-breyta flows run-step report-builder summarize --installation-id prof_123 --input '{"range":"last_week"}' --wait
+breyta flows run-step report-builder summarize --profile-id production --input '{"range":"last_week"}' --wait
 		`),
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isAPIMode(app) {
 				return writeNotImplemented(cmd, app, "flows run-step requires --api/BREYTA_API_URL")
 			}
-			installationID = strings.TrimSpace(installationID)
 			profileID = strings.TrimSpace(profileID)
-			if installationID != "" && profileID != "" {
-				return writeErr(cmd, fmt.Errorf("--installation-id and --profile-id refer to the same run profile; provide only one"))
-			}
 			resolvedTarget := ""
 			if cmd.Flags().Changed("target") {
 				var err error
@@ -831,7 +806,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 				if err != nil {
 					return writeErr(cmd, err)
 				}
-			} else if installationID != "" || profileID != "" {
+			} else if profileID != "" {
 				resolvedTarget = "live"
 			} else {
 				resolvedTarget = "draft"
@@ -842,9 +817,6 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 			}
 			if resolvedTarget != "" {
 				payload["target"] = resolvedTarget
-			}
-			if installationID != "" {
-				payload["installationId"] = installationID
 			}
 			if profileID != "" {
 				payload["profileId"] = profileID
@@ -867,8 +839,7 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 		},
 	}
 
-	cmd.Flags().StringVar(&installationID, "installation-id", "", "Advanced: run under a specific installation id")
-	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: run under a specific profile id")
+	cmd.Flags().StringVar(&profileID, "profile-id", "", "Advanced: run with a specific workspace profile")
 	cmd.Flags().StringVar(&target, "target", "", "Advanced: run target override (draft|live)")
 	cmd.Flags().IntVar(&version, "version", 0, "Advanced: release version override")
 	cmd.Flags().StringVar(&invocation, "invocation", "", "Advanced: named invocation input contract")
@@ -882,160 +853,27 @@ breyta flows run-step report-builder summarize --installation-id prof_123 --inpu
 }
 
 func newFlowsReleaseCmd(app *App) *cobra.Command {
-	var skipPromoteInstallations bool
-	var version string
-	var deployKey string
 	var releaseNote string
 	var releaseNoteFile string
-	var legacyNote string
 
 	cmd := &cobra.Command{
 		Use:   "release <flow-slug>",
-		Short: "Activate the latest pushed version, promote live, and promote track-latest installations by default",
-		Long: strings.TrimSpace(`
-Activate a released flow version for the current workspace.
-
-By default, release reuses the latest version from workspace current, promotes
-live, and promotes track-latest installations in the current workspace. Use
---version to activate a specific released version instead. Use
---skip-promote-installations when you want to update live without promoting
-end-user installations.
-
-When you know what changed, attach a markdown release note so the activated
-version carries operator-facing context:
-- breyta flows release my-flow --release-note 'Updated retry policy and fixed idempotency'
-- breyta flows release my-flow --release-note-file ./release-note.md
-		`),
-		Args: cobra.ExactArgs(1),
+		Short: "Validate and activate the current draft",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "release requires --api/BREYTA_API_URL")
-			}
-
-			payload := map[string]any{"flowSlug": args[0]}
-			version = strings.TrimSpace(version)
-			if version != "" && version != "latest" {
-				v, err := parsePositiveIntFlag(version)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				payload["version"] = v
-			}
-
-			resolvedDeployKey := strings.TrimSpace(deployKey)
-			if resolvedDeployKey == "" {
-				resolvedDeployKey = strings.TrimSpace(os.Getenv("BREYTA_FLOW_DEPLOY_KEY"))
-			}
-			if resolvedDeployKey != "" {
-				payload["deployKey"] = resolvedDeployKey
-			}
-			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, legacyNote, releaseNoteFile)
+			resolvedReleaseNote, err := resolveReleaseNoteInput(releaseNote, "", releaseNoteFile)
 			if err != nil {
 				return writeErr(cmd, err)
 			}
+			payload := map[string]any{"flowSlug": strings.TrimSpace(args[0])}
 			if strings.TrimSpace(resolvedReleaseNote) != "" {
 				payload["releaseNote"] = resolvedReleaseNote
 			}
-
-			if err := requireAPI(app); err != nil {
-				return writeErr(cmd, err)
-			}
-
-			client := apiClient(app)
-			releaseOut, releaseStatus, err := client.DoCommand(context.Background(), "flows.release", payload)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			releaseOK := releaseStatus < 400 && isOK(releaseOut)
-			trackCommandTelemetry(app, "flows.release", payload, releaseStatus, releaseOK)
-			if !releaseOK {
-				if err := writeAPIResult(cmd, app, releaseOut, releaseStatus); err != nil {
-					return writeErr(cmd, err)
-				}
-				return nil
-			}
-
-			promotePayload := map[string]any{"flowSlug": args[0], "target": "live"}
-			if skipPromoteInstallations {
-				promotePayload["scope"] = "live"
-			}
-			releaseData, _ := releaseOut["data"].(map[string]any)
-			if activeVersion := asInt(releaseData["activeVersion"]); activeVersion > 0 {
-				promotePayload["version"] = activeVersion
-			}
-			if resolvedDeployKey != "" {
-				promotePayload["deployKey"] = resolvedDeployKey
-			}
-			promoteOut, promoteStatus, err := client.DoCommand(context.Background(), "flows.promote", promotePayload)
-			if err != nil {
-				return writeErr(cmd, err)
-			}
-			promoteOK := promoteStatus < 400 && isOK(promoteOut)
-			trackCommandTelemetry(app, "flows.promote", promotePayload, promoteStatus, promoteOK)
-			if !promoteOK {
-				if err := writeAPIResult(cmd, app, promoteOut, promoteStatus); err != nil {
-					return writeErr(cmd, err)
-				}
-				return nil
-			}
-
-			activeVersion := asInt(releaseData["activeVersion"])
-			promoteData := mapStringAny(promoteOut["data"])
-			liveRuntime := releaseLiveRuntimeSummary(args[0], releaseData, promoteData)
-			warnings := releaseLiveRuntimeWarnings(liveRuntime)
-			combined := map[string]any{
-				"ok": true,
-				"workspaceId": func() string {
-					if ws := commandWorkspaceID(releaseOut); ws != "" {
-						return ws
-					}
-					return commandWorkspaceID(promoteOut)
-				}(),
-				"meta": func() map[string]any {
-					meta := map[string]any{
-						"released":    true,
-						"installed":   !skipPromoteInstallations,
-						"target":      "live",
-						"liveRuntime": liveRuntime,
-						"verifyHint":  "Live runtime can differ from flow activeVersion. Verify with `breyta flows show <slug> --target live` and `breyta flows run <slug> --target live --wait`.",
-						"scope": func() string {
-							if skipPromoteInstallations {
-								return "live"
-							}
-							return "all"
-						}(),
-						"verifyCommands": []string{
-							"breyta flows show " + args[0] + " --target live",
-							"breyta flows run " + args[0] + " --target live --wait",
-						},
-					}
-					if len(warnings) > 0 {
-						meta["warnings"] = warnings
-					}
-					return meta
-				}(),
-				"data": map[string]any{
-					"release":     releaseOut["data"],
-					"install":     promoteOut["data"],
-					"liveRuntime": liveRuntime,
-				},
-			}
-			addPublicAppURLHint(app, combined, args[0])
-			appendEnvelopeHints(combined, releaseNoteHintCommands(args[0], activeVersion)...)
-			if err := writeAPIResult(cmd, app, combined, 200); err != nil {
-				return writeErr(cmd, err)
-			}
-			return nil
+			return doAPICommand(cmd, app, "flows.release", payload)
 		},
 	}
-
-	cmd.Flags().BoolVar(&skipPromoteInstallations, "skip-promote-installations", false, "Activate the version and promote live, but skip promoting end-user installations")
-	cmd.Flags().StringVar(&version, "version", "", "Released version to activate (default latest from workspace current)")
-	cmd.Flags().StringVar(&deployKey, "deploy-key", "", "Deploy key for guarded flows (default: BREYTA_FLOW_DEPLOY_KEY)")
-	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note to attach to the activated version")
+	cmd.Flags().StringVar(&releaseNote, "release-note", "", "Markdown release note")
 	cmd.Flags().StringVar(&releaseNoteFile, "release-note-file", "", "Read markdown release note from file")
-	cmd.Flags().StringVar(&legacyNote, "note", "", "Deprecated alias for --release-note")
-	_ = cmd.Flags().MarkHidden("note")
 	return cmd
 }
 

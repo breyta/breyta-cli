@@ -45,7 +45,6 @@ func TestResourcesWorkflowListAndDirectAliasUseWorkflowEndpoint(t *testing.T) {
 			defer srv.Close()
 
 			args := append([]string{
-				"--dev",
 				"--workspace", "ws-acme",
 				"--api", srv.URL,
 				"--token", "user-dev",

@@ -32,7 +32,6 @@ func TestWorkspaceMembersListBuildsCanonicalMembersRequestAndDefaultsToTable(t *
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--api", srv.URL,
 		"--workspace", "ws-breyta",
 		"--token", "tok-1",
@@ -84,7 +83,6 @@ func TestWorkspaceMembersListSupportsRoleAndPendingFiltersAndJSONOutput(t *testi
 	defer srv.Close()
 
 	stdout, stderr, err := runCLIArgs(t,
-		"--dev",
 		"--api", srv.URL,
 		"--workspace", "ws-breyta",
 		"--token", "tok-1",

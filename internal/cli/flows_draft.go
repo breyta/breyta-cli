@@ -18,7 +18,6 @@ func newFlowsDraftCmd(app *App) *cobra.Command {
 	}
 	cmd.AddCommand(newFlowsDraftShowCmd(app))
 	cmd.AddCommand(newFlowsDraftRunCmd(app))
-	cmd.AddCommand(newFlowsDraftBindingsCmd(app))
 	cmd.AddCommand(newFlowsDraftResetCmd(app))
 	return cmd
 }
@@ -227,17 +226,6 @@ func newFlowsDraftRunCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-func newFlowsDraftBindingsCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "bindings",
-		Short: "Manage draft setup",
-	}
-	cmd.AddCommand(newFlowsDraftBindingsTemplateCmd(app))
-	cmd.AddCommand(newFlowsDraftBindingsApplyCmd(app))
-	cmd.AddCommand(newFlowsDraftBindingsShowCmd(app))
-	return cmd
-}
-
 func newFlowsDraftResetCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reset <flow-slug>",
@@ -249,88 +237,6 @@ func newFlowsDraftResetCmd(app *App) *cobra.Command {
 			}
 			return doAPICommand(cmd, app, "flows.draft.reset", map[string]any{
 				"flowSlug": args[0],
-			})
-		},
-	}
-	return cmd
-}
-
-func newFlowsDraftBindingsTemplateCmd(app *App) *cobra.Command {
-	var outPath string
-	var clean bool
-	cmd := &cobra.Command{
-		Use:   "template <flow-slug>",
-		Short: "Generate a profile template (EDN) for draft setup",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
-				return writeErr(cmd, errors.New("draft setup template requires API mode"))
-			}
-			return renderProfileTemplate(cmd, app, args[0], outPath, "draft", !clean)
-		},
-	}
-	cmd.Flags().StringVar(&outPath, "out", "", "Write template to a file")
-	cmd.Flags().BoolVar(&clean, "clean", false, "Generate a template without current bindings")
-	return cmd
-}
-
-func newFlowsDraftBindingsApplyCmd(app *App) *cobra.Command {
-	var setArgs []string
-	cmd := &cobra.Command{
-		Use:   "apply <flow-slug> @draft.edn",
-		Short: "Set draft setup using a profile file",
-		Args:  cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Draft setup requires --api/BREYTA_API_URL")
-			}
-			if len(args) < 2 && len(setArgs) == 0 {
-				return writeErr(cmd, errors.New("missing profile file or --set (use @draft.edn or --set)"))
-			}
-			body := map[string]any{
-				"flowSlug": args[0],
-				"inputs":   map[string]any{},
-			}
-			if len(args) >= 2 {
-				profileArg := args[1]
-				payload, err := parseProfileArg(profileArg)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				if payload.ProfileType != "" && payload.ProfileType != "draft" {
-					return writeErr(cmd, errors.New("profile.type must be draft for draft setup"))
-				}
-				body["inputs"] = payload.Inputs
-			}
-			if len(setArgs) > 0 {
-				setInputs, err := parseSetAssignments(setArgs)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				inputs := body["inputs"].(map[string]any)
-				for k, v := range setInputs {
-					inputs[k] = v
-				}
-			}
-			return doAPICommand(cmd, app, "profiles.draft.bindings", body)
-		},
-	}
-	cmd.Flags().StringArrayVar(&setArgs, "set", nil, "Set binding or activation input (slot.field=value or activation.field=value)")
-	return cmd
-}
-
-func newFlowsDraftBindingsShowCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "show <flow-slug>",
-		Short: "Inspect draft setup",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isAPIMode(app) {
-				return writeNotImplemented(cmd, app, "Draft setup show requires --api/BREYTA_API_URL")
-			}
-			return doAPICommand(cmd, app, "profiles.status", map[string]any{
-				"flowSlug":    args[0],
-				"profileType": "draft",
 			})
 		},
 	}

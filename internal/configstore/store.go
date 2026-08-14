@@ -10,29 +10,16 @@ import (
 
 // Default values used when no config file exists.
 const (
-	DefaultProdAPIURL  = "https://flows.breyta.ai"
-	DefaultLocalAPIURL = "http://localhost:8090"
+	DefaultAPIURL = "http://localhost:8090"
+	// DefaultLocalAPIURL remains as an internal alias while command code is
+	// migrated to the canonical self-hosted default.
+	DefaultLocalAPIURL = DefaultAPIURL
 )
 
 type Store struct {
-	APIURL         string                `json:"apiUrl,omitempty"`
-	WorkspaceID    string                `json:"workspaceId,omitempty"`
-	RunConfigID    string                `json:"runConfigId,omitempty"`
-	DevMode        bool                  `json:"devMode,omitempty"`
-	DevAPIURL      string                `json:"devApiUrl,omitempty"`
-	DevWorkspaceID string                `json:"devWorkspaceId,omitempty"`
-	DevToken       string                `json:"devToken,omitempty"`
-	DevRunConfigID string                `json:"devRunConfigId,omitempty"`
-	DevActive      string                `json:"devActive,omitempty"`
-	DevProfiles    map[string]DevProfile `json:"devProfiles,omitempty"`
-}
-
-type DevProfile struct {
-	APIURL        string `json:"apiUrl,omitempty"`
-	WorkspaceID   string `json:"workspaceId,omitempty"`
-	Token         string `json:"token,omitempty"`
-	RunConfigID   string `json:"runConfigId,omitempty"`
-	AuthStorePath string `json:"authStorePath,omitempty"`
+	APIURL      string `json:"apiUrl,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	RunConfigID string `json:"runConfigId,omitempty"`
 }
 
 func DefaultPath() (string, error) {
@@ -62,34 +49,6 @@ func Load(path string) (*Store, error) {
 	st.APIURL = strings.TrimSpace(st.APIURL)
 	st.WorkspaceID = strings.TrimSpace(st.WorkspaceID)
 	st.RunConfigID = strings.TrimSpace(st.RunConfigID)
-	st.DevAPIURL = strings.TrimSpace(st.DevAPIURL)
-	st.DevWorkspaceID = strings.TrimSpace(st.DevWorkspaceID)
-	st.DevToken = strings.TrimSpace(st.DevToken)
-	st.DevRunConfigID = strings.TrimSpace(st.DevRunConfigID)
-	st.DevActive = strings.TrimSpace(st.DevActive)
-	if st.DevProfiles == nil {
-		st.DevProfiles = map[string]DevProfile{}
-	}
-	// Migrate legacy dev fields into a default profile if profiles are empty.
-	if len(st.DevProfiles) == 0 && (st.DevAPIURL != "" || st.DevWorkspaceID != "" || st.DevToken != "" || st.DevRunConfigID != "") {
-		st.DevProfiles["local"] = DevProfile{
-			APIURL:      st.DevAPIURL,
-			WorkspaceID: st.DevWorkspaceID,
-			Token:       st.DevToken,
-			RunConfigID: st.DevRunConfigID,
-		}
-		if st.DevActive == "" {
-			st.DevActive = "local"
-		}
-	}
-	for name, prof := range st.DevProfiles {
-		prof.APIURL = strings.TrimSpace(prof.APIURL)
-		prof.WorkspaceID = strings.TrimSpace(prof.WorkspaceID)
-		prof.Token = strings.TrimSpace(prof.Token)
-		prof.RunConfigID = strings.TrimSpace(prof.RunConfigID)
-		prof.AuthStorePath = strings.TrimSpace(prof.AuthStorePath)
-		st.DevProfiles[name] = prof
-	}
 	return &st, nil
 }
 
