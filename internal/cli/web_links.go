@@ -2,14 +2,8 @@ package cli
 
 import (
 	"net/url"
-	"regexp"
 	"strings"
 )
-
-// runOutputRouteRe matches only the canonical run output route
-// (…/runs/{flow}/{run}/output), so an arbitrary URL that merely ends in
-// "/output" is never rewritten into a ?output=panel deep-link.
-var runOutputRouteRe = regexp.MustCompile(`(^|/)runs/[^/]+/[^/]+/output$`)
 
 func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 	base := workspaceWebBaseURL(app)
@@ -26,8 +20,11 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 		absolutizeKnownWebLinks(root, data)
 	}
 
-	enrichDataWebLinks(base, data)
-	if webURL, _ := data["webUrl"].(string); strings.TrimSpace(webURL) != "" {
+	canonicalWebURL := enrichDataWebLinks(base, data)
+	if canonicalWebURL != "" {
+		meta := ensureMeta(envelope)
+		meta["webUrl"] = canonicalWebURL
+	} else if webURL, _ := data["webUrl"].(string); strings.TrimSpace(webURL) != "" {
 		meta := ensureMeta(envelope)
 		if _, exists := meta["webUrl"]; !exists {
 			meta["webUrl"] = strings.TrimSpace(webURL)
@@ -151,12 +148,12 @@ func workspaceWebBaseURL(app *App) string {
 	if base == "" {
 		return ""
 	}
-	return base + "/" + url.PathEscape(workspaceID)
+	return base + "/ui?workspace=" + url.QueryEscape(workspaceID)
 }
 
-func enrichDataWebLinks(base string, data map[string]any) {
+func enrichDataWebLinks(base string, data map[string]any) string {
 	if base == "" || data == nil {
-		return
+		return ""
 	}
 
 	parentFlowSlug := extractFlowSlug(data)
@@ -187,70 +184,49 @@ func enrichDataWebLinks(base string, data map[string]any) {
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
 			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
-			normalizeFlowOutputWebURL(base, item, parentFlowSlug)
+			normalizeResourceWebURL(base, item, parentFlowSlug)
 		}
 	}
 
-	if resourceURL := inferResourceRunURL(base, data, parentFlowSlug); resourceURL != "" {
-		setIfMissing(data, "webUrl", resourceURL)
-	}
-
+	canonicalWebURL := inferResourceRunURL(base, data, parentFlowSlug)
 	if primary := inferPrimaryDataWebURL(base, data, parentFlowSlug); primary != "" {
-		setIfMissing(data, "webUrl", primary)
+		canonicalWebURL = primary
+	}
+	if canonicalWebURL != "" {
+		data["webUrl"] = canonicalWebURL
 	}
 
-	// Override any server-provided full-page /output link on a flow-output
-	// resource with the in-context sidepeek deep-link, so these output links
-	// behave the same as run.outputWebUrl. Runs last so it wins over the
-	// pass-through webUrl absolutized earlier.
-	normalizeFlowOutputWebURL(base, data, parentFlowSlug)
+	// Resource links must point at retained engine pages, even when an older
+	// server response contains a hosted-product URL. Runs last so it wins over
+	// the pass-through webUrl absolutized earlier.
+	normalizeResourceWebURL(base, data, parentFlowSlug)
+	if strings.HasPrefix(coalesceNonBlank(asString(data, "uri"), asString(data, "resourceUri"), asString(data, "resource-uri")), "res://") {
+		canonicalWebURL = asString(data, "webUrl")
+	}
+	return canonicalWebURL
 }
 
-// toPanelOutputURL converts a full-page run output URL
-// (…/runs/{slug}/{run}/output) into the in-context sidepeek deep-link
-// (…/runs/{slug}/{run}?output=panel). Returns "" when value is not a full-page
-// output URL, so callers can fall through to other strategies.
-func toPanelOutputURL(value string) string {
-	v := strings.TrimSpace(value)
-	if v == "" || !strings.HasSuffix(v, "/output") {
-		return ""
-	}
-	// Only rewrite the canonical run-output route, not an external link or
-	// another in-app page that happens to end in /output.
-	if !runOutputRouteRe.MatchString(v) {
-		return ""
-	}
-	return strings.TrimSuffix(v, "/output") + "?output=panel"
-}
-
-// normalizeFlowOutputWebURL points a flow-output run resource's webUrl at the
-// sidepeek panel deep-link (?output=panel). It rewrites an existing full-page
-// /output link in place, and otherwise builds the panel link from the resource's
-// flow slug + run id when webUrl is missing or is just the plain run page (as the
-// compacting path leaves it via enrichRunWebLinks). No-op for step-output or
-// non-resource objects, so canonical run-step links are left untouched.
-func normalizeFlowOutputWebURL(base string, m map[string]any, parentFlowSlug string) {
+func normalizeResourceWebURL(base string, m map[string]any, parentFlowSlug string) {
 	if m == nil {
 		return
 	}
-	workflowID, stepID, kind := parseRunResourceURI(asString(m, "uri"))
-	if stepID != "" || kind != "flow-output" {
+	resourceURI := coalesceNonBlank(asString(m, "uri"), asString(m, "resourceUri"), asString(m, "resource-uri"))
+	if !strings.HasPrefix(resourceURI, "res://") {
 		return
 	}
-	if panel := toPanelOutputURL(asString(m, "webUrl")); panel != "" {
-		m["webUrl"] = panel
+	workflowID, _, _ := parseRunResourceURI(resourceURI)
+	if workflowID != "" {
+		m["webUrl"] = runWebURL(base, coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug")), workflowID)
 		return
 	}
-	flowSlug := coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug"))
-	if base == "" || flowSlug == "" || workflowID == "" {
-		return
+	page := "resources"
+	parts := resourcePathParts(resourceURI)
+	if len(parts) >= 2 && parts[0] == "result" && parts[1] == "table" {
+		page = "tables"
+	} else if len(parts) >= 1 && parts[0] == "file" {
+		page = "files"
 	}
-	existing := asString(m, "webUrl")
-	if existing == "" || existing == runWebURL(base, flowSlug, workflowID) {
-		if u := runOutputWebURL(base, flowSlug, workflowID); u != "" {
-			m["webUrl"] = u
-		}
-	}
+	m["webUrl"] = engineUIURL(base, page, "", "")
 }
 
 func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug string) string {
@@ -287,6 +263,9 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 	if first == nil {
 		return ""
 	}
+	if strings.HasPrefix(coalesceNonBlank(asString(first, "uri"), asString(first, "resourceUri"), asString(first, "resource-uri")), "res://") {
+		return asString(first, "webUrl")
+	}
 	if extractRunID(first) != "" && extractFlowSlug(first) != "" {
 		if parentFlowSlug != "" {
 			return flowRunsWebURL(base, parentFlowSlug)
@@ -308,28 +287,17 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 		}
 		return flowsWebURL(base)
 	}
-	if u, _ := first["webUrl"].(string); strings.TrimSpace(u) != "" {
-		return strings.TrimSpace(u)
-	}
-	if u := flowWebURL(base, parentFlowSlug); u != "" {
-		return u
-	}
 	return ""
 }
 
 func enrichRunWebLinks(base string, m map[string]any) {
 	flowSlug := extractFlowSlug(m)
 	runID := extractRunID(m)
-	if flowSlug == "" || runID == "" {
+	if runID == "" {
 		return
 	}
-	setIfMissing(m, "webUrl", runWebURL(base, flowSlug, runID))
-	setIfMissing(m, "outputWebUrl", runOutputWebURL(base, flowSlug, runID))
-	// A server-provided outputWebUrl is preserved by setIfMissing above; rewrite
-	// its legacy full-page /output shape to the in-context panel deep-link.
-	if panel := toPanelOutputURL(asString(m, "outputWebUrl")); panel != "" {
-		m["outputWebUrl"] = panel
-	}
+	m["webUrl"] = runWebURL(base, flowSlug, runID)
+	m["outputWebUrl"] = runOutputWebURL(base, flowSlug, runID)
 }
 
 func enrichFlowWebLinks(base string, m map[string]any) {
@@ -337,7 +305,7 @@ func enrichFlowWebLinks(base string, m map[string]any) {
 	if flowSlug == "" {
 		return
 	}
-	setIfMissing(m, "webUrl", flowWebURL(base, flowSlug))
+	m["webUrl"] = flowWebURL(base, flowSlug)
 }
 
 func enrichInstallationWebLinks(base string, m map[string]any, parentFlowSlug string) {
@@ -347,7 +315,7 @@ func enrichInstallationWebLinks(base string, m map[string]any, parentFlowSlug st
 		return
 	}
 	if u := installationWebURL(base, flowSlug, profileID); u != "" {
-		setIfMissing(m, "webUrl", u)
+		m["webUrl"] = u
 	}
 }
 
@@ -356,7 +324,7 @@ func enrichConnectionWebLinks(base string, m map[string]any) {
 	if connID == "" {
 		return
 	}
-	setIfMissing(m, "webUrl", connectionEditWebURL(base, connID))
+	m["webUrl"] = connectionEditWebURL(base, connID)
 }
 
 func inferResourceRunURL(base string, data map[string]any, parentFlowSlug string) string {
@@ -382,34 +350,33 @@ func inferResourceRunURL(base string, data map[string]any, parentFlowSlug string
 }
 
 func parseRunResourceURI(resourceURI string) (workflowID string, stepID string, kind string) {
-	prefix := "/result/run/"
-	i := strings.Index(resourceURI, prefix)
-	if i < 0 {
+	parts := resourcePathParts(resourceURI)
+	if len(parts) < 4 || parts[0] != "result" || parts[1] != "run" {
 		return "", "", ""
 	}
-	tail := strings.TrimSpace(resourceURI[i+len(prefix):])
-	if tail == "" {
-		return "", "", ""
-	}
-	parts := strings.Split(tail, "/")
-	if len(parts) < 2 {
-		return "", "", ""
-	}
-	workflowID = strings.TrimSpace(parts[0])
+	workflowID = strings.TrimSpace(parts[2])
 	if workflowID == "" {
 		return "", "", ""
 	}
-	if parts[1] == "step" && len(parts) >= 4 {
-		decodedStepID, err := url.PathUnescape(parts[2])
-		if err != nil {
-			decodedStepID = parts[2]
-		}
-		return workflowID, strings.TrimSpace(decodedStepID), strings.TrimSpace(parts[3])
+	if parts[3] == "step" && len(parts) >= 6 {
+		return workflowID, strings.TrimSpace(parts[4]), strings.TrimSpace(parts[5])
 	}
-	if parts[1] == "flow-output" || parts[1] == "flow-error" {
-		return workflowID, "", strings.TrimSpace(parts[1])
+	if parts[3] == "flow-output" || parts[3] == "flow-error" {
+		return workflowID, "", strings.TrimSpace(parts[3])
 	}
 	return workflowID, "", ""
+}
+
+func resourcePathParts(resourceURI string) []string {
+	parsed, err := url.Parse(strings.TrimSpace(resourceURI))
+	if err != nil || parsed.Scheme != "res" {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 3 || parts[0] != "ws" || strings.TrimSpace(parts[1]) == "" {
+		return nil
+	}
+	return parts[2:]
 }
 
 func extractRunID(m map[string]any) string {
@@ -537,27 +504,31 @@ func coalesceNonBlank(values ...string) string {
 	return ""
 }
 
-func webURL(base string, segments ...string) string {
-	if strings.TrimSpace(base) == "" {
+func engineUIURL(base, page, selectionKey, selectionValue string) string {
+	parsed, err := url.Parse(strings.TrimSpace(base))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return ""
 	}
-	out := strings.TrimRight(base, "/")
-	for _, segment := range segments {
-		segment = strings.TrimSpace(segment)
-		if segment == "" {
-			return ""
-		}
-		out += "/" + url.PathEscape(segment)
+	workspace := strings.TrimSpace(parsed.Query().Get("workspace"))
+	page = strings.TrimSpace(page)
+	if workspace == "" || page == "" {
+		return ""
 	}
-	return out
+	query := "workspace=" + url.QueryEscape(workspace) + "&page=" + url.QueryEscape(page)
+	if key, value := strings.TrimSpace(selectionKey), strings.TrimSpace(selectionValue); key != "" && value != "" {
+		query += "&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+	}
+	parsed.RawQuery = query
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func flowsWebURL(base string) string {
-	return webURL(base, "flows")
+	return engineUIURL(base, "flows", "", "")
 }
 
 func flowWebURL(base, flowSlug string) string {
-	return webURL(base, "flows", flowSlug)
+	return engineUIURL(base, "flows", "flow", flowSlug)
 }
 
 func flowRunsWebURL(base, flowSlug string) string {
@@ -565,39 +536,27 @@ func flowRunsWebURL(base, flowSlug string) string {
 }
 
 func flowInstallationsWebURL(base, flowSlug string) string {
-	return webURL(base, "flows", flowSlug, "installations")
+	return flowWebURL(base, flowSlug)
 }
 
 func runsWebURL(base string) string {
-	return webURL(base, "runs")
+	return engineUIURL(base, "runs", "", "")
 }
 
 func runWebURL(base, flowSlug, runID string) string {
-	return webURL(base, "runs", flowSlug, runID)
+	return engineUIURL(base, "runs", "run", runID)
 }
 
 func runOutputWebURL(base, flowSlug, runID string) string {
-	// Open the output inside the in-app sidepeek panel (in context) rather than
-	// navigating to the standalone full-page /output route. The run page reads
-	// ?output=panel on load and opens the artifact panel in normal mode.
-	run := runWebURL(base, flowSlug, runID)
-	if run == "" {
-		return ""
-	}
-	return run + "?output=panel"
+	return runWebURL(base, flowSlug, runID)
 }
 
 func runStepWebURL(base, flowSlug, runID, stepID string) string {
-	runURL := runWebURL(base, flowSlug, runID)
-	stepID = strings.TrimSpace(stepID)
-	if runURL == "" || stepID == "" {
-		return ""
-	}
-	return runURL + "?stepId=" + url.QueryEscape(stepID)
+	return runWebURL(base, flowSlug, runID)
 }
 
 func installationsWebURL(base string) string {
-	return webURL(base, "installations")
+	return flowsWebURL(base)
 }
 
 func installationWebURL(base, flowSlug, profileID string) string {
@@ -605,15 +564,15 @@ func installationWebURL(base, flowSlug, profileID string) string {
 		return ""
 	}
 	if strings.TrimSpace(flowSlug) != "" {
-		return webURL(base, "flows", flowSlug, "installations", profileID)
+		return flowWebURL(base, flowSlug)
 	}
-	return webURL(base, "installations", profileID)
+	return flowsWebURL(base)
 }
 
 func connectionsWebURL(base string) string {
-	return webURL(base, "connections")
+	return engineUIURL(base, "connections", "", "")
 }
 
 func connectionEditWebURL(base, connectionID string) string {
-	return webURL(base, "connections", connectionID, "edit")
+	return engineUIURL(base, "connections", "connection", connectionID)
 }

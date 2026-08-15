@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 )
@@ -101,13 +100,8 @@ func buildRunsListQuery(filters runsListFilters) string {
 	return strings.Join(tokens, " ")
 }
 
-func runsListWebURL(base string, filters runsListFilters) string {
-	baseURL := runsWebURL(base)
-	query := buildRunsListQuery(filters)
-	if baseURL == "" || strings.TrimSpace(query) == "" {
-		return baseURL
-	}
-	return baseURL + "?query=" + url.QueryEscape(query)
+func runsListWebURL(base string, _ runsListFilters) string {
+	return runsWebURL(base)
 }
 
 func annotateRunsListResult(app *App, out map[string]any, args map[string]any) {

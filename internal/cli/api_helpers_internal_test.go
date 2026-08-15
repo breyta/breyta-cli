@@ -43,3 +43,81 @@ func TestRequireAPIRejectsMissingToken(t *testing.T) {
 		t.Fatal("expected missing token error")
 	}
 }
+
+func TestServerRecoveryActionsReplaceHostedRoutes(t *testing.T) {
+	app := &App{APIURL: "https://example.test/breyta", WorkspaceID: "ws-acme"}
+	tests := []struct {
+		name   string
+		action map[string]any
+		want   string
+	}{
+		{
+			name: "draft bindings",
+			action: map[string]any{
+				"kind": "draft-bindings",
+				"url":  "/ws-acme/flows/daily-report/draft-bindings",
+			},
+			want: "https://example.test/breyta/ui?workspace=ws-acme&page=flows&flow=daily-report",
+		},
+		{
+			name: "connection edit",
+			action: map[string]any{
+				"kind":         "connection-edit",
+				"url":          "/ws-acme/connections/conn-123/edit",
+				"connectionId": "conn-123",
+			},
+			want: "https://example.test/breyta/ui?workspace=ws-acme&page=connections&connection=conn-123",
+		},
+		{
+			name: "installation without profile falls back to flow",
+			action: map[string]any{
+				"kind":     "installation",
+				"url":      "/ws-acme/flows/daily-report/installations",
+				"flowSlug": "daily-report",
+			},
+			want: "https://example.test/breyta/ui?workspace=ws-acme&page=flows&flow=daily-report",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := normalizeRecoveryAction(app, test.action)
+			if url := firstNonBlankString(got["url"]); url != test.want {
+				t.Fatalf("unexpected recovery URL: got %q want %q", url, test.want)
+			}
+		})
+	}
+}
+
+func TestServerRecoveryActionsUseHostedRouteAfterProxyPrefix(t *testing.T) {
+	app := &App{APIURL: "https://example.test/flows", WorkspaceID: "ws-acme"}
+	action := map[string]any{
+		"kind": "draft-bindings",
+		"url":  "/ws-acme/flows/daily-report/draft-bindings",
+	}
+	got := normalizeRecoveryAction(app, action)
+	want := "https://example.test/flows/ui?workspace=ws-acme&page=flows&flow=daily-report"
+	if gotURL := firstNonBlankString(got["url"]); gotURL != want {
+		t.Fatalf("unexpected recovery URL: got %q want %q", gotURL, want)
+	}
+}
+
+func TestUnrecognizedListKeepsTopLevelWebURL(t *testing.T) {
+	app := &App{APIURL: "https://example.test", WorkspaceID: "ws-acme"}
+	envelope := map[string]any{
+		"meta": map[string]any{
+			"webUrl": "https://external.example/digests",
+		},
+		"data": map[string]any{
+			"items": []any{map[string]any{
+				"title":  "Digest",
+				"webUrl": "https://external.example/digests/first",
+			}},
+		},
+	}
+
+	enrichEnvelopeWebLinks(app, envelope)
+	meta := envelope["meta"].(map[string]any)
+	if got := firstNonBlankString(meta["webUrl"]); got != "https://external.example/digests" {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+}
