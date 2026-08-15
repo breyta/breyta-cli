@@ -106,7 +106,7 @@ func TestWriteData_PreservesMetaAddedByLinkEnrichment(t *testing.T) {
 	if meta == nil {
 		t.Fatalf("expected meta map to be preserved")
 	}
-	if got, _ := meta["webUrl"].(string); got != "https://flows.breyta.ai/ws-acme/runs/daily-sales-report/wf-123" {
+	if got, _ := meta["webUrl"].(string); got != "https://flows.breyta.ai/ui?workspace=ws-acme&page=runs&run=wf-123" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 }
