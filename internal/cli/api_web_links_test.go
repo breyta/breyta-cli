@@ -139,6 +139,38 @@ func TestWebLinks_RunCommandReplacesHostedTopLevelWebURL(t *testing.T) {
 	}
 }
 
+func TestWebLinks_RunWithoutFlowSlugGetsCanonicalURLs(t *testing.T) {
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"run": map[string]any{
+					"workflowId": "wf-123",
+					"webUrl":     "/ws-acme/runs/wf-123",
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme", "--api", srv.URL, "--token", "user-dev",
+		"runs", "show", "wf-123",
+	)
+	if err != nil {
+		t.Fatalf("runs show failed: %v\n%s", err, stdout)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, stdout)
+	}
+	run := out["data"].(map[string]any)["run"].(map[string]any)
+	want := srv.URL + "/ui?workspace=ws-acme&page=runs&run=wf-123"
+	if got, _ := run["webUrl"].(string); got != want {
+		t.Fatalf("unexpected run.webUrl: got %q want %q", got, want)
+	}
+}
+
 func TestWebLinks_RunCommandNormalizesServerProvidedOutputWebURL(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

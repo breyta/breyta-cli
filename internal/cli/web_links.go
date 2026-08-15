@@ -263,6 +263,9 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 	if first == nil {
 		return ""
 	}
+	if strings.HasPrefix(coalesceNonBlank(asString(first, "uri"), asString(first, "resourceUri"), asString(first, "resource-uri")), "res://") {
+		return asString(first, "webUrl")
+	}
 	if extractRunID(first) != "" && extractFlowSlug(first) != "" {
 		if parentFlowSlug != "" {
 			return flowRunsWebURL(base, parentFlowSlug)
@@ -284,19 +287,13 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 		}
 		return flowsWebURL(base)
 	}
-	if u, _ := first["webUrl"].(string); strings.TrimSpace(u) != "" {
-		return strings.TrimSpace(u)
-	}
-	if u := flowWebURL(base, parentFlowSlug); u != "" {
-		return u
-	}
 	return ""
 }
 
 func enrichRunWebLinks(base string, m map[string]any) {
 	flowSlug := extractFlowSlug(m)
 	runID := extractRunID(m)
-	if flowSlug == "" || runID == "" {
+	if runID == "" {
 		return
 	}
 	m["webUrl"] = runWebURL(base, flowSlug, runID)

@@ -100,3 +100,24 @@ func TestServerRecoveryActionsUseHostedRouteAfterProxyPrefix(t *testing.T) {
 		t.Fatalf("unexpected recovery URL: got %q want %q", gotURL, want)
 	}
 }
+
+func TestUnrecognizedListKeepsTopLevelWebURL(t *testing.T) {
+	app := &App{APIURL: "https://example.test", WorkspaceID: "ws-acme"}
+	envelope := map[string]any{
+		"meta": map[string]any{
+			"webUrl": "https://external.example/digests",
+		},
+		"data": map[string]any{
+			"items": []any{map[string]any{
+				"title":  "Digest",
+				"webUrl": "https://external.example/digests/first",
+			}},
+		},
+	}
+
+	enrichEnvelopeWebLinks(app, envelope)
+	meta := envelope["meta"].(map[string]any)
+	if got := firstNonBlankString(meta["webUrl"]); got != "https://external.example/digests" {
+		t.Fatalf("unexpected meta.webUrl: %q", got)
+	}
+}
