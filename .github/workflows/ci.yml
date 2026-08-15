@@ -34,3 +34,58 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+  release-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Checkout pinned parinfer-rust source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: eraserhd/parinfer-rust
+          ref: v0.4.3
+          path: target/parinfer-rust-source
+          persist-credentials: false
+
+      - name: Verify pinned Parinfer source and Cargo notices
+        run: ./scripts/verify-parinfer-upstream.sh target/parinfer-rust-source
+
+      - name: Install pinned Syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.50.0
+
+      - name: Build non-publishing release candidates
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --snapshot --clean --skip=publish
+
+      - name: Add pinned Parinfer graph to final SBOMs
+        run: ./scripts/augment-release-sboms.sh
+
+      - name: Verify archives, notices, provenance, and SBOMs
+        run: ./scripts/verify-release-artifacts.sh
+
+      - name: Retain release-candidate compliance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cli-release-candidate-compliance
+          path: |
+            dist/*.spdx.json
+            dist/checksums.txt
+          if-no-files-found: error

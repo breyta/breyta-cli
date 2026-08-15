@@ -11,13 +11,11 @@ refresh.
 
 ## Build in GitHub Actions
 
-1. Go to GitHub Actions → **Build parinfer-rust (manual)**.
-2. Click **Run workflow**.
-3. Provide `ref` (tag or commit SHA), e.g. `v0.4.3`.
-4. Wait for the workflow to finish and download the artifacts:
-   - `parinfer-rust-linux-<ref>`
-   - `parinfer-rust-darwin-<ref>`
-   - `parinfer-rust-windows-<ref>`
+1. Update `SOURCE.lock`, the retained Cargo inputs, notices, and the workflow's
+   immutable commit/toolchain together in a reviewed pull request.
+2. Go to GitHub Actions → **Build pinned parinfer-rust** and click **Run
+   workflow**. The workflow accepts no source-ref input.
+3. Wait for the workflow to finish and download the commit-named artifacts.
 
 ## Copy into the vendored layout
 

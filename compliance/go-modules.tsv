@@ -1,0 +1,7 @@
+# module	license	license-file
+github.com/inconshreveable/mousetrap	Apache-2.0	LICENSE
+github.com/mattn/go-isatty	MIT	LICENSE
+github.com/spf13/cobra	Apache-2.0	LICENSE.txt
+github.com/spf13/pflag	BSD-3-Clause	LICENSE
+golang.org/x/sys	BSD-3-Clause	LICENSE
+olympos.io/encoding/edn	BSD-3-Clause	LICENSE

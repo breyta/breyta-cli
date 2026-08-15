@@ -1,0 +1,2 @@
+# Retained byte-for-byte from the pinned upstream source for provenance checks.
+tools/parinfer-rust/Cargo.toml whitespace=-blank-at-eof
