@@ -989,6 +989,7 @@ func normalizeRecoveryAction(app *App, action map[string]any) map[string]any {
 		baseRoot = strings.TrimRight(strings.TrimSpace(app.APIURL), "/")
 	}
 	url = absolutizeWebURL(baseRoot, url)
+	url = canonicalRecoveryActionURL(app, kind, action, url)
 	label := firstNonBlankString(action["label"])
 	if label == "" {
 		label = defaultRecoveryActionLabel(kind)
@@ -1010,6 +1011,51 @@ func normalizeRecoveryAction(app *App, action map[string]any) map[string]any {
 		out["profileId"] = profileID
 	}
 	return out
+}
+
+func canonicalRecoveryActionURL(app *App, kind string, action map[string]any, existingURL string) string {
+	base := workspaceWebBaseURL(app)
+	if base == "" {
+		return existingURL
+	}
+	flowSlug := firstNonBlankString(action["flowSlug"], action["flow-slug"])
+	connectionID := firstNonBlankString(action["connectionId"], action["connection-id"])
+	profileID := firstNonBlankString(action["profileId"], action["profile-id"])
+	if flowSlug == "" {
+		flowSlug = pathIdentifierAfter(existingURL, "flows")
+	}
+	if connectionID == "" {
+		connectionID = pathIdentifierAfter(existingURL, "connections")
+	}
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "draft-bindings", "flow-activation":
+		if flowSlug != "" {
+			return flowWebURL(base, flowSlug)
+		}
+	case "installation":
+		if flowSlug != "" || profileID != "" {
+			return installationWebURL(base, flowSlug, profileID)
+		}
+	case "connection-edit":
+		if connectionID != "" {
+			return connectionEditWebURL(base, connectionID)
+		}
+	}
+	return existingURL
+}
+
+func pathIdentifierAfter(rawURL, marker string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == marker {
+			return strings.TrimSpace(parts[i+1])
+		}
+	}
+	return ""
 }
 
 func appendRecoveryAction(actions []map[string]any, seen map[string]struct{}, action map[string]any) []map[string]any {

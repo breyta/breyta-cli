@@ -213,9 +213,10 @@ func normalizeResourceWebURL(base string, m map[string]any, parentFlowSlug strin
 		return
 	}
 	page := "resources"
-	if strings.Contains(resourceURI, "/result/table/") {
+	parts := resourcePathParts(resourceURI)
+	if len(parts) >= 2 && parts[0] == "result" && parts[1] == "table" {
 		page = "tables"
-	} else if strings.Contains(resourceURI, "/file/") {
+	} else if len(parts) >= 1 && parts[0] == "file" {
 		page = "files"
 	}
 	m["webUrl"] = engineUIURL(base, page, "", "")
@@ -345,34 +346,33 @@ func inferResourceRunURL(base string, data map[string]any, parentFlowSlug string
 }
 
 func parseRunResourceURI(resourceURI string) (workflowID string, stepID string, kind string) {
-	prefix := "/result/run/"
-	i := strings.Index(resourceURI, prefix)
-	if i < 0 {
+	parts := resourcePathParts(resourceURI)
+	if len(parts) < 4 || parts[0] != "result" || parts[1] != "run" {
 		return "", "", ""
 	}
-	tail := strings.TrimSpace(resourceURI[i+len(prefix):])
-	if tail == "" {
-		return "", "", ""
-	}
-	parts := strings.Split(tail, "/")
-	if len(parts) < 2 {
-		return "", "", ""
-	}
-	workflowID = strings.TrimSpace(parts[0])
+	workflowID = strings.TrimSpace(parts[2])
 	if workflowID == "" {
 		return "", "", ""
 	}
-	if parts[1] == "step" && len(parts) >= 4 {
-		decodedStepID, err := url.PathUnescape(parts[2])
-		if err != nil {
-			decodedStepID = parts[2]
-		}
-		return workflowID, strings.TrimSpace(decodedStepID), strings.TrimSpace(parts[3])
+	if parts[3] == "step" && len(parts) >= 6 {
+		return workflowID, strings.TrimSpace(parts[4]), strings.TrimSpace(parts[5])
 	}
-	if parts[1] == "flow-output" || parts[1] == "flow-error" {
-		return workflowID, "", strings.TrimSpace(parts[1])
+	if parts[3] == "flow-output" || parts[3] == "flow-error" {
+		return workflowID, "", strings.TrimSpace(parts[3])
 	}
 	return workflowID, "", ""
+}
+
+func resourcePathParts(resourceURI string) []string {
+	parsed, err := url.Parse(strings.TrimSpace(resourceURI))
+	if err != nil || parsed.Scheme != "res" {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 3 || parts[0] != "ws" || strings.TrimSpace(parts[1]) == "" {
+		return nil
+	}
+	return parts[2:]
 }
 
 func extractRunID(m map[string]any) string {
@@ -510,11 +510,13 @@ func engineUIURL(base, page, selectionKey, selectionValue string) string {
 	if workspace == "" || page == "" {
 		return ""
 	}
-	out := strings.TrimRight(parsed.Scheme+"://"+parsed.Host, "/") + "/ui?workspace=" + url.QueryEscape(workspace) + "&page=" + url.QueryEscape(page)
+	query := "workspace=" + url.QueryEscape(workspace) + "&page=" + url.QueryEscape(page)
 	if key, value := strings.TrimSpace(selectionKey), strings.TrimSpace(selectionValue); key != "" && value != "" {
-		out += "&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+		query += "&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
 	}
-	return out
+	parsed.RawQuery = query
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func flowsWebURL(base string) string {

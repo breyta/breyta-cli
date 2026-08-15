@@ -110,3 +110,24 @@ func TestWriteData_PreservesMetaAddedByLinkEnrichment(t *testing.T) {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 }
+
+func TestEngineUIURLPreservesReverseProxyMountPath(t *testing.T) {
+	base := "https://example.test/breyta/ui?workspace=ws-acme"
+	got := engineUIURL(base, "runs", "run", "wf-123")
+	want := "https://example.test/breyta/ui?workspace=ws-acme&page=runs&run=wf-123"
+	if got != want {
+		t.Fatalf("unexpected mounted UI URL: got %q want %q", got, want)
+	}
+}
+
+func TestNormalizeResourceWebURLUsesStructuralResourceKind(t *testing.T) {
+	base := "https://example.test/ui?workspace=ws-acme"
+	resource := map[string]any{
+		"uri": "res://v1/ws/ws-acme/result/blob/archive/file/report.json",
+	}
+	normalizeResourceWebURL(base, resource, "")
+	want := "https://example.test/ui?workspace=ws-acme&page=resources"
+	if got := firstNonBlankString(resource["webUrl"]); got != want {
+		t.Fatalf("unexpected blob resource URL: got %q want %q", got, want)
+	}
+}
