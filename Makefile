@@ -1,6 +1,6 @@
 BINARY_NAME=breyta
 
-.PHONY: build run install tidy fmt test integration-test release-check
+.PHONY: build run install tidy fmt test integration-test release-check release-candidate
 
 VERSION ?= $(shell (git describe --tags --dirty --always --match 'v[0-9][0-9][0-9][0-9].*' 2>/dev/null || git describe --tags --dirty --always 2>/dev/null) || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -35,3 +35,9 @@ integration-test: build
 	BREYTA_CLI_BIN="$$(pwd)/dist/$(BINARY_NAME)" ../breyta/bases/flows-api/scripts/integration_tests.sh
 
 release-check: fmt test integration-test
+	./scripts/verify-parinfer-provenance.sh
+	go run github.com/goreleaser/goreleaser/v2@v2.17.1 check
+
+release-candidate:
+	@echo "Use the non-publishing CI release-candidate job; it pins GoReleaser and Syft."
+	@echo "Publication remains disabled."

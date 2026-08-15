@@ -6,6 +6,7 @@ project_name: breyta
 before:
   hooks:
     - ./scripts/verify-parinfer-provenance.sh
+    - ./scripts/prepare-release-compliance.sh
     - go test ./...
 
 builds:
@@ -49,13 +50,23 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - src: LICENSE
-      - src: THIRD_PARTY_NOTICES.md
+      - src: .release-compliance/{{ .Os }}/{{ .Arch }}/THIRD_PARTY_NOTICES.md
+        dst: THIRD_PARTY_NOTICES.md
+      - src: .release-compliance/{{ .Os }}/{{ .Arch }}/licenses/go/*
+        dst: licenses/go
+        strip_parent: true
       - src: tools/parinfer-rust/LICENSE.md
         dst: licenses/parinfer-rust-ISC.md
       - src: tools/parinfer-rust/THIRD_PARTY_NOTICES.md
         dst: licenses/parinfer-rust-THIRD_PARTY_NOTICES.md
       - src: tools/parinfer-rust/SOURCE.lock
         dst: provenance/parinfer-rust-SOURCE.lock
+      - src: tools/parinfer-rust/Cargo.lock
+        dst: provenance/parinfer-rust-Cargo.lock
+      - src: tools/parinfer-rust/Cargo.toml
+        dst: provenance/parinfer-rust-Cargo.toml
+      - src: tools/parinfer-rust/components.json
+        dst: provenance/parinfer-rust-components.json
       - src: tools/parinfer-rust/{{ .Os }}/{{ .Arch }}/parinfer-rust
         dst: parinfer-rust
   - id: windows
@@ -66,13 +77,23 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - src: LICENSE
-      - src: THIRD_PARTY_NOTICES.md
+      - src: .release-compliance/{{ .Os }}/{{ .Arch }}/THIRD_PARTY_NOTICES.md
+        dst: THIRD_PARTY_NOTICES.md
+      - src: .release-compliance/{{ .Os }}/{{ .Arch }}/licenses/go/*
+        dst: licenses/go
+        strip_parent: true
       - src: tools/parinfer-rust/LICENSE.md
         dst: licenses/parinfer-rust-ISC.md
       - src: tools/parinfer-rust/THIRD_PARTY_NOTICES.md
         dst: licenses/parinfer-rust-THIRD_PARTY_NOTICES.md
       - src: tools/parinfer-rust/SOURCE.lock
         dst: provenance/parinfer-rust-SOURCE.lock
+      - src: tools/parinfer-rust/Cargo.lock
+        dst: provenance/parinfer-rust-Cargo.lock
+      - src: tools/parinfer-rust/Cargo.toml
+        dst: provenance/parinfer-rust-Cargo.toml
+      - src: tools/parinfer-rust/components.json
+        dst: provenance/parinfer-rust-components.json
       - src: tools/parinfer-rust/windows/amd64/parinfer-rust.exe
         dst: parinfer-rust.exe
 
