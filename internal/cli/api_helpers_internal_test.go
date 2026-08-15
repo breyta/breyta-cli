@@ -68,6 +68,15 @@ func TestServerRecoveryActionsReplaceHostedRoutes(t *testing.T) {
 			},
 			want: "https://example.test/breyta/ui?workspace=ws-acme&page=connections&connection=conn-123",
 		},
+		{
+			name: "installation without profile falls back to flow",
+			action: map[string]any{
+				"kind":     "installation",
+				"url":      "/ws-acme/flows/daily-report/installations",
+				"flowSlug": "daily-report",
+			},
+			want: "https://example.test/breyta/ui?workspace=ws-acme&page=flows&flow=daily-report",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,5 +85,18 @@ func TestServerRecoveryActionsReplaceHostedRoutes(t *testing.T) {
 				t.Fatalf("unexpected recovery URL: got %q want %q", url, test.want)
 			}
 		})
+	}
+}
+
+func TestServerRecoveryActionsUseHostedRouteAfterProxyPrefix(t *testing.T) {
+	app := &App{APIURL: "https://example.test/flows", WorkspaceID: "ws-acme"}
+	action := map[string]any{
+		"kind": "draft-bindings",
+		"url":  "/ws-acme/flows/daily-report/draft-bindings",
+	}
+	got := normalizeRecoveryAction(app, action)
+	want := "https://example.test/flows/ui?workspace=ws-acme&page=flows&flow=daily-report"
+	if gotURL := firstNonBlankString(got["url"]); gotURL != want {
+		t.Fatalf("unexpected recovery URL: got %q want %q", gotURL, want)
 	}
 }

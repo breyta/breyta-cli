@@ -1033,8 +1033,11 @@ func canonicalRecoveryActionURL(app *App, kind string, action map[string]any, ex
 			return flowWebURL(base, flowSlug)
 		}
 	case "installation":
-		if flowSlug != "" || profileID != "" {
+		if profileID != "" {
 			return installationWebURL(base, flowSlug, profileID)
+		}
+		if flowSlug != "" {
+			return flowWebURL(base, flowSlug)
 		}
 	case "connection-edit":
 		if connectionID != "" {
@@ -1050,7 +1053,7 @@ func pathIdentifierAfter(rawURL, marker string) string {
 		return ""
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	for i := 0; i+1 < len(parts); i++ {
+	for i := len(parts) - 2; i >= 0; i-- {
 		if parts[i] == marker {
 			return strings.TrimSpace(parts[i+1])
 		}

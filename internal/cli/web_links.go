@@ -20,8 +20,11 @@ func enrichEnvelopeWebLinks(app *App, envelope map[string]any) {
 		absolutizeKnownWebLinks(root, data)
 	}
 
-	enrichDataWebLinks(base, data)
-	if webURL, _ := data["webUrl"].(string); strings.TrimSpace(webURL) != "" {
+	canonicalWebURL := enrichDataWebLinks(base, data)
+	if canonicalWebURL != "" {
+		meta := ensureMeta(envelope)
+		meta["webUrl"] = canonicalWebURL
+	} else if webURL, _ := data["webUrl"].(string); strings.TrimSpace(webURL) != "" {
 		meta := ensureMeta(envelope)
 		if _, exists := meta["webUrl"]; !exists {
 			meta["webUrl"] = strings.TrimSpace(webURL)
@@ -148,9 +151,9 @@ func workspaceWebBaseURL(app *App) string {
 	return base + "/ui?workspace=" + url.QueryEscape(workspaceID)
 }
 
-func enrichDataWebLinks(base string, data map[string]any) {
+func enrichDataWebLinks(base string, data map[string]any) string {
 	if base == "" || data == nil {
-		return
+		return ""
 	}
 
 	parentFlowSlug := extractFlowSlug(data)
@@ -185,18 +188,22 @@ func enrichDataWebLinks(base string, data map[string]any) {
 		}
 	}
 
-	if resourceURL := inferResourceRunURL(base, data, parentFlowSlug); resourceURL != "" {
-		setIfMissing(data, "webUrl", resourceURL)
-	}
-
+	canonicalWebURL := inferResourceRunURL(base, data, parentFlowSlug)
 	if primary := inferPrimaryDataWebURL(base, data, parentFlowSlug); primary != "" {
-		setIfMissing(data, "webUrl", primary)
+		canonicalWebURL = primary
+	}
+	if canonicalWebURL != "" {
+		data["webUrl"] = canonicalWebURL
 	}
 
 	// Resource links must point at retained engine pages, even when an older
 	// server response contains a hosted-product URL. Runs last so it wins over
 	// the pass-through webUrl absolutized earlier.
 	normalizeResourceWebURL(base, data, parentFlowSlug)
+	if strings.HasPrefix(coalesceNonBlank(asString(data, "uri"), asString(data, "resourceUri"), asString(data, "resource-uri")), "res://") {
+		canonicalWebURL = asString(data, "webUrl")
+	}
+	return canonicalWebURL
 }
 
 func normalizeResourceWebURL(base string, m map[string]any, parentFlowSlug string) {
