@@ -106,27 +106,27 @@ func TestWriteData_PreservesMetaAddedByLinkEnrichment(t *testing.T) {
 	if meta == nil {
 		t.Fatalf("expected meta map to be preserved")
 	}
-	if got, _ := meta["webUrl"].(string); got != "https://flows.breyta.ai/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != "https://flows.breyta.ai/ws-acme/runs?run=wf-123" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 }
 
 func TestEngineUIURLPreservesReverseProxyMountPath(t *testing.T) {
-	base := "https://example.test/breyta/ui?workspace=ws-acme"
+	base := "https://example.test/breyta/ws-acme"
 	got := engineUIURL(base, "runs", "run", "wf-123")
-	want := "https://example.test/breyta/ui?workspace=ws-acme&page=runs&run=wf-123"
+	want := "https://example.test/breyta/ws-acme/runs?run=wf-123"
 	if got != want {
 		t.Fatalf("unexpected mounted UI URL: got %q want %q", got, want)
 	}
 }
 
 func TestNormalizeResourceWebURLUsesStructuralResourceKind(t *testing.T) {
-	base := "https://example.test/ui?workspace=ws-acme"
+	base := "https://example.test/ws-acme"
 	resource := map[string]any{
 		"uri": "res://v1/ws/ws-acme/result/blob/archive/file/report.json",
 	}
 	normalizeResourceWebURL(base, resource, "")
-	want := "https://example.test/ui?workspace=ws-acme&page=resources"
+	want := "https://example.test/ws-acme/resources"
 	if got := firstNonBlankString(resource["webUrl"]); got != want {
 		t.Fatalf("unexpected blob resource URL: got %q want %q", got, want)
 	}

@@ -148,7 +148,7 @@ func workspaceWebBaseURL(app *App) string {
 	if base == "" {
 		return ""
 	}
-	return base + "/ui?workspace=" + url.QueryEscape(workspaceID)
+	return base + "/" + url.PathEscape(workspaceID)
 }
 
 func enrichDataWebLinks(base string, data map[string]any) string {
@@ -417,6 +417,12 @@ func looksLikeFlowObject(m map[string]any) bool {
 	if _, ok := m["activeVersion"]; ok {
 		return true
 	}
+	if _, ok := m["active-version"]; ok {
+		return true
+	}
+	if _, ok := m["has-draft"]; ok {
+		return true
+	}
 	if _, ok := m["spine"]; ok {
 		return true
 	}
@@ -509,14 +515,17 @@ func engineUIURL(base, page, selectionKey, selectionValue string) string {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return ""
 	}
-	workspace := strings.TrimSpace(parsed.Query().Get("workspace"))
 	page = strings.TrimSpace(page)
-	if workspace == "" || page == "" {
+	if page == "" {
 		return ""
 	}
-	query := "workspace=" + url.QueryEscape(workspace) + "&page=" + url.QueryEscape(page)
+	if page == "files" {
+		page = "storage"
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + url.PathEscape(page)
+	query := ""
 	if key, value := strings.TrimSpace(selectionKey), strings.TrimSpace(selectionValue); key != "" && value != "" {
-		query += "&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+		query = url.QueryEscape(key) + "=" + url.QueryEscape(value)
 	}
 	parsed.RawQuery = query
 	parsed.Fragment = ""

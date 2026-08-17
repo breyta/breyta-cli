@@ -117,6 +117,42 @@ func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	}
 }
 
+func TestFlowsRun_DefaultsToLiveTarget(t *testing.T) {
+	var commandArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode command: %v", err)
+		}
+		if body["command"] != "flows.run" {
+			t.Fatalf("expected flows.run, got %#v", body["command"])
+		}
+		commandArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data": map[string]any{
+				"workflowId": "flow-example-ws-acme-v1-r1",
+				"status":     "started",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "example",
+	)
+	if err != nil {
+		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+	if commandArgs["target"] != "live" {
+		t.Fatalf("expected default target live, got %#v", commandArgs["target"])
+	}
+}
+
 func TestAPIMode_NoStateFileNeeded(t *testing.T) {
 	// Ensure that just running docs in API mode doesn't require mock state setup.
 	// (Some older tests set --state; API mode should not depend on it.)
