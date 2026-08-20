@@ -1,6 +1,7 @@
 package skillsync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -229,7 +230,7 @@ func missingSkillWarning(status ProviderStatus) string {
 }
 
 func noInstalledSkillWarning() string {
-	return "warning: Breyta agent skill is not installed for any supported agent. Agents may miss current flow guidance. Install it with `breyta skills install --provider all` and add repo guidance with `breyta init --agents-md`."
+	return "warning: Breyta agent skill is not installed for any supported agent. Agents may miss current flow guidance. Install it with `breyta skills install --provider all`."
 }
 
 func cachedStatusWarnings(c cacheFile, now time.Time) ([]string, bool) {
@@ -251,25 +252,94 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 	synced := make([]skills.Provider, 0, len(providers))
 	var firstErr error
 	for _, p := range providers {
-		t, err := skills.Target(home, p)
-		if err != nil {
-			continue
-		}
-		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
-		if _, installErr := installBreytaSkillFiles(home, p, files); installErr == nil {
+		if _, installErr := InstallProviderFiles(home, p, files); installErr == nil {
 			synced = append(synced, p)
 			continue
-		} else if backedUp {
-			// Best-effort rollback: restore the original file contents if install fails.
-			_ = writeCacheFile(t.File, backup)
-			if firstErr == nil {
-				firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
-			}
 		} else if firstErr == nil {
 			firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
 		}
 	}
 	return synced, firstErr
+}
+
+// InstallProviderFiles replaces one managed skill directory with the canonical
+// bundle. A differing existing directory is retained beside it for recovery.
+func InstallProviderFiles(home string, provider skills.Provider, files map[string][]byte) ([]string, error) {
+	target, err := skills.Target(home, provider)
+	if err != nil {
+		return nil, err
+	}
+	if len(files["SKILL.md"]) == 0 {
+		return nil, errors.New("missing required skill file: SKILL.md")
+	}
+	var backupDir string
+	if info, statErr := os.Stat(target.Dir); statErr == nil && info.IsDir() && !installedBundleMatches(target, files) {
+		backupRoot := filepath.Join(filepath.Dir(filepath.Dir(target.Dir)), "breyta-skill-backups")
+		if err := makeCacheDir(backupRoot); err != nil {
+			return nil, fmt.Errorf("create %s skill backup directory: %w", provider, err)
+		}
+		backupDir = filepath.Join(backupRoot, "breyta-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+		if err := os.Rename(target.Dir, backupDir); err != nil {
+			return nil, fmt.Errorf("back up existing %s skill: %w", provider, err)
+		}
+	} else if statErr != nil && !os.IsNotExist(statErr) {
+		return nil, statErr
+	}
+	paths, err := installBreytaSkillFiles(home, provider, files)
+	if err == nil {
+		return paths, nil
+	}
+	if backupDir != "" {
+		if removeErr := os.RemoveAll(target.Dir); removeErr != nil {
+			return nil, fmt.Errorf("%w; remove failed installation before rollback: %v", err, removeErr)
+		}
+		if restoreErr := os.Rename(backupDir, target.Dir); restoreErr != nil {
+			return nil, fmt.Errorf("%w; restore previous installation: %v", err, restoreErr)
+		}
+	}
+	return nil, err
+}
+
+func installedBundleMatches(target skills.InstallTarget, files map[string][]byte) bool {
+	expected := make(map[string][]byte, len(files))
+	for rel, content := range files {
+		if rel == "SKILL.md" {
+			expected[filepath.Base(target.File)] = content
+			continue
+		}
+		expected[filepath.Clean(filepath.FromSlash(rel))] = content
+	}
+	actual := map[string][]byte{}
+	err := filepath.WalkDir(target.Dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("managed skill contains a symbolic link")
+		}
+		rel, err := filepath.Rel(target.Dir, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path) // #nosec G304 -- path is contained in the provider's managed skill directory.
+		if err != nil {
+			return err
+		}
+		actual[rel] = content
+		return nil
+	})
+	if err != nil || len(actual) != len(expected) {
+		return false
+	}
+	for rel, want := range expected {
+		if got, ok := actual[rel]; !ok || !bytes.Equal(got, want) {
+			return false
+		}
+	}
+	return true
 }
 
 func duplicateBreytaSkills(home string, providers []skills.Provider) []skills.DuplicateInstalledSkill {
@@ -514,23 +584,4 @@ func MaybeSyncInstalledAsync(currentVersion, apiURL, token string) {
 	go func() {
 		_ = MaybeSyncInstalled(currentVersion, apiURL, token)
 	}()
-}
-
-func backupCopyIfModified(path string, desired []byte) ([]byte, bool) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, false
-	}
-	b, err := os.ReadFile(path) // #nosec G304 -- path is the provider's installed Breyta skill file.
-	if err != nil {
-		return nil, false
-	}
-	if string(b) == string(desired) {
-		return nil, false
-	}
-	ts := time.Now().UTC().Format("20060102T150405Z")
-	backup := path + ".bak-" + ts
-	// Best-effort: keep a copy for manual rollback.
-	_ = writeCacheFile(backup, b) // #nosec G703 -- backup path is derived from the installed skill target path.
-	return b, true
 }

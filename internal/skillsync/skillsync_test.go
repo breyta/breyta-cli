@@ -14,6 +14,88 @@ import (
 	"github.com/breyta/breyta-cli/skills"
 )
 
+func TestInstallProviderFilesCanonicalizesAndBacksUpExistingBundle(t *testing.T) {
+	home := t.TempDir()
+	target, err := skills.Target(home, skills.ProviderCodex)
+	if err != nil {
+		t.Fatalf("codex target: %v", err)
+	}
+	if err := os.MkdirAll(target.Dir, 0o755); err != nil {
+		t.Fatalf("mkdir codex target: %v", err)
+	}
+	if err := os.WriteFile(target.File, []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("seed modified skill: %v", err)
+	}
+	legacyPath := filepath.Join(target.Dir, "references", "hosted-only.md")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatalf("mkdir legacy reference: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("seed legacy reference: %v", err)
+	}
+
+	if _, err := InstallProviderFiles(home, skills.ProviderCodex, map[string][]byte{
+		"SKILL.md": []byte("canonical"),
+	}); err != nil {
+		t.Fatalf("install provider files: %v", err)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale managed file to be removed, got err=%v", err)
+	}
+	backupRoot := filepath.Join(filepath.Dir(filepath.Dir(target.Dir)), "breyta-skill-backups")
+	backups, err := filepath.Glob(filepath.Join(backupRoot, "breyta-*"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("expected one local-edit backup, got %#v (err=%v)", backups, err)
+	}
+	backup, err := os.ReadFile(filepath.Join(backups[0], "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if string(backup) != "local edit" {
+		t.Fatalf("unexpected backup content: %q", backup)
+	}
+	if _, err := os.Stat(filepath.Join(backups[0], "references", "hosted-only.md")); err != nil {
+		t.Fatalf("expected legacy file in bundle backup: %v", err)
+	}
+}
+
+func TestInstallProviderFilesRestoresWholeBundleAfterFailure(t *testing.T) {
+	home := t.TempDir()
+	target, err := skills.Target(home, skills.ProviderCodex)
+	if err != nil {
+		t.Fatalf("codex target: %v", err)
+	}
+	legacyPath := filepath.Join(target.Dir, "references", "local.md")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(target.File, []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("seed main file: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("keep me"), 0o644); err != nil {
+		t.Fatalf("seed local reference: %v", err)
+	}
+
+	origInstall := installBreytaSkillFiles
+	t.Cleanup(func() { installBreytaSkillFiles = origInstall })
+	installBreytaSkillFiles = func(home string, provider skills.Provider, files map[string][]byte) ([]string, error) {
+		partialTarget, _ := skills.Target(home, provider)
+		_ = os.MkdirAll(partialTarget.Dir, 0o700)
+		_ = os.WriteFile(partialTarget.File, []byte("partial"), 0o600)
+		return nil, errors.New("install failed")
+	}
+
+	if _, err := InstallProviderFiles(home, skills.ProviderCodex, map[string][]byte{"SKILL.md": []byte("canonical")}); err == nil {
+		t.Fatal("expected install failure")
+	}
+	for path, want := range map[string]string{target.File: "local edit", legacyPath: "keep me"} {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Fatalf("expected restored %s=%q, got %q (err=%v)", path, want, got, err)
+		}
+	}
+}
+
 func TestSyncProvidersContinuesAfterProviderFailure(t *testing.T) {
 	home := t.TempDir()
 
