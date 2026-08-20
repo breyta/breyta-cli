@@ -49,6 +49,42 @@ func runCLIArgsWithContext(t *testing.T, ctx context.Context, args ...string) (s
 	return out.String(), errOut.String(), err
 }
 
+func TestFlowsRun_DefaultsToLiveTarget(t *testing.T) {
+	var gotArgs map[string]any
+	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/commands" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["command"] != "flows.run" {
+			http.Error(w, "unexpected command", http.StatusBadRequest)
+			return
+		}
+		gotArgs, _ = body["args"].(map[string]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"workspaceId": "ws-acme",
+			"data":        map[string]any{"runId": "run-live"},
+		})
+	}))
+	defer srv.Close()
+
+	stdout, _, err := runCLIArgs(t,
+		"--workspace", "ws-acme",
+		"--api", srv.URL,
+		"--token", "user-dev",
+		"flows", "run", "example",
+	)
+	if err != nil {
+		t.Fatalf("flows run failed: %v\n%s", err, stdout)
+	}
+	if gotArgs["target"] != "live" {
+		t.Fatalf("expected default target=live, got %#v", gotArgs)
+	}
+}
+
 func TestFlowsList_UsesAPIInAPIMode(t *testing.T) {
 	srv := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/commands" {

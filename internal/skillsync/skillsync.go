@@ -229,7 +229,7 @@ func missingSkillWarning(status ProviderStatus) string {
 }
 
 func noInstalledSkillWarning() string {
-	return "warning: Breyta agent skill is not installed for any supported agent. Agents may miss current flow guidance. Install it with `breyta skills install --provider all` and add repo guidance with `breyta init --agents-md`."
+	return "warning: Breyta agent skill is not installed for any supported agent. Agents may miss current flow guidance. Install it with `breyta skills install --provider all`."
 }
 
 func cachedStatusWarnings(c cacheFile, now time.Time) ([]string, bool) {
@@ -251,25 +251,34 @@ func syncProviders(home string, providers []skills.Provider, files map[string][]
 	synced := make([]skills.Provider, 0, len(providers))
 	var firstErr error
 	for _, p := range providers {
-		t, err := skills.Target(home, p)
-		if err != nil {
-			continue
-		}
-		backup, backedUp := backupCopyIfModified(t.File, desiredMain)
-		if _, installErr := installBreytaSkillFiles(home, p, files); installErr == nil {
+		if _, installErr := InstallProviderFiles(home, p, files); installErr == nil {
 			synced = append(synced, p)
 			continue
-		} else if backedUp {
-			// Best-effort rollback: restore the original file contents if install fails.
-			_ = writeCacheFile(t.File, backup)
-			if firstErr == nil {
-				firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
-			}
 		} else if firstErr == nil {
 			firstErr = fmt.Errorf("provider %s sync failed: %w", p, installErr)
 		}
 	}
 	return synced, firstErr
+}
+
+// InstallProviderFiles installs one canonical bundle while preserving a
+// locally modified SKILL.md beside the installation for manual recovery.
+func InstallProviderFiles(home string, provider skills.Provider, files map[string][]byte) ([]string, error) {
+	target, err := skills.Target(home, provider)
+	if err != nil {
+		return nil, err
+	}
+	desiredMain := files["SKILL.md"]
+	backup, backedUp := backupCopyIfModified(target.File, desiredMain)
+	paths, err := installBreytaSkillFiles(home, provider, files)
+	if err == nil {
+		return paths, nil
+	}
+	if backedUp {
+		// Best-effort rollback: restore the original file contents if install fails.
+		_ = writeCacheFile(target.File, backup)
+	}
+	return nil, err
 }
 
 func duplicateBreytaSkills(home string, providers []skills.Provider) []skills.DuplicateInstalledSkill {

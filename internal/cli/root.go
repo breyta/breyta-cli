@@ -193,6 +193,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newWorkspacesCmd(app))
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.AddCommand(newUpgradeCmd(app))
+	cmd.AddCommand(newSkillsCmd(app))
 
 	return cmd
 }

@@ -67,6 +67,20 @@ and service-account operations.
 Use `breyta help`, `breyta help <command>`, and `breyta --pretty ...` for
 command discovery and readable JSON output.
 
+## Agent skill
+
+The configured engine publishes the matching Breyta agent skill. Install it
+directly from that engine instead of using guidance from a hosted CLI release:
+
+```bash
+breyta skills install --provider codex
+breyta skills status --provider codex
+```
+
+Use `--provider all` to manage Codex, Cursor, Claude, and Gemini targets. Skill
+files are verified against the engine manifest before installation; locally
+modified managed files are backed up before replacement.
+
 ## Workspace handoff
 
 Export a versioned, non-secret workspace bundle:

@@ -682,7 +682,7 @@ breyta flows run thesis-pdf-review-docx --target draft --interface-id run --uplo
 			} else if profileID != "" {
 				resolvedTarget = "live"
 			} else {
-				resolvedTarget = "draft"
+				resolvedTarget = "live"
 			}
 			payload := map[string]any{"flowSlug": args[0]}
 			if resolvedTarget != "" {

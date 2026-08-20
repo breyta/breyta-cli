@@ -17,8 +17,8 @@ func TestWebLinks_FlowCommandAddsWebURL(t *testing.T) {
 			"workspaceId": "ws-acme",
 			"data": map[string]any{
 				"flow": map[string]any{
-					"slug":          "daily-sales-report",
-					"activeVersion": 2,
+					"slug":           "daily-sales-report",
+					"active-version": 2,
 				},
 			},
 		})
@@ -40,12 +40,12 @@ func TestWebLinks_FlowCommandAddsWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=flows&flow=daily-sales-report" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/flows/daily-sales-report" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
 	flow, _ := data["flow"].(map[string]any)
-	if got, _ := flow["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=flows&flow=daily-sales-report" {
+	if got, _ := flow["webUrl"].(string); got != srv.URL+"/ws-acme/flows/daily-sales-report" {
 		t.Fatalf("unexpected flow.webUrl: %q", got)
 	}
 }
@@ -84,15 +84,15 @@ func TestWebLinks_RunCommandAddsRunURLs(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
 	run, _ := data["run"].(map[string]any)
-	if got, _ := run["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := run["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123" {
 		t.Fatalf("unexpected run.webUrl: %q", got)
 	}
-	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected run.outputWebUrl: %q", got)
 	}
 }
@@ -133,7 +133,7 @@ func TestWebLinks_RunCommandReplacesHostedTopLevelWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	want := srv.URL + "/ui?workspace=ws-acme&page=runs&run=wf-123"
+	want := srv.URL + "/ws-acme/runs/daily-sales-report/wf-123"
 	if got, _ := meta["webUrl"].(string); got != want {
 		t.Fatalf("unexpected meta.webUrl: got %q want %q", got, want)
 	}
@@ -165,7 +165,7 @@ func TestWebLinks_RunWithoutFlowSlugGetsCanonicalURLs(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n%s", err, stdout)
 	}
 	run := out["data"].(map[string]any)["run"].(map[string]any)
-	want := srv.URL + "/ui?workspace=ws-acme&page=runs&run=wf-123"
+	want := srv.URL + "/ws-acme/runs"
 	if got, _ := run["webUrl"].(string); got != want {
 		t.Fatalf("unexpected run.webUrl: got %q want %q", got, want)
 	}
@@ -208,7 +208,7 @@ func TestWebLinks_RunCommandNormalizesServerProvidedOutputWebURL(t *testing.T) {
 	data, _ := out["data"].(map[string]any)
 	run, _ := data["run"].(map[string]any)
 	// A server-provided hosted output link must be rewritten to the portable run inspector.
-	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected run.outputWebUrl: %q", got)
 	}
 }
@@ -250,7 +250,7 @@ func TestWebLinks_ReplacesNonCanonicalRunOutputURL(t *testing.T) {
 	}
 	data, _ := out["data"].(map[string]any)
 	run, _ := data["run"].(map[string]any)
-	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := run["outputWebUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("outputWebUrl should use the portable run inspector, got: %q", got)
 	}
 }
@@ -296,7 +296,7 @@ func TestWebLinks_ResourcesListBuildsPortableRunURLForFlowOutputItemWithoutWebUR
 		t.Fatalf("unexpected items length: %d", len(items))
 	}
 	first, _ := items[0].(map[string]any)
-	if got, _ := first["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 }
@@ -313,8 +313,9 @@ func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
 			"data": map[string]any{
 				"items": []any{
 					map[string]any{
-						"flowSlug":   "daily-sales-report",
-						"workflowId": "wf-123",
+						"flow-slug":   "daily-sales-report",
+						"workflow-id": "wf-123",
+						"webUrl":      "/ws-acme/flows/daily-sales-report",
 					},
 				},
 			},
@@ -338,12 +339,17 @@ func TestWebLinks_RunsListUsesCanonicalFilteredRunsURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
+	}
+	items, _ := data["items"].([]any)
+	item, _ := items[0].(map[string]any)
+	if got, _ := item["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123" {
+		t.Fatalf("unexpected run item webUrl: %q", got)
 	}
 }
 
@@ -377,11 +383,11 @@ func TestWebLinks_ConnectionRESTAddsWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=connections&connection=conn-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/connections/conn-123/edit" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=connections&connection=conn-123" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/connections/conn-123/edit" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }
@@ -415,11 +421,11 @@ func TestWebLinks_ResourcesGetAbsolutizesRelativeWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }
@@ -453,7 +459,7 @@ func TestWebLinks_ResourcesReadTableUsesPortableTablesPage(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
-	want := srv.URL + "/ui?workspace=ws-acme&page=tables"
+	want := srv.URL + "/ws-acme/storage"
 	meta, _ := out["meta"].(map[string]any)
 	if got, _ := meta["webUrl"].(string); got != want {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
@@ -502,11 +508,11 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 	items, _ := data["items"].([]any)
@@ -514,7 +520,7 @@ func TestWebLinks_ResourcesListAbsolutizesItemWebURL(t *testing.T) {
 		t.Fatalf("unexpected items length: %d", len(items))
 	}
 	first, _ := items[0].(map[string]any)
-	if got, _ := first["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 	if got, _ := first["displayName"].(string); got != "demo-result.json" {
@@ -564,7 +570,7 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
@@ -573,7 +579,7 @@ func TestWebLinks_ResourcesSearchAbsolutizesAndEnrichesItems(t *testing.T) {
 		t.Fatalf("unexpected items length: %d", len(items))
 	}
 	first, _ := items[0].(map[string]any)
-	if got, _ := first["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := first["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123?output=panel" {
 		t.Fatalf("unexpected item webUrl: %q", got)
 	}
 	if got, _ := first["displayName"].(string); got != "transcript-jan-02.txt" {
@@ -613,11 +619,11 @@ func TestWebLinks_ResourcesGetInfersCanonicalRunStepURL(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	meta, _ := out["meta"].(map[string]any)
-	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := meta["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/steps/fetch-sales" {
 		t.Fatalf("unexpected meta.webUrl: %q", got)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/steps/fetch-sales" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }
@@ -651,7 +657,7 @@ func TestWebLinks_ResourcesGetPreservesPlusInStepID(t *testing.T) {
 		t.Fatalf("invalid json output: %v\n---\n%s", err, stdout)
 	}
 	data, _ := out["data"].(map[string]any)
-	if got, _ := data["webUrl"].(string); got != srv.URL+"/ui?workspace=ws-acme&page=runs&run=wf-123" {
+	if got, _ := data["webUrl"].(string); got != srv.URL+"/ws-acme/runs/daily-sales-report/wf-123/steps/fetch+sales" {
 		t.Fatalf("unexpected data.webUrl: %q", got)
 	}
 }

@@ -14,6 +14,37 @@ import (
 	"github.com/breyta/breyta-cli/skills"
 )
 
+func TestInstallProviderFilesBacksUpModifiedSkill(t *testing.T) {
+	home := t.TempDir()
+	target, err := skills.Target(home, skills.ProviderCodex)
+	if err != nil {
+		t.Fatalf("codex target: %v", err)
+	}
+	if err := os.MkdirAll(target.Dir, 0o755); err != nil {
+		t.Fatalf("mkdir codex target: %v", err)
+	}
+	if err := os.WriteFile(target.File, []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("seed modified skill: %v", err)
+	}
+
+	if _, err := InstallProviderFiles(home, skills.ProviderCodex, map[string][]byte{
+		"SKILL.md": []byte("canonical"),
+	}); err != nil {
+		t.Fatalf("install provider files: %v", err)
+	}
+	backups, err := filepath.Glob(target.File + ".bak-*")
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("expected one local-edit backup, got %#v (err=%v)", backups, err)
+	}
+	backup, err := os.ReadFile(backups[0])
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if string(backup) != "local edit" {
+		t.Fatalf("unexpected backup content: %q", backup)
+	}
+}
+
 func TestSyncProvidersContinuesAfterProviderFailure(t *testing.T) {
 	home := t.TempDir()
 

@@ -148,7 +148,7 @@ func workspaceWebBaseURL(app *App) string {
 	if base == "" {
 		return ""
 	}
-	return base + "/ui?workspace=" + url.QueryEscape(workspaceID)
+	return base + "/" + url.PathEscape(workspaceID)
 }
 
 func enrichDataWebLinks(base string, data map[string]any) string {
@@ -173,6 +173,9 @@ func enrichDataWebLinks(base string, data map[string]any) string {
 	if conn, _ := data["connection"].(map[string]any); conn != nil {
 		enrichConnectionWebLinks(base, conn)
 	}
+	if resource, _ := data["resource"].(map[string]any); resource != nil {
+		normalizeResourceWebURL(base, resource, parentFlowSlug)
+	}
 
 	if items, _ := data["items"].([]any); len(items) > 0 {
 		for _, itemAny := range items {
@@ -180,11 +183,18 @@ func enrichDataWebLinks(base string, data map[string]any) string {
 			if item == nil {
 				continue
 			}
-			enrichRunWebLinks(base, item)
+			resourceURI := coalesceNonBlank(asString(item, "uri"), asString(item, "resourceUri"), asString(item, "resource-uri"))
+			if strings.HasPrefix(resourceURI, "res://") {
+				normalizeResourceWebURL(base, item, parentFlowSlug)
+				continue
+			}
+			if extractRunID(item) != "" && extractFlowSlug(item) != "" {
+				enrichRunWebLinks(base, item)
+				continue
+			}
 			enrichInstallationWebLinks(base, item, parentFlowSlug)
 			enrichFlowWebLinks(base, item)
 			enrichConnectionWebLinks(base, item)
-			normalizeResourceWebURL(base, item, parentFlowSlug)
 		}
 	}
 
@@ -214,9 +224,17 @@ func normalizeResourceWebURL(base string, m map[string]any, parentFlowSlug strin
 	if !strings.HasPrefix(resourceURI, "res://") {
 		return
 	}
-	workflowID, _, _ := parseRunResourceURI(resourceURI)
+	workflowID, stepID, kind := parseRunResourceURI(resourceURI)
 	if workflowID != "" {
-		m["webUrl"] = runWebURL(base, coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug")), workflowID)
+		flowSlug := coalesceNonBlank(parentFlowSlug, extractFlowSlug(m), asString(m, "flowSlug"), flowSlugFromRunWebURL(base, asString(m, "webUrl")))
+		switch {
+		case stepID != "":
+			m["webUrl"] = runStepWebURL(base, flowSlug, workflowID, stepID)
+		case kind == "flow-output":
+			m["webUrl"] = runOutputWebURL(base, flowSlug, workflowID)
+		default:
+			m["webUrl"] = runWebURL(base, flowSlug, workflowID)
+		}
 		return
 	}
 	page := "resources"
@@ -227,6 +245,23 @@ func normalizeResourceWebURL(base string, m map[string]any, parentFlowSlug strin
 		page = "files"
 	}
 	m["webUrl"] = engineUIURL(base, page, "", "")
+}
+
+func flowSlugFromRunWebURL(base, webURL string) string {
+	prefix := strings.TrimRight(strings.TrimSpace(base), "/") + "/runs/"
+	webURL = strings.TrimSpace(webURL)
+	if prefix == "/runs/" || !strings.HasPrefix(webURL, prefix) {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(webURL, prefix), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	value, err := url.PathUnescape(parts[0])
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug string) string {
@@ -252,6 +287,11 @@ func inferPrimaryDataWebURL(base string, data map[string]any, parentFlowSlug str
 	}
 	if connID := extractConnectionID(data); connID != "" {
 		return connectionEditWebURL(base, connID)
+	}
+	if resource, _ := data["resource"].(map[string]any); resource != nil {
+		if u := asString(resource, "webUrl"); u != "" {
+			return u
+		}
 	}
 
 	items, _ := data["items"].([]any)
@@ -417,6 +457,15 @@ func looksLikeFlowObject(m map[string]any) bool {
 	if _, ok := m["activeVersion"]; ok {
 		return true
 	}
+	if _, ok := m["active-version"]; ok {
+		return true
+	}
+	if _, ok := m["latest-version"]; ok {
+		return true
+	}
+	if _, ok := m["source-literal"]; ok {
+		return true
+	}
 	if _, ok := m["spine"]; ok {
 		return true
 	}
@@ -505,22 +554,37 @@ func coalesceNonBlank(values ...string) string {
 }
 
 func engineUIURL(base, page, selectionKey, selectionValue string) string {
-	parsed, err := url.Parse(strings.TrimSpace(base))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
 		return ""
 	}
-	workspace := strings.TrimSpace(parsed.Query().Get("workspace"))
 	page = strings.TrimSpace(page)
-	if workspace == "" || page == "" {
+	if page == "" {
 		return ""
 	}
-	query := "workspace=" + url.QueryEscape(workspace) + "&page=" + url.QueryEscape(page)
-	if key, value := strings.TrimSpace(selectionKey), strings.TrimSpace(selectionValue); key != "" && value != "" {
-		query += "&" + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+	value := strings.TrimSpace(selectionValue)
+	switch page {
+	case "flows":
+		if strings.TrimSpace(selectionKey) == "flow" && value != "" {
+			return base + "/flows/" + url.PathEscape(value)
+		}
+		return base + "/flows"
+	case "runs":
+		return base + "/runs"
+	case "connections":
+		if strings.TrimSpace(selectionKey) == "connection" && value != "" {
+			return base + "/connections/" + url.PathEscape(value) + "/edit"
+		}
+		return base + "/connections"
+	case "files", "resources", "tables", "storage":
+		return base + "/storage"
+	case "settings":
+		return base + "/settings"
+	case "members":
+		return base + "/members"
+	default:
+		return ""
 	}
-	parsed.RawQuery = query
-	parsed.Fragment = ""
-	return parsed.String()
 }
 
 func flowsWebURL(base string) string {
@@ -544,15 +608,30 @@ func runsWebURL(base string) string {
 }
 
 func runWebURL(base, flowSlug, runID string) string {
-	return engineUIURL(base, "runs", "run", runID)
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	flowSlug = strings.TrimSpace(flowSlug)
+	runID = strings.TrimSpace(runID)
+	if base == "" || flowSlug == "" || runID == "" {
+		return runsWebURL(base)
+	}
+	return base + "/runs/" + url.PathEscape(flowSlug) + "/" + url.PathEscape(runID)
 }
 
 func runOutputWebURL(base, flowSlug, runID string) string {
-	return runWebURL(base, flowSlug, runID)
+	webURL := runWebURL(base, flowSlug, runID)
+	if webURL == "" || webURL == runsWebURL(base) {
+		return webURL
+	}
+	return webURL + "?output=panel"
 }
 
 func runStepWebURL(base, flowSlug, runID, stepID string) string {
-	return runWebURL(base, flowSlug, runID)
+	webURL := runWebURL(base, flowSlug, runID)
+	stepID = strings.TrimSpace(stepID)
+	if webURL == "" || webURL == runsWebURL(base) || stepID == "" {
+		return webURL
+	}
+	return webURL + "/steps/" + url.PathEscape(stepID)
 }
 
 func installationsWebURL(base string) string {
