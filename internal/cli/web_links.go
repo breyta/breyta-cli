@@ -412,7 +412,15 @@ func resourcePathParts(resourceURI string) []string {
 	if err != nil || parsed.Scheme != "res" {
 		return nil
 	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	escapedParts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	parts := make([]string, 0, len(escapedParts))
+	for _, escapedPart := range escapedParts {
+		part, err := url.PathUnescape(escapedPart)
+		if err != nil {
+			return nil
+		}
+		parts = append(parts, part)
+	}
 	if len(parts) < 3 || parts[0] != "ws" || strings.TrimSpace(parts[1]) == "" {
 		return nil
 	}

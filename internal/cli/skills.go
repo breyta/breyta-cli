@@ -7,11 +7,63 @@ import (
 	"strings"
 	"time"
 
+	"github.com/breyta/breyta-cli/internal/buildinfo"
 	"github.com/breyta/breyta-cli/internal/skilldocs"
 	"github.com/breyta/breyta-cli/internal/skillsync"
+	"github.com/breyta/breyta-cli/internal/updatecheck"
 	"github.com/breyta/breyta-cli/skills"
 	"github.com/spf13/cobra"
 )
+
+var installProviderSkillFiles = skillsync.InstallProviderFiles
+
+func requireSkillBundleCLI(manifest skilldocs.Manifest) error {
+	requiredVersion := strings.TrimSpace(manifest.MinCLIVersion)
+	if requiredVersion == "" || strings.TrimPrefix(requiredVersion, "v") == "0.0.0" {
+		return nil
+	}
+	required, err := updatecheck.ParseCalVer(requiredVersion)
+	if err != nil {
+		return fmt.Errorf("skill bundle has invalid minimum CLI version %q: %w", requiredVersion, err)
+	}
+	currentVersion := buildinfo.DisplayVersion()
+	current, err := updatecheck.ParseCalVer(currentVersion)
+	if err != nil {
+		return fmt.Errorf("skill bundle requires Breyta CLI %s or newer, but current version %q cannot be verified; install a versioned CLI release", requiredVersion, currentVersion)
+	}
+	if current.Compare(required) < 0 {
+		return fmt.Errorf("skill bundle requires Breyta CLI %s or newer (current: %s); upgrade the CLI before installing this guidance", requiredVersion, currentVersion)
+	}
+	return nil
+}
+
+func installSkillProviders(cmd *cobra.Command, home string, providers []skills.Provider, files map[string][]byte, verbose bool) error {
+	var firstErr error
+	for _, p := range providers {
+		target, err := skills.Target(home, p)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("provider %s target: %w", p, err)
+			}
+			continue
+		}
+		paths, err := installProviderSkillFiles(home, p, files)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("provider %s install: %w", p, err)
+			}
+			continue
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Installed skill in %s (%s)\n", target.Dir, p)
+		if verbose {
+			for _, path := range paths {
+				fmt.Fprintln(cmd.OutOrStdout(), "installed:", path)
+			}
+		}
+		warnDuplicateBreytaSkills(cmd, home, p)
+	}
+	return firstErr
+}
 
 func newSkillsCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "skills", Short: "Manage agent guidance for this engine"}
@@ -45,28 +97,17 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			_, files, err := skilldocs.FetchBundle(ctx, nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
+			manifest, files, err := skilldocs.FetchBundle(ctx, nil, app.APIURL, app.Token, skills.BreytaSkillSlug)
 			if err != nil {
+				return writeErr(cmd, err)
+			}
+			if err := requireSkillBundleCLI(manifest); err != nil {
 				return writeErr(cmd, err)
 			}
 			files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 			skillsync.ClearCachedStatusWarnings()
-			for _, p := range providers {
-				target, err := skills.Target(home, p)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				paths, err := skillsync.InstallProviderFiles(home, p, files)
-				if err != nil {
-					return writeErr(cmd, err)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Installed skill in %s (%s)\n", target.Dir, p)
-				if verbose {
-					for _, path := range paths {
-						fmt.Fprintln(cmd.OutOrStdout(), "installed:", path)
-					}
-				}
-				warnDuplicateBreytaSkills(cmd, home, p)
+			if err := installSkillProviders(cmd, home, providers, files, verbose); err != nil {
+				return writeErr(cmd, err)
 			}
 			return nil
 		},
