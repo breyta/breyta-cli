@@ -402,7 +402,6 @@ func StatusInstalled(ctx context.Context, apiURL, token string, providers []skil
 	if err != nil {
 		return StatusResult{}, err
 	}
-	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 
 	statuses := make([]ProviderStatus, 0, len(providers))
 	warnings := []string{}
@@ -519,7 +518,6 @@ func SyncInstalledNow(ctx context.Context, apiURL, token string) (SyncResult, er
 	if err != nil {
 		return SyncResult{}, err
 	}
-	files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 
 	synced, err := syncProviders(home, providers, files)
 	duplicates := duplicateBreytaSkills(home, providers)

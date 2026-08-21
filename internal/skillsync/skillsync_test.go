@@ -59,6 +59,58 @@ func TestInstallProviderFilesCanonicalizesAndBacksUpExistingBundle(t *testing.T)
 	}
 }
 
+func TestSyncInstalledNowPreservesEngineBundleVerbatim(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	target, err := skills.Target(home, skills.ProviderCodex)
+	if err != nil {
+		t.Fatalf("codex target: %v", err)
+	}
+	if err := os.MkdirAll(target.Dir, 0o755); err != nil {
+		t.Fatalf("mkdir codex target: %v", err)
+	}
+	if err := os.WriteFile(target.File, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("seed stale skill: %v", err)
+	}
+
+	canonical := []byte("---\nname: breyta\n---\n# Canonical engine skill\n\nThe engine is the source of truth.\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/docs/skills/breyta/manifest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"schemaVersion": 1,
+					"skillSlug":     "breyta",
+					"version":       "canonical-test",
+					"minCliVersion": "0.0.0",
+					"files": []map[string]any{
+						{"path": "SKILL.md", "bytes": len(canonical), "contentType": "text/markdown"},
+					},
+				},
+			})
+		case "/api/docs/skills/breyta/files/SKILL.md":
+			_, _ = w.Write(canonical)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	if _, err := SyncInstalledNow(context.Background(), srv.URL, ""); err != nil {
+		t.Fatalf("sync installed: %v", err)
+	}
+	installed, err := os.ReadFile(target.File)
+	if err != nil {
+		t.Fatalf("read installed skill: %v", err)
+	}
+	if string(installed) != string(canonical) {
+		t.Fatalf("engine bundle was modified during install:\nwant %q\ngot  %q", canonical, installed)
+	}
+}
+
 func TestInstallProviderFilesRestoresWholeBundleAfterFailure(t *testing.T) {
 	home := t.TempDir()
 	target, err := skills.Target(home, skills.ProviderCodex)

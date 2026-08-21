@@ -25,33 +25,36 @@ func newAPICmd(app *App) *cobra.Command {
 func newAPIShowCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Show current API base URL",
+		Short: "Show effective API base URL",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := configstore.DefaultPath()
 			if err != nil {
 				return writeErr(cmd, err)
 			}
-			st, err := configstore.Load(path)
-			if err != nil {
-				// If config doesn't exist, report defaults.
-				meta := map[string]any{
-					"storePath": path,
-					"stored":    false,
-				}
-				return writeData(cmd, app, meta, map[string]any{
-					"apiUrl": configstore.DefaultAPIURL,
-				})
-			}
+			st, loadErr := configstore.Load(path)
 			meta := map[string]any{
 				"storePath": path,
-				"stored":    true,
+				"stored":    loadErr == nil,
 			}
-			apiURL := strings.TrimSpace(st.APIURL)
-			if apiURL == "" {
-				apiURL = configstore.DefaultAPIURL
+			storedURL := ""
+			if st != nil {
+				storedURL = strings.TrimRight(strings.TrimSpace(st.APIURL), "/")
+			}
+			switch {
+			case flagExplicit(cmd, "api"):
+				meta["source"] = "flag"
+			case strings.TrimSpace(os.Getenv("BREYTA_API_URL")) != "":
+				meta["source"] = "env"
+			case storedURL != "":
+				meta["source"] = "store"
+			default:
+				meta["source"] = "default"
+			}
+			if storedURL != "" && storedURL != app.APIURL {
+				meta["storedApiUrl"] = storedURL
 			}
 			return writeData(cmd, app, meta, map[string]any{
-				"apiUrl": apiURL,
+				"apiUrl": app.APIURL,
 			})
 		},
 	}

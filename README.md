@@ -78,8 +78,9 @@ breyta skills status --provider codex
 ```
 
 Use `--provider all` to manage Codex, Cursor, Claude, and Gemini targets. Skill
-files are verified against the engine manifest before installation; locally
-modified managed files are backed up before replacement.
+files are verified against the engine manifest and installed verbatim; the CLI
+does not rewrite engine-owned guidance. Locally modified managed files are
+backed up before replacement.
 
 ## Workspace handoff
 

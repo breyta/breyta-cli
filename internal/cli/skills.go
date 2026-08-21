@@ -104,7 +104,6 @@ func newSkillsInstallCmd(app *App) *cobra.Command {
 			if err := requireSkillBundleCLI(manifest); err != nil {
 				return writeErr(cmd, err)
 			}
-			files = skilldocs.ApplyCLIOverrides(skills.BreytaSkillSlug, files)
 			skillsync.ClearCachedStatusWarnings()
 			if err := installSkillProviders(cmd, home, providers, files, verbose); err != nil {
 				return writeErr(cmd, err)
